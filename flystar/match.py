@@ -11,16 +11,6 @@ import math
 import pdb
 
 
-_NMATMAX_ = 199
-
-search_radii = [99.00, 50.00, 25.00, 15.00, 10.00,
-                 8.00,  5.00,  3.50,  2.00,  1.50,
-                 1.20,  1.00,  0.80,  0.60,  0.45,
-                 0.35,  0.25,  0.20,  0.16,  0.12,
-                 0.09,  0.07,  0.05,  0.04,  0.03]
-search_indices = np.arange(len(search_radii))
-
-
 def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
                          Nbins_vmax=200, Nbins_angle=360,verbose=False):
     """
