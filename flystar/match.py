@@ -10,7 +10,6 @@ from scipy.spatial import distance
 import math
 import pdb
 
-
 def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
                          Nbins_vmax=200, Nbins_angle=360,verbose=False):
     """
