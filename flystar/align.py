@@ -200,14 +200,14 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
     # Write output
     _out = open(outFile, 'w')
     
-    # Write the header GET RID OF TABS
+    # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
     _out.write('## Transformation: {0}'.format(datetime.date.today()) )
     _out.write('## File: {0}, Reference: {1}'.format(starlist, reference) )
     _out.write('## Directory: {0}'.format(os.getcwd()) )
     _out.write('## Transform Class: {0}'.format(transformation.__class__.__name__))
-    _out.write('## Order: {0}')
+    _out.write('## Order: {0}'.format(transformation.order))
     _out.write('## N_coeff: {0}'.format(len(Xcoeff)))
-    _out.write('## N_trans: {0}')
+    _out.write('## N_trans: {0}'.format(N_trans))
     _out.write('{0:-16s} {1:-16s}'.format('# Xcoeff', 'Ycoeff')
     
     # Write the coefficients
