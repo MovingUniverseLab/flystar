@@ -9,10 +9,14 @@ class four_paramNW:
     '''
 
     def __init__(self, x, y,xref, yref, order=None, weights=None):
-        self.cx, self.cy =  four_param(x, y, xref,yref)
+        self.px, self.py =  four_param(x, y, xref,yref)
+
+        self.order = order
+
+        
     def evaluate(self, x, y):
-        xn =self.cx[0] + self.cx[1]*x + self.cx[2]*y
-        yn = self.cy[0] + self.cy[1]*x + self.cy[2] *y
+        xn =self.px[0] + self.px[1]*x + self.px[2]*y
+        yn = self.py[0] + self.py[1]*x + self.py[2] *y
         return xn, yn 
         
 
@@ -26,7 +30,7 @@ class PolyTransform:
     y' = d0_0 + d_0_1 *x + d1_0*y + ....
     currently only supports initial guess of the linear terms
     '''
-    def __init__(self, x, y, xref, yref, degree,
+    def __init__(self, x, y, xref, yref, order,
                  init_gx=None, init_gy=None, weights=None):
 
 
@@ -46,6 +50,8 @@ class PolyTransform:
 
         self.px = fit_p(p_init_x, x, y, xref, weights=weights)
         self.py = fit_p(p_init_y, x, y, yref, weights=weights)
+
+        self.order = order
         
 
     def evaluate(self, x,y):
