@@ -11,7 +11,7 @@ class four_paramNW:
     def __init__(self, x, y,xref, yref, order=None, weights=None):
         self.px, self.py =  four_param(x, y, xref,yref)
 
-        self.type = 'fourParam'
+        self.order = order
 
         
     def evaluate(self, x, y):
@@ -51,7 +51,7 @@ class PolyTransform:
         self.px = fit_p(p_init_x, x, y, xref, weights=weights)
         self.py = fit_p(p_init_y, x, y, yref, weights=weights)
 
-        self.type = 'PolyTransform_order{0}'.format(order)
+        self.order = order
         
 
     def evaluate(self, x,y):
