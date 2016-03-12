@@ -200,16 +200,19 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
     # Write output
     _out = open(outFile, 'w')
     
-    # Write the header
-    _out.write('#\t Transformation: {0}'.format(datetime.date.today()) )
-    _out.write('#\t File: {0}, Reference: {1}'.format(starlist, reference) )
-    _out.write('#\t Directory: {0}'.format(os.getcwd()) )
-    _out.write('#\t Transform: {0}, N_trans = {1}'.format(transType, N_trans) )
-    _out.write('Xcoeff \t Ycoeff')
+    # Write the header GET RID OF TABS
+    _out.write('## Transformation: {0}'.format(datetime.date.today()) )
+    _out.write('## File: {0}, Reference: {1}'.format(starlist, reference) )
+    _out.write('## Directory: {0}'.format(os.getcwd()) )
+    _out.write('## Transform Class: {0}'.format(transformation.__class__.__name__))
+    _out.write('## Order: {0}')
+    _out.write('## N_coeff: {0}'.format(len(Xcoeff)))
+    _out.write('## N_trans: {0}')
+    _out.write('{0:-16s} {1:-16s}'.format('# Xcoeff', 'Ycoeff')
     
     # Write the coefficients
     for i in range(len(Xcoeff)):
-        _out.write('{0} \t {1}'.format(Xcoeff[i], Ycoeff[i]) )
+        _out.write('{0:16.6e}  {1:16.6e}'.format(Xcoeff[i], Ycoeff[i]) )
     
     _out.close()
     
