@@ -145,15 +145,19 @@ def transform_and_match(table1, table2, transform, dr_tol, dm_tol=None):
 
 
 
-def find_transform(matchedStarlist, transModel=transform.four_paramNW, order=1, weights=False):
+def find_transform(table1_mat, table2_mat, transModel=transform.four_paramNW, order=1, weights=False):
     """
     Given a matched starlist, derive a new transform. This transformation is
-    calculated for starlist 2 into starlist 1
+    calculated for starlist 1 into starlist 2
 
     Parameters:
     -----------
-    matchedStarlist: fits table
-        Matched starlist output from transform_and_match.
+    table1_mat: astropy table
+        Table with matched stars from starlist 1, with original positions
+        (not transformed into starlist 2 frame)
+
+    table2_mat: astropy table
+        Table with matched stars from starlist 2, in starlist 2 frame.
 
     transModel: transformation class (default: transform.four_paramNW)
         Specify desired transform, e.g. four_paramNW or PolyTransform. If
@@ -176,18 +180,15 @@ def find_transform(matchedStarlist, transModel=transform.four_paramNW, order=1, 
         print '{0} not supported yet!'.format(transModel)
         return
     
-    # Read matched starlist, extract *untransformed* coordinates from starlist 2
-    # and the matching coordinates from starlist 1
-    match = Table.read(matchedStarlist, format='fits')
-
-    x1 = match[XX]
-    y1 = match[XX]
-
-    x2 = match[XX]
-    y2 = match[XX]
+    # Extract *untransformed* coordinates from starlist 1 
+    # and the matching coordinates from starlist 2
+    x1 = table1_mat['x']
+    y1 = table1_mat['y']
+    x2 = table2_mat['x']
+    y2 = table2_mat['y']
 
     # Calculate transform based on the matched stars    
-    t = transModel(x2, y2, x1, y1, order=order, weights=weights)
+    t = transModel(x1, y1, x2, y2, order=order, weights=weights)
 
     print '{0} stars used in transform'.format(len(x1))
 
@@ -207,16 +208,18 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
 
     starlist: string
         File name of starlist; this is the starlist the transformation should
-        be applied to
+        be applied to. For output purposes only
 
     reference: string
-        File name of reference; this is what the starlist is transformed to
+        File name of reference; this is what the starlist is transformed to.
+        For output purposes only
 
     N_trans: int
         Number of stars used in the transformation
 
     restrict: boolean (default=False)
-        Set to True if transformation restricted to stars with use? > 2 
+        Set to True if transformation restricted to stars with use > 2. Purely
+        for output purposes
 
     outFile: string (default: 'outTrans.txt')
         Name of output text file
@@ -224,14 +227,12 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
     Output:
     ------
     txt file with the file name outFile
-    """
-    transType = transformation.type
-    
+    """    
     # Extract X, Y coefficients from transform
-    if transType == 'fourParam':
+    if transformation.__class__.__name__ == 'four_paramNW':
         Xcoeff = transformation.px
         Ycoeff = transformation.py
-    elif transType.startswidth('PolyTransform'):
+    elif transformation.__class__.__name__ == 'PolyTransform':
         Xcoeff = transformation.px.parameters
         Ycoeff = transformation.py.parameters
     else:
@@ -242,7 +243,7 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
     _out = open(outFile, 'w')
     
     # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
-    _out.write('## Transformation: {0}'.format(datetime.date.today()) )
+    _out.write('## Date: {0}'.format(datetime.date.today()) )
     _out.write('## File: {0}, Reference: {1}'.format(starlist, reference) )
     _out.write('## Directory: {0}'.format(os.getcwd()) )
     _out.write('## Transform Class: {0}'.format(transformation.__class__.__name__))
@@ -258,6 +259,7 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
     _out.close()
     
     return
+
 
 def transform(starlist, transFile):
     """
@@ -302,8 +304,8 @@ def transform(starlist, transFile):
     
     # Read transFile
     trans = Table.read(transFile, format='ascii')
-    Xcoeff = trans['Xcoeff']
-    Ycoeff = trans['Ycoeff']
+    Xcoeff = trans['col1']
+    Ycoeff = trans['col2']
 
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
@@ -473,68 +475,3 @@ def readStarlist(starlistFile):
 
     return t_ref 
 
-
-
-def align_example(labelFile, reference, transModel=transform.four_paramNW, order=1, N_loop=2):
-    """
-    Base example of how to use the flystar code.
-
-    Parameters:
-    -----------
-    labelFile: ascii file
-        Starlist we would like to transform into the reference frame. For this
-        code, we expect a label.dat file
-
-    reference: ascii file
-        Starlist that defines the reference frame
-
-    transModel: transformation class (default: transform.four_paramNW)
-        Defines which transformation model to use. Only the four-parameter and
-        1st/2nd order polynomial transformations are supported
-
-    order: int (default=1)
-        Order of the polynomial transformation. Only used for polynomial transform
-
-    N_loop: int (default=2)
-        How many times to iterate on the transformation calculation. Ideally,
-        each iteration adds more stars and thus a better transform, to some
-        limit.
-
-    Output:
-    ------
-        
-    """
-    # Read in label.dat file and reference starlist, changing columns to their
-    # standard column headers/epochs/orientations
-    starlist = readStarlist(reference)
-    t0 = starlist['t'][0]
-
-    label = readLabel(labelFile, t0)
-
-    # Perform blind matching and calculate initial transform
-    trans = initial_align()
-
-
-    # Use transformation to match starlists, then recalculate transformation.
-    # Iterate on this as many times as desired
-    for i in range(N_loop):
-        matched = transform_and_match()
-
-        trans = find_transform()
-
-
-    # Write final transform
-    write_transform()
-
-
-    
-    # Test transform: apply to starlists, make diagnostic plots
-    label_trans = transform(label, 'outTrans.txt')
-    
-
-    # Diagnostic plots
-
-
-    
-    return
-    
