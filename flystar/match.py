@@ -358,4 +358,63 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
 
  
     return idxs1, idxs2, dr, dm
- 
+
+def calc_triangles_vmax_angle(x, y):
+    idx = np.arange(len(x), dtype=np.int16)
+    
+    # Option 1 -- this takes 0.217 seconds for 50 objects
+    # t1 = time.time()
+    # combo_iter1 = itertools.combinations(idx1, 3)
+    # combo_idx1_1 = np.array(list(combo_iter1), dtype=np.int16)
+    # t2 = time.time()
+    # print 'Finished Option 1: ', t2 - t1
+    # print combo_idx1_1.shape
+    # print combo_idx1_1
+    
+    # Option 2 -- this takes 0.016 seconds for 50 objects
+    combo_iter = itertools.combinations(idx, 3)
+    combo_dt = np.dtype('i2,i2,i2')
+    combo_idx_tmp = np.fromiter(combo_iter, dtype=combo_dt)
+    combo_idx = combo_idx_tmp.view(np.int16).reshape(-1, 3)
+    
+    ii0 = combo_idx[:,0]
+    ii1 = combo_idx[:,1]
+    ii2 = combo_idx[:,2]
+    
+    dxab = x[ii1] - x[ii0]
+    dyab = y[ii1] - y[ii0]
+    dxac = x[ii2] - x[ii0]
+    dyac = y[ii2] - y[ii0]
+    
+    dab = np.hypot(dxab, dyab)
+    dac = np.hypot(dxac, dyac)
+    
+    dmax = np.max([dab, dac], axis=0)
+    dmin = np.min([dab, dac], axis=0)
+    
+    vmax = dmin ** 2 / dmax ** 2
+    vmax[dab < dac] *= -1
+    
+    vdprod = dxab * dxac + dyab * dyac
+    vcprod = dxab * dyac - dyab * dxac
+    
+    angle = np.degrees( np.arctan2( vdprod, vcprod) )
+    angle[angle < 0] += 360.0
+    angle[angle > 360] -= 360.0
+    
+    return combo_idx, vmax, angle
+
+def add_votes(votes, match1, match2):
+    # Construct a histogram of how often a bin is matched... then add the delta
+    flat_idx = np.ravel_multi_index((match1, match2), dims=votes.shape)
+    
+    # extract the unique indices and their position
+    unique_idx, idx_idx = np.unique(flat_idx, return_inverse=True)
+    
+    # aggregate the repeated indices
+    deltas = np.bincount(idx_idx)
+    
+    # Sum them to the array
+    votes.flat[unique_idx] += deltas
+    
+    return
