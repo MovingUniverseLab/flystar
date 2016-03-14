@@ -63,11 +63,9 @@ def initial_align(table1, table2, briteN, transformModel, order):
     
     """
     # Extract necessary information from tables (x, y, m)
-    table1 = Table.read(table1, format='ascii')
     x1 = table1['x']
     y1 = table1['y']
     m1 = table1['m']
-    table2 = Table.read(table2, format='ascii')
     x2 = table2['x']
     y2 = table2['y']
     m2 = table2['m']
@@ -77,21 +75,25 @@ def initial_align(table1, table2, briteN, transformModel, order):
     # Run the blind triangle-matching algorithm to find the matches between the starlists
     print 'Attempting match with {0} and {1} stars from starlist1 and starlist2'.format(len(table1), len(table2))
     print 'Beginning match'
+
+    # number of required matches of the input catalog to the total reference
+    req_match = 5
+
     N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(x1, y1, m1, x2, y2, m2, briteN)
     assert len(x1m) > req_match#, 'Failed to find at least '+str(req_match+' matches, giving up'
-    print '{0} stars matched wetween starlist1 and starlist2'.format(len(N))
+    print '{0} stars matched wetween starlist1 and starlist2'.format(N)
 
     # Calculate transformation based on matches
     if transformModel == transforms.four_paramNW:
-        t = transformModel(x1m, y1m ,x2m, y2m, order=order, weights=weights)
+        t = transformModel(x1m, y1m ,x2m, y2m, order=order, weights=None)
     else:
-        t = transformModel(x1m, y1m ,x2m, y2m, degree=order, weights=weights)
+        t = transformModel(x1m, y1m ,x2m, y2m, degree=order, weights=None)
 
     return t
 
 
 
-def transform_and_match(table1, table2, transform, dr_tol, dm_tol=None):
+def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     """
     apply transformation to starlist1 and 
     match stars to given radius and magnitude tolerance.
@@ -118,11 +120,9 @@ def transform_and_match(table1, table2, transform, dr_tol, dm_tol=None):
     """
 
     # Extract necessary information from tables (x, y, m)
-    table1 = Table.read(table1, format='ascii')
     x1 = table1['x']
     y1 = table1['y']
     m1 = table1['m']
-    table2 = Table.read(table2, format='ascii')
     x2 = table2['x']
     y2 = table2['y']
     m2 = table2['m']
@@ -136,16 +136,16 @@ def transform_and_match(table1, table2, transform, dr_tol, dm_tol=None):
     
     # Output matched starlists
     table1 = table1[idx1]
-    table1T = table1
-    table1T['x'] = x1t
-    table1T['y'] = y1t
+    table1T = Table.copy(table1)
+    table1T['x'] = x1t[idx1]
+    table1T['y'] = y1t[idx1]
     table2 = table2[idx2]
 
     return table1, table1T, table2
 
 
 
-def find_transform(table1_mat, table2_mat, transModel=transform.four_paramNW, order=1, weights=False):
+def find_transform(table1_mat, table2_mat, transModel=transforms.four_paramNW, order=1, weights=False):
     """
     Given a matched starlist, derive a new transform. This transformation is
     calculated for starlist 1 into starlist 2
@@ -176,7 +176,7 @@ def find_transform(table1_mat, table2_mat, transModel=transform.four_paramNW, or
     transformation object
     """
     # First, check that desired transform is supported
-    if ( (transModel != transform.four_paramNW) & (transModel != transform.PolyTransform) ):
+    if ( (transModel != transforms.four_paramNW) & (transModel != transforms.PolyTransform) ):
         print '{0} not supported yet!'.format(transModel)
         return
     
@@ -250,8 +250,9 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
     _out.write('## Order: {0}'.format(transformation.order))
     _out.write('## N_coeff: {0}'.format(len(Xcoeff)))
     _out.write('## N_trans: {0}'.format(N_trans))
-    _out.write('{0:-16s} {1:-16s}'.format('# Xcoeff', 'Ycoeff')
+    _out.write('{0:-16s} {1:-16s}'.format('# Xcoeff', 'Ycoeff'))
     
+
     # Write the coefficients
     for i in range(len(Xcoeff)):
         _out.write('{0:16.6e}  {1:16.6e}'.format(Xcoeff[i], Ycoeff[i]) )
@@ -336,16 +337,16 @@ def transform(starlist, transFile):
 
         if vel:
             vx_new = Xcoeff[1]*vx_orig + Xcoeff[2]*vy_orig + 2.*Xcoeff[3]*x_orig*vx_orig + \
-                2.*Xcoeff[4]*y_orig*vy_orig. + Xcoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
+                2.*Xcoeff[4]*y_orig*vy_orig + Xcoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
           
             vy_new = Ycoeff[1]*vx_orig + Ycoeff[2]*vy_orig + 2.*Ycoeff[3]*x_orig*vx_orig + \
-                2.*Ycoeff[4]*y_orig*vy_orig. + Ycoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
+                2.*Ycoeff[4]*y_orig*vy_orig + Ycoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
           
             vxe_new = Xcoeff[1]*vxe_orig + Xcoeff[2]*vye_orig + 2.*Xcoeff[3]*xe_orig*vxe_orig + \
-                2.*Xcoeff[4]*ye_orig*vye_orig. + Xcoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
+                2.*Xcoeff[4]*ye_orig*vye_orig + Xcoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
           
             vye_new = Ycoeff[1]*vxe_orig + Ycoeff[2]*vye_orig + 2.*Ycoeff[3]*xe_orig*vxe_orig + \
-                2.*Ycoeff[4]*ye_orig*vye_orig. + Ycoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
+                2.*Ycoeff[4]*ye_orig*vye_orig + Ycoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
         
     # Add transformed coords to astropy table
     xCol = Column(x_new, name='x_trans')
