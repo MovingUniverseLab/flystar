@@ -5,7 +5,7 @@ import datetime
 import os
 import pdb
 
-def initial_align(table1, table2, briteN, transformModel, order):
+def initial_align(table1, table2, briteN, transformModel=transform.four_paramNW, order=1):
     """
     Calculates an initial (unweighted) transformation between two sets of
     starlists. Matching is done using a blind triangle-matching algorithm
@@ -110,13 +110,18 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
         contains name,m,x,y,xe,ye.
         this is the reference template
 
+    -dr_tol: float (default=1.0)
+        The search radius for the matching algorithm, in the same units as the
+        starlist file positions.
+
     -transform: transformation object
 
 
     Output:
     -------
-    matched lists of transformed and untransformed starlists.
-    
+    -astropy table with matched stars from table 1, with *original* coordinates
+    -astropy table with matched stars from table 1, with *transformed* coordinates
+    -astropy table iwth matched stars from table 2, with original coordinates
     """
 
     # Extract necessary information from tables (x, y, m)
@@ -173,7 +178,8 @@ def find_transform(table1_mat, table2_mat, transModel=transforms.four_paramNW, o
 
     Output:
     ------
-    transformation object
+    -transformation object
+    -number of stars used in transform
     """
     # First, check that desired transform is supported
     if ( (transModel != transforms.four_paramNW) & (transModel != transforms.PolyTransform) ):
@@ -190,10 +196,11 @@ def find_transform(table1_mat, table2_mat, transModel=transforms.four_paramNW, o
     # Calculate transform based on the matched stars    
     t = transModel(x1, y1, x2, y2, order=order, weights=weights)
 
-    print '{0} stars used in transform'.format(len(x1))
+    N_trans = len(x1)
+    print '{0} stars used in transform'.format(N_trans)
 
-    # Return transformation object
-    return t
+    # Return transformation object and number of stars used in transform
+    return t, N_trans
 
 
 def write_transform(transformation, starlist, reference, N_trans, restrict=False, outFile='outTrans.txt'):
@@ -248,6 +255,7 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
     _out.write('## Directory: {0}'.format(os.getcwd()) )
     _out.write('## Transform Class: {0}'.format(transformation.__class__.__name__))
     _out.write('## Order: {0}'.format(transformation.order))
+    _out.write('## Restrict: {0}'.format(restrict))
     _out.write('## N_coeff: {0}'.format(len(Xcoeff)))
     _out.write('## N_trans: {0}'.format(N_trans))
     _out.write('{0:-16s} {1:-16s}'.format('# Xcoeff', 'Ycoeff'))
