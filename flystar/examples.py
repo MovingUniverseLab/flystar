@@ -3,6 +3,7 @@ import match
 import align
 import starlists
 import plots
+import numpy as np
 import pdb
 
 
@@ -188,13 +189,17 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
         # Calculate weights if desired
         if weights != None:
             # Run the user-input function
+            pass
 
         trans, N_trans = align.find_transform(label_mat_orig, starlist_mat, transModel=transModel,
                                      order=order, weights=weights)
 
+    # Calculate delta mag (reference - starlist) for matching stars
+    delta_m = np.mean(starlist_mat['m'] - label_mat['m'])
+    
     # Write final transform in java align format
     print 'Write transform to {0}'.format(outFile)
-    align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
+    align.write_transform(trans, labelFile, reference, N_trans, delta_m, outFile=outFile)
 
     # Test transform: apply to label.dat, make diagnostic plots
     label_trans = align.transform(label, outFile)
