@@ -253,7 +253,8 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     
     return
     
-def align_example_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2):
+def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2, 
+                dr_tol=1.0, dm_tol=None, weights=False, outFile='outTrans.txt'):
     """
     Base example of how to use the flystar code. Assumes we are transforming a label.dat into
     a reference starlist.
@@ -289,26 +290,28 @@ def align_example_gc(labelFile, reference, transModel=transforms.four_paramNW, o
     t0 = starlist['t'][0]
     label = align.readLabel(labelFile, t0)
 
-    #  
+    
+    # find the stars with common name  
+    label_initial, ref_initial, briteN = starlists.restrict_by_name(label, starlist)
     # Perform blind matching and calculate initial transform
-    trans = initial_align()
+    trans = align.initial_align(label_initial, ref_initial, briteN=briteN, transformModel=transModel,
+                                order=order)
 
 
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
-        matched = align.transform_and_match()
-
-        trans = align.find_transform()
+        label_matched, labelT_matched, ref_matched = align.transform_and_match(label, starlist, trans,
+                                                            dr_tol=dr_tol, dm_tol=dm_tol)
+        trans, N_trans = align.find_transform(label_matched, labelT_matched, transModel=transModel,
+                                                order=order, weights = weights)
 
 
     # Write final transform in java align format
-    align.write_transform()
+    align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
 
-    
     # Test transform: apply to label.dat, make diagnostic plots
-    label_trans = align.transform(label, 'outTrans.txt')
-    
+    label_trans = align.transform(label, outFile)
 
     # Diagnostic plots
 
