@@ -2,12 +2,12 @@ import transforms
 import match
 import align
 import starlists
-import pylab as py
+import plots
 import pdb
 
 
 def align_example(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,
-                  dr_tol=1.0, dm_tol=None, weights=False, outFile='outTrans.txt'):
+                  dr_tol=1.0, dm_tol=None, briteN=100, weights=False, outFile='outTrans.txt'):
     """
     Base example of how to use the flystar code. Assumes we are transforming a label.dat into
     a reference starlist.
@@ -42,6 +42,10 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
         between label.dat and starlist. Note that this should be set to
         None if the label.dat and refStarlist are in different filters.
 
+    briteN: int (default = 100)
+        Number of bright stars in both starlists to run the blind matching
+        algorithm on. britN must be less than the length of either starlist
+
     weights: boolean (default = False)
         If true, use weights to calculate transformation. These weights are
         based on position and velocity errors
@@ -60,8 +64,7 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
 
     label = align.readLabel(labelFile, t0)
 
-    # Perform blind matching of 100 brightest stars and calculate initial transform
-    briteN = 100
+    # Perform blind matching of briteN brightest stars and calculate initial transform
     trans = align.initial_align(label, starlist, briteN, transformModel=transModel,
                                 order=order)
 
@@ -83,18 +86,13 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
     
     # Test transform: apply to label.dat, make diagnostic plots
-    label_trans = align.transform(label, 'outTrans.txt')
-    
-
-    # Diagnostic plots
-
-
+    label_trans = align.transform(label, outFile)
     
     return
     
 
 def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,
-                 dr_tol=1.0, dm_tol=None, weights=False, outFile='outTrans.txt'):
+                 dr_tol=1.0, dm_tol=None, briteN=100, weights=False, outFile='outTrans.txt'):
     """
     Application of flystar code to align Arches label.dat and reference starlist..
 
@@ -127,6 +125,10 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
         If float, sets the maximum magnitude difference allowed in matching
         between label.dat and starlist. Note that this should be set to
         None if the label.dat and refStarlist are in different filters.
+
+    briteN: int (default = 100)
+        Number of bright stars in both starlists to run the blind matching
+        algorithm on. britN must be less than the length of either starlist
 
     weights: boolean (default = False)
         If true, use weights to calculate transformation. These weights are
@@ -167,7 +169,6 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     label_r = starlists.restrict_by_area(label, area)
 
     # Perform blind matching of 100 brightest stars and calculate initial transform
-    briteN = 100
     trans = align.initial_align(label_r, starlist, briteN, transformModel=transModel,
                                 order=order)
 
@@ -195,60 +196,11 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     #--------------------#
     print 'Making test plots'
 
-    # Plot positions of stars in reference list and the transformed
-    # label.dat coordinates. Stars used in the transformation
-    # are highlighted.    
-        
-    py.figure(1, figsize=(10,10))
-    py.clf()
-    py.plot(starlist['x'], starlist['y'], 'k.', ms=10, label='Reference')
-    py.plot(label_trans['x_trans'], label_trans['y_trans'], 'r.', ms=5, label='Label.dat')
-    py.plot(starlist_mat['x'], starlist_mat['y'], 'gs', ms=10, label='Matched Reference')
-    py.plot(label_mat['x'], label_mat['y'], 'bs', ms=5, label='Matched label.dat')
-    py.xlabel('X position (Reference Coords)')
-    py.ylabel('Y position (Reference Coords)')
-    py.legend(numpoints=1)
-    py.title('Label.dat Positions After Transformation')
-    py.axis([-100, 1300, -100, 1500])
-    py.savefig('Transformed_positions.png')
-
-    # Histogram of position differences for the matched stars:
-    # reference - label.dat
-    diff_x = starlist_mat['x'] - label_mat['x']
-    diff_y = starlist_mat['y'] - label_mat['y']
-
-    py.figure(2, figsize=(10,10))
-    py.clf()
-    py.hist(diff_x, bins=25, color='blue', label='X')
-    py.hist(diff_y, bins=25, color='red', label='Y')
-    py.xlabel('Reference Position - label.dat Position (starlist pix)')
-    py.ylabel('N stars')
-    py.title('Position Differences after Transformation')
-    py.legend()
-    py.savefig('Positions_hist.png')
-
-    # Looking at quiverplot of differences relative to position in image.
-    # These are all the stars that were used in the transformation
-    py.figure(3, figsize=(10,10))
-    py.clf()
-    q = py.quiver(starlist_mat['x'], starlist_mat['y'], diff_x, diff_y, scale=10)
-    py.quiverkey(q, 0.2, 0.92, 0.2, '0.2 pix', coordinates='figure', color='black')
-    py.xlabel('X Position (Reference, pix)')
-    py.ylabel('Y Position (Reference, pix)')
-    py.title('Reference - Transformed label.dat positions')
-    py.savefig('Positions_quiver.png')
+    plots.trans_positions(starlist, starlist_mat, label_trans, label_mat)
+    plots.posDiff_hist(starlist_mat, label_mat)
+    plots.magDiff_hist(starlist_mat, label_mat)
+    plots.posDiff_quiver(starlist_mat, label_mat)
     
-    # Look at the histogram of mag diff for matched stars, as well
-    diff_m = starlist_mat['m'] - label_mat['m']
-    
-    py.figure(4, figsize=(10,10))
-    py.clf()
-    py.hist(diff_m, bins=25)
-    py.xlabel('Reference Mag - label.dat Mag')
-    py.ylabel('N stars')
-    py.title('Magnitude Match')
-    py.savefig('Magnitude_hist.png')
-
     print 'Done with plots'        
     
     return
