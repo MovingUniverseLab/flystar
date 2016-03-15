@@ -5,7 +5,7 @@ import datetime
 import os
 import pdb
 
-def initial_align(table1, table2, briteN, transformModel=transforms.four_paramNW, order=1):
+def initial_align(table1, table2, briteN=100, transformModel=transforms.four_paramNW, order=1):
     """
     Calculates an initial (unweighted) transformation between two sets of
     starlists. Matching is done using a blind triangle-matching algorithm
