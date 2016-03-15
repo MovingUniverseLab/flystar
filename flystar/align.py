@@ -84,10 +84,7 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.four_par
     print '{0} stars matched between starlist1 and starlist2'.format(N)
 
     # Calculate transformation based on matches
-    if transformModel == transforms.four_paramNW:
-        t = transformModel(x1m, y1m ,x2m, y2m, order=order, weights=None)
-    else:
-        t = transformModel(x1m, y1m ,x2m, y2m, degree=order, weights=None)
+    t = transformModel(x1m, y1m ,x2m, y2m, order=order, weights=None)
 
     return t
 
