@@ -447,7 +447,6 @@ def transform_by_file(starlist, transFile):
     return starlist
 
 
-
 def transformAll(starlist, transform):
     """
     Apply transformation to starlist. Returns astropy table with
