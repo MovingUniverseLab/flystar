@@ -34,7 +34,7 @@ class PolyTransform:
                  init_gx=None, init_gy=None, weights=None):
 
 
-        p0 = models.Polynomial2D(degree)
+        p0 = models.Polynomial2D(order)
         
         # now, if the initial guesses are not none, fill in terms until 
         init_gx = check_initial_guess(init_gx)
@@ -42,8 +42,8 @@ class PolyTransform:
         
         
         self.degree = degree
-        p_init_x = models.Polynomial2D(degree, **init_gx )
-        p_init_y = models.Polynomial2D(degree, **init_gy )
+        p_init_x = models.Polynomial2D(order, **init_gx )
+        p_init_y = models.Polynomial2D(order, **init_gy )
         
         fit_p  = fitting.LinearLSQFitter()
         
