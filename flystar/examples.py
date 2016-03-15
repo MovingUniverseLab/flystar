@@ -187,18 +187,12 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                                                                             dr_tol=dr_tol,
                                                                             dm_tol=dm_tol)
 
-        # Calculate weights, if desired
-        if weights != None:
-            # Run the user-input function
-            pass
-
         # Restrict to use > 2, if desired
         if restrict:
             label_mat_orig, label_mat, starlist_mat = starlists.restrict_by_use(label_mat_orig,
                                                                                 label_mat,
                                                                                 starlist_mat)
 
-        
         trans, N_trans = align.find_transform(label_mat_orig, starlist_mat,
                                               transModel=transModel, order=order,
                                               weights=weights)
@@ -212,7 +206,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                           restrict=restrict, outFile=outFile)
     
     # Test transform: apply to label.dat, make diagnostic plots
-    label_trans = align.transform(label, outFile)
+    label_trans = align.transform_by_file(label, outFile)
 
     #--------------------#
     # Diagnostic plots

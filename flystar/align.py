@@ -376,7 +376,7 @@ def transform_by_file(starlist, transFile):
         vxe_orig = starlist['vxe']
         vye_orig = starlist['vye']
     
-    # Read transFile
+    # Read transFile       
     trans = Table.read(transFile, format='ascii.commented_header', header_start=-1)
     Xcoeff = trans['Xcoeff']
     Ycoeff = trans['Ycoeff']
@@ -445,7 +445,6 @@ def transform_by_file(starlist, transFile):
 
         
     return starlist
-
 
 
 def transformAll(starlist, transform):
