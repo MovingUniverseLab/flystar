@@ -205,7 +205,12 @@ def find_transform(table1_mat, table2_mat, transModel=transforms.four_paramNW, o
 def write_transform(transformation, starlist, reference, N_trans, deltaMag, restrict=False, outFile='outTrans.txt'):
     """
     Given a transformation object, write out the coefficients in a java align
-    readable format. Outfile name is specified by user
+    readable format. Outfile name is specified by user.
+
+    Coefficients are output such that the orders are together and the x
+    coefficient always comes first. For example:
+    x' = a0 + a1*x + a2*y + a3*x*y + a4*x**2. + a5*y**2. + ...
+    y' = b0 + b1*x + b2*y + b3*x*y + b4*x**2. + b5*y**2. + ...
 
     Parameters:
     ----------
@@ -237,12 +242,16 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag, rest
     Output:
     ------
     txt file with the file name outFile
-    """    
+    """
+    # Extract info about transformation
+    trans_name = transformation.__class__.__name__
+    trans_order = transformation.order
+      
     # Extract X, Y coefficients from transform
-    if transformation.__class__.__name__ == 'four_paramNW':
+    if trans_name == 'four_paramNW':
         Xcoeff = transformation.px
         Ycoeff = transformation.py
-    elif transformation.__class__.__name__ == 'PolyTransform':
+    elif trans_name == 'PolyTransform':
         Xcoeff = transformation.px.parameters
         Ycoeff = transformation.py.parameters
     else:
@@ -265,10 +274,26 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag, rest
     _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
     
 
-    # Write the coefficients
-    for i in range(len(Xcoeff)):
-        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
-    
+    # Write the coefficients such that the orders are together as defined in
+    # documentation. This is a pain because PolyTransform output is weird.
+    # (see astropy Polynomial2D documentation)
+    if (trans_name == 'four_paramNW') | (trans_order == 1):
+        for i in range(len(Xcoeff)):
+            _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
+    elif (trans_name == 'PolyTransform') & (trans_order == 2):
+        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[0], Ycoeff[0]) )
+        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[1], Ycoeff[1]) )
+        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[3], Ycoeff[3]) )
+        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[2], Ycoeff[2]) )
+        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[4], Ycoeff[4]) )
+        _out.write('{0:16.6e}  {1:16.6e}'.format(Xcoeff[5], Ycoeff[5]) )
+
+    else:
+        print '{0} order {1} not yet supported in write_transform'.format(trans_name,
+                                                                          trans_order)
+        print 'Stopping'
+        pdb.set_trace()
+
     _out.close()
     
     return
@@ -335,29 +360,29 @@ def transform(starlist, transFile):
             vye_new = Ycoeff[1] * vxe_orig + Ycoeff[2] * vye_orig
 
     elif len(Xcoeff) == 6:
-        x_new = Xcoeff[0] + Xcoeff[1]*x_orig + Xcoeff[2]*x_orig**2. + Xcoeff[3]*y_orig + \
+        x_new = Xcoeff[0] + Xcoeff[1]*x_orig + Xcoeff[2]*y_orig + Xcoeff[3]*x_orig**2. + \
           Xcoeff[4]*y_orig**2. + Xcoeff[5]*x_orig*y_orig
           
-        y_new = Ycoeff[0] + Ycoeff[1]*x_orig + Ycoeff[2]*x_orig**2. + Ycoeff[3]*y_orig + \
+        y_new = Ycoeff[0] + Ycoeff[1]*x_orig + Ycoeff[2]*y_orig + Ycoeff[3]*x_orig**2. + \
           Ycoeff[4]*y_orig**2. + Ycoeff[5]*x_orig*y_orig
           
-        xe_new = Xcoeff[0] + Xcoeff[1]*xe_orig + Xcoeff[2]*xe_orig**2. + Xcoeff[3]*ye_orig + \
+        xe_new = Xcoeff[0] + Xcoeff[1]*xe_orig + Xcoeff[2]*ye_orig + Xcoeff[3]*xe_orig**2. + \
           Xcoeff[4]*ye_orig**2. + Xcoeff[5]*xe_orig*ye_orig
           
-        ye_new = Ycoeff[0] + Ycoeff[1]*xe_orig + Ycoeff[2]*xe_orig**2. + Ycoeff[3]*ye_orig + \
+        ye_new = Ycoeff[0] + Ycoeff[1]*xe_orig + Ycoeff[2]*ye_orig + Ycoeff[3]*xe_orig**2. + \
           Ycoeff[4]*ye_orig**2. + Ycoeff[5]*xe_orig*ye_orig
 
         if vel:
-            vx_new = Xcoeff[1]*vx_orig + Xcoeff[3]*vy_orig + 2.*Xcoeff[2]*x_orig*vx_orig + \
+            vx_new = Xcoeff[1]*vx_orig + Xcoeff[2]*vy_orig + 2.*Xcoeff[3]*x_orig*vx_orig + \
                 2.*Xcoeff[4]*y_orig*vy_orig + Xcoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
           
-            vy_new = Ycoeff[1]*vx_orig + Ycoeff[3]*vy_orig + 2.*Ycoeff[2]*x_orig*vx_orig + \
+            vy_new = Ycoeff[1]*vx_orig + Ycoeff[2]*vy_orig + 2.*Ycoeff[3]*x_orig*vx_orig + \
                 2.*Ycoeff[4]*y_orig*vy_orig + Ycoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
           
-            vxe_new = Xcoeff[1]*vxe_orig + Xcoeff[3]*vye_orig + 2.*Xcoeff[2]*xe_orig*vxe_orig + \
+            vxe_new = Xcoeff[1]*vxe_orig + Xcoeff[2]*vye_orig + 2.*Xcoeff[3]*xe_orig*vxe_orig + \
                 2.*Xcoeff[4]*ye_orig*vye_orig + Xcoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
           
-            vye_new = Ycoeff[1]*vxe_orig + Ycoeff[3]*vye_orig + 2.*Ycoeff[2]*xe_orig*vxe_orig + \
+            vye_new = Ycoeff[1]*vxe_orig + Ycoeff[2]*vye_orig + 2.*Ycoeff[3]*xe_orig*vxe_orig + \
                 2.*Ycoeff[4]*ye_orig*vye_orig + Ycoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
         
     # Add transformed coords to astropy table
