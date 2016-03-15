@@ -3,6 +3,7 @@ import match
 import align
 import starlists
 import plots
+import numpy as np
 import pdb
 
 
@@ -92,7 +93,8 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     
 
 def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,
-                 dr_tol=1.0, dm_tol=None, briteN=100, weights=False, outFile='outTrans.txt'):
+                 dr_tol=1.0, dm_tol=None, briteN=100, weights=None, restrict=False,
+                 outFile='outTrans.txt'):
     """
     Application of flystar code to align Arches label.dat and reference starlist..
 
@@ -130,9 +132,13 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
         Number of bright stars in both starlists to run the blind matching
         algorithm on. britN must be less than the length of either starlist
 
-    weights: boolean (default = False)
-        If true, use weights to calculate transformation. These weights are
-        based on position and velocity errors
+    weights: None or function
+        If None, do not use weights in transformation. If function, use that
+        function to calculate weights to be used in the transformation.
+
+    restrict: boolean (default = False)
+        If true, restrict to only stars with use > 2 in the label.dat file.
+        This behaves same way as java align -restrict flag.
 
     outFile: string (default = 'outTrans.txt')
         Name of output ascii file which contains the transform parameters.
@@ -141,7 +147,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     ------
     outFile is written containing the tranformation coefficients
 
-    Diagnostic plots included:
+    Diagnostic plots included from plots.py
     -Transformed_positons.png: Shows positions of matched stars (both reference
         starlist and label.dat) in reference starlist coordinates. The label.dat
         coordinates are the ones after the derived transformation has been applied.
@@ -181,13 +187,30 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                                                                             dr_tol=dr_tol,
                                                                             dm_tol=dm_tol)
 
-        trans, N_trans = align.find_transform(label_mat_orig, starlist_mat, transModel=transModel,
-                                     order=order, weights=weights)
+        # Calculate weights, if desired
+        if weights != None:
+            # Run the user-input function
+            pass
 
+        # Restrict to use > 2, if desired
+        if restrict:
+            label_mat_orig, label_mat, starlist_mat = starlists.restrict_by_use(label_mat_orig,
+                                                                                label_mat,
+                                                                                starlist_mat)
+
+        
+        trans, N_trans = align.find_transform(label_mat_orig, starlist_mat,
+                                              transModel=transModel, order=order,
+                                              weights=weights)
+
+    # Calculate delta mag (reference - starlist) for matching stars
+    delta_m = np.mean(starlist_mat['m'] - label_mat['m'])
+    
     # Write final transform in java align format
     print 'Write transform to {0}'.format(outFile)
-    align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
-
+    align.write_transform(trans, labelFile, reference, N_trans, delta_m,
+                          restrict=restrict, outFile=outFile)
+    
     # Test transform: apply to label.dat, make diagnostic plots
     label_trans = align.transform(label, outFile)
 
@@ -202,7 +225,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     plots.posDiff_quiver(starlist_mat, label_mat)
     
     print 'Done with plots'        
-    
+
     return
     
 def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2, 
