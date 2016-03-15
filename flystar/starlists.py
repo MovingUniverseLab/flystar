@@ -99,7 +99,7 @@ def restrict_by_use(label_mat_orig, label_mat, starlist_mat):
     # Among label.dat matched stars, determine which are allowed by -restrict
     idx_restrict = np.where(label_mat['use'] !='0')
 
-    # Restrict tables to only these stars
+    # Restrict tables to only these stars.
     label_orig_trim = label_mat_orig[idx_restrict]
     label_trim = label_mat[idx_restrict]
     starlist_trim = starlist_mat[idx_restrict]
