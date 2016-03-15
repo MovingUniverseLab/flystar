@@ -335,29 +335,29 @@ def transform(starlist, transFile):
             vye_new = Ycoeff[1] * vxe_orig + Ycoeff[2] * vye_orig
 
     elif len(Xcoeff) == 6:
-        x_new = Xcoeff[0] + Xcoeff[1]*x_orig + Xcoeff[2]*y_orig + Xcoeff[3]*x_orig**2. + \
+        x_new = Xcoeff[0] + Xcoeff[1]*x_orig + Xcoeff[2]*x_orig**2. + Xcoeff[3]*y_orig + \
           Xcoeff[4]*y_orig**2. + Xcoeff[5]*x_orig*y_orig
           
-        y_new = Ycoeff[0] + Ycoeff[1]*x_orig + Ycoeff[2]*y_orig + Ycoeff[3]*x_orig**2. + \
+        y_new = Ycoeff[0] + Ycoeff[1]*x_orig + Ycoeff[2]*x_orig**2. + Ycoeff[3]*y_orig + \
           Ycoeff[4]*y_orig**2. + Ycoeff[5]*x_orig*y_orig
           
-        xe_new = Xcoeff[0] + Xcoeff[1]*xe_orig + Xcoeff[2]*ye_orig + Xcoeff[3]*xe_orig**2. + \
+        xe_new = Xcoeff[0] + Xcoeff[1]*xe_orig + Xcoeff[2]*xe_orig**2. + Xcoeff[3]*ye_orig + \
           Xcoeff[4]*ye_orig**2. + Xcoeff[5]*xe_orig*ye_orig
           
-        ye_new = Ycoeff[0] + Ycoeff[1]*xe_orig + Ycoeff[2]*ye_orig + Ycoeff[3]*xe_orig**2. + \
+        ye_new = Ycoeff[0] + Ycoeff[1]*xe_orig + Ycoeff[2]*xe_orig**2. + Ycoeff[3]*ye_orig + \
           Ycoeff[4]*ye_orig**2. + Ycoeff[5]*xe_orig*ye_orig
 
         if vel:
-            vx_new = Xcoeff[1]*vx_orig + Xcoeff[2]*vy_orig + 2.*Xcoeff[3]*x_orig*vx_orig + \
+            vx_new = Xcoeff[1]*vx_orig + Xcoeff[3]*vy_orig + 2.*Xcoeff[2]*x_orig*vx_orig + \
                 2.*Xcoeff[4]*y_orig*vy_orig + Xcoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
           
-            vy_new = Ycoeff[1]*vx_orig + Ycoeff[2]*vy_orig + 2.*Ycoeff[3]*x_orig*vx_orig + \
+            vy_new = Ycoeff[1]*vx_orig + Ycoeff[3]*vy_orig + 2.*Ycoeff[2]*x_orig*vx_orig + \
                 2.*Ycoeff[4]*y_orig*vy_orig + Ycoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
           
-            vxe_new = Xcoeff[1]*vxe_orig + Xcoeff[2]*vye_orig + 2.*Xcoeff[3]*xe_orig*vxe_orig + \
+            vxe_new = Xcoeff[1]*vxe_orig + Xcoeff[3]*vye_orig + 2.*Xcoeff[2]*xe_orig*vxe_orig + \
                 2.*Xcoeff[4]*ye_orig*vye_orig + Xcoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
           
-            vye_new = Ycoeff[1]*vxe_orig + Ycoeff[2]*vye_orig + 2.*Ycoeff[3]*xe_orig*vxe_orig + \
+            vye_new = Ycoeff[1]*vxe_orig + Ycoeff[3]*vye_orig + 2.*Ycoeff[2]*xe_orig*vxe_orig + \
                 2.*Ycoeff[4]*ye_orig*vye_orig + Ycoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
         
     # Add transformed coords to astropy table
