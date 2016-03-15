@@ -299,7 +299,7 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag, rest
     return
 
 
-def transform(starlist, transFile):
+def transform_by_file(starlist, transFile):
     """
     Apply transformation from transFile to starlist. Returns astropy table with
     added columns with the transformed coordinates. NOTE: Transforms
@@ -340,7 +340,7 @@ def transform(starlist, transFile):
         vxe_orig = starlist['vxe']
         vye_orig = starlist['vye']
     
-    # Read transFile
+    # Read transFile       
     trans = Table.read(transFile, format='ascii.commented_header', header_start=-1)
     Xcoeff = trans['Xcoeff']
     Ycoeff = trans['Ycoeff']
