@@ -146,7 +146,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     ------
     outFile is written containing the tranformation coefficients
 
-    Diagnostic plots included:
+    Diagnostic plots included from plots.py
     -Transformed_positons.png: Shows positions of matched stars (both reference
         starlist and label.dat) in reference starlist coordinates. The label.dat
         coordinates are the ones after the derived transformation has been applied.
@@ -200,7 +200,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     # Write final transform in java align format
     print 'Write transform to {0}'.format(outFile)
     align.write_transform(trans, labelFile, reference, N_trans, delta_m, outFile=outFile)
-
+    
     # Test transform: apply to label.dat, make diagnostic plots
     label_trans = align.transform(label, outFile)
 
@@ -215,7 +215,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     plots.posDiff_quiver(starlist_mat, label_mat)
     
     print 'Done with plots'        
-    
+
     return
     
 def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2, 
