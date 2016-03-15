@@ -5,7 +5,7 @@ import datetime
 import os
 import pdb
 
-def initial_align(table1, table2, briteN, transformModel=transform.four_paramNW, order=1):
+def initial_align(table1, table2, briteN, transformModel=transforms.four_paramNW, order=1):
     """
     Calculates an initial (unweighted) transformation between two sets of
     starlists. Matching is done using a blind triangle-matching algorithm
@@ -81,7 +81,7 @@ def initial_align(table1, table2, briteN, transformModel=transform.four_paramNW,
 
     N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(x1, y1, m1, x2, y2, m2, briteN)
     assert len(x1m) > req_match#, 'Failed to find at least '+str(req_match+' matches, giving up'
-    print '{0} stars matched wetween starlist1 and starlist2'.format(N)
+    print '{0} stars matched between starlist1 and starlist2'.format(N)
 
     # Calculate transformation based on matches
     if transformModel == transforms.four_paramNW:
@@ -145,6 +145,8 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     table1T['x'] = x1t[idx1]
     table1T['y'] = y1t[idx1]
     table2 = table2[idx2]
+
+    print '{0} of {1} stars matched'.format(len(table1), len(x1t))
 
     return table1, table1T, table2
 
@@ -250,20 +252,20 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
     _out = open(outFile, 'w')
     
     # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
-    _out.write('## Date: {0}'.format(datetime.date.today()) )
-    _out.write('## File: {0}, Reference: {1}'.format(starlist, reference) )
-    _out.write('## Directory: {0}'.format(os.getcwd()) )
-    _out.write('## Transform Class: {0}'.format(transformation.__class__.__name__))
-    _out.write('## Order: {0}'.format(transformation.order))
-    _out.write('## Restrict: {0}'.format(restrict))
-    _out.write('## N_coeff: {0}'.format(len(Xcoeff)))
-    _out.write('## N_trans: {0}'.format(N_trans))
-    _out.write('{0:-16s} {1:-16s}'.format('# Xcoeff', 'Ycoeff'))
+    _out.write('## Date: {0}\n'.format(datetime.date.today()) )
+    _out.write('## File: {0}, Reference: {1}\n'.format(starlist, reference) )
+    _out.write('## Directory: {0}\n'.format(os.getcwd()) )
+    _out.write('## Transform Class: {0}\n'.format(transformation.__class__.__name__))
+    _out.write('## Order: {0}\n'.format(transformation.order))
+    _out.write('## Restrict: {0}\n'.format(restrict))
+    _out.write('## N_coeff: {0}\n'.format(len(Xcoeff)))
+    _out.write('## N_trans: {0}\n'.format(N_trans))
+    _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
     
 
     # Write the coefficients
     for i in range(len(Xcoeff)):
-        _out.write('{0:16.6e}  {1:16.6e}'.format(Xcoeff[i], Ycoeff[i]) )
+        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
     
     _out.close()
     
@@ -312,9 +314,9 @@ def transform(starlist, transFile):
         vye_orig = starlist['vye']
     
     # Read transFile
-    trans = Table.read(transFile, format='ascii')
-    Xcoeff = trans['col1']
-    Ycoeff = trans['col2']
+    trans = Table.read(transFile, format='ascii.commented_header', header_start=-1)
+    Xcoeff = trans['Xcoeff']
+    Ycoeff = trans['Ycoeff']
 
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
