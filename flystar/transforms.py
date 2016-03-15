@@ -40,8 +40,6 @@ class PolyTransform:
         init_gx = check_initial_guess(init_gx)
         init_gy = check_initial_guess(init_gy)
         
-        
-        self.degree = degree
         p_init_x = models.Polynomial2D(order, **init_gx )
         p_init_y = models.Polynomial2D(order, **init_gy )
         
