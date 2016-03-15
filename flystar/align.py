@@ -4,6 +4,7 @@ from astropy.table import Table, Column
 import datetime
 import os
 import pdb
+import numpy as np
 
 def initial_align(table1, table2, briteN=100, transformModel=transforms.four_paramNW, order=1):
     """
@@ -138,10 +139,11 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     
     # Output matched starlists
     table1 = table1[idx1]
-    table1T = Table.copy(table1)
-    table1T['x'] = x1t[idx1]
-    table1T['y'] = y1t[idx1]
     table2 = table2[idx2]
+    table1T = Table.copy(table1)
+    table1T = transformAll(table1T, transform)
+    #table1T['x'] = x1t[idx1]
+    #table1T['y'] = y1t[idx1]
 
     print '{0} of {1} stars matched'.format(len(table1), len(x1t))
 
@@ -149,7 +151,8 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
 
 
 
-def find_transform(table1_mat, table2_mat, transModel=transforms.four_paramNW, order=1, weights=False):
+def find_transform(table1_mat, table1T_mat, table2_mat, transModel=transforms.four_paramNW, order=1, 
+                weights='both'):
     """
     Given a matched starlist, derive a new transform. This transformation is
     calculated for starlist 1 into starlist 2
@@ -159,6 +162,10 @@ def find_transform(table1_mat, table2_mat, transModel=transforms.four_paramNW, o
     table1_mat: astropy table
         Table with matched stars from starlist 1, with original positions
         (not transformed into starlist 2 frame)
+
+    table1T_mat: astropy table
+        Table with matched stars from starlist 1, with transformed position
+        into starlist 2. This is used to calculate weights.
 
     table2_mat: astropy table
         Table with matched stars from starlist 2, in starlist 2 frame.
@@ -171,9 +178,14 @@ def find_transform(table1_mat, table2_mat, transModel=transforms.four_paramNW, o
         Order of polynomial to use in the transformation. Only active if
         PolyTransform is selected
 
-    weights: boolean (default=False)
-        If true, use weights when calculating transformation. Weights are
-        calculated in function find_weights
+    weights: string (default='both')
+        if weights=='both', we use both position error and velocity error in table1T_mat 
+            and position error table2_mat as uncertanties. And weights is the reciprocal 
+            of this uncertanty.
+        if weights=='table1', we only use postion error and velocity error in table1T_mat
+            as uncertainty.
+        if weights=='table2', we only use position error in table2 as uncertainty.
+        otherwise, we don't use weights.
 
     Output:
     ------
@@ -192,8 +204,32 @@ def find_transform(table1_mat, table2_mat, transModel=transforms.four_paramNW, o
     x2 = table2_mat['x']
     y2 = table2_mat['y']
 
+
+    # calculate weights.
+    x1e = table1T_mat['xe']
+    y1e = table1T_mat['ye']
+    vx1e = table1T_mat['vxe']
+    vy1e = table1T_mat['vye']
+    t0 = table1T_mat['t0']
+
+    x2e = table2_mat['x']
+    y2e = table2_mat['y']
+    t2 = table2_mat['t']
+    delt = t2-t0
+
+    if weights=='both':
+        weight = 1/np.sqrt( x1e**2 + (vx1e * delt)**2 + x2e**2 + 
+                            y1e**2 + (vy1e * delt)**2 + y2e**2)
+    elif weights=='table1':
+        weight = 1/np.sqrt( x1e**2 + (vx1e * delt)**2 + 
+                            y1e**2 + (vy1e * delt)**2 )
+    elif weights=='table2':
+        weight = 1/np.sqrt( x2e**2 +  y2e**2)
+    else:
+        weight = None
+
     # Calculate transform based on the matched stars    
-    t = transModel(x1, y1, x2, y2, order=order, weights=weights)
+    t = transModel(x1, y1, x2, y2, order=order, weights=weight)
 
     N_trans = len(x1)
     print '{0} stars used in transform'.format(N_trans)
@@ -407,6 +443,114 @@ def transform_by_file(starlist, transFile):
         starlist.add_column(vxeCol)
         starlist.add_column(vyeCol) 
 
+        
+    return starlist
+
+
+
+def transformAll(starlist, transform):
+    """
+    Apply transformation to starlist. Returns astropy table with
+    transformed positions/position errors, velocities and velocity errors 
+    if they are present in starlist
+    
+    Parameters:
+    ----------
+    starlist: astropy table
+         Starlist we want to apply the transformation too. Must already
+         have standard column headers
+
+    transform: transformation object
+        File with the transformation coefficients. Assumed to be output of
+        write_transform
+
+    Output:
+    ------
+    starlist astropy table with transformed x,y,xe,ye,vx,vy,vxe,vye
+    """
+
+    # Check to see if velocities are present in starlist. If so, we will
+    # need to transform these as well as positions
+    vel = False
+    keys = starlist.keys()
+    if 'vx' in keys:
+        vel = True 
+    
+    # Extract needed information from starlist
+    x_orig = starlist['x']
+    y_orig = starlist['y']
+    xe_orig = starlist['xe']
+    ye_orig = starlist['ye']
+
+    if vel:
+        vx_orig = starlist['vx']
+        vy_orig = starlist['vy']
+        vxe_orig = starlist['vxe']
+        vye_orig = starlist['vye']
+    
+    # Read transformation: Extract X, Y coefficients from transform
+    if transform.__class__.__name__ == 'four_paramNW':
+        Xcoeff = transform.px
+        Ycoeff = transform.py
+    elif transform.__class__.__name__ == 'PolyTransform':
+        Xcoeff = transform.px.parameters
+        Ycoeff = transform.py.parameters
+    else:
+        print '{0} not yet supported!'.format(transType)
+        return
+        
+    pdb.set_trace()
+    # How the transformation is applied depends on the type of transform.
+    # This can be determined by the length of Xcoeff, Ycoeff
+    if len(Xcoeff) == 3:
+        x_new = Xcoeff[0] + Xcoeff[1] * x_orig + Xcoeff[2] * y_orig
+        y_new = Ycoeff[0] + Ycoeff[1] * x_orig + Ycoeff[2] * y_orig
+        xe_new = np.sqrt( (Xcoeff[1] * xe_orig)**2 + (Xcoeff[2] * ye_orig)**2 )
+        ye_new = np.sqrt( (Ycoeff[1] * xe_orig)**2 + (Ycoeff[2] * ye_orig)**2 )
+
+        if vel:
+            vx_new = Xcoeff[1] * vx_orig + Xcoeff[2] * vy_orig
+            vy_new = Ycoeff[1] * vx_orig + Ycoeff[2] * vy_orig
+            vxe_new = np.sqrt( (Xcoeff[1] * vxe_orig)**2 + (Xcoeff[2] * vye_orig)**2 )
+            vye_new = np.sqrt( (Ycoeff[1] * vxe_orig)**2 + (Ycoeff[2] * vye_orig)**2 )
+
+    elif len(Xcoeff) == 6:
+        x_new = Xcoeff[0] + Xcoeff[1]*x_orig + Xcoeff[2]*y_orig + Xcoeff[3]*x_orig**2. + \
+          Xcoeff[4]*y_orig**2. + Xcoeff[5]*x_orig*y_orig
+          
+        y_new = Ycoeff[0] + Ycoeff[1]*x_orig + Ycoeff[2]*y_orig + Ycoeff[3]*x_orig**2. + \
+          Ycoeff[4]*y_orig**2. + Ycoeff[5]*x_orig*y_orig
+          
+        xe_new = np.sqrt( (Xcoeff[1] + 2*Xcoeff[3]*x_orig + Xcoeff[5]*ye_orig)**2 * xe_orig**2
+          
+        ye_new = Ycoeff[0] + Ycoeff[1]*xe_orig + Ycoeff[2]*ye_orig + Ycoeff[3]*xe_orig**2. + \
+          Ycoeff[4]*ye_orig**2. + Ycoeff[5]*xe_orig*ye_orig
+
+        if vel:
+            vx_new = Xcoeff[1]*vx_orig + Xcoeff[2]*vy_orig + 2.*Xcoeff[3]*x_orig*vx_orig + \
+                2.*Xcoeff[4]*y_orig*vy_orig + Xcoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
+          
+            vy_new = Ycoeff[1]*vx_orig + Ycoeff[2]*vy_orig + 2.*Ycoeff[3]*x_orig*vx_orig + \
+                2.*Ycoeff[4]*y_orig*vy_orig + Ycoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
+          
+            vxe_new = Xcoeff[1]*vxe_orig + Xcoeff[2]*vye_orig + 2.*Xcoeff[3]*xe_orig*vxe_orig + \
+                2.*Xcoeff[4]*ye_orig*vye_orig + Xcoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
+          
+            vye_new = Ycoeff[1]*vxe_orig + Ycoeff[2]*vye_orig + 2.*Ycoeff[3]*xe_orig*vxe_orig + \
+                2.*Ycoeff[4]*ye_orig*vye_orig + Ycoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
+        
+    # update transformed coords to astropy table
+
+    starlist['x'] = x_new
+    starlist['y'] = y_new
+    starlist['xe'] = xe_new
+    starlist['ye'] = ye_new
+    
+    if vel:
+        starlist['vx'] = vx_new
+        starlist['vy'] = vy_new
+        starlist['vxe'] = vxe_new
+        starlist['vye'] = vye_new
         
     return starlist
 

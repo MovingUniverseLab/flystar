@@ -228,7 +228,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     return
     
 def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2, 
-                dr_tol=1.0, dm_tol=None, weights=False, outFile='outTrans.txt'):
+                dr_tol=1.0, dm_tol=None, weights='both', outFile='outTrans.txt'):
     """
     Base example of how to use the flystar code. Assumes we are transforming a label.dat into
     a reference starlist.
@@ -254,6 +254,9 @@ def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, 
         each iteration adds more stars and thus a better transform, to some
         limit.
 
+    weights: string (default='both')
+        which kind of weights are used in calculating transformation.
+
     Output:
     ------
         
@@ -261,8 +264,8 @@ def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, 
     # Read in label.dat file and reference starlist, changing columns to their
     # standard column headers/epochs/orientations
     starlist = align.readStarlist(reference)
-    t0 = starlist['t'][0]
-    label = align.readLabel(labelFile, t0)
+    tref = starlist['t'][0]
+    label = align.readLabel(labelFile, tref)
 
     
     # find the stars with common name  
@@ -277,7 +280,7 @@ def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, 
     for i in range(N_loop):
         label_matched, labelT_matched, ref_matched = align.transform_and_match(label, starlist, trans,
                                                             dr_tol=dr_tol, dm_tol=dm_tol)
-        trans, N_trans = align.find_transform(label_matched, labelT_matched, transModel=transModel,
+        trans, N_trans = align.find_transform(label_matched, labelT_matched, ref_matched, transModel=transModel,
                                                 order=order, weights = weights)
 
 
@@ -288,13 +291,14 @@ def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, 
     label_trans = align.transform(label, outFile)
 
     # Diagnostic plots
+    pdb.set_trace()
 
     print 'Making test plots'
 
-    plots.trans_positions(starlist, ref_matched, label_trans, label_matched)
-    plots.posDiff_hist(ref_matched, label_matched)
-    plots.magDiff_hist(ref_matched, label_matched)
-    plots.posDiff_quiver(ref_matched, label_matched)
+    plots.trans_positions(starlist, ref_matched, label_trans, labelT_matched)
+    plots.posDiff_hist(ref_matched, labelT_matched)
+    plots.magDiff_hist(ref_matched, labelT_matched)
+    plots.posDiff_quiver(ref_matched, labelT_matched)
 
     
     return
