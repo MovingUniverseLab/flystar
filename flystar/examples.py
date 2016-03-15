@@ -187,11 +187,6 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                                                                             dr_tol=dr_tol,
                                                                             dm_tol=dm_tol)
 
-        # Calculate weights, if desired
-        if weights != None:
-            # Run the user-input function
-            pass
-
         # Restrict to use > 2, if desired
         if restrict:
             label_mat_orig, label_mat, starlist_mat = starlists.restrict_by_use(label_mat_orig,
