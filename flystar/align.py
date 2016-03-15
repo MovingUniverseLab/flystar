@@ -202,7 +202,7 @@ def find_transform(table1_mat, table2_mat, transModel=transforms.four_paramNW, o
     return t, N_trans
 
 
-def write_transform(transformation, starlist, reference, N_trans, restrict=False, outFile='outTrans.txt'):
+def write_transform(transformation, starlist, reference, N_trans, deltaMag, restrict=False, outFile='outTrans.txt'):
     """
     Given a transformation object, write out the coefficients in a java align
     readable format. Outfile name is specified by user
@@ -222,6 +222,10 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
 
     N_trans: int
         Number of stars used in the transformation
+
+    deltaMag: float
+        Average magnitude difference between reference and starlist
+        (reference - starlist)
 
     restrict: boolean (default=False)
         Set to True if transformation restricted to stars with use > 2. Purely
@@ -257,6 +261,7 @@ def write_transform(transformation, starlist, reference, N_trans, restrict=False
     _out.write('## Restrict: {0}\n'.format(restrict))
     _out.write('## N_coeff: {0}\n'.format(len(Xcoeff)))
     _out.write('## N_trans: {0}\n'.format(N_trans))
+    _out.write('## Delta Mag: {0}\n'.format(deltaMag))
     _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
     
 
