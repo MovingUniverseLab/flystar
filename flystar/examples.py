@@ -267,6 +267,12 @@ def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, 
 
     # Diagnostic plots
 
+    print 'Making test plots'
+
+    plots.trans_positions(starlist, ref_matched, label_trans, label_matched)
+    plots.posDiff_hist(ref_matched, label_matched)
+    plots.magDiff_hist(ref_matched, label_matched)
+    plots.posDiff_quiver(ref_matched, label_matched)
 
     
     return
