@@ -198,7 +198,6 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                                                                                 label_mat,
                                                                                 starlist_mat)
 
-        
         trans, N_trans = align.find_transform(label_mat_orig, starlist_mat,
                                               transModel=transModel, order=order,
                                               weights=weights)
@@ -212,7 +211,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                           restrict=restrict, outFile=outFile)
     
     # Test transform: apply to label.dat, make diagnostic plots
-    label_trans = align.transform(label, outFile)
+    label_trans = align.transform_by_file(label, outFile)
 
     #--------------------#
     # Diagnostic plots
