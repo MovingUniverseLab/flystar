@@ -2,10 +2,12 @@ import transforms
 import match
 import align
 import starlists
+import pylab as py
+import pdb
 
 
-
-def align_example(labelFile, reference, transModel=transform.four_paramNW, order=1, N_loop=2, dr_tol=1.0, dm_tol=None, weights=False):
+def align_example(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,
+                  dr_tol=1.0, dm_tol=None, weights=False, outFile='outTrans.txt'):
     """
     Base example of how to use the flystar code. Assumes we are transforming a label.dat into
     a reference starlist.
@@ -40,9 +42,12 @@ def align_example(labelFile, reference, transModel=transform.four_paramNW, order
         between label.dat and starlist. Note that this should be set to
         None if the label.dat and refStarlist are in different filters.
 
-    weights: boolean
+    weights: boolean (default = False)
         If true, use weights to calculate transformation. These weights are
         based on position and velocity errors
+
+    outFile: string (default = 'outTrans.txt')
+        Name of output ascii file which contains the transform parameters.
     
     Output:
     ------
@@ -63,7 +68,6 @@ def align_example(labelFile, reference, transModel=transform.four_paramNW, order
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
-        dr_tol = 1.0 # in pixels 
         label_mat_orig, label_mat, starlist_mat = align.transform_and_match(label,
                                                                             starlist,
                                                                             trans,
@@ -75,8 +79,8 @@ def align_example(labelFile, reference, transModel=transform.four_paramNW, order
 
 
     # Write final transform in java align format
-    align.write_transform(trans, labelFile, reference, N_trans)
-
+    print 'Write transform to {0}'.format(outFile)
+    align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
     
     # Test transform: apply to label.dat, make diagnostic plots
     label_trans = align.transform(label, 'outTrans.txt')
@@ -89,10 +93,10 @@ def align_example(labelFile, reference, transModel=transform.four_paramNW, order
     return
     
 
-def align_Arches(labelFile, reference, transModel=transform.four_paramNW, order=1, N_loop=2, dr_tol=1.0, dm_tol=None, weights=False):
+def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,
+                 dr_tol=1.0, dm_tol=None, weights=False, outFile='outTrans.txt'):
     """
-    Base example of how to use the flystar code. Assumes we are transforming a label.dat into
-    a reference starlist.
+    Application of flystar code to align Arches label.dat and reference starlist..
 
     Parameters:
     -----------
@@ -119,17 +123,35 @@ def align_Arches(labelFile, reference, transModel=transform.four_paramNW, order=
         The search radius for the matching algorithm, in the same units as the
         starlist file positions.
         
-    dm_tol: float or None
+    dm_tol: float or None (default = None)
         If float, sets the maximum magnitude difference allowed in matching
         between label.dat and starlist. Note that this should be set to
         None if the label.dat and refStarlist are in different filters.
 
-    weights: boolean
+    weights: boolean (default = False)
         If true, use weights to calculate transformation. These weights are
         based on position and velocity errors
+
+    outFile: string (default = 'outTrans.txt')
+        Name of output ascii file which contains the transform parameters.
     
     Output:
     ------
+    outFile is written containing the tranformation coefficients
+
+    Diagnostic plots included:
+    -Transformed_positons.png: Shows positions of matched stars (both reference
+        starlist and label.dat) in reference starlist coordinates. The label.dat
+        coordinates are the ones after the derived transformation has been applied.
+
+    -Positions_hist.png: Histogram of the difference between the reference list
+        positions and the label.dat positions after transformation.
+
+    -Positions_quiver.png: Quiver plot showing the difference between reference
+        positions and transformed label.dat positions as a function of location. 
+        
+    -Magnitude_hist.png: Histogram of the difference between the reference list
+        magnitude and label.dat magnitude for matched stars.
         
     """
     # Read in label.dat file and reference starlist, changing columns to their
@@ -139,15 +161,19 @@ def align_Arches(labelFile, reference, transModel=transform.four_paramNW, order=
 
     label = align.readLabel(labelFile, t0)
 
+    # Restrict label.dat file to all stars within 15 arcseconds of central star
+    # This is the area covered by the reference starlist
+    area = [[-15, 15], [-15,15]]
+    label_r = starlists.restrict_by_area(label, area)
+
     # Perform blind matching of 100 brightest stars and calculate initial transform
     briteN = 100
-    trans = align.initial_align(label, starlist, briteN, transformModel=transModel,
+    trans = align.initial_align(label_r, starlist, briteN, transformModel=transModel,
                                 order=order)
 
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
-        dr_tol = 1.0 # in pixels 
         label_mat_orig, label_mat, starlist_mat = align.transform_and_match(label,
                                                                             starlist,
                                                                             trans,
@@ -157,18 +183,73 @@ def align_Arches(labelFile, reference, transModel=transform.four_paramNW, order=
         trans, N_trans = align.find_transform(label_mat_orig, starlist_mat, transModel=transModel,
                                      order=order, weights=weights)
 
-
     # Write final transform in java align format
-    align.write_transform(trans, labelFile, reference, N_trans)
+    print 'Write transform to {0}'.format(outFile)
+    align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
 
-    
     # Test transform: apply to label.dat, make diagnostic plots
-    label_trans = align.transform(label, 'outTrans.txt')
-    
+    label_trans = align.transform(label, outFile)
 
+    #--------------------#
     # Diagnostic plots
+    #--------------------#
+    print 'Making test plots'
 
+    # Plot positions of stars in reference list and the transformed
+    # label.dat coordinates. Stars used in the transformation
+    # are highlighted.    
+        
+    py.figure(1, figsize=(10,10))
+    py.clf()
+    py.plot(starlist['x'], starlist['y'], 'k.', ms=10, label='Reference')
+    py.plot(label_trans['x_trans'], label_trans['y_trans'], 'r.', ms=5, label='Label.dat')
+    py.plot(starlist_mat['x'], starlist_mat['y'], 'gs', ms=10, label='Matched Reference')
+    py.plot(label_mat['x'], label_mat['y'], 'bs', ms=5, label='Matched label.dat')
+    py.xlabel('X position (Reference Coords)')
+    py.ylabel('Y position (Reference Coords)')
+    py.legend(numpoints=1)
+    py.title('Label.dat Positions After Transformation')
+    py.axis([-100, 1300, -100, 1500])
+    py.savefig('Transformed_positions.png')
 
+    # Histogram of position differences for the matched stars:
+    # reference - label.dat
+    diff_x = starlist_mat['x'] - label_mat['x']
+    diff_y = starlist_mat['y'] - label_mat['y']
+
+    py.figure(2, figsize=(10,10))
+    py.clf()
+    py.hist(diff_x, bins=25, color='blue', label='X')
+    py.hist(diff_y, bins=25, color='red', label='Y')
+    py.xlabel('Reference Position - label.dat Position (starlist pix)')
+    py.ylabel('N stars')
+    py.title('Position Differences after Transformation')
+    py.legend()
+    py.savefig('Positions_hist.png')
+
+    # Looking at quiverplot of differences relative to position in image.
+    # These are all the stars that were used in the transformation
+    py.figure(3, figsize=(10,10))
+    py.clf()
+    q = py.quiver(starlist_mat['x'], starlist_mat['y'], diff_x, diff_y, scale=10)
+    py.quiverkey(q, 0.2, 0.92, 0.2, '0.2 pix', coordinates='figure', color='black')
+    py.xlabel('X Position (Reference, pix)')
+    py.ylabel('Y Position (Reference, pix)')
+    py.title('Reference - Transformed label.dat positions')
+    py.savefig('Positions_quiver.png')
+    
+    # Look at the histogram of mag diff for matched stars, as well
+    diff_m = starlist_mat['m'] - label_mat['m']
+    
+    py.figure(4, figsize=(10,10))
+    py.clf()
+    py.hist(diff_m, bins=25)
+    py.xlabel('Reference Mag - label.dat Mag')
+    py.ylabel('N stars')
+    py.title('Magnitude Match')
+    py.savefig('Magnitude_hist.png')
+
+    print 'Done with plots'        
     
     return
     
