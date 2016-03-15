@@ -335,7 +335,7 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag, rest
     return
 
 
-def transform(starlist, transFile):
+def transform_by_file(starlist, transFile):
     """
     Apply transformation from transFile to starlist. Returns astropy table with
     added columns with the transformed coordinates. NOTE: Transforms
