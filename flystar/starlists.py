@@ -64,3 +64,44 @@ def restrict_by_area(table1, area):
     table_out = table1[good]
 
     return table_out
+
+def restrict_by_use(label_mat_orig, label_mat, starlist_mat):
+    """
+    Restrict matching starlist to only those where the label_mat['use'] > 2.
+    This behaves the same way as the -restrict flag in java align. 
+
+    Parameters:
+    -----------
+    label_mat_orig: astropy table
+         Label.dat table containing the matched stars in the original coordinates.
+         Must have standard column headers.
+
+    label_mat: astropy table
+         Label.dat table containing the matched stars in the reference coordinates.
+         Must have standard column headers.
+
+    starlist_mat: astropy table
+         Reference table containing the matched stars. Must have standard column
+         headers
+         
+    Output:
+    -------
+    label_trim: astropy table
+         label table with only use > 2 stars
+
+    starlist_trim: astropy table
+         reference table with only stars that correspond to use > 2 stars
+         in the label_mat table.
+    
+    """
+    print 'Restrict option activated'
+
+    # Among label.dat matched stars, determine which are allowed by -restrict
+    idx_restrict = np.where(label_mat['use'] !='0')
+
+    # Restrict tables to only these stars
+    label_orig_trim = label_mat_orig[idx_restrict]
+    label_trim = label_mat[idx_restrict]
+    starlist_trim = starlist_mat[idx_restrict]
+
+    return label_orig_trim, label_trim, starlist_trim
