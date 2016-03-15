@@ -340,7 +340,7 @@ def transform_by_file(starlist, transFile):
     Apply transformation from transFile to starlist. Returns astropy table with
     added columns with the transformed coordinates. NOTE: Transforms
     positions/position errors, plus velocities and velocity errors if they
-    are present in starlist
+    are present in starlist.
     
     Parameters:
     ----------
