@@ -92,7 +92,7 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     
 
 def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,
-                 dr_tol=1.0, dm_tol=None, briteN=100, weights=False, outFile='outTrans.txt'):
+                 dr_tol=1.0, dm_tol=None, briteN=100, weights=None, outFile='outTrans.txt'):
     """
     Application of flystar code to align Arches label.dat and reference starlist..
 
@@ -130,7 +130,11 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
         Number of bright stars in both starlists to run the blind matching
         algorithm on. britN must be less than the length of either starlist
 
-    weights: boolean (default = False)
+    weights: None or function
+        If None, do not use weights in transformation. If function, use that
+        function to calculate weights to be used in the transformation.
+
+    boolean (default = False)
         If true, use weights to calculate transformation. These weights are
         based on position and velocity errors
 
@@ -180,6 +184,10 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                                                                             trans,
                                                                             dr_tol=dr_tol,
                                                                             dm_tol=dm_tol)
+
+        # Calculate weights if desired
+        if weights != None:
+            # Run the user-input function
 
         trans, N_trans = align.find_transform(label_mat_orig, starlist_mat, transModel=transModel,
                                      order=order, weights=weights)
