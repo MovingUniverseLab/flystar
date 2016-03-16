@@ -6,6 +6,10 @@ class four_paramNW:
     '''
     defines parameter tranformation between x,y and xref, yref
     does not weight the points
+
+    Output is:
+    self.px = a0 + a1*x + a2*y
+    self.py = b0 + b1*x + b2*y
     '''
 
     def __init__(self, x, y,xref, yref, order=None, weights=None):
@@ -25,9 +29,9 @@ class PolyTransform:
 
     '''
     defines a 2d polynomial transform between x,y -> xref,yref
-    tranforms are independent for x and y, of the form
-    x' = c0_0 + c_0_1 *x + c1_0*y + ....
-    y' = d0_0 + d_0_1 *x + d1_0*y + ....
+    tranforms are independent for x and y, of the form (for 2nd order fit):
+    x' = a0 + a1*x + a2*x**2. + a3*y + a4*y**2. + a5*x*y
+    y' = b0 + b1*x + b2*x**2. + b3*y + b4*y**2. + b5*x*y
     currently only supports initial guess of the linear terms
     '''
     def __init__(self, x, y, xref, yref, order,
