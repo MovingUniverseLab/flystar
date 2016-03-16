@@ -141,9 +141,7 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     table1 = table1[idx1]
     table2 = table2[idx2]
     table1T = Table.copy(table1)
-    #table1T = transformAll(table1T, transform)
-    table1T['x'] = x1t[idx1]
-    table1T['y'] = y1t[idx1]
+    table1T = transform_by_object(table1T, transform)
 
     print '{0} of {1} stars matched'.format(len(table1), len(x1t))
 
@@ -152,7 +150,7 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
 
 
 def find_transform(table1_mat, table1T_mat, table2_mat, transModel=transforms.four_paramNW, order=1, 
-                weights='both'):
+                weights=None):
     """
     Given a matched starlist, derive a new transform. This transformation is
     calculated for starlist 1 into starlist 2
@@ -178,14 +176,14 @@ def find_transform(table1_mat, table1T_mat, table2_mat, transModel=transforms.fo
         Order of polynomial to use in the transformation. Only active if
         PolyTransform is selected
 
-    weights: string (default='both')
-        if weights=='both', we use both position error and velocity error in table1T_mat 
-            and position error table2_mat as uncertanties. And weights is the reciprocal 
+    weights: string (default=None)
+        if weights=='both', we use both position error and velocity error in transformed
+        starlist and reference starlist as uncertanties. And weights is the reciprocal 
             of this uncertanty.
-        if weights=='table1', we only use postion error and velocity error in table1T_mat
-            as uncertainty.
-        if weights=='table2', we only use position error in table2 as uncertainty.
-        otherwise, we don't use weights.
+        if weights=='starlist', we only use postion error and velocity error in transformed
+        starlist as uncertainty.
+        if weights=='reference', we only use position error in reference starlist as uncertainty.
+        if weights==None, we don't use weights.
 
     Output:
     ------
@@ -217,13 +215,14 @@ def find_transform(table1_mat, table1T_mat, table2_mat, transModel=transforms.fo
     t2 = table2_mat['t']
     delt = t2-t0
 
+    # Calculate weights as to user specification
     if weights=='both':
         weight = 1/np.sqrt( x1e**2 + (vx1e * delt)**2 + x2e**2 + 
                             y1e**2 + (vy1e * delt)**2 + y2e**2)
-    elif weights=='table1':
+    elif weights=='starlist':
         weight = 1/np.sqrt( x1e**2 + (vx1e * delt)**2 + 
                             y1e**2 + (vy1e * delt)**2 )
-    elif weights=='table2':
+    elif weights=='reference':
         weight = 1/np.sqrt( x2e**2 +  y2e**2)
     else:
         weight = None
@@ -238,7 +237,8 @@ def find_transform(table1_mat, table1T_mat, table2_mat, transModel=transforms.fo
     return t, N_trans
 
 
-def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, restrict=False, outFile='outTrans.txt'):
+def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, restrict=False, weights=None,
+                    outFile='outTrans.txt'):
     """
     Given a transformation object, write out the coefficients in a java align
     readable format. Outfile name is specified by user.
@@ -270,6 +270,15 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
     restrict: boolean (default=False)
         Set to True if transformation restricted to stars with use > 2. Purely
         for output purposes
+
+    weights: string (default=None)
+        if weights=='both', we use both position error and velocity error in transformed
+        starlist and reference starlist as uncertanties. And weights is the reciprocal 
+            of this uncertanty.
+        if weights=='starlist', we only use postion error and velocity error in transformed
+        starlist as uncertainty.
+        if weights=='reference', we only use position error in reference starlist as uncertainty.
+        if weights==None, we don't use weights.
 
     outFile: string (default: 'outTrans.txt')
         Name of output text file
@@ -303,6 +312,7 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
     _out.write('## Transform Class: {0}\n'.format(transformation.__class__.__name__))
     _out.write('## Order: {0}\n'.format(transformation.order))
     _out.write('## Restrict: {0}\n'.format(restrict))
+    _out.write('## Weights: {0}\n'.format(weights))
     _out.write('## N_coeff: {0}\n'.format(len(Xcoeff)))
     _out.write('## N_trans: {0}\n'.format(N_trans))
     _out.write('## Delta Mag: {0}\n'.format(deltaMag))
