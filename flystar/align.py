@@ -447,7 +447,7 @@ def transform_by_file(starlist, transFile):
     return starlist
 
 
-def transformAll(starlist, transform):
+def transform_by_object(starlist, transform):
     """
     Apply transformation to starlist. Returns astropy table with
     transformed positions/position errors, velocities and velocity errors 
@@ -498,7 +498,6 @@ def transformAll(starlist, transform):
         print '{0} not yet supported!'.format(transType)
         return
         
-    pdb.set_trace()
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
     if len(Xcoeff) == 3:
@@ -514,29 +513,34 @@ def transformAll(starlist, transform):
             vye_new = np.sqrt( (Ycoeff[1] * vxe_orig)**2 + (Ycoeff[2] * vye_orig)**2 )
 
     elif len(Xcoeff) == 6:
-        x_new = Xcoeff[0] + Xcoeff[1]*x_orig + Xcoeff[2]*y_orig + Xcoeff[3]*x_orig**2. + \
-          Xcoeff[4]*y_orig**2. + Xcoeff[5]*x_orig*y_orig
+        x_new = Xcoeff[0] + Xcoeff[1]*x_orig + Xcoeff[2]*x_orig**2 + Xcoeff[3]*y_orig + \
+                Xcoeff[4]*y_orig**2. + Xcoeff[5]*x_orig*y_orig
           
-        y_new = Ycoeff[0] + Ycoeff[1]*x_orig + Ycoeff[2]*y_orig + Ycoeff[3]*x_orig**2. + \
-          Ycoeff[4]*y_orig**2. + Ycoeff[5]*x_orig*y_orig
+        y_new = Ycoeff[0] + Ycoeff[1]*x_orig + Ycoeff[2]*x_orig**2 + Ycoeff[3]*y_orig + \
+                Ycoeff[4]*y_orig**2. + Ycoeff[5]*x_orig*y_orig
           
-        xe_new = np.sqrt( (Xcoeff[1] + 2*Xcoeff[3]*x_orig + Xcoeff[5]*ye_orig)**2 * xe_orig**2
+        xe_new = np.sqrt( (Xcoeff[1] + 2*Xcoeff[2]*x_orig + Xcoeff[5]*y_orig)**2 * xe_orig**2 + \
+                          (Xcoeff[3] + 2*Xcoeff[4]*y_orig + Xcoeff[5]*x_orig)**2 * ye_orig**2 )
           
-        ye_new = Ycoeff[0] + Ycoeff[1]*xe_orig + Ycoeff[2]*ye_orig + Ycoeff[3]*xe_orig**2. + \
-          Ycoeff[4]*ye_orig**2. + Ycoeff[5]*xe_orig*ye_orig
+        ye_new = np.sqrt( (Ycoeff[1] + 2*Ycoeff[2]*x_orig + Ycoeff[5]*y_orig)**2 * xe_orig**2 + \
+                          (Ycoeff[3] + 2*Ycoeff[4]*y_orig + Ycoeff[5]*x_orig)**2 * ye_orig**2 )
 
         if vel:
-            vx_new = Xcoeff[1]*vx_orig + Xcoeff[2]*vy_orig + 2.*Xcoeff[3]*x_orig*vx_orig + \
-                2.*Xcoeff[4]*y_orig*vy_orig + Xcoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
+            vx_new = Xcoeff[1]*vx_orig + 2*Xcoeff[2]*x_orig*vx_orig + Xcoeff[3]*vy_orig + \
+                    2.*Xcoeff[4]*y_orig*vy_orig + Xcoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
           
-            vy_new = Ycoeff[1]*vx_orig + Ycoeff[2]*vy_orig + 2.*Ycoeff[3]*x_orig*vx_orig + \
-                2.*Ycoeff[4]*y_orig*vy_orig + Ycoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
+            vy_new = Ycoeff[1]*vx_orig + 2*Ycoeff[2]*x_orig*vx_orig + Ycoeff[3]*vy_orig + \
+                    2.*Ycoeff[4]*y_orig*vy_orig + Ycoeff[5]*(x_orig*vy_orig + vx_orig*y_orig)
           
-            vxe_new = Xcoeff[1]*vxe_orig + Xcoeff[2]*vye_orig + 2.*Xcoeff[3]*xe_orig*vxe_orig + \
-                2.*Xcoeff[4]*ye_orig*vye_orig + Xcoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
-          
-            vye_new = Ycoeff[1]*vxe_orig + Ycoeff[2]*vye_orig + 2.*Ycoeff[3]*xe_orig*vxe_orig + \
-                2.*Ycoeff[4]*ye_orig*vye_orig + Ycoeff[5]*(xe_orig*vye_orig + vxe_orig*ye_orig)
+            vxe_new = np.sqrt( (Xcoeff[1] + 2*Xcoeff[2]*x_orig + Xcoeff[5]*y_orig)**2 * vxe_orig**2 + \
+                               (Xcoeff[3] + 2*Xcoeff[4]*y_orig + Xcoeff[5]*x_orig)**2 * vye_orig**2 + \
+                               (2*Xcoeff[2]*vx_orig + Xcoeff[5]*vy_orig)**2 * xe_orig**2 + \
+                               (2*Xcoeff[4]*vy_orig + Xcoeff[5]*vx_orig)**2 * ye_orig**2 )
+                                
+            vye_new = np.sqrt( (Ycoeff[1] + 2*Ycoeff[2]*x_orig + Ycoeff[5]*y_orig)**2 * vxe_orig**2 + \
+                               (Ycoeff[3] + 2*Ycoeff[4]*y_orig + Ycoeff[5]*x_orig)**2 * vye_orig**2 + \
+                               (2*Ycoeff[2]*vx_orig + Ycoeff[5]*vy_orig)**2 * xe_orig**2 + \
+                               (2*Ycoeff[4]*vy_orig + Ycoeff[5]*vx_orig)**2 * ye_orig**2 )
         
     # update transformed coords to astropy table
 
