@@ -75,7 +75,7 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.four_par
         
     # Run the blind triangle-matching algorithm to find the matches between the starlists
     print 'Attempting match with {0} and {1} stars from starlist1 and starlist2'.format(len(table1), len(table2))
-    print 'Beginning match'
+    print 'Begin initial match'
 
     # number of required matches of the input catalog to the total reference
     req_match = 5
@@ -87,6 +87,7 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.four_par
     # Calculate transformation based on matches
     t = transformModel(x1m, y1m ,x2m, y2m, order=order, weights=None)
 
+    print 'End initial match \n'
     return t
 
 
@@ -231,7 +232,7 @@ def find_transform(table1_mat, table1T_mat, table2_mat, transModel=transforms.fo
     t = transModel(x1, y1, x2, y2, order=order, weights=weight)
 
     N_trans = len(x1)
-    print '{0} stars used in transform'.format(N_trans)
+    print '{0} stars used in transform\n'.format(N_trans)
 
     # Return transformation object and number of stars used in transform
     return t, N_trans
@@ -337,7 +338,6 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
         print '{0} order {1} not yet supported in write_transform'.format(trans_name,
                                                                           trans_order)
         print 'Stopping'
-        pdb.set_trace()
 
     _out.close()
     
