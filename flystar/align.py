@@ -615,8 +615,10 @@ def readLabel(labelFile, tref):
     t_label['y'] = t_label['y'] + t_label['vy']*(tref - t_label['t0'])
     
     # flip the x axis, because lable.dat increase to the east,
-    # reference frame increase to the west.
+    # reference frame increase to the west. Do this for velocity
+    # as well
     t_label['x'] = t_label['x'] * (-1.0)
+    t_label['vx'] = t_label['vx'] * (-1.0)
     
     return t_label
 
