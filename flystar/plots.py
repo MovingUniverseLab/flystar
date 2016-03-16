@@ -32,10 +32,10 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat):
     """
     py.figure(figsize=(10,10))
     py.clf()
-    py.plot(ref['x'], ref['y'], 'k.', ms=10, label='Reference')
+    py.plot(ref['x'], ref['y'], 'g.', ms=5, label='Reference')
     py.plot(starlist['x_trans'], starlist['y_trans'], 'r.', ms=5, label='Label.dat')
-    py.plot(ref_mat['x'], ref_mat['y'], 'gs', ms=10, label='Matched Reference')
-    py.plot(starlist_mat['x'], starlist_mat['y'], 'bs', ms=5, label='Matched label.dat')
+    py.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, linestyle='None', label='Matched Reference')
+    py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, linestyle='None', label='Matched label.dat')
     py.xlabel('X position (Reference Coords)')
     py.ylabel('Y position (Reference Coords)')
     py.legend(numpoints=1)
@@ -46,7 +46,7 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat):
     return
 
 
-def posDiff_hist(ref_mat, starlist_mat):
+def posDiff_hist(ref_mat, starlist_mat, bins=25):
     """
     Plot histogram of position differences for the matched
     stars: reference - starlist
@@ -60,6 +60,9 @@ def posDiff_hist(ref_mat, starlist_mat):
     starlist_mat: astropy table
         Transformed starlist only containing the matched stars used in
         the transformation. Standard column headers are assumed. 
+
+    bins: int
+        number of bins used in histogram
     
     """
     diff_x = ref_mat['x'] - starlist_mat['x']
@@ -67,17 +70,17 @@ def posDiff_hist(ref_mat, starlist_mat):
 
     py.figure(figsize=(10,10))
     py.clf()
-    py.hist(diff_x, bins=25, color='blue', label='X')
-    py.hist(diff_y, bins=25, color='red', label='Y')
+    py.hist(diff_x, histtype='step', bins=bins, color='blue', label='X')
+    py.hist(diff_y, histtype='step', bins=bins, color='red', label='Y')
     py.xlabel('Reference Position - label.dat Position (starlist pix)')
     py.ylabel('N stars')
-    py.title('Position Differences after Transformation')
+    py.title('Position Differences for matched stars')
     py.legend()
     py.savefig('Positions_hist.png')
 
     return
 
-def magDiff_hist(ref_mat, starlist_mat):
+def magDiff_hist(ref_mat, starlist_mat, bins=25):
     """
     Plot histogram of mag differences for the matched
     stars: reference - starlist
@@ -97,10 +100,10 @@ def magDiff_hist(ref_mat, starlist_mat):
 
     py.figure(figsize=(10,10))
     py.clf()
-    py.hist(diff_m, bins=25)
+    py.hist(diff_m, bins=bins)
     py.xlabel('Reference Mag - label.dat Mag')
     py.ylabel('N stars')
-    py.title('Magnitude Match')
+    py.title('Magnitude Difference for matched stars')
     py.savefig('Magnitude_hist.png')
 
     return
@@ -130,7 +133,7 @@ def posDiff_quiver(ref_mat, starlist_mat, qscale=10):
     
     py.figure(figsize=(10,10))
     py.clf()
-    q = py.quiver(ref_mat['x'], ref_mat['y'], diff_x, diff_y, scale=10)
+    q = py.quiver(ref_mat['x'], ref_mat['y'], diff_x, diff_y, scale=qscale)
     py.quiverkey(q, 0.2, 0.92, 0.2, '0.2 pix', coordinates='figure', color='black')
     py.xlabel('X Position (Reference, pix)')
     py.ylabel('Y Position (Reference, pix)')
