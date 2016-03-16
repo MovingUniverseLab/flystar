@@ -238,7 +238,7 @@ def find_transform(table1_mat, table1T_mat, table2_mat, transModel=transforms.fo
     return t, N_trans
 
 
-def write_transform(transformation, starlist, reference, N_trans, deltaMag, restrict=False, outFile='outTrans.txt'):
+def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, restrict=False, outFile='outTrans.txt'):
     """
     Given a transformation object, write out the coefficients in a java align
     readable format. Outfile name is specified by user.
@@ -263,7 +263,7 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag, rest
     N_trans: int
         Number of stars used in the transformation
 
-    deltaMag: float
+    deltaMag: float (default = 0)
         Average magnitude difference between reference and starlist
         (reference - starlist)
 
@@ -621,7 +621,6 @@ def readLabel(labelFile, tref):
     t_label['vx'] = t_label['vx'] * (-1.0)
     
     return t_label
-
 
 
 def readStarlist(starlistFile):
