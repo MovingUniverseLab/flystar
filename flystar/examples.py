@@ -96,7 +96,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                  dr_tol=1.0, dm_tol=None, briteN=100, weights=None, restrict=False,
                  outFile='outTrans.txt'):
     """
-    Application of flystar code to align Arches label.dat and reference starlist..
+    Application of flystar code to align Arches label.dat and reference starlist. 
 
     Parameters:
     -----------
@@ -132,9 +132,14 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
         Number of bright stars in both starlists to run the blind matching
         algorithm on. britN must be less than the length of either starlist
 
-    weights: None or function
-        If None, do not use weights in transformation. If function, use that
-        function to calculate weights to be used in the transformation.
+    weights: string (default=None)
+        if weights=='both', we use both position error and velocity error in transformed
+        starlist and reference starlist as uncertanties. And weights is the reciprocal 
+            of this uncertanty.
+        if weights=='starlist', we only use postion error and velocity error in transformed
+        starlist as uncertainty.
+        if weights=='reference', we only use position error in reference starlist as uncertainty.
+        if weights==None, we don't use weights.
 
     restrict: boolean (default = False)
         If true, restrict to only stars with use > 2 in the label.dat file.
@@ -193,7 +198,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                                                                                 label_mat,
                                                                                 starlist_mat)
 
-        trans, N_trans = align.find_transform(label_mat_orig, starlist_mat,
+        trans, N_trans = align.find_transform(label_mat_orig, label_mat, starlist_mat,
                                               transModel=transModel, order=order,
                                               weights=weights)
 
@@ -202,8 +207,8 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     
     # Write final transform in java align format
     print 'Write transform to {0}'.format(outFile)
-    align.write_transform(trans, labelFile, reference, N_trans, delta_m,
-                          restrict=restrict, outFile=outFile)
+    align.write_transform(trans, labelFile, reference, N_trans, deltaMag=delta_m,
+                          restrict=restrict, weights=weights, outFile=outFile)
     
     # Test transform: apply to label.dat, make diagnostic plots
     label_trans = align.transform_by_file(label, outFile)
