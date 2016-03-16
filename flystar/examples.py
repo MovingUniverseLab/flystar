@@ -228,7 +228,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     return
     
 def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2, 
-                dr_tol=1.0, dm_tol=None, weights='both', outFile='outTrans.txt'):
+             dr_tol=1.0, dm_tol=None, briteN=100, weights='both', restrict=False, outFile='outTrans.txt'):
     """
     Base example of how to use the flystar code. Assumes we are transforming a label.dat into
     a reference starlist.
@@ -280,26 +280,25 @@ def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, 
     for i in range(N_loop):
         label_matched, labelT_matched, ref_matched = align.transform_and_match(label, starlist, trans,
                                                             dr_tol=dr_tol, dm_tol=dm_tol)
-        trans, N_trans = align.find_transform(label_matched, labelT_matched, ref_matched, transModel=transModel,
-                                                order=order, weights = weights)
+        trans, N_trans = align.find_transform(label_matched, labelT_matched, ref_matched, 
+                                                transModel=transModel, order=order, weights = weights)
 
+    # Calculate delta mag (reference - starlist) for matching stars
+    delta_m = np.mean(ref_matched['m'] - label_matched['m'])
 
     # Write final transform in java align format
-    align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
+    align.write_transform(trans, labelFile, reference, N_trans, deltaMag=delta_m,
+                          restrict=restrict, weights=weights, outFile=outFile)
 
     # Test transform: apply to label.dat, make diagnostic plots
-    label_trans = align.transform(label, outFile)
+    label_trans = align.transform_by_file(label, outFile)
 
-    # Diagnostic plots
-    pdb.set_trace()
-
-    print 'Making test plots'
+    # make plots
 
     plots.trans_positions(starlist, ref_matched, label_trans, labelT_matched)
-    plots.posDiff_hist(ref_matched, labelT_matched)
-    plots.magDiff_hist(ref_matched, labelT_matched)
-    plots.posDiff_quiver(ref_matched, labelT_matched)
-
+    plots.posDiff_hist(ref_matched, labelT_matched, bins=20)
+    plots.magDiff_hist(ref_matched, labelT_matched, bins=20)
+    plots.posDiff_quiver(ref_matched, labelT_matched, qscale=2)
     
     return
  
