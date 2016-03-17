@@ -679,7 +679,8 @@ def readStarlist(starlistFile, error=True):
             col9: ? (left as default)
         
     error: boolean (default=True)
-        If true, assumes starlist has error column
+        If true, assumes starlist has error columns. This significantly
+        changes the order of the columns.
     
     Output:
     ------
@@ -692,7 +693,7 @@ def readStarlist(starlistFile, error=True):
     t_ref.rename_column('col3', 't')
     t_ref.rename_column('col4', 'x')
     t_ref.rename_column('col5', 'y')
-    if error=True:
+    if error==True:
         t_ref.rename_column('col6', 'xe')
         t_ref.rename_column('col7', 'ye')
         t_ref.rename_column('col8', 'snr')
