@@ -572,7 +572,7 @@ def transform_by_object(starlist, transform):
 
 
 
-def readLabel(labelFile, tref):
+def readLabel(labelFile, prop_to_time=None, flipX=True):
     """
     Read in a label.dat file, rename columns with standard
     names. Use velocities to convert positions into epoch
@@ -586,23 +586,33 @@ def readLabel(labelFile, tref):
     labelFile: text file. containing
         col1: name
         col2: mag
-        col3: x (arcsec)
-        col4: y 
-        col5: xerr
-        col6: yerr
+        col3: x0 (arcsec)
+        col4: y0 (arcsec)
+        col5: x0err
+        col6: y0err
         col7: vx (mas/yr)
-        col8: vy 
+        col8: vy (mas/yr)
         col9: vxerr
         col10: vyerr
         col11: t0
         col12: use
-    tref: reference epoch that label.dat is converted to. 
+        col13: r2d (arcsec)
 
+    prop_to_time: None or float (default = None)
+        If float, use velocities to propogate positions to defined time.
+
+    flipX: boolean (default = True)
+         If true, multiply the x positions and velocities by -1.0. This is
+         useful when label.dat has +x to the east, while reference starlist
+         has +x to the west.
+         
+    #OLD# tref: reference epoch that label.dat is converted to. 
 
     Output:
     ------
     labelFile: astropy.table. 
-    containing name, m, x, y, xe, ye, vx, vy, vxe, vye, use
+    containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r2d,
+    (if prop_to_time: x, y, xe, ye, tref)
     
     x and y is in arcsec, 
     converted to tref epoch, 
@@ -614,17 +624,18 @@ def readLabel(labelFile, tref):
     t_label = Table.read(labelFile, format='ascii')
     t_label.rename_column('col1', 'name')
     t_label.rename_column('col2', 'm')
-    t_label.rename_column('col3', 'x')
-    t_label.rename_column('col4', 'y')
-    t_label.rename_column('col5', 'xe')
-    t_label.rename_column('col6', 'ye')
+    t_label.rename_column('col3', 'x0')
+    t_label.rename_column('col4', 'y0')
+    t_label.rename_column('col5', 'x0e')
+    t_label.rename_column('col6', 'y0e')
     t_label.rename_column('col7', 'vx')
     t_label.rename_column('col8', 'vy')
     t_label.rename_column('col9', 'vxe')
     t_label.rename_column('col10','vye')
     t_label.rename_column('col11','t0')
     t_label.rename_column('col12','use')
-    
+
+    # Convert velocities from mas/yr to arcsec/year
     t_label['vx'] *= 0.001
     t_label['vy'] *= 0.001
     t_label['vxe'] *= 0.001
@@ -642,7 +653,7 @@ def readLabel(labelFile, tref):
     return t_label
 
 
-def readStarlist(starlistFile):
+def readStarlist(starlistFile, error=True):
     """
     Read in a starlist file, rename columns with standard names
 
@@ -651,26 +662,46 @@ def readStarlist(starlistFile):
     starlistFile: text file, containing:
         col1: name
         col2: mag
-        col4: x (pix)
-        col5: y
-        col6: xerr
-        col7: yerr
         col3: t
-
+        col4: x (pix)
+        col5: y (pix)
+        if error==True:
+            col6: xerr
+            col7: yerr
+            col8: SNR
+            col9: corr
+            col10: N_frames
+            col11: flux
+        else:
+            col6: ? (left as default)
+            col7: corr
+            col8: N_frames
+            col9: ? (left as default)
+        
+    error: boolean (default=True)
+        If true, assumes starlist has error column
+    
     Output:
     ------
     starlist astropy table. 
     containing: name, m, x, y, xe, ye, t  
     """
-
     t_ref = Table.read(starlistFile, format='ascii')
     t_ref.rename_column('col1', 'name')
     t_ref.rename_column('col2', 'm')
+    t_ref.rename_column('col3', 't')
     t_ref.rename_column('col4', 'x')
     t_ref.rename_column('col5', 'y')
-    t_ref.rename_column('col6', 'xe')
-    t_ref.rename_column('col7', 'ye')
-    t_ref.rename_column('col3', 't')
-
+    if error=True:
+        t_ref.rename_column('col6', 'xe')
+        t_ref.rename_column('col7', 'ye')
+        t_ref.rename_column('col8', 'snr')
+        t_ref.rename_column('col9', 'corr')
+        t_ref.rename_column('col10', 'N_frames')
+        t_ref.rename_column('col11', 'flux')
+    else:
+        t_ref.rename_column('col7', 'corr')
+        t_ref.rename_column('col8', 'N_frames')        
+        
     return t_ref 
 
