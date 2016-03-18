@@ -60,10 +60,10 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     """
     # Read in label.dat file and reference starlist, changing columns to their
     # standard column headers/epochs/orientations
-    starlist = align.readStarlist(reference)
+    starlist = starlists.read_starlist(reference)
     t0 = starlist['t'][0]
 
-    label = align.readLabel(labelFile, t0)
+    label = starlists.read_label(labelFile, t0)
 
     # Perform blind matching of briteN brightest stars and calculate initial transform
     trans = align.initial_align(label, starlist, briteN, transformModel=transModel,
@@ -169,10 +169,10 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     """
     # Read in label.dat file and reference starlist, changing columns to their
     # standard column headers/epochs/orientations
-    starlist = align.readStarlist(reference)
+    starlist = starlists.read_starlist(reference)
     t0 = starlist['t'][0]
 
-    label = align.readLabel(labelFile, t0)
+    label = starlists.read_label(labelFile, t0)
 
     # Restrict label.dat file to all stars within 15 arcseconds of central star
     # This is the area covered by the reference starlist
@@ -218,7 +218,8 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     #--------------------#
     print 'Making test plots'
 
-    plots.trans_positions(starlist, starlist_mat, label_trans, label_mat)
+    plots.trans_positions(starlist, starlist_mat, label_trans, label_mat,
+                          xlim=[-100, 1300], ylim=[-100, 1300])
     plots.posDiff_hist(starlist_mat, label_mat)
     plots.magDiff_hist(starlist_mat, label_mat)
     plots.posDiff_quiver(starlist_mat, label_mat)
@@ -226,7 +227,8 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     print 'Done with plots'        
 
     return
-    
+
+
 def align_gc(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2, 
              dr_tol=1.0, dm_tol=None, briteN=100, weights='both', restrict=False, outFile='outTrans.txt'):
     """
