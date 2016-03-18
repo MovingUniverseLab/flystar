@@ -8,10 +8,10 @@ import numpy as np
 
 def initial_align(table1, table2, briteN=100, transformModel=transforms.four_paramNW, order=1):
     """
-    Calculates an initial (unweighted) transformation between two sets of
-    starlists. Matching is done using a blind triangle-matching algorithm
-    of the brightest briteN stars in both starlists. Transformation is done
-    using the transformModel in the input parameter.
+    Calculates an initial (unweighted) transformation from table1 starlist into
+    table2 starlist (i.e., table2 is the reference starlist). Matching is done using
+    a blind triangle-matching algorithm of the brightest briteN stars in both starlists.
+    Transformation is done using the transformModel in the input parameter.
 
     Starlists must be astropy tables with standard column headers. All
     positions must be at the same epoch, and +x must be in the same
@@ -572,137 +572,5 @@ def transform_by_object(starlist, transform):
 
 
 
-def readLabel(labelFile, prop_to_time=None, flipX=True):
-    """
-    Read in a label.dat file, rename columns with standard
-    names. Use velocities to convert positions into epoch
-    t0, and then flip x positions and velocities such that
-    +x is to the west.
 
-    Update values in columns of position and velocity
-
-    Parameters:
-    ----------
-    labelFile: text file. containing
-        col1: name
-        col2: mag
-        col3: x0 (arcsec)
-        col4: y0 (arcsec)
-        col5: x0err
-        col6: y0err
-        col7: vx (mas/yr)
-        col8: vy (mas/yr)
-        col9: vxerr
-        col10: vyerr
-        col11: t0
-        col12: use
-        col13: r2d (arcsec)
-
-    prop_to_time: None or float (default = None)
-        If float, use velocities to propogate positions to defined time.
-
-    flipX: boolean (default = True)
-         If true, multiply the x positions and velocities by -1.0. This is
-         useful when label.dat has +x to the east, while reference starlist
-         has +x to the west.
-         
-    #OLD# tref: reference epoch that label.dat is converted to. 
-
-    Output:
-    ------
-    labelFile: astropy.table. 
-    containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r2d,
-    (if prop_to_time: x, y, xe, ye, tref)
-    
-    x and y is in arcsec, 
-    converted to tref epoch, 
-    *(-1) so it increases to west
-    
-    vx, vy, vxe, vye is converted to arcsec/yr
-
-    """
-    t_label = Table.read(labelFile, format='ascii')
-    t_label.rename_column('col1', 'name')
-    t_label.rename_column('col2', 'm')
-    t_label.rename_column('col3', 'x0')
-    t_label.rename_column('col4', 'y0')
-    t_label.rename_column('col5', 'x0e')
-    t_label.rename_column('col6', 'y0e')
-    t_label.rename_column('col7', 'vx')
-    t_label.rename_column('col8', 'vy')
-    t_label.rename_column('col9', 'vxe')
-    t_label.rename_column('col10','vye')
-    t_label.rename_column('col11','t0')
-    t_label.rename_column('col12','use')
-
-    # Convert velocities from mas/yr to arcsec/year
-    t_label['vx'] *= 0.001
-    t_label['vy'] *= 0.001
-    t_label['vxe'] *= 0.001
-    t_label['vye'] *= 0.001
-
-    t_label['x'] = t_label['x'] + t_label['vx']*(tref - t_label['t0'])
-    t_label['y'] = t_label['y'] + t_label['vy']*(tref - t_label['t0'])
-    
-    # flip the x axis, because lable.dat increase to the east,
-    # reference frame increase to the west. Do this for velocity
-    # as well
-    t_label['x'] = t_label['x'] * (-1.0)
-    t_label['vx'] = t_label['vx'] * (-1.0)
-    
-    return t_label
-
-
-def readStarlist(starlistFile, error=True):
-    """
-    Read in a starlist file, rename columns with standard names
-
-    Parameter:
-    ---------
-    starlistFile: text file, containing:
-        col1: name
-        col2: mag
-        col3: t
-        col4: x (pix)
-        col5: y (pix)
-        if error==True:
-            col6: xerr
-            col7: yerr
-            col8: SNR
-            col9: corr
-            col10: N_frames
-            col11: flux
-        else:
-            col6: ? (left as default)
-            col7: corr
-            col8: N_frames
-            col9: ? (left as default)
-        
-    error: boolean (default=True)
-        If true, assumes starlist has error columns. This significantly
-        changes the order of the columns.
-    
-    Output:
-    ------
-    starlist astropy table. 
-    containing: name, m, x, y, xe, ye, t  
-    """
-    t_ref = Table.read(starlistFile, format='ascii')
-    t_ref.rename_column('col1', 'name')
-    t_ref.rename_column('col2', 'm')
-    t_ref.rename_column('col3', 't')
-    t_ref.rename_column('col4', 'x')
-    t_ref.rename_column('col5', 'y')
-    if error==True:
-        t_ref.rename_column('col6', 'xe')
-        t_ref.rename_column('col7', 'ye')
-        t_ref.rename_column('col8', 'snr')
-        t_ref.rename_column('col9', 'corr')
-        t_ref.rename_column('col10', 'N_frames')
-        t_ref.rename_column('col11', 'flux')
-    else:
-        t_ref.rename_column('col7', 'corr')
-        t_ref.rename_column('col8', 'N_frames')        
-        
-    return t_ref 
 
