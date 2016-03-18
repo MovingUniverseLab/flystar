@@ -136,7 +136,7 @@ def posDiff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2):
         Scale parameter for the quiver plot. Lower the number, bigger the scale
 
     keyLength: float (default=0.2)
-        Key length parameter for quiver plot
+        Key length parameter for quiver plot, in reference units.
 
     
     """
@@ -205,8 +205,8 @@ def vpd(ref, starlist_trans, vxlim, vylim):
     # Extract velocities
     ref_vx = ref['vx']
     ref_vy = ref['vy']
-    trans_vx = starlist_trans['vx']
-    trans_vy = starlist_trans['vy']
+    trans_vx = starlist_trans['vx_trans']
+    trans_vy = starlist_trans['vy_trans']
 
     py.figure(figsize=(10,10))
     py.clf()
