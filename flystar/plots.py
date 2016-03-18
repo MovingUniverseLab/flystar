@@ -117,7 +117,7 @@ def magDiff_hist(ref_mat, starlist_mat, bins=25):
 
     return
 
-def posDiff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2):
+def posDiff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, ylim=None):
     """
     Plot histogram of position differences for the matched
     stars: reference - starlist
@@ -137,6 +137,12 @@ def posDiff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2):
 
     keyLength: float (default=0.2)
         Key length parameter for quiver plot, in reference units.
+
+    xlim: None or list/array [xmin, xmax]
+        If not None, sets the xmin and xmax limit of the plot
+
+    ylim: None or list/array [ymin, ymax]
+        If not None, sets the ymin and ymax limit of the plot 
 
     
     """
@@ -174,6 +180,8 @@ def posDiff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2):
     py.xlabel('X Position (Reference coords)')
     py.ylabel('Y Position (Reference coords)')
     py.title('Reference - Transformed label.dat positions')
+    if xlim != None:
+        py.axis([xlim[0], ylim[1], ylim[0], ylim[1]])
     py.savefig('Positions_quiver.png')
 
     return
