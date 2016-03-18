@@ -217,6 +217,7 @@ def vpd(ref, starlist_trans, vxlim, vylim):
     if vxlim != None:
         py.axis([vxlim[0], vylim[1], vylim[0], vylim[1]])
     py.title('Reference and Transformed Proper Motions')
+    py.legend()
     py.savefig('Transformed_velocities.png')
 
     return
