@@ -157,8 +157,8 @@ def pos_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, errs='bot
     # Set the binning as per user input
     bins = nbins
     if bin_width != None:
-        min_range = min([min(diff_x), min(diff_y)])
-        max_range = max([max(diff_x), max(diff_y)])
+        min_range = min([min(ratio_x), min(ratio_y)])
+        max_range = max([max(ratio_x), max(ratio_y)])
 
         bins = np.arange(min_range, max_range+bin_width, bin_width)
     
@@ -359,14 +359,8 @@ def vel_hist(ref_mat, starlist_mat, nbins=25, bin_width=None):
     xbins = nbins
     ybins = nbins
     if bin_width != None:
-        min_Xrange = min([min(ref_vx), min(trans_vx)])
-        max_Xrange = max([max(ref_vx), max(trans_vx)])
-
-        min_Yrange = min([min(ref_vy), min(trans_vy)])
-        max_Yrange = max([max(ref_vy), max(trans_vy)])        
-        
-        xbins = np.arange(min_Xrange, max_Xrange+bin_width, bin_width)
-        ybins = np.arange(min_Yrange, max_Yrange+bin_width, bin_width)
+        xbins = np.arange(min(ratio_vx), max(ratio_vx)+bin_width, bin_width)
+        ybins = np.arange(min(ratio_vy), max(ratio_vy)+bin_width, bin_width)
 
     # Parameters for a Gaussian to be overplotted on each
     mean = 0
