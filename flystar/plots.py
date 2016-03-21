@@ -1,5 +1,6 @@
 import pylab as py
 import numpy as np
+import matplotlib.mlab as mlab
 import pdb
 
 ####################################################
@@ -55,7 +56,7 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None):
     return
 
 
-def posDiff_hist(ref_mat, starlist_mat, bins=25):
+def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None):
     """
     Plot histogram of position differences for the matched
     stars: reference - starlist
@@ -70,13 +71,25 @@ def posDiff_hist(ref_mat, starlist_mat, bins=25):
         Transformed starlist only containing the matched stars used in
         the transformation. Standard column headers are assumed. 
 
-    bins: int
-        number of bins used in histogram
-    
+    nbins: int
+        Number of bins used in histogram, regardless of data range. This is
+        ignored if bin_width != None
+
+    bin_width: None or float
+        If float, sets the width of the bins used in the histogram. Will override
+        nbins
     """
     diff_x = ref_mat['x'] - starlist_mat['x']
     diff_y = ref_mat['y'] - starlist_mat['y']
 
+    # Set the binning as per user input
+    bins = nbins
+    if bin_width != None:
+        min_range = min([min(diff_x), min(diff_y)])
+        max_range = max([max(diff_x), max(diff_y)])
+
+        bins = np.arange(min_range, max_range+bin_width, bin_width)
+    
     py.figure(figsize=(10,10))
     py.clf()
     py.hist(diff_x, histtype='step', bins=bins, color='blue', label='X')
@@ -89,7 +102,87 @@ def posDiff_hist(ref_mat, starlist_mat, bins=25):
 
     return
 
-def magDiff_hist(ref_mat, starlist_mat, bins=25):
+def pos_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, errs='both'):
+    """
+    Plot histogram of position residuals / astrometric error for the matched
+    stars: reference - starlist
+
+    Parameters:
+    -----------
+    ref_mat: astropy table
+        Reference starlist only containing matched stars that were used in the
+        transformation. Standard column headers are assumed.
+        
+    starlist_mat: astropy table
+        Transformed starlist only containing the matched stars used in
+        the transformation. Standard column headers are assumed. 
+
+    nbins: int
+        Number of bins used in histogram, regardless of data range. This is
+        ignored if bin_width != None
+
+    bin_width: None or float
+        If float, sets the width of the bins used in the histogram. Will override
+        nbins
+
+    errs: string; 'both', 'reference', or 'starlist'
+        If both, add starlist errors in quadrature with reference errors.
+
+        If reference, only consider reference errors. This should be used if the starlist
+        does not have valid errors
+
+        If starlist, only consider starlist errors. This should be used if the reference
+        does not have valid errors        
+        
+    """
+    diff_x = ref_mat['x'] - starlist_mat['x']
+    diff_y = ref_mat['y'] - starlist_mat['y']
+
+    # Set errors as per user input
+    if errs == 'both':
+        xerr = np.hypot(ref_mat['xe'], starlist_mat['xe'])
+        yerr = np.hypot(ref_mat['ye'], starlist_mat['ye'])
+    elif errs == 'reference':
+        xerr = ref_mat['xe']
+        yerr = ref_mat['ye']
+    elif errs == 'starlist':
+        xerr = starlist_mat['xe']
+        yerr = starlist_mat['ye']
+          
+    # Calculate ratio between differences and the combined error. This is
+    # what we will plot
+    ratio_x = diff_x / xerr
+    ratio_y = diff_y / yerr
+
+    # Set the binning as per user input
+    bins = nbins
+    if bin_width != None:
+        min_range = min([min(diff_x), min(diff_y)])
+        max_range = max([max(diff_x), max(diff_y)])
+
+        bins = np.arange(min_range, max_range+bin_width, bin_width)
+    
+    py.figure(figsize=(10,10))
+    py.clf()
+    py.hist(ratio_x, histtype='step', bins=bins, color='blue', label='X',
+            normed=True, linewidth=2)
+    py.hist(ratio_y, histtype='step', bins=bins, color='red', label='Y',
+            normed=True, linewidth=2)
+    # Overplot a Gaussian, as well
+    mean = 0
+    sigma = 1
+    x = np.arange(-6, 6, 0.1)
+    py.plot(x, mlab.normpdf(x,mean,sigma), 'g-', linewidth=2)
+    py.xlabel('(Ref Pos - label.dat Pos) / Ast. Error')
+    py.ylabel('N stars')
+    py.title('Position Diff/Errs for matched stars')
+    py.legend()
+    py.savefig('Positions_err_ratio_hist.png')
+
+    return
+
+
+def mag_diff_hist(ref_mat, starlist_mat, bins=25):
     """
     Plot histogram of mag differences for the matched
     stars: reference - starlist
@@ -117,7 +210,7 @@ def magDiff_hist(ref_mat, starlist_mat, bins=25):
 
     return
 
-def posDiff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, ylim=None):
+def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, ylim=None):
     """
     Plot histogram of position differences for the matched
     stars: reference - starlist
@@ -230,11 +323,11 @@ def vpd(ref, starlist_trans, vxlim, vylim):
 
     return
 
-def vel_hist(ref_mat, starlist_mat, bins=25):
+def vel_hist(ref_mat, starlist_mat, nbins=25, bin_width=None):
     """
-    Plot the distributions of the velocities in the reference list to
-    the transformed starlist. Obviously, we assume that both list have
-    velocities.
+    Plot the distributions of the velocity residuals in the reference list to
+    the transformed starlist, realtive to the velocity errors. We assume that
+    both lists have velocities and velocity errors
 
     Paramters:
     ----------
@@ -244,31 +337,58 @@ def vel_hist(ref_mat, starlist_mat, bins=25):
     starlist_mat: astropy table
          Transformed starlist, with velocities
 
-    bins: int (default=25)
-         Number of bins in the histogram
+    nbins: int
+        Number of bins used in histogram, regardless of data range. This is
+        ignored if bin_width != None
+
+    bin_width: None or float
+        If float, sets the width of the bins used in the histograms. Will override
+        nbins
     """
-    # Will produce 2-panel plot: Vx, and Vy
-    ref_vx = ref_mat['vx']
-    ref_vy = ref_mat['vy']
-    trans_vx = starlist_mat['vx']
-    trans_vy = starlist_mat['vy']
-    
+    # Will produce 2-panel plot: Vx resid and Vy resid
+    diff_vx = ref_mat['vx'] - starlist_mat['vx']
+    diff_vy = ref_mat['vy'] - starlist_mat['vy']
+
+    vx_err = np.hypot(ref_mat['vxe'], starlist_mat['vxe'])
+    vy_err = np.hypot(ref_mat['vye'], starlist_mat['vye'])
+
+    ratio_vx = diff_vx / vx_err
+    ratio_vy = diff_vy / vy_err
+
+    # Set the binning as per user input
+    xbins = nbins
+    ybins = nbins
+    if bin_width != None:
+        min_Xrange = min([min(ref_vx), min(trans_vx)])
+        max_Xrange = max([max(ref_vx), max(trans_vx)])
+
+        min_Yrange = min([min(ref_vy), min(trans_vy)])
+        max_Yrange = max([max(ref_vy), max(trans_vy)])        
+        
+        xbins = np.arange(min_Xrange, max_Xrange+bin_width, bin_width)
+        ybins = np.arange(min_Yrange, max_Yrange+bin_width, bin_width)
+
+    # Parameters for a Gaussian to be overplotted on each
+    mean = 0
+    sigma = 1
+    x = np.arange(-6, 6, 0.1)
+        
     py.figure(figsize=(20,10))
     py.subplot(121)
     py.subplots_adjust(left=0.1)
-    py.hist(ref_vx, bins=bins, histtype='step', color='red', label='Reference')
-    py.hist(trans_vx, bins=bins, histtype='step', color='blue', label='Transformed')
-    py.xlabel('Vx (reference units)')
+    py.hist(ratio_vx, bins=xbins, histtype='step', color='black', normed=True,
+            linewidth=2)
+    py.plot(x, mlab.normpdf(x,mean,sigma), 'r-', linewidth=2)
+    py.xlabel('(Ref Vx - Trans Vx) / Vxe')
     py.ylabel('N_stars')
-    py.title('Vx Distribution, Matched')
-    py.legend()
+    py.title('Vx Residuals, Matched')
     py.subplot(122)
-    py.hist(ref_vy, bins=bins, histtype='step', color='red', label='Reference')
-    py.hist(trans_vy, bins=bins, histtype='step', color='blue', label='Transformed')
-    py.xlabel('Vy (reference units)')
+    py.hist(ratio_vy, bins=ybins, histtype='step', color='black', normed=True,
+            linewidth=2)
+    py.plot(x, mlab.normpdf(x,mean,sigma), 'r-', linewidth=2)
+    py.xlabel('(Ref Vy - Trans Vy) / Vye')
     py.ylabel('N_stars')
-    py.title('Vy Distribution, Matched')
-    py.legend()
-    py.savefig('Vel_dist.png')
+    py.title('Vy Residuals, Matched')
+    py.savefig('Vel_err_ratio_dist.png')
 
     return
