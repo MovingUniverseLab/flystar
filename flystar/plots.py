@@ -32,8 +32,8 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat):
     """
     py.figure(figsize=(10,10))
     py.clf()
-    py.plot(ref['x'], ref['y'], 'g.', ms=5, label='Reference')
-    py.plot(starlist['x_trans'], starlist['y_trans'], 'r.', ms=5, label='Label.dat')
+    py.plot(ref['x'], ref['y'], 'g+', ms=5, label='Reference')
+    py.plot(starlist['x_trans'], starlist['y_trans'], 'rx', ms=5, label='Label.dat')
     py.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, linestyle='None', label='Matched Reference')
     py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, linestyle='None', label='Matched label.dat')
     py.xlabel('X position (Reference Coords)')
