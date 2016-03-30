@@ -31,8 +31,9 @@ def restrict_by_name(table1, table2):
 
 def restrict_by_area(table1, area):
     """
-    Restrict starlist to those within a specific area. Note: the output starlist
-    will ONLY contain stars that fulfills the area condition. 
+    Restrict starlist to those within a specific area. Returns the
+    indicies of the stars in table1 that fulfill this criteria. Area and table1
+    positions must be in consistent units in order for this to work.
 
     Parameters:
     ----------
@@ -42,12 +43,13 @@ def restrict_by_area(table1, area):
 
     area: 2x2 array [[x1, x2], [y1, y2]]
         X and Y coordinate range to restric the stars too. Only stars with
-        coordinates with x1 < X < x2 and y1 < Y < y2 will be allowed.
-    
+        coordinates with x1 < X < x2 and y1 < Y < y2 will be allowed. We
+        assume the area is given in same units as the table1 positions.
+        
     Output:
     ------
-    astropy table: same as input table, only with stars that pass the area
-    restriction
+    array of indicies corresponding to stars which are within the designated
+    area. 
     """
     # Extract star coordinates
     xpos = table1['x']
@@ -61,31 +63,40 @@ def restrict_by_area(table1, area):
     good = np.where( (xpos > x_range[0]) & (xpos < x_range[1]) &
                       (ypos > y_range[0]) & (ypos < y_range[1]) )
 
-    table_out = table1[good]
+    return good[0]
 
-    return table_out
-
-def restrict_by_use(label_mat_orig, label_mat, starlist_mat):
+def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
     """
     Restrict matching starlist to only those where the label_mat['use'] > 2.
-    This behaves the same way as the -restrict flag in java align. 
+    This behaves the same way as the -restrict flag in java align.
+
+    Return the indicies corresponding to the stars that fulfill this condition.
 
     Parameters:
     -----------
-    label_mat_orig: astropy table
-         Label.dat table containing the matched stars in the original coordinates.
-         Must have standard column headers.
-
     label_mat: astropy table
-         Label.dat table containing the matched stars in the reference coordinates.
-         Must have standard column headers.
+         Label.dat table containing the matched stars. Must have standard
+         column headers. Rows are assumed to match the starlist.
 
     starlist_mat: astropy table
          Reference table containing the matched stars. Must have standard column
-         headers
+         headers. Rows are assumed to match the label.dat file
+
+    idx_label: array of indicies
+        Indicies of the matched stars in the label catalog
+
+    idx_starlist: array of indicies
+        Indicies of the matched stars in the starlist.
          
     Output:
     -------
+    idx_label_f: array of indicies in the label catalog that fulfill the restrict
+    condition
+
+    idx_starlist_f: array of indicies in the starlist that fulfill the restrict
+    condition
+    
+    
     label_trim: astropy table
          label table with only use > 2 stars
 
@@ -99,12 +110,22 @@ def restrict_by_use(label_mat_orig, label_mat, starlist_mat):
     # Among label.dat matched stars, determine which are allowed by -restrict
     idx_restrict = np.where(label_mat['use'] !='0')
 
-    # Restrict tables to only these stars.
-    label_orig_trim = label_mat_orig[idx_restrict]
-    label_trim = label_mat[idx_restrict]
-    starlist_trim = starlist_mat[idx_restrict]
+    # Update the indicies of the matched stars to only include those which
+    # pass the restrict condition
+    idx_label_f = idx_label[idx_restrict]
+    idx_starlist_f = idx_starlist[idx_restrict]
 
-    return label_orig_trim, label_trim, starlist_trim
+    # Restrict tables to only these stars.
+    #label_orig_trim = label_mat_orig[idx_restrict]
+    #label_trim = label_mat[idx_restrict]
+    #starlist_trim = starlist_mat[idx_restrict]
+
+    #return label_orig_trim, label_trim, starlist_trim
+    print 'Restrict option activated'
+    print 'Keeping {0} of {1} stars'.format(len(idx_restrict),
+                                            len(label_mat))
+    
+    return idx_label_f, idx_starlist_f
 
 
 def read_label(labelFile, prop_to_time=None, flipX=True):
@@ -147,7 +168,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     ------
     labelFile: astropy.table. 
     containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r2d,
-    (if prop_to_time: x, y, xe, ye, tref)
+    (if prop_to_time: x, y, xe, ye, t)
     
     x and y is in arcsec, 
     converted to tref epoch, 
@@ -176,8 +197,8 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     t_label['vxe'] *= 0.001
     t_label['vye'] *= 0.001
 
-    t_label['x'] = t_label['x'] + t_label['vx']*(tref - t_label['t0'])
-    t_label['y'] = t_label['y'] + t_label['vy']*(tref - t_label['t0'])
+    t_label['x'] = t_label['x0'] + t_label['vx']*(tref - t_label['t0'])
+    t_label['y'] = t_label['y0'] + t_label['vy']*(tref - t_label['t0'])
     
     # flip the x axis, because lable.dat increase to the east,
     # reference frame increase to the west. Do this for velocity
@@ -190,7 +211,9 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
 
 def read_starlist(starlistFile, error=True):
     """
-    Read in a starlist file, rename columns with standard names
+    Read in a starlist file, rename columns with standard names.
+    Assumes the starlist is the reference, so we have time as
+    t and don't try to propogate positions to a different time.
 
     Parameter:
     ---------
@@ -231,12 +254,13 @@ def read_starlist(starlistFile, error=True):
     if error==True:
         t_ref.rename_column('col6', 'xe')
         t_ref.rename_column('col7', 'ye')
-        t_ref.rename_column('col8', 'snr')
-        t_ref.rename_column('col9', 'corr')
-        t_ref.rename_column('col10', 'N_frames')
-        t_ref.rename_column('col11', 'flux')
+        #t_ref.rename_column('col8', 'snr')
+        #t_ref.rename_column('col9', 'corr')
+        #t_ref.rename_column('col10', 'N_frames')
+        #t_ref.rename_column('col11', 'flux')
     else:
-        t_ref.rename_column('col7', 'corr')
-        t_ref.rename_column('col8', 'N_frames')        
+        pass
+        #t_ref.rename_column('col7', 'corr')
+        #t_ref.rename_column('col8', 'N_frames')        
         
     return t_ref 
