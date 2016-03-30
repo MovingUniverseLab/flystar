@@ -177,7 +177,10 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     # Restrict label.dat file to all stars within 15 arcseconds of central star
     # This is the area covered by the reference starlist
     area = [[-15, 15], [-15,15]]
-    label_r = starlists.restrict_by_area(label, area)
+    idx_area = starlists.restrict_by_area(label, area)
+    label_r = label[idx_area]
+    
+    pdb.set_trace()
 
     # Perform blind matching of 100 brightest stars and calculate initial transform
     trans = align.initial_align(label_r, starlist, briteN, transformModel=transModel,
@@ -220,7 +223,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
 
     plots.trans_positions(starlist, starlist_mat, label_trans, label_mat,
                           xlim=[-100, 1300], ylim=[-100, 1300])
-    plots.posDiff_hist(starlist_mat, label_mat)
+    plots.posDiff_hist(starlist_mat, label_mat, bin_width=0.001)
     plots.magDiff_hist(starlist_mat, label_mat)
     plots.posDiff_quiver(starlist_mat, label_mat)
     
