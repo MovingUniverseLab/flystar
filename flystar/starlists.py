@@ -17,7 +17,9 @@ def restrict_by_name(table1, table2):
 
     Output
     ------
-    table1_trim, table2_trim
+    -Array with indicies of named stars in table1
+    -Array with indicies of named stars from table2
+    -Number of named stars 
     """
 
     name1 = table1['name']
@@ -27,7 +29,7 @@ def restrict_by_name(table1, table2):
     idx1 = np.array([list(name1).index(i) for i in Name])
     idx2 = np.array([list(name2).index(i) for i in Name])
 
-    return table1[idx1], table2[idx2], len(idx1)
+    return idx1, idx2, len(idx1)
 
 def restrict_by_area(table1, area):
     """
