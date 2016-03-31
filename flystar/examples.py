@@ -190,23 +190,27 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     trans = align.initial_align(label_r, starlist, briteN, transformModel=transModel,
                                 order=order)
 
+    # Apply transformation to label.dat file, for weighting purposes
+    label_trans = align.transform_from_object(label, trans)
+    
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
-        label_mat_orig, label_mat, starlist_mat = align.transform_and_match(label,
-                                                                            starlist,
-                                                                            trans,
-                                                                            dr_tol=dr_tol,
-                                                                            dm_tol=dm_tol)
+     idx_label, idx_starlist = align.transform_and_match(label, starlist, trans,
+                                                         dr_tol=dr_tol, dm_tol=dm_tol)
 
         # Restrict to use > 2, if desired
         if restrict:
-            label_mat_orig, label_mat, starlist_mat = starlists.restrict_by_use(label_mat_orig,
-                                                                                label_mat,
-                                                                                starlist_mat)
+            idx_label, idx_starlist = starlists.restrict_by_use(label[idx_label],
+                                                                starlist[idx_starlist],
+                                                                idx_label,
+                                                                idx_starlist)
 
-        trans, N_trans = align.find_transform(label_mat_orig, label_mat, starlist_mat,
-                                              transModel=transModel, order=order,
+        trans, N_trans = align.find_transform(label[idx_label],
+                                              label_trans[idx_label],
+                                              starlist[idx_starlist],
+                                              transModel=transModel,
+                                              order=order,
                                               weights=weights)
 
     # Calculate delta mag (reference - starlist) for matching stars
