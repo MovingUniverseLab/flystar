@@ -169,6 +169,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     t_label.rename_column('col10','vye')
     t_label.rename_column('col11','t0')
     t_label.rename_column('col12','use')
+    t_label.rename_column('col13','r0')
 
     # Convert velocities from mas/yr to arcsec/year
     t_label['vx'] *= 0.001
@@ -176,14 +177,32 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     t_label['vxe'] *= 0.001
     t_label['vye'] *= 0.001
 
-    t_label['x'] = t_label['x'] + t_label['vx']*(tref - t_label['t0'])
-    t_label['y'] = t_label['y'] + t_label['vy']*(tref - t_label['t0'])
+    # propogate to prop_to_time if prop_to_time is given
+    if prop_to_time != None:
+        x0 = t_label['x0']
+        x0e = t_label['x0e']
+        vx = t_label['vx']
+        vxe = t_label['vxe']
+        y0 = t_label['y0']
+        y0e = t_label['y0e']
+        vy = t_label['vy']
+        vye = t_label['vye']
+        t0 = t_label['t0']
+        t_label['x'] = x0 + vx*(prop_to_time - t0)
+        t_label['y'] = y0 + vy*(prop_to_time - t0)
+        t_label['xe'] = np.sqrt(x0e**2 + (prop_to_time - t0)**2 * vxe**2)
+        t_label['ye'] = np.sqrt(y0e**2 + (prop_to_time - t0)**2 * vye**2)
+        t_label['x'].format = '.3f'
+        t_label['y'].format = '.3f'
+        t_label['xe'].format = '.3f'
+        t_label['ye'].format = '.3f'
     
-    # flip the x axis, because lable.dat increase to the east,
-    # reference frame increase to the west. Do this for velocity
-    # as well
-    t_label['x'] = t_label['x'] * (-1.0)
-    t_label['vx'] = t_label['vx'] * (-1.0)
+    # flip the x axis if flipX is True
+    if flipX == True:
+        t_label['x0'] = t_label['x0'] * (-1.0)
+        t_label['vx'] = t_label['vx'] * (-1.0)
+        if prop_to_time != None:
+            t_label['x'] = t_label['x'] * (-1.0)
     
     return t_label
 
