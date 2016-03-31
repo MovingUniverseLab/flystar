@@ -69,17 +69,21 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     trans = align.initial_align(label, starlist, briteN, transformModel=transModel,
                                 order=order)
 
+    # APPLY INITIAL TRANSFORMATION TO LABEL.DAT
+    
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
-        label_mat_orig, label_mat, starlist_mat = align.transform_and_match(label,
-                                                                            starlist,
-                                                                            trans,
-                                                                            dr_tol=dr_tol,
-                                                                            dm_tol=dm_tol)
-
-        trans, N_trans = align.find_transform(label_mat_orig, starlist_mat, transModel=transModel,
-                                     order=order, weights=weights)
+        idx_label, idx_starlist = align.transform_and_match(label, starlist,
+                                                            trans,
+                                                            dr_tol=dr_tol,
+                                                            dm_tol=dm_tol)
+        
+        trans, N_trans = align.find_transform(label[idx_label],
+                                              label_trans[idx_label],
+                                              starlist_mat[idx_starlist],
+                                              transModel=transModel,
+                                              order=order, weights=weights)
 
 
     # Write final transform in java align format
@@ -177,29 +181,36 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     # Restrict label.dat file to all stars within 15 arcseconds of central star
     # This is the area covered by the reference starlist
     area = [[-15, 15], [-15,15]]
-    label_r = starlists.restrict_by_area(label, area)
+    idx_area = starlists.restrict_by_area(label, area)
+    label_r = label[idx_area]
+    
+    pdb.set_trace()
 
     # Perform blind matching of 100 brightest stars and calculate initial transform
     trans = align.initial_align(label_r, starlist, briteN, transformModel=transModel,
                                 order=order)
 
+    # Apply transformation to label.dat file, for weighting purposes
+    label_trans = align.transform_from_object(label, trans)
+    
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
-        label_mat_orig, label_mat, starlist_mat = align.transform_and_match(label,
-                                                                            starlist,
-                                                                            trans,
-                                                                            dr_tol=dr_tol,
-                                                                            dm_tol=dm_tol)
+     idx_label, idx_starlist = align.transform_and_match(label, starlist, trans,
+                                                         dr_tol=dr_tol, dm_tol=dm_tol)
 
         # Restrict to use > 2, if desired
         if restrict:
-            label_mat_orig, label_mat, starlist_mat = starlists.restrict_by_use(label_mat_orig,
-                                                                                label_mat,
-                                                                                starlist_mat)
+            idx_label, idx_starlist = starlists.restrict_by_use(label[idx_label],
+                                                                starlist[idx_starlist],
+                                                                idx_label,
+                                                                idx_starlist)
 
-        trans, N_trans = align.find_transform(label_mat_orig, label_mat, starlist_mat,
-                                              transModel=transModel, order=order,
+        trans, N_trans = align.find_transform(label[idx_label],
+                                              label_trans[idx_label],
+                                              starlist[idx_starlist],
+                                              transModel=transModel,
+                                              order=order,
                                               weights=weights)
 
     # Calculate delta mag (reference - starlist) for matching stars
@@ -220,7 +231,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
 
     plots.trans_positions(starlist, starlist_mat, label_trans, label_mat,
                           xlim=[-100, 1300], ylim=[-100, 1300])
-    plots.posDiff_hist(starlist_mat, label_mat)
+    plots.posDiff_hist(starlist_mat, label_mat, bin_width=0.001)
     plots.magDiff_hist(starlist_mat, label_mat)
     plots.posDiff_quiver(starlist_mat, label_mat)
     
