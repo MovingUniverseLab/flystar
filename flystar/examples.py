@@ -183,8 +183,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     area = [[-15, 15], [-15,15]]
     idx_area = starlists.restrict_by_area(label, area)
     label_r = label[idx_area]
-    
-    pdb.set_trace()
+
 
     # Perform blind matching of 100 brightest stars and calculate initial transform
     trans = align.initial_align(label_r, starlist, briteN, transformModel=transModel,
