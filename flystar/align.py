@@ -142,7 +142,7 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     return idx1, idx2
 
 
-def find_transform(table1, table2, idx1, idx2, trans, transModel=transforms.four_paramNW, order=1, 
+def find_transform(table1, table1_trans, table2, trans, transModel=transforms.four_paramNW, order=1, 
                 weights=None):
     """
     Given a matched starlist, derive a new transform. This transformation is
@@ -151,21 +151,18 @@ def find_transform(table1, table2, idx1, idx2, trans, transModel=transforms.four
     Parameters:
     -----------
     table1: astropy table
-        Table which we have calculated the transformation for. Original coords,
-        not transformed into reference frame.
+        Table which we have calculated the transformation for, trimmed to only
+        stars which match with table2. Original coords, not transformed into
+        reference frame.
+
+    table1_trans: astropy table
+        Table which we calculated the transformation fo, trimmed to only
+        stars which match with table2. Contains transformed coords. Only
+        used when calculating weights.
 
     table2: astropy table
-        Table with the reference starlist
-
-    idx1: array
-        Array of indicies corresponding to the stars in table1 which were
-        successfully matched by transform_and_match. The matched stars
-        are in the same order as the matched stars in table2[idx2]
-
-    idx2: array
-        Array of indicies corresponding to the stars in table2 which were
-        successfully matched by transform_and_match. The matched stars are
-        in the same order as the matched stars in table1[idx1]
+        Table with the reference starlist. Trimmed to only stars which
+        match table1.
 
     trans: transformation object
         Transformation used to transform table1 coords in transform_and_match
@@ -200,26 +197,22 @@ def find_transform(table1, table2, idx1, idx2, trans, transModel=transforms.four
     
     # Extract *untransformed* coordinates from starlist 1 
     # and the matching coordinates from starlist 2
-    x1 = table1['x'][idx1]
-    y1 = table1['y'][idx1]
-    x2 = table2['x'][idx2]
-    y2 = table2['y'][idx2]
+    x1 = table1['x']
+    y1 = table1['y']
+    x2 = table2['x']
+    y2 = table2['y']
 
     # calculate weights from *transformed* coords. This is where we use the
     # transformation object
-    table1T = copy.deepcopy(table1)
-    table1T = transform_by_object(table1T, trans)
-    table1T_mat = table1T[idx1]
-    
-    x1e = table1T_mat['xe']
-    y1e = table1T_mat['ye']
-    vx1e = table1T_mat['vxe']
-    vy1e = table1T_mat['vye']
-    t0 = table1T_mat['t0']
+    x1e = table1_trans['xe']
+    y1e = table1_trans['ye']
+    vx1e = table1_trans['vxe']
+    vy1e = table1_trans['vye']
+    t0 = table1_trans['t0']
 
-    x2e = table2['x'][idx2]
-    y2e = table2['y'][idx2]
-    t2 = table2['t'][idx2]
+    x2e = table2['x']
+    y2e = table2['y']
+    t2 = table2['t']
     delt = t2-t0
 
     # Calculate weights as to user specification
@@ -325,20 +318,24 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
     _out.write('## Delta Mag: {0}\n'.format(deltaMag))
     _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
     
-
     # Write the coefficients such that the orders are together as defined in
     # documentation. This is a pain because PolyTransform output is weird.
     # (see astropy Polynomial2D documentation)
-    if (trans_name == 'four_paramNW') | (trans_order == 1):
+    if (trans_name == 'four_paramNW'):
         for i in range(len(Xcoeff)):
             _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
-    elif (trans_name == 'PolyTransform') & (trans_order == 2):
-        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[0], Ycoeff[0]) )
-        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[1], Ycoeff[1]) )
-        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[3], Ycoeff[3]) )
-        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[2], Ycoeff[2]) )
-        _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[5], Ycoeff[5]) )
-        _out.write('{0:16.6e}  {1:16.6e}'.format(Xcoeff[4], Ycoeff[4]) )
+    elif (trans_name == 'PolyTransform'):
+        # CODE TO GET INDICIES 
+        
+        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[0], Ycoeff[0]) )
+        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[1], Ycoeff[1]) )
+        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[3], Ycoeff[3]) )
+        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[2], Ycoeff[2]) )
+        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[5], Ycoeff[5]) )
+        #_out.write('{0:16.6e}  {1:16.6e}'.format(Xcoeff[4], Ycoeff[4]) )
+
+        for i in idx_list:
+            _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
 
     else:
         print '{0} order {1} not yet supported in write_transform'.format(trans_name,
