@@ -142,7 +142,7 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     table1 = table1[idx1]
     table2 = table2[idx2]
     table1T = Table.copy(table1)
-    table1T = transform_by_object(table1T, transform)
+    table1T = transform_from_object(table1T, transform)
 
     print '{0} of {1} stars matched'.format(len(table1), len(x1t))
 
@@ -344,7 +344,7 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
     return
 
 
-def transform_by_file(starlist, transFile):
+def transform_from_file(starlist, transFile):
     """
     Apply transformation from transFile to starlist. Returns astropy table with
     added columns with the transformed coordinates. NOTE: Transforms
@@ -460,7 +460,7 @@ def transform_by_file(starlist, transFile):
     return starlist
 
 
-def transform_by_object(starlist, transform):
+def transform_from_object(starlist, transform):
     """
     Apply transformation to starlist. Returns astropy table with
     transformed positions/position errors, velocities and velocity errors 
@@ -471,14 +471,15 @@ def transform_by_object(starlist, transform):
     starlist: astropy table
          Starlist we want to apply the transformation too. Must already
          have standard column headers
+         x0, y0, x0e, y0e, vx, vy, vxe, vye, x, y, xe, ye
 
     transform: transformation object
-        File with the transformation coefficients. Assumed to be output of
-        write_transform
 
     Output:
     ------
-    starlist astropy table with transformed x,y,xe,ye,vx,vy,vxe,vye
+    starlist astropy table with transformed x0, y0, x0e, y0e,
+    vx, vy, vxe, vye, x, y, xe, ye
+
     """
 
     # Check to see if velocities are present in starlist. If so, we will
@@ -489,30 +490,265 @@ def transform_by_object(starlist, transform):
         vel = True 
     
     # Extract needed information from starlist
-    x_orig = starlist['x']
-    y_orig = starlist['y']
-    xe_orig = starlist['xe']
-    ye_orig = starlist['ye']
+    x = starlist['x']
+    y = starlist['y']
+    xe = starlist['xe']
+    ye = starlist['ye']
 
     if vel:
-        vx_orig = starlist['vx']
-        vy_orig = starlist['vy']
-        vxe_orig = starlist['vxe']
-        vye_orig = starlist['vye']
+        x0 = starlist['x0']
+        y0 = starlist['y0']
+        x0e = starlist['x0e']
+        y0e = starlist['y0e']
+        vx = starlist['vx']
+        vy = starlist['vy']
+        vxe = starlist['vxe']
+        vye = starlist['vye']
     
     # Read transformation: Extract X, Y coefficients from transform
     if transform.__class__.__name__ == 'four_paramNW':
         Xcoeff = transform.px
         Ycoeff = transform.py
+        order = 1
     elif transform.__class__.__name__ == 'PolyTransform':
         Xcoeff = transform.px.parameters
         Ycoeff = transform.py.parameters
+        order = transform.order
     else:
         print '{0} not yet supported!'.format(transType)
         return
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
+    N = order - 1
+
+    # x_new & y_new in (x,y)
+    x_new = 0
+    for i in range(0, N+2):
+        x_new += Xcoeff[i] * (x**i)
+    for j in range(1, N+2):
+        x_new += Xcoeff[N+1+j] * (y**j)
+    for i in range(1, N+1):
+        for j in range(1, N+2-i):
+            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            x_new += Xcoeff[sub] * (x**i) * (y**j)
+
+    y_new = 0
+    for i in range(0, N+2):
+        y_new += Ycoeff[i] * (x**i)
+    for j in range(1, N+2):
+        y_new += Ycoeff[N+1+j] * (y**j)
+    for i in range(1, N+1):
+        for j in range(1, N+2-i):
+            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            y_new += Ycoeff[sub] * (x**i) * (y**j)
+
+    # xe_new & ye_new in (x,y,xe,ye)
+    xe_new = 0
+    temp1 = 0
+    temp2 = 0
+    for i in range(1, N+2):
+        temp1 += i * Xcoeff[i] * (x**(i-1))
+    for i in range(1, N+1):
+        for j in range(1, N+2-i):
+            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            temp1 += i * Xcoeff[sub] * (x**(i-1)) * (y**j)
+    for j in range(1, N+2):
+        temp2 += j * Xcoeff[N+1+j] * (y**(j-1))
+    for i in range(1, N+1):
+        for j in range(N+2-i):
+            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            temp2 += j * Xcoeff[sub] * (x**i) * (y**(j-1))
+    xe_new = np.sqrt((temp1*xe)**2 + (temp2*ye)**2)
+
+    ye_new = 0
+    temp1 = 0
+    temp2 = 0
+    for i in range(1, N+2):
+        temp1 += i * Ycoeff[i] * (x**(i-1))
+    for i in range(1, N+1):
+        for j in range(1, N+2-i):
+            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            temp1 += i * Ycoeff[sub] * (x**(i-1)) * (y**j)
+    for j in range(1, N+2):
+        temp2 += j * Ycoeff[N+1+j] * (y**(j-1))
+    for i in range(1, N+1):
+        for j in range(N+2-i):
+            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            temp2 += j * Ycoeff[sub] * (x**i) * (y**(j-1))
+    ye_new = np.sqrt((temp1*xe)**2 + (temp2*ye)**2)
+
+
+    if vel:
+        # x0_new & y0_new in (x0, y0)
+        x0_new = 0
+        for i in range(0, N+2):
+            x0_new += Xcoeff[i] * (x0**i)
+        for j in range(1, N+2):
+            x0_new += Xcoeff[N+1+j] * (y0**j)
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                x0_new += Xcoeff[sub] * (x0**i) * (y0**j)
+
+        y0_new = 0
+        for i in range(0, N+2):
+            y0_new += Ycoeff[i] * (x0**i)
+        for j in range(1, N+2):
+            y0_new += Ycoeff[N+1+j] * (y0**j)
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                y0_new += Ycoeff[sub] * (x0**i) * (y0**j)
+
+        # x0e_new & y0e_new in (x0, y0, x0e, y0e)
+        x0e_new = 0
+        temp1 = 0
+        temp2 = 0
+        for i in range(1, N+2):
+            temp1 += i * Xcoeff[i] * (x0**(i-1))
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp1 += i * Xcoeff[sub] * (x0**(i-1)) * (y0**j)
+        for j in range(1, N+2):
+            temp2 += j * Xcoeff[N+1+j] * (y0**(j-1))
+        for i in range(1, N+1):
+            for j in range(N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp2 += j * Xcoeff[sub] * (x0**i) * (y0**(j-1))
+        x0e_new = np.sqrt((temp1*x0e)**2 + (temp2*y0e)**2)
+
+        y0e_new = 0
+        temp1 = 0
+        temp2 = 0
+        for i in range(1, N+2):
+            temp1 += i * Ycoeff[i] * (x0**(i-1))
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp1 += i * Ycoeff[sub] * (x0**(i-1)) * (y0**j)
+        for j in range(1, N+2):
+            temp2 += j * Ycoeff[N+1+j] * (y0**(j-1))
+        for i in range(1, N+1):
+            for j in range(N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp2 += j * Ycoeff[sub] * (x0**i) * (y0**(j-1))
+        y0e_new = np.sqrt((temp1*x0e)**2 + (temp2*y0e)**2)
+
+        # vx_new & vy_new in (x0, y0, vx, vy)
+        vx_new = 0
+        for i in range(1, N+2):
+            vx_new += i * Xcoeff[i] * (x0**(i-1)) * vx
+        for j in range(1, N+2):
+            vx_new += j * Xcoeff[N+1+j] * (y0**(j-1)) * vy
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                vx_new += i * Xcoeff[sub] * (x0**(i-1)) * (y0**j) * vx
+                vx_new += j * Xcoeff[sub] * (x0**i) * (y0**(j-1)) * vy
+
+        vy_new = 0
+        for i in range(1, N+2):
+            vy_new += i * Ycoeff[i] * (x0**(i-1)) * vx
+        for j in range(1, N+2):
+            vy_new += j * Ycoeff[N+1+j] * (y0**(j-1)) * vy
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                vy_new += i * Ycoeff[sub] * (x0**(i-1)) * (y0**j) * vx
+                vy_new += j * Ycoeff[sub] * (x0**i) * (y0**(j-1)) * vy
+
+        # vxe_new & vye_new in (x0, y0, x0e, y0e, vx, vy, vxe, vye)
+        vxe_new = 0
+        temp1 = 0
+        temp2 = 0
+        temp3 = 0
+        temp4 = 0
+        for i in range(2, N+2):
+            temp1 += i * (i-1) * Xcoeff[i] * (x0**(i-2)) * vx
+        for i in range(2, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp1 += i * (i-1) * Xcoeff[sub] * (x0**(i-2)) * (y0**j) * vx
+        for i in range(1,N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp1 += j * i * Xcoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vy
+
+        for j in range(2, N+2):
+            temp2 += j * (j-1) * Xcoeff[N+1+j] * (y0**(j-2)) * vy
+        for i in range(1, N+1):
+            for j in range(2, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp2 += j * (j-1) * Xcoeff[sub] * (x0**i) * (y0**(j-2)) * vy
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp2 += i * j * Xcoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vx
+
+        for i in range(1, N+2):
+            temp3 += i * Xcoeff[i] * (x0**(i-1))
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp3 += i * Xcoeff[sub] * (x0**(i-1)) * (y0**j) 
+
+        for j in range(1, N+2):
+            temp4 += j * Xcoeff[N+1+j] * (y0**(j-1))
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp4 += j * Xcoeff[sub] * (x0**i) * (y0**(j-1))
+        vxe_new = np.sqrt((temp1*x0e)**2 + (temp2*y0e)**2 + (temp3*vxe)**2 + (temp4*vye)**2)
+
+
+        vye_new = 0
+        temp1 = 0
+        temp2 = 0
+        temp3 = 0
+        temp4 = 0
+        for i in range(2, N+2):
+            temp1 += i * (i-1) * Ycoeff[i] * (x0**(i-2)) * vx
+        for i in range(2, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp1 += i * (i-1) * Ycoeff[sub] * (x0**(i-2)) * (y0**j) * vx
+        for i in range(1,N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp1 += j * i * Ycoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vy
+
+        for j in range(2, N+2):
+            temp2 += j * (j-1) * Ycoeff[N+1+j] * (y0**(j-2)) * vy
+        for i in range(1, N+1):
+            for j in range(2, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp2 += j * (j-1) * Ycoeff[sub] * (x0**i) * (y0**(j-2)) * vy
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp2 += i * j * Ycoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vx
+
+        for i in range(1, N+2):
+            temp3 += i * Ycoeff[i] * (x0**(i-1))
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp3 += i * Ycoeff[sub] * (x0**(i-1)) * (y0**j) 
+
+        for j in range(1, N+2):
+            temp4 += j * Ycoeff[N+1+j] * (y0**(j-1))
+        for i in range(1, N+1):
+            for j in range(1, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp4 += j * Ycoeff[sub] * (x0**i) * (y0**(j-1))
+        vye_new = np.sqrt((temp1*x0e)**2 + (temp2*y0e)**2 + (temp3*vxe)**2 + (temp4*vye)**2)
+
+
+
+    """
+
     if len(Xcoeff) == 3:
         x_new = Xcoeff[0] + Xcoeff[1] * x_orig + Xcoeff[2] * y_orig
         y_new = Ycoeff[0] + Ycoeff[1] * x_orig + Ycoeff[2] * y_orig
@@ -554,7 +790,8 @@ def transform_by_object(starlist, transform):
                                (Ycoeff[3] + 2*Ycoeff[4]*y_orig + Ycoeff[5]*x_orig)**2 * vye_orig**2 + \
                                (2*Ycoeff[2]*vx_orig + Ycoeff[5]*vy_orig)**2 * xe_orig**2 + \
                                (2*Ycoeff[4]*vy_orig + Ycoeff[5]*vx_orig)**2 * ye_orig**2 )
-        
+    """
+
     # update transformed coords to astropy table
 
     starlist['x'] = x_new
@@ -563,6 +800,10 @@ def transform_by_object(starlist, transform):
     starlist['ye'] = ye_new
     
     if vel:
+        starlist['x0'] = x_new
+        starlist['y0'] = y_new
+        starlist['x0e'] = xe_new
+        starlist['y0e'] = ye_new
         starlist['vx'] = vx_new
         starlist['vy'] = vy_new
         starlist['vxe'] = vxe_new
