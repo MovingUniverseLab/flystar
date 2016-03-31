@@ -347,7 +347,7 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
     return
 
 
-def transform_by_file(starlist, transFile):
+def transform_from_file(starlist, transFile):
     """
     Apply transformation from transFile to starlist. Returns astropy table with
     added columns with the transformed coordinates. NOTE: Transforms
@@ -463,7 +463,7 @@ def transform_by_file(starlist, transFile):
     return starlist
 
 
-def transform_by_object(starlist, transform):
+def transform_from_object(starlist, transform):
     """
     Apply transformation to starlist. Returns astropy table with
     transformed positions/position errors, velocities and velocity errors 
