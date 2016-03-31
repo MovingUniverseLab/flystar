@@ -1,8 +1,8 @@
-import transforms
-import match
-import align
-import starlists
-import plots
+from flystar import transforms
+from flystar import match
+from flystar import align
+from flystar import starlists
+from flystar import plots
 import numpy as np
 import pdb
 
