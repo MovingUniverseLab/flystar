@@ -69,17 +69,21 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     trans = align.initial_align(label, starlist, briteN, transformModel=transModel,
                                 order=order)
 
+    # APPLY INITIAL TRANSFORMATION TO LABEL.DAT
+    
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
-        label_mat_orig, label_mat, starlist_mat = align.transform_and_match(label,
-                                                                            starlist,
-                                                                            trans,
-                                                                            dr_tol=dr_tol,
-                                                                            dm_tol=dm_tol)
-
-        trans, N_trans = align.find_transform(label_mat_orig, starlist_mat, transModel=transModel,
-                                     order=order, weights=weights)
+        idx_label, idx_starlist = align.transform_and_match(label, starlist,
+                                                            trans,
+                                                            dr_tol=dr_tol,
+                                                            dm_tol=dm_tol)
+        
+        trans, N_trans = align.find_transform(label[idx_label],
+                                              label_trans[idx_label],
+                                              starlist_mat[idx_starlist],
+                                              transModel=transModel,
+                                              order=order, weights=weights)
 
 
     # Write final transform in java align format
