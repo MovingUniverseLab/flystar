@@ -266,7 +266,7 @@ def read_starlist(starlistFile, error=True):
     starlist astropy table. 
     containing: name, m, x, y, xe, ye, t  
     """
-    t_ref = Table.read(starlistFile, format='ascii')
+    t_ref = Table.read(starlistFile, format='ascii', delimiter='\s')
     t_ref.rename_column('col1', 'name')
     t_ref.rename_column('col2', 'm')
     t_ref.rename_column('col3', 't')
@@ -275,13 +275,12 @@ def read_starlist(starlistFile, error=True):
     if error==True:
         t_ref.rename_column('col6', 'xe')
         t_ref.rename_column('col7', 'ye')
-        #t_ref.rename_column('col8', 'snr')
-        #t_ref.rename_column('col9', 'corr')
-        #t_ref.rename_column('col10', 'N_frames')
-        #t_ref.rename_column('col11', 'flux')
+        t_ref.rename_column('col8', 'snr')
+        t_ref.rename_column('col9', 'corr')
+        t_ref.rename_column('col10', 'N_frames')
+        t_ref.rename_column('col11', 'flux')
     else:
-        pass
-        #t_ref.rename_column('col7', 'corr')
-        #t_ref.rename_column('col8', 'N_frames')        
+        t_ref.rename_column('col7', 'corr')
+        t_ref.rename_column('col8', 'N_frames')        
         
     return t_ref 
