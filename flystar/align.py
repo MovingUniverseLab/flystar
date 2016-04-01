@@ -347,10 +347,6 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
         for i in idx_list:
             _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
 
-    else:
-        print '{0} order {1} not yet supported in write_transform'.format(trans_name,
-                                                                          trans_order)
-        print 'Stopping'
 
     _out.close()
     
