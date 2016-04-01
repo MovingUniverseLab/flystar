@@ -142,7 +142,7 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     return idx1, idx2
 
 
-def find_transform(table1, table1_trans, table2, trans, transModel=transforms.four_paramNW, order=1, 
+def find_transform(table1, table1_trans, table2, transModel=transforms.four_paramNW, order=1, 
                 weights=None):
     """
     Given a matched starlist, derive a new transform. This transformation is
@@ -206,22 +206,15 @@ def find_transform(table1, table1_trans, table2, trans, transModel=transforms.fo
     # transformation object
     x1e = table1_trans['xe']
     y1e = table1_trans['ye']
-    vx1e = table1_trans['vxe']
-    vy1e = table1_trans['vye']
-    t0 = table1_trans['t0']
 
-    x2e = table2['x']
-    y2e = table2['y']
-    t2 = table2['t']
-    delt = t2-t0
+    x2e = table2['xe']
+    y2e = table2['ye']
 
     # Calculate weights as to user specification
     if weights=='both':
-        weight = 1/np.sqrt( x1e**2 + (vx1e * delt)**2 + x2e**2 + 
-                            y1e**2 + (vy1e * delt)**2 + y2e**2)
+        weight = 1/np.sqrt( x1e**2 + y1e**2 + x2e**2 + y2e**2)
     elif weights=='starlist':
-        weight = 1/np.sqrt( x1e**2 + (vx1e * delt)**2 + 
-                            y1e**2 + (vy1e * delt)**2 )
+        weight = 1/np.sqrt( x1e**2 + y1e**2 )
     elif weights=='reference':
         weight = 1/np.sqrt( x2e**2 +  y2e**2)
     else:
@@ -237,7 +230,7 @@ def find_transform(table1, table1_trans, table2, trans, transModel=transforms.fo
     return t, N_trans
 
 
-def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, restrict=False, weights=None,
+def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restrict=False, weights=None,
                     outFile='outTrans.txt'):
     """
     Given a transformation object, write out the coefficients in a java align
@@ -249,7 +242,7 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
 
     Parameters:
     ----------
-    transformation: transformation object
+    transform: transformation object
         Transformation object we want to feed into java align
 
     starlist: string
@@ -288,16 +281,16 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
     txt file with the file name outFile
     """
     # Extract info about transformation
-    trans_name = transformation.__class__.__name__
-    trans_order = transformation.order
+    trans_name = transform.__class__.__name__
+    trans_order = transform.order
       
     # Extract X, Y coefficients from transform
     if trans_name == 'four_paramNW':
-        Xcoeff = transformation.px
-        Ycoeff = transformation.py
+        Xcoeff = transform.px
+        Ycoeff = transform.py
     elif trans_name == 'PolyTransform':
-        Xcoeff = transformation.px.parameters
-        Ycoeff = transformation.py.parameters
+        Xcoeff = transform.px.parameters
+        Ycoeff = transform.py.parameters
     else:
         print '{0} not yet supported!'.format(transType)
         return
@@ -309,8 +302,8 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
     _out.write('## Date: {0}\n'.format(datetime.date.today()) )
     _out.write('## File: {0}, Reference: {1}\n'.format(starlist, reference) )
     _out.write('## Directory: {0}\n'.format(os.getcwd()) )
-    _out.write('## Transform Class: {0}\n'.format(transformation.__class__.__name__))
-    _out.write('## Order: {0}\n'.format(transformation.order))
+    _out.write('## Transform Class: {0}\n'.format(transform.__class__.__name__))
+    _out.write('## Order: {0}\n'.format(transform.order))
     _out.write('## Restrict: {0}\n'.format(restrict))
     _out.write('## Weights: {0}\n'.format(weights))
     _out.write('## N_coeff: {0}\n'.format(len(Xcoeff)))
@@ -326,7 +319,24 @@ def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, re
             _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
     elif (trans_name == 'PolyTransform'):
         # CODE TO GET INDICIES 
+        N = trans_order - 1 
+        idx_list = list()
         
+        # when trans_order=1, N=0
+        idx_list.append(0)
+        idx_list.append(1)
+        idx_list.append(N+2)
+        
+        if trans_order >= 2:
+            for k in range(2, N+2):
+                idx_list.append(k)
+                for j in range(1, k):
+                    i = k-j
+                    idx_list.append(int(2*N +2 +j + (2*N+2-i)*(i-1)/2.))
+                idx_list.append(N+1+k)
+
+            
+
         #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[0], Ycoeff[0]) )
         #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[1], Ycoeff[1]) )
         #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[3], Ycoeff[3]) )
@@ -677,18 +687,18 @@ def transform_from_object(starlist, transform):
         for i in range(1,N+1):
             for j in range(1, N+2-i):
                 sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-                temp1 += j * i * Xcoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vy
+                temp1 += i * j * Xcoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vy
 
         for j in range(2, N+2):
             temp2 += j * (j-1) * Xcoeff[N+1+j] * (y0**(j-2)) * vy
         for i in range(1, N+1):
-            for j in range(2, N+2-i):
-                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-                temp2 += j * (j-1) * Xcoeff[sub] * (x0**i) * (y0**(j-2)) * vy
-        for i in range(1, N+1):
             for j in range(1, N+2-i):
                 sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
                 temp2 += i * j * Xcoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vx
+        for i in range(1, N+1):
+            for j in range(2, N+2-i):
+                sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+                temp2 += j * (j-1) * Xcoeff[sub] * (x0**i) * (y0**(j-2)) * vy
 
         for i in range(1, N+2):
             temp3 += i * Xcoeff[i] * (x0**(i-1))
@@ -803,10 +813,10 @@ def transform_from_object(starlist, transform):
     starlist['ye'] = ye_new
     
     if vel:
-        starlist['x0'] = x_new
-        starlist['y0'] = y_new
-        starlist['x0e'] = xe_new
-        starlist['y0e'] = ye_new
+        starlist['x0'] = x0_new
+        starlist['y0'] = y0_new
+        starlist['x0e'] = x0e_new
+        starlist['y0e'] = y0e_new
         starlist['vx'] = vx_new
         starlist['vy'] = vy_new
         starlist['vxe'] = vxe_new
