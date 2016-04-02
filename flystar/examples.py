@@ -4,6 +4,7 @@ from flystar import align
 from flystar import starlists
 from flystar import plots
 import numpy as np
+import copy
 import pdb
 
 
@@ -100,7 +101,8 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                  dr_tol=1.0, dm_tol=None, briteN=100, weights=None, restrict=False,
                  outFile='outTrans.txt'):
     """
-    Application of flystar code to align Arches label.dat and reference starlist. 
+    Application of flystar code to align Arches label.dat and reference starlist.
+    Transforming the label file into the frame of the reference starlist.
 
     Parameters:
     -----------
@@ -184,20 +186,19 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     idx_area = starlists.restrict_by_area(label, area)
     label_r = label[idx_area]
 
-
     # Perform blind matching of 100 brightest stars and calculate initial transform
     trans = align.initial_align(label_r, starlist, briteN, transformModel=transModel,
                                 order=order)
-
-    # Apply transformation to label.dat file, for weighting purposes
+    
+    # Apply transformation to label.dat file, for weighting purposes.
     label_trans = align.transform_from_object(label, trans)
     
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
-     idx_label, idx_starlist = align.transform_and_match(label, starlist, trans,
-                                                         dr_tol=dr_tol, dm_tol=dm_tol)
-
+        idx_label, idx_starlist = align.transform_and_match(label, starlist,
+                                                            trans, dr_tol=dr_tol,
+                                                            dm_tol=dm_tol)
         # Restrict to use > 2, if desired
         if restrict:
             idx_label, idx_starlist = starlists.restrict_by_use(label[idx_label],
@@ -213,15 +214,17 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                                               weights=weights)
 
     # Calculate delta mag (reference - starlist) for matching stars
-    delta_m = np.mean(starlist_mat['m'] - label_mat['m'])
-    
+    delta_m = np.mean(starlist[idx_starlist]['m'] - label[idx_label]['m'])
+
     # Write final transform in java align format
     print 'Write transform to {0}'.format(outFile)
     align.write_transform(trans, labelFile, reference, N_trans, deltaMag=delta_m,
                           restrict=restrict, weights=weights, outFile=outFile)
     
     # Test transform: apply to label.dat, make diagnostic plots
-    label_trans = align.transform_by_file(label, outFile)
+    label_trans2 = align.transform_from_file(label, outFile)
+
+    pdb.set_trace()
 
     #--------------------#
     # Diagnostic plots
