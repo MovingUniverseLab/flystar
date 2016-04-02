@@ -404,6 +404,7 @@ def transform_from_file(starlist, transFile):
     #-----------------------------------------------#
     # General equation for applying the transform
     #-----------------------------------------------#
+    #"""
     # First determine the order based on the number of terms
     # Comes from Nterms = (N+1)*(N+2) / 2.
     order = (np.sqrt(1 + 8*len(Xcoeff)) - 3) / 2.
@@ -465,8 +466,8 @@ def transform_from_file(starlist, transFile):
         idx = 0
         for i in range(order+1):
             for j in range(i+1):
-                vx_new += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * ye_orig
-                vy_new += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * ye_orig         
+                vx_new += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig
+                vy_new += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig         
 
                 idx += 1
             
@@ -487,9 +488,9 @@ def transform_from_file(starlist, transFile):
         idx = 0
         for i in range(order+1):
             for j in range(i+1):
-                vxe_new_sq += (Xcoeff[idx] * (i-j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
+                vxe_new_sq += (Xcoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
                   (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
-                vye_new_sq += (Ycoeff[idx] * (i-j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
+                vye_new_sq += (Ycoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
                   (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
 
                 idx += 1
@@ -508,6 +509,7 @@ def transform_from_file(starlist, transFile):
                 vxe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2.        
                 vye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2. 
 
+                idx += 1
 
         vxe_new = np.sqrt(vxe_new_sq)
         vye_new = np.sqrt(vye_new_sq)
