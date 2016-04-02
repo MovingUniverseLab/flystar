@@ -4,6 +4,7 @@ import match
 import transforms
 from astropy.table import Table, Column
 import datetime
+import copy
 import os
 import pdb
 
@@ -226,7 +227,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
     N_trans = len(x1)
     print '{0} stars used in transform\n'.format(N_trans)
 
-    # Return transformation object and number of stars used in transform
+    # Ret3urn transformation object and number of stars used in transform
     return t, N_trans
 
 
@@ -270,7 +271,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
             of this uncertanty.
         if weights=='starlist', we only use postion error and velocity error in transformed
         starlist as uncertainty.
-        if weights=='reference', we only use position error in reference starlist as uncertainty.
+        if weights=='reference', we only use position error in reference starlist as uncertainty
         if weights==None, we don't use weights.
 
     outFile: string (default: 'outTrans.txt')
@@ -335,8 +336,6 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
                     idx_list.append(int(2*N +2 +j + (2*N+2-i)*(i-1)/2.))
                 idx_list.append(N+1+k)
 
-            
-
         #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[0], Ycoeff[0]) )
         #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[1], Ycoeff[1]) )
         #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[3], Ycoeff[3]) )
@@ -372,9 +371,12 @@ def transform_from_file(starlist, transFile):
 
     Output:
     ------
-    starlist astropy table with additional columns (x_trans/y_trans, xe_trans/ye_trans,
-    vx_trans/vy_trans, vxe_trans/vye_trans) containing the transformed coordinates. 
+    Copy of starlist astropy table with transformed coordinates.  
     """
+    # Make a copy of starlist. This is what we will eventually modify with
+    # the transformed coordinates
+    starlist_f = copy.deepcopy(starlist)
+    
     # Check to see if velocities are present in starlist. If so, we will
     # need to transform these as well as positions
     vel = False
@@ -399,6 +401,118 @@ def transform_from_file(starlist, transFile):
     Xcoeff = trans['Xcoeff']
     Ycoeff = trans['Ycoeff']
 
+    #-----------------------------------------------#
+    # General equation for applying the transform
+    #-----------------------------------------------#
+    # First determine the order based on the number of terms
+    # Comes from Nterms = (N+1)*(N+2) / 2.
+    order = (np.sqrt(1 + 8*len(Xcoeff)) - 3) / 2.
+
+    if order%1 != 0:
+        print 'Incorrect number of coefficients for polynomial'
+        print 'Stopping'
+        return
+    order = int(order)
+
+    # Position loop
+    idx = 0 # coeff index
+    x_new = 0.0
+    y_new = 0.0
+    for i in range(order+1):
+        for j in range(i+1):
+            x_new += Xcoeff[idx] * x_orig**(i-j) * y_orig**j
+            y_new += Ycoeff[idx] * x_orig**(i-j) * y_orig**j
+
+            idx += 1
+
+    # Position error loop
+    idx = 0
+    xe_new_sq = 0.0
+    ye_new_sq = 0.0
+    # First loop: dx'/dx
+    for i in range(order+1):
+        for j in range(i+1):
+            xe_new_sq += (Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j)**2. * xe_orig**2.
+            ye_new_sq += (Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j)**2. * xe_orig**2.
+
+            idx += 1
+                
+    # Second loop: dy'/dy
+    idx = 0
+    for i in range(order+1):
+        for j in range(i+1):
+            xe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.
+            ye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.    
+
+            idx += 1
+    # Take square root for xe/ye_new
+    xe_new = np.sqrt(xe_new_sq)
+    ye_new = np.sqrt(ye_new_sq)
+
+    if vel:
+        # Velocity loop
+        idx = 0
+        vx_new = 0.0
+        vy_new = 0.0
+        # First loop: dx'/dx
+        for i in range(order+1):
+            for j in range(i+1):
+                vx_new += Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j * vx_orig
+                vy_new += Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j * vx_orig
+
+                idx += 1
+        # Second loop: dy'/dy
+        idx = 0
+        for i in range(order+1):
+            for j in range(i+1):
+                vx_new += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * ye_orig
+                vy_new += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * ye_orig         
+
+                idx += 1
+            
+        # Velocity error loop
+        idx = 0
+        vxe_new_sq = 0.0
+        vye_new_sq = 0.0
+        # First loop: dvx' / dx
+        for i in range(order+1):
+            for j in range(i+1):
+                vxe_new_sq += (Xcoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
+                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.
+                vye_new_sq += (Ycoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
+                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.                  
+
+                idx += 1
+        # Second loop: dvx' / dy
+        idx = 0
+        for i in range(order+1):
+            for j in range(i+1):
+                vxe_new_sq += (Xcoeff[idx] * (i-j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
+                  (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
+                vye_new_sq += (Ycoeff[idx] * (i-j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
+                  (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
+
+                idx += 1
+        # Third loop: dvx' / dvx
+        idx = 0
+        for i in range(order+1):
+            for j in range(i+1):
+                vxe_new_sq += (Xcoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j)**2. * vxe_orig**2.
+                vye_new_sq += (Ycoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j)**2. * vxe_orig**2.
+
+                idx += 1
+        # Fourth loop: dvx' / dvy
+        idx = 0
+        for i in range(order+1):
+            for j in range(i+1):
+                vxe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2.        
+                vye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2. 
+
+
+        vxe_new = np.sqrt(vxe_new_sq)
+        vye_new = np.sqrt(vye_new_sq)
+
+    """
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
     if len(Xcoeff) == 3:
@@ -442,31 +556,45 @@ def transform_from_file(starlist, transFile):
                                (Ycoeff[2] + 2*Ycoeff[5]*y_orig + Ycoeff[4]*x_orig)**2 * vye_orig**2 + \
                                (2*Ycoeff[3]*vx_orig + Ycoeff[4]*vy_orig)**2 * xe_orig**2 + \
                                (2*Ycoeff[5]*vy_orig + Ycoeff[4]*vx_orig)**2 * ye_orig**2 )
-        
-    # Add transformed coords to astropy table
-    xCol = Column(x_new, name='x_trans')
-    yCol = Column(y_new, name='y_trans')
-    xeCol = Column(xe_new, name='xe_trans')
-    yeCol = Column(ye_new, name='ye_trans')
+    """
+    #Update transformed coords to copy of astropy table
+    starlist_f['x'] = x_new
+    starlist_f['y'] = y_new
+    starlist_f['xe'] = xe_new
+    starlist_f['ye'] = ye_new
     
-    starlist.add_column(xCol)
-    starlist.add_column(yCol)
-    starlist.add_column(xeCol)
-    starlist.add_column(yeCol)    
-
     if vel:
-        vxCol = Column(vx_new, name='vx_trans')
-        vyCol = Column(vy_new, name='vy_trans')
-        vxeCol = Column(vxe_new, name='vxe_trans')
-        vyeCol = Column(vye_new, name='vye_trans')
+        #starlist_f['x0'] = x0_new
+        #starlist_f['y0'] = y0_new
+        #starlist_f['x0e'] = x0e_new
+        #starlist_f['y0e'] = y0e_new
+        starlist_f['vx'] = vx_new
+        starlist_f['vy'] = vy_new
+        starlist_f['vxe'] = vxe_new
+        starlist_f['vye'] = vye_new
+    
+    #xCol = Column(x_new, name='x_trans')
+    #yCol = Column(y_new, name='y_trans')
+    #xeCol = Column(xe_new, name='xe_trans')
+    #yeCol = Column(ye_new, name='ye_trans')
+    
+    #starlist.add_column(xCol)
+    #starlist.add_column(yCol)
+    #starlist.add_column(xeCol)
+    #starlist.add_column(yeCol)    
 
-        starlist.add_column(vxCol)
-        starlist.add_column(vyCol)
-        starlist.add_column(vxeCol)
-        starlist.add_column(vyeCol) 
+    #if vel:
+    #    vxCol = Column(vx_new, name='vx_trans')
+    #    vyCol = Column(vy_new, name='vy_trans')
+    #    vxeCol = Column(vxe_new, name='vxe_trans')
+    #    vyeCol = Column(vye_new, name='vye_trans')
 
-        
-    return starlist
+    #    starlist.add_column(vxCol)
+    #    starlist.add_column(vyCol)
+    #    starlist.add_column(vxeCol)
+    #    starlist.add_column(vyeCol) 
+
+    return starlist_f
 
 
 def transform_from_object(starlist, transform):
@@ -486,10 +614,13 @@ def transform_from_object(starlist, transform):
 
     Output:
     ------
-    starlist astropy table with transformed x0, y0, x0e, y0e,
+    Copy of starlist astropy table with transformed x0, y0, x0e, y0e,
     vx, vy, vxe, vye, x, y, xe, ye
 
     """
+    # Make a copy of starlist. This is what we will eventually modify with
+    # the transformed coordinates
+    starlist_f = copy.deepcopy(starlist)
 
     # Check to see if velocities are present in starlist. If so, we will
     # need to transform these as well as positions
@@ -529,6 +660,7 @@ def transform_from_object(starlist, transform):
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
+    #"""
     N = order - 1
 
     # x_new & y_new in (x,y)
@@ -759,16 +891,16 @@ def transform_from_object(starlist, transform):
     """
 
     if len(Xcoeff) == 3:
-        x_new = Xcoeff[0] + Xcoeff[1] * x_orig + Xcoeff[2] * y_orig
-        y_new = Ycoeff[0] + Ycoeff[1] * x_orig + Ycoeff[2] * y_orig
-        xe_new = np.sqrt( (Xcoeff[1] * xe_orig)**2 + (Xcoeff[2] * ye_orig)**2 )
-        ye_new = np.sqrt( (Ycoeff[1] * xe_orig)**2 + (Ycoeff[2] * ye_orig)**2 )
+        x_new = Xcoeff[0] + Xcoeff[1] * x + Xcoeff[2] * y
+        y_new = Ycoeff[0] + Ycoeff[1] * x + Ycoeff[2] * y
+        xe_new = np.sqrt( (Xcoeff[1] * xe)**2 + (Xcoeff[2] * ye)**2 )
+        ye_new = np.sqrt( (Ycoeff[1] * xe)**2 + (Ycoeff[2] * ye)**2 )
 
         if vel:
-            vx_new = Xcoeff[1] * vx_orig + Xcoeff[2] * vy_orig
-            vy_new = Ycoeff[1] * vx_orig + Ycoeff[2] * vy_orig
-            vxe_new = np.sqrt( (Xcoeff[1] * vxe_orig)**2 + (Xcoeff[2] * vye_orig)**2 )
-            vye_new = np.sqrt( (Ycoeff[1] * vxe_orig)**2 + (Ycoeff[2] * vye_orig)**2 )
+            vx_new = Xcoeff[1] * vx + Xcoeff[2] * vy
+            vy_new = Ycoeff[1] * vx + Ycoeff[2] * vy
+            vxe_new = np.sqrt( (Xcoeff[1] * vxe)**2 + (Xcoeff[2] * vye)**2 )
+            vye_new = np.sqrt( (Ycoeff[1] * vxe)**2 + (Ycoeff[2] * vye)**2 )
 
     elif len(Xcoeff) == 6:
         x_new = Xcoeff[0] + Xcoeff[1]*x_orig + Xcoeff[2]*x_orig**2 + Xcoeff[3]*y_orig + \
@@ -801,24 +933,23 @@ def transform_from_object(starlist, transform):
                                (2*Ycoeff[4]*vy_orig + Ycoeff[5]*vx_orig)**2 * ye_orig**2 )
     """
 
-    # update transformed coords to astropy table
-
-    starlist['x'] = x_new
-    starlist['y'] = y_new
-    starlist['xe'] = xe_new
-    starlist['ye'] = ye_new
+    # update transformed coords to copy of astropy table
+    starlist_f['x'] = x_new
+    starlist_f['y'] = y_new
+    starlist_f['xe'] = xe_new
+    starlist_f['ye'] = ye_new
     
     if vel:
-        starlist['x0'] = x0_new
-        starlist['y0'] = y0_new
-        starlist['x0e'] = x0e_new
-        starlist['y0e'] = y0e_new
-        starlist['vx'] = vx_new
-        starlist['vy'] = vy_new
-        starlist['vxe'] = vxe_new
-        starlist['vye'] = vye_new
+        starlist_f['x0'] = x0_new
+        starlist_f['y0'] = y0_new
+        starlist_f['x0e'] = x0e_new
+        starlist_f['y0e'] = y0e_new
+        starlist_f['vx'] = vx_new
+        starlist_f['vy'] = vy_new
+        starlist_f['vxe'] = vxe_new
+        starlist_f['vye'] = vye_new
         
-    return starlist
+    return starlist_f
 
 
 
