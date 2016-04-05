@@ -464,3 +464,17 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     py.savefig('Vel_err_ratio_dist.png')
 
     return
+
+def calc_nparam(transformation):
+    """
+    calculate the degree of freedom for a transformation
+    """
+    # Read transformation: Extract X, Y coefficients from transform
+    if transform.__class__.__name__ == 'four_paramNW':
+        npara = 4
+    elif transform.__class__.__name__ == 'PolyTransform':
+        order = transform.order
+        npara = (order+1) * (order+2) 
+
+    return npara
+        
