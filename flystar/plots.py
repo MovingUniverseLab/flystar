@@ -524,3 +524,16 @@ def pos_chi_square_dist(ref_mat, starlist_mat, transform, nbins=25, bin_width=No
     py.savefig('Positions_chi_square.png')
 
     return
+
+def calc_nparam(transformation):
+    """
+    calculate the degree of freedom for a transformation
+    """
+    # Read transformation: Extract X, Y coefficients from transform
+    if transform.__class__.__name__ == 'four_paramNW':
+        npara = 4
+    elif transform.__class__.__name__ == 'PolyTransform':
+        order = transform.order
+        npara = (order+1) * (order+2) 
+
+    return npara
