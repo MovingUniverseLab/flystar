@@ -42,9 +42,9 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None):
     py.figure(figsize=(10,10))
     py.clf()
     py.plot(ref['x'], ref['y'], 'g+', ms=5, label='Reference')
-    py.plot(starlist['x_trans'], starlist['y_trans'], 'rx', ms=5, label='Label.dat')
+    py.plot(starlist['x'], starlist['y'], 'rx', ms=5, label='Label.dat')
     py.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, linestyle='None', label='Matched Reference')
-    py.plot(starlist_mat['x_trans'], starlist_mat['y_trans'], color='darkblue', marker='s', ms=5, linestyle='None', label='Matched label.dat')
+    py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, linestyle='None', label='Matched label.dat')
     py.xlabel('X position (Reference Coords)')
     py.ylabel('Y position (Reference Coords)')
     py.legend(numpoints=1)
@@ -83,8 +83,8 @@ def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, xlim=None):
          If not none, set the X range of the plot
         
     """
-    diff_x = ref_mat['x'] - starlist_mat['x_trans']
-    diff_y = ref_mat['y'] - starlist_mat['y_trans']
+    diff_x = ref_mat['x'] - starlist_mat['x']
+    diff_y = ref_mat['y'] - starlist_mat['y']
 
     # Set the binning as per user input
     bins = nbins
@@ -147,19 +147,19 @@ def pos_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, errs='bot
         If not None, set the min and max value of the X axis
         
     """
-    diff_x = ref_mat['x'] - starlist_mat['x_trans']
-    diff_y = ref_mat['y'] - starlist_mat['y_trans']
+    diff_x = ref_mat['x'] - starlist_mat['x']
+    diff_y = ref_mat['y'] - starlist_mat['y']
 
     # Set errors as per user input
     if errs == 'both':
-        xerr = np.hypot(ref_mat['xe'], starlist_mat['xe_trans'])
-        yerr = np.hypot(ref_mat['ye'], starlist_mat['ye_trans'])
+        xerr = np.hypot(ref_mat['xe'], starlist_mat['xe'])
+        yerr = np.hypot(ref_mat['ye'], starlist_mat['ye'])
     elif errs == 'reference':
         xerr = ref_mat['xe']
         yerr = ref_mat['ye']
     elif errs == 'starlist':
-        xerr = starlist_mat['xe_trans']
-        yerr = starlist_mat['ye_trans']
+        xerr = starlist_mat['xe']
+        yerr = starlist_mat['ye']
           
     # Calculate ratio between differences and the combined error. This is
     # what we will plot
@@ -294,8 +294,8 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
         in reference units
 
     """
-    diff_x = ref_mat['x'] - starlist_mat['x_trans']
-    diff_y = ref_mat['y'] - starlist_mat['y_trans']
+    diff_x = ref_mat['x'] - starlist_mat['x']
+    diff_y = ref_mat['y'] - starlist_mat['y']
 
     # Add own reference quiver arrow to end of array, since actual one is broken
     # This will be in lower left portion of plot
@@ -372,8 +372,8 @@ def vpd(ref, starlist_trans, vxlim, vylim):
     # Extract velocities
     ref_vx = ref['vx']
     ref_vy = ref['vy']
-    trans_vx = starlist_trans['vx_trans']
-    trans_vy = starlist_trans['vy_trans']
+    trans_vx = starlist_trans['vx']
+    trans_vy = starlist_trans['vy']
 
     py.figure(figsize=(10,10))
     py.clf()
@@ -389,10 +389,10 @@ def vpd(ref, starlist_trans, vxlim, vylim):
 
     return
 
-def vel_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=None, vylim=None):
+def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=None, vylim=None):
     """
-    Plot the distributions of the velocity residuals in the reference list to
-    the transformed starlist, realtive to the velocity errors. We assume that
+    Plot the distributions of the velocity differences between the reference list
+    and the transformed starlist, realtive to the velocity errors. We assume that
     both lists have velocities and velocity errors
 
     Paramters:
@@ -420,11 +420,11 @@ def vel_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=None, vylim=
         and maximum values
     """
     # Will produce 2-panel plot: Vx resid and Vy resid
-    diff_vx = ref_mat['vx'] - starlist_mat['vx_trans']
-    diff_vy = ref_mat['vy'] - starlist_mat['vy_trans']
+    diff_vx = ref_mat['vx'] - starlist_mat['vx']
+    diff_vy = ref_mat['vy'] - starlist_mat['vy']
     
-    vx_err = np.hypot(ref_mat['vxe'], starlist_mat['vxe_trans'])
-    vy_err = np.hypot(ref_mat['vye'], starlist_mat['vye_trans'])
+    vx_err = np.hypot(ref_mat['vxe'], starlist_mat['vxe'])
+    vy_err = np.hypot(ref_mat['vye'], starlist_mat['vye'])
 
     ratio_vx = diff_vx / vx_err
     ratio_vy = diff_vy / vy_err

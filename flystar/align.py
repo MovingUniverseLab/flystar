@@ -389,6 +389,11 @@ def transform_from_file(starlist, transFile):
     ye_orig = starlist['ye']
 
     if vel:
+        x0_orig = starlist['x0']
+        y0_orig = starlist['y0']
+        x0e_orig = starlist['x0e']
+        y0e_orig = starlist['y0e']
+        
         vx_orig = starlist['vx']
         vy_orig = starlist['vy']
         vxe_orig = starlist['vxe']
@@ -413,105 +418,35 @@ def transform_from_file(starlist, transFile):
         return
     order = int(order)
 
-    # Position loop
-    idx = 0 # coeff index
-    x_new = 0.0
-    y_new = 0.0
-    for i in range(order+1):
-        for j in range(i+1):
-            x_new += Xcoeff[idx] * x_orig**(i-j) * y_orig**j
-            y_new += Ycoeff[idx] * x_orig**(i-j) * y_orig**j
+    # Position transformation
+    x_new, y_new = transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig,
+                                           y_orig)
+    
+    x0_new, y0_new = transform_pos_from_file(Xcoeff, Ycoeff, order, x0_orig,
+                                             y0_orig)
 
-            idx += 1
+    # Position error transformation
+    xe_new, ye_new = transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig,
+                                                ye_orig, x_orig, y_orig)
 
-    # Position error loop
-    idx = 0
-    xe_new_sq = 0.0
-    ye_new_sq = 0.0
-    # First loop: dx'/dx
-    for i in range(order+1):
-        for j in range(i+1):
-            xe_new_sq += (Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j)**2. * xe_orig**2.
-            ye_new_sq += (Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j)**2. * xe_orig**2.
-
-            idx += 1
-                
-    # Second loop: dy'/dy
-    idx = 0
-    for i in range(order+1):
-        for j in range(i+1):
-            xe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.
-            ye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.    
-
-            idx += 1
-    # Take square root for xe/ye_new
-    xe_new = np.sqrt(xe_new_sq)
-    ye_new = np.sqrt(ye_new_sq)
+    x0e_new, y0e_new = transform_poserr_from_file(Xcoeff, Ycoeff, order, x0e_orig,
+                                                y0e_orig, x0_orig, y0_orig)
 
     if vel:
-        # Velocity loop
-        idx = 0
-        vx_new = 0.0
-        vy_new = 0.0
-        # First loop: dx'/dx
-        for i in range(order+1):
-            for j in range(i+1):
-                vx_new += Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j * vx_orig
-                vy_new += Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j * vx_orig
-
-                idx += 1
-        # Second loop: dy'/dy
-        idx = 0
-        for i in range(order+1):
-            for j in range(i+1):
-                vx_new += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig
-                vy_new += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig         
-
-                idx += 1
+        # Velocity transformation
+        vx_new, vy_new = transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig,
+                                                 vy_orig, x_orig, y_orig)
             
-        # Velocity error loop
-        idx = 0
-        vxe_new_sq = 0.0
-        vye_new_sq = 0.0
-        # First loop: dvx' / dx
-        for i in range(order+1):
-            for j in range(i+1):
-                vxe_new_sq += (Xcoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
-                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.
-                vye_new_sq += (Ycoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
-                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.                  
+        # Velocity error transformation
+        vxe_new, vye_new = transform_velerr_from_file(Xcoeff, Ycoeff, order,
+                                                      vxe_orig, vye_orig,
+                                                      vx_orig, vy_orig,
+                                                      xe_orig, ye_orig,
+                                                      x_orig, y_orig)
 
-                idx += 1
-        # Second loop: dvx' / dy
-        idx = 0
-        for i in range(order+1):
-            for j in range(i+1):
-                vxe_new_sq += (Xcoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
-                  (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
-                vye_new_sq += (Ycoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
-                  (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
-
-                idx += 1
-        # Third loop: dvx' / dvx
-        idx = 0
-        for i in range(order+1):
-            for j in range(i+1):
-                vxe_new_sq += (Xcoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j)**2. * vxe_orig**2.
-                vye_new_sq += (Ycoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j)**2. * vxe_orig**2.
-
-                idx += 1
-        # Fourth loop: dvx' / dvy
-        idx = 0
-        for i in range(order+1):
-            for j in range(i+1):
-                vxe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2.        
-                vye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2. 
-
-                idx += 1
-
-        vxe_new = np.sqrt(vxe_new_sq)
-        vye_new = np.sqrt(vye_new_sq)
-
+    #----------------------------------------#
+    # Hard coded example: old but functional
+    #----------------------------------------#
     """
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
@@ -564,35 +499,14 @@ def transform_from_file(starlist, transFile):
     starlist_f['ye'] = ye_new
     
     if vel:
-        #starlist_f['x0'] = x0_new
-        #starlist_f['y0'] = y0_new
-        #starlist_f['x0e'] = x0e_new
-        #starlist_f['y0e'] = y0e_new
+        starlist_f['x0'] = x0_new
+        starlist_f['y0'] = y0_new
+        starlist_f['x0e'] = x0e_new
+        starlist_f['y0e'] = y0e_new
         starlist_f['vx'] = vx_new
         starlist_f['vy'] = vy_new
         starlist_f['vxe'] = vxe_new
         starlist_f['vye'] = vye_new
-    
-    #xCol = Column(x_new, name='x_trans')
-    #yCol = Column(y_new, name='y_trans')
-    #xeCol = Column(xe_new, name='xe_trans')
-    #yeCol = Column(ye_new, name='ye_trans')
-    
-    #starlist.add_column(xCol)
-    #starlist.add_column(yCol)
-    #starlist.add_column(xeCol)
-    #starlist.add_column(yeCol)    
-
-    #if vel:
-    #    vxCol = Column(vx_new, name='vx_trans')
-    #    vyCol = Column(vy_new, name='vy_trans')
-    #    vxeCol = Column(vxe_new, name='vxe_trans')
-    #    vyeCol = Column(vye_new, name='vye_trans')
-
-    #    starlist.add_column(vxCol)
-    #    starlist.add_column(vyCol)
-    #    starlist.add_column(vxeCol)
-    #    starlist.add_column(vyeCol) 
 
     return starlist_f
 
@@ -601,7 +515,7 @@ def transform_from_object(starlist, transform):
     """
     Apply transformation to starlist. Returns astropy table with
     transformed positions/position errors, velocities and velocity errors 
-    if they are present in starlist
+    if they are present in starlits
     
     Parameters:
     ----------
@@ -906,3 +820,265 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     vye_new = np.sqrt((temp1*x0e)**2 + (temp2*y0e)**2 + (temp3*vxe)**2 + (temp4*vye)**2)
 
     return vx_new, vy_new, vxe_new, vye_new
+
+
+def transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig, y_orig):
+    """
+    Given the read-in coefficients from transform_from_file, apply the
+    transformation to the observed positions. This is generalized to
+    work with any order transform.
+
+    Parameters:
+    ----------
+    Xcoeff: Array
+        Array with the coefficients of the X pos transformation
+
+    Ycoeff: Array
+        Array with the coefficients of the Y pos transformation
+
+    order: int
+        Order of transformation
+
+    x_orig: array
+        Array with the original X positions
+
+    y_orig: array
+        Array with the original Y positions
+
+    Output:
+    ------
+    x_new: array
+       Transformed X positions
+
+    y_new: array
+        Transformed Y positions 
+
+    """
+    idx = 0 # coeff index
+    x_new = 0.0
+    y_new = 0.0
+    for i in range(order+1):
+        for j in range(i+1):
+            x_new += Xcoeff[idx] * x_orig**(i-j) * y_orig**j
+            y_new += Ycoeff[idx] * x_orig**(i-j) * y_orig**j
+
+            idx += 1
+
+    return x_new, y_new
+
+def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, y_orig):
+    """
+    Given the read-in coefficients from transform_from_file, apply the
+    transformation to the observed position errors. This is generalized to
+    work with any order transform.
+
+    Parameters:
+    ----------
+    Xcoeff: Array
+        Array with the coefficients of the X pos transformation
+
+    Ycoeff: Array
+        Array with the coefficients of the Y pos transformation
+
+    order: int
+        Order of transformation
+
+    xe_orig: array
+        Array with the original X position errs
+
+    ye_orig: array
+        Array with the original Y position errs
+        
+    x_orig: array
+        Array with the original X positions
+
+    y_orig: array
+        Array with the original Y positions
+
+    Output:
+    ------
+    xe_new: array
+       Transformed X position errs
+
+    ye_new: array
+        Transformed Y position errs
+    """
+    idx = 0 # coeff index
+    xe_new_sq = 0.0
+    ye_new_sq = 0.0
+    # First loop: dx'/dx
+    for i in range(order+1):
+        for j in range(i+1):
+            xe_new_sq += (Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j)**2. * xe_orig**2.
+            ye_new_sq += (Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j)**2. * xe_orig**2.
+
+            idx += 1
+                
+    # Second loop: dy'/dy
+    idx = 0 # coeff index
+    for i in range(order+1):
+        for j in range(i+1):
+            xe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.
+            ye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.    
+
+            idx += 1
+    # Take square root for xe/ye_new
+    xe_new = np.sqrt(xe_new_sq)
+    ye_new = np.sqrt(ye_new_sq)
+
+    return xe_new, ye_new
+
+def transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig, vy_orig, x_orig, y_orig):
+    """
+    Given the read-in coefficients from transform_from_file, apply the
+    transformation to the observed proper motions. This is generalized to
+    work with any order transform.
+
+    Parameters:
+    ----------
+    Xcoeff: Array
+        Array with the coefficients of the X pos transformation
+
+    Ycoeff: Array
+        Array with the coefficients of the Y pos transformation
+
+    order: int
+        Order of transformation
+
+    vx_orig: array
+        Array with the original X proper motions
+
+    vy_orig: array
+        Array with the original Y proper motions
+        
+    x_orig: array
+        Array with the original X positions
+
+    y_orig: array
+        Array with the original Y positions
+
+    Output:
+    ------
+    vx_new: array
+       Transformed X proper motions
+
+    vy_new: array
+        Transformed Y proper motions
+    """
+    idx = 0 # coeff index
+    vx_new = 0.0
+    vy_new = 0.0
+    # First loop: dx'/dx
+    for i in range(order+1):
+        for j in range(i+1):
+            vx_new += Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j * vx_orig
+            vy_new += Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j * vx_orig
+            
+            idx += 1
+    # Second loop: dy'/dy
+    idx = 0 # coeff index
+    for i in range(order+1):
+        for j in range(i+1):
+            vx_new += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig
+            vy_new += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig         
+
+            idx += 1
+
+    return vx_new, vy_new
+
+def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_orig,
+                                vy_orig, xe_orig, ye_orig, x_orig, y_orig):
+    """
+    Given the read-in coefficients from transform_from_file, apply the
+    transformation to the observed proper motion errors. This is generalized to
+    work with any order transform.
+
+    Parameters:
+    ----------
+    Xcoeff: Array
+        Array with the coefficients of the X pos transformation
+
+    Ycoeff: Array
+        Array with the coefficients of the Y pos transformation
+
+    order: int
+        Order of transformation
+
+    vxe_orig: array
+        Array with the original X proper motion errs
+
+    vye_orig: array
+        Array with the original Y proper motion errs
+        
+    vx_orig: array
+        Array with the original X proper motions
+
+    vy_orig: array
+        Array with the original Y proper motions
+
+    xe_orig: array
+        Array with the original X position errs
+
+    ye_orig: array
+        Array with the original Y position errs
+        
+    x_orig: array
+        Array with the original X positions
+
+    y_orig: array
+        Array with the original Y positions
+
+    Output:
+    ------
+    vxe_new: array
+       Transformed X proper motion errs
+
+    vye_new: array
+        Transformed Y proper motion errs
+    """
+    idx = 0
+    vxe_new_sq = 0.0
+    vye_new_sq = 0.0
+    # First loop: dvx' / dx
+    for i in range(order+1):
+        for j in range(i+1):
+            vxe_new_sq += (Xcoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
+                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.
+            vye_new_sq += (Ycoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
+                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.                  
+
+            idx += 1
+
+    # Second loop: dvx' / dy
+    idx = 0
+    for i in range(order+1):
+        for j in range(i+1):
+            vxe_new_sq += (Xcoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
+                  (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
+            vye_new_sq += (Ycoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
+                  (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
+
+            idx += 1
+
+    # Third loop: dvx' / dvx
+    idx = 0
+    for i in range(order+1):
+        for j in range(i+1):
+            vxe_new_sq += (Xcoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j)**2. * vxe_orig**2.
+            vye_new_sq += (Ycoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j)**2. * vxe_orig**2.
+
+            idx += 1
+
+    # Fourth loop: dvx' / dvy
+    idx = 0
+    for i in range(order+1):
+        for j in range(i+1):
+            vxe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2.        
+            vye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2. 
+
+            idx += 1
+
+    vxe_new = np.sqrt(vxe_new_sq)
+    vye_new = np.sqrt(vye_new_sq)
+
+    return vxe_new, vye_new
