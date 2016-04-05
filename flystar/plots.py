@@ -14,7 +14,7 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None):
     Plot positions of stars in reference list and the transformed starlist,
     in reference list coordinates. Stars used in the transformation are
     highlighted.
-s
+
     Parameters:
     ----------
     ref: astropy table
