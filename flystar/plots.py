@@ -389,10 +389,10 @@ def vpd(ref, starlist_trans, vxlim, vylim):
 
     return
 
-def vel_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=None, vylim=None):
+def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=None, vylim=None):
     """
-    Plot the distributions of the velocity residuals in the reference list to
-    the transformed starlist, realtive to the velocity errors. We assume that
+    Plot the distributions of the velocity differences between the reference list
+    and the transformed starlist, realtive to the velocity errors. We assume that
     both lists have velocities and velocity errors
 
     Paramters:
