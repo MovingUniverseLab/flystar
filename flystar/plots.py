@@ -1,6 +1,7 @@
 import pylab as py
 import numpy as np
 import matplotlib.mlab as mlab
+from scipy.stats import chi2
 import pdb
 
 ####################################################
@@ -113,9 +114,6 @@ def pos_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, errs='bot
     Plot histogram of position residuals / astrometric error for the matched
     stars: reference - starlist.
 
-    Computes reduced chi-squared between this distribution nad a Gaussian
-    distribution, which ideally would be a match.
-
     Parameters:
     -----------
     ref_mat: astropy table
@@ -185,42 +183,6 @@ def pos_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, errs='bot
     sigma = 1
     x = np.arange(-6, 6, 0.1)
     py.plot(x, mlab.normpdf(x,mean,sigma), 'g-', linewidth=2)
-
-    # For both distributions, calculate reduced chi-square when compared to
-    # the Gaussian. Only consider bins where n > 0
-    good_x = np.where(n_x > 0)
-    good_y = np.where(n_y > 0)
-    
-    bincenterX = (bins_x[:-1] + bins_x[1:]) / 2.0
-    bincenterY = (bins_y[:-1] + bins_y[1:]) / 2.0
-
-    # We'll consider Poisson errors for each hist bin. Remember that the bins
-    # have been normalized, so we have to multiply each value by the total number
-    # of stars to get the stars in each bin...and then we have to convert the error
-    # back to normalized units for the chi-square calculation
-    binX_err = np.sqrt(n_x * len(ratio_x))
-    binY_err = np.sqrt(n_y * len(ratio_y))
-
-    binX_normErr = (binX_err / (n_x * len(ratio_x))) * n_x
-    binY_normErr = (binY_err / (n_y * len(ratio_y))) * n_y
-
-    gauss_x = mlab.normpdf(bincenterX, mean, sigma)
-    gauss_y = mlab.normpdf(bincenterY, mean, sigma)
-    
-    chi_x = np.sum( (n_x[good_x] - gauss_x[good_x])**2. / binX_normErr[good_x]**2. )
-    chi_y = np.sum( (n_y[good_y] - gauss_y[good_y])**2. / binY_normErr[good_y]**2. )
-
-    # Will have len(n) - 2 degrees of freedom (since 2 parameters in Gaussian)
-    chi_x_red = chi_x / (len(good_x[0]) - 2)
-    chi_y_red = chi_y / (len(good_y[0]) - 2)
-
-    # Annotate reduced chi-sqared values in plot
-    xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_x_red, decimals=3))
-    ystr = r'$\chi^2_r$ = {0}'.format(np.round(chi_y_red, decimals=3))
-    
-    py.annotate(xstr, xy=(0.3, 0.8), xycoords='figure fraction', color='blue')
-    py.annotate(ystr, xy=(0.3, 0.75), xycoords='figure fraction', color='red')
-
     py.xlabel('(Ref Pos - label.dat Pos) / Ast. Error')
     py.ylabel('N stars')
     py.title('Position Diff/Errs for matched stars')
@@ -462,5 +424,103 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     if vylim != None:
         py.xlim([vylim[0], vylim[1]])
     py.savefig('Vel_err_ratio_dist.png')
+
+    return
+
+def pos_chi_square_dist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None, errs='both'):
+    """
+    Plot the chi-square difference between the transformed and reference
+    positions. Compare to the expected chi-square distribution.
+
+    Also calculate reduced chi-square value for the entire fit,
+    put on plot.
+
+    Parameters:
+    -----------
+    ref_mat: astropy table
+        Reference starlist only containing matched stars that were used in the
+        transformation. Standard column headers are assumed.
+        
+    starlist_mat: astropy table
+        Transformed starlist only containing the matched stars used in
+        the transformation. Standard column headers are assumed.
+
+    transform: transformation object
+        Transformation object of final transform
+
+    nbins: int
+        Number of bins used in histogram, regardless of data range. This is
+        ignored if bin_width != None
+
+    bin_width: None or float
+        If float, sets the width of the bins used in the histogram. Will override
+        nbins
+
+    errs: string; 'both', 'reference', or 'starlist'
+        If both, add starlist errors in quadrature with reference errors.
+
+        If reference, only consider reference errors. This should be used if the starlist
+        does not have valid errors
+
+        If starlist, only consider starlist errors. This should be used if the reference
+        does not have valid errors
+    """
+    diff_x = starlist_mat['x'] - ref_mat['x'] 
+    diff_y = starlist_mat['y'] - ref_mat['y']
+
+    # Set errors as per user input
+    if errs == 'both':
+        xerr = np.hypot(ref_mat['xe'], starlist_mat['xe'])
+        yerr = np.hypot(ref_mat['ye'], starlist_mat['ye'])
+    elif errs == 'reference':
+        xerr = ref_mat['xe']
+        yerr = ref_mat['ye']
+    elif errs == 'starlist':
+        xerr = starlist_mat['xe']
+        yerr = starlist_mat['ye']
+
+    # For both X and Y, calculate chi-square. Combine arrays to get combined
+    # chi-square
+    chi_sq_x = diff_x**2. / xerr**2.
+    chi_sq_y = diff_y**2. / yerr**2.
+
+    chi_sq = np.append(chi_sq_x, chi_sq_y)
+    
+    # Calculate degrees of freedom in transformation
+    num_mod_params = calc_nparam(transformation)
+    deg_freedom = len(chi_sq) - num_mod_params
+    
+    # Calculate reduced chi-square
+    chi_sq_red = chi_sq / deg_freedom
+
+    #-------------------------------------------#
+    # Plotting: plot distribution of chi-square
+    # values along with distribution we would
+    # expect
+    #-------------------------------------------#
+    # Set the binning as per user input
+    bins = nbins
+    if bin_width != None:
+        min_range = min(chi_sq)
+        max_range = max(chi_sq)
+
+        bins = np.arange(min_range, max_range+bin_width, bin_width)
+    
+    py.figure(figsize=(10,10))
+    py.clf()
+    n_x, bins_x, p = py.hist(chi_sq, histtype='step', bins=bins, color='black',
+                             label='Transformation', normed=True, linewidth=2)
+    # Overplot the expected chi-square distribution
+    chi_pred = chi2.pdf(bins_x, deg_freedom)
+    py.plot(x, chi_pred, 'r-', linewidth=2, label='Expected')
+
+    # Annotate reduced chi-sqared values in plot
+    xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
+    py.annotate(xstr, xy=(0.3, 0.8), xycoords='figure fraction', color='black')
+    py.xlabel(r'$\chi^2$')
+    py.ylabel('N stars (normalized)')
+    py.title(r'$\chi^2 Distribution of Transformation')
+    py.legend()
+    py.savefig('Positions_chi_square.png')
 
     return
