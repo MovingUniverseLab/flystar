@@ -179,7 +179,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     vx, vy, vxe, vye is converted to arcsec/yr
 
     """
-    t_label = Table.read(labelFile, format='ascii')
+    t_label = Table.read(labelFile, format='ascii.no_header')
     t_label.rename_column('col1', 'name')
     t_label.rename_column('col2', 'm')
     t_label.rename_column('col3', 'x0')
