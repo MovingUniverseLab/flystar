@@ -70,7 +70,8 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     trans = align.initial_align(label, starlist, briteN, transformModel=transModel,
                                 order=order)
 
-    # APPLY INITIAL TRANSFORMATION TO LABEL.DAT
+    # Apply intial transformation to label.dat (for error weighting purposes below)
+    label_trans = align.transform_from_object(label, trans)
     
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
@@ -91,8 +92,10 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     print 'Write transform to {0}'.format(outFile)
     align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
     
-    # Test transform: apply to label.dat, make diagnostic plots
-    label_trans = align.transform(label, outFile)
+    # Test transform: apply final transformation to label.dat
+    label_trans2 = align.transform(label, outFile)
+
+    # Make diagnostic plots
     
     return
     
@@ -224,20 +227,39 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     # Test transform: apply to label.dat, make diagnostic plots
     label_trans2 = align.transform_from_file(label, outFile)
 
-    pdb.set_trace()
-
     #--------------------#
     # Diagnostic plots
     #--------------------#
     print 'Making test plots'
+    xlim = [0, 1200]
+    ylim = [0, 1200]
+    #vxlim = [-5/121.625, 8/121.625]
+    #vylim = [-8/121.625, 5/121.625]
 
-    plots.trans_positions(starlist, starlist_mat, label_trans, label_mat,
-                          xlim=[-100, 1300], ylim=[-100, 1300])
-    plots.posDiff_hist(starlist_mat, label_mat, bin_width=0.001)
-    plots.magDiff_hist(starlist_mat, label_mat)
-    plots.posDiff_quiver(starlist_mat, label_mat)
-    
-    print 'Done with plots'        
+    # Transformed positions compared to reference positions
+    plots.trans_positions(starlist, starlist[idx_starlist], label_trans2,
+                          label_trans2[idx_label], xlim=xlim, ylim=ylim)
+
+    # Histogram of difference in transformed and reference positions for
+    # matched stars 
+    plots.pos_diff_hist(starlist[idx_starlist], label_trans2[idx_label])
+
+    # Histogram of difference in transformed and reference positions for
+    # matched stars, divided by the astrometric errors. Also calculates
+    # chi-squared
+    plots.pos_diff_err_hist(starlist[idx_starlist], label_trans2[idx_label],
+                            trans, errs='both', bin_width=0.5, xlim=[-6,6])
+
+    # Histogram of difference in the magnitudes for the matched stars    
+    plots.mag_diff_hist(starlist[idx_starlist], label_trans2[idx_label])
+
+    # Quiver plot showing difference between transformed and reference
+    # positions for matched stars
+    plots.pos_diff_quiver(starlist[idx_starlist], label_trans2[idx_label],
+                          keyLength=0.2, qscale=10, xlim=xlim,
+                          ylim=ylim, outlier_reject=None)
+
+    print 'Done with plots'   
 
     return
 
