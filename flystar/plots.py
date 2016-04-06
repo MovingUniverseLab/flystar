@@ -170,6 +170,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     ratio_x = diff_x / xerr
     ratio_y = diff_y / yerr
 
+    """
     # For both X and Y, calculate chi-square. Combine arrays to get combined
     # chi-square
     chi_sq_x = diff_x**2. / xerr**2.
@@ -183,6 +184,9 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     
     # Calculate reduced chi-square
     chi_sq_red = np.sum(chi_sq) / deg_freedom
+    """
+    chi_sq, chi_sq_red = analysis.calc_chi2(ref_mat, starlist_mat, transform, errs=errs)[1]
+    deg_freedom = len(chi_sq) - analysis.calc_nparam(transform)
 
     #-------------------------------------#
     # Plotting
@@ -456,7 +460,8 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     py.savefig('Vel_err_ratio_dist.png')
 
     return
-        
+    
+"""
 def calc_nparam(transformation):
     """
     calculate the degree of freedom for a transformation
@@ -469,3 +474,4 @@ def calc_nparam(transformation):
         npara = (order+1) * (order+2) 
 
     return npara
+"""
