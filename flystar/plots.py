@@ -212,10 +212,12 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     # Annotate reduced chi-sqared values in plot
     xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
     py.annotate(xstr, xy=(0.3, 0.8), xycoords='figure fraction', color='black')
-
+    txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(diff_x), num_mod_params,
+                                                  deg_freedom)
+    py.annotate(txt, xy=(0.25,0.77), xycoords='figure fraction', color='black')
     py.xlabel('(Ref Pos - label.dat Pos) / Ast. Error')
     py.ylabel('N stars')
-    py.title('Position Diff/Errs for matched stars')
+    py.title('Position Residuals for Matched Stars')
     if xlim != None:
         py.xlim([xlim[0], xlim[1]])
     py.legend()
