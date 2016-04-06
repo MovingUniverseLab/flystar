@@ -427,7 +427,7 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
 
     return
 
-def pos_chi_square_dist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None, errs='both'):
+def pos_chi_square_dist(ref_mat, starlist_mat, transformation, nbins=25, bin_width=None, errs='both'):
     """
     Plot the chi-square difference between the transformed and reference
     positions. Compare to the expected chi-square distribution.
@@ -512,7 +512,7 @@ def pos_chi_square_dist(ref_mat, starlist_mat, transform, nbins=25, bin_width=No
                              label='Transformation', normed=True, linewidth=2)
     # Overplot the expected chi-square distribution
     chi_pred = chi2.pdf(bins_x, deg_freedom)
-    py.plot(x, chi_pred, 'r-', linewidth=2, label='Expected')
+    py.plot(n_x, chi_pred, 'r-', linewidth=2, label='Expected')
 
     # Annotate reduced chi-sqared values in plot
     xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
@@ -525,7 +525,7 @@ def pos_chi_square_dist(ref_mat, starlist_mat, transform, nbins=25, bin_width=No
 
     return
 
-def calc_nparam(transformation):
+def calc_nparam(transform):
     """
     calculate the degree of freedom for a transformation
     """
