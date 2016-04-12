@@ -458,6 +458,68 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     py.savefig('Vel_err_ratio_dist.png')
 
     return
+
+def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
+    """
+    Make VPD diagram of the residuals between the reference proper motions
+    and the transformed proper motions.
+
+    Parameters:
+    -----------
+    ref_mat: astropy table
+        Table with matched stars from the reference starlist. Assumes
+        standard headers
+
+    starlist_trans: astropy table
+        Table with matched stars from the transformed starlist. Assumes
+        standard headers
+
+    pscale: None or float
+        If float, convert all values to mas/yr using pscale as the plate scale.
+        Assumes pscale is conversion from pixels to milliarcsecs
+
+    Output:
+    ------
+    Creates (reference - transformed) VPD
+    """
+    # Calculate the residual
+    diff_x = ref_mat['vx'] - starlist_trans_mat['vx']
+    diff_y = ref_mat['vy'] - starlist_trans_mat['vy']
+
+    # Error calculation depends on if we are converting to mas/yr
+    if pscale != None:
+        xerr_frac = np.hypot((ref_mat['vxe'] / ref_mat['vx']),
+                             (starlist_trans_mat['vxe'] / starlist_trans_mat['vx']))
+        yerr_frac = np.hypot((ref_mat['vye'] / ref_mat['vy']),
+                             (starlist_trans_mat['vye'] / starlist_trans_mat['vy']))
+
+        # Now apply the plate scale to convert to mas/yr
+        diff_x *= pscale
+        diff_y *= pscale
+        xerr = diff_x * xerr_frac
+        yerr = diff_y * yerr_frac
+    else:
+        xerr = np.hypot(ref_mat['vxe'], starlist_trans_mat['vxe'])
+        yerr = np.hypot(ref_mat['vye'], starlist_trans_mat['vye'])
+
+    # Plotting
+    py.figure(figsize=(10,10))
+    py.clf()
+    py.errorbar(diff_x, diff_y, xerr=xerr, yerr=yerr, fmt='k.', ms=8, alpha=0.5)
+    if pscale != None:
+        py.xlabel('Reference_vx - Transformed_vx (mas/yr)')
+        py.ylabel('Reference_vy - Transformed_vy (mas/yr)')
+    else:
+        py.xlabel('Reference_vx - Transformed_vx (reference coords)')
+        py.ylabel('Reference_vy - Transformed_vy (reference coords)')
+    py.title('Proper Motion Residuals')
+    py.savefig('resid_vpd.png')
+
+    return
+
+
+
+
         
 def calc_nparam(transformation):
     """
