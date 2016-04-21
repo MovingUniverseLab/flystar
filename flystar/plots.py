@@ -463,9 +463,6 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     py.savefig('Vel_err_ratio_dist.png')
 
     return
-<<<<<<< HEAD
-    
-=======
 
 def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
     """
@@ -529,16 +526,3 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
 
 
         
-def calc_nparam(transformation):
-    """
-    calculate the degree of freedom for a transformation
-    """
-    # Read transformation: Extract X, Y coefficients from transform
-    if transformation.__class__.__name__ == 'four_paramNW':
-        npara = 4
-    elif transformation.__class__.__name__ == 'PolyTransform':
-        order = transformation.order
-        npara = (order+1) * (order+2) 
-
-    return npara
->>>>>>> 75285e6c55a90f4108a5f8bddc2b2c3bf1a165d7
