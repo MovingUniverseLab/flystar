@@ -1,3 +1,4 @@
+import analysis
 import pylab as py
 import numpy as np
 import matplotlib.mlab as mlab
@@ -170,6 +171,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     ratio_x = diff_x / xerr
     ratio_y = diff_y / yerr
 
+    """
     # For both X and Y, calculate chi-square. Combine arrays to get combined
     # chi-square
     chi_sq_x = diff_x**2. / xerr**2.
@@ -183,6 +185,9 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     
     # Calculate reduced chi-square
     chi_sq_red = np.sum(chi_sq) / deg_freedom
+    """
+    chi_sq, chi_sq_red, deg_freedom = analysis.calc_chi2(ref_mat, starlist_mat, transform, errs=errs)
+    num_mod_params = analysis.calc_nparam(transform)
 
     #-------------------------------------#
     # Plotting
@@ -213,7 +218,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
     py.annotate(xstr, xy=(0.3, 0.8), xycoords='figure fraction', color='black')
     txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(diff_x), num_mod_params,
-                                                  deg_freedom)
+                                                 deg_freedom)
     py.annotate(txt, xy=(0.25,0.77), xycoords='figure fraction', color='black')
     py.xlabel('(Ref Pos - label.dat Pos) / Ast. Error')
     py.ylabel('N stars')
@@ -257,9 +262,9 @@ def mag_diff_hist(ref_mat, starlist_mat, bins=25):
 def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, ylim=None,
                     outlier_reject=None, sigma=False):
     """
-    Plot histogram of position differences for the matched stars:
-    reference - starlist
-    
+    Quiver plot of position differences for the matched
+    stars: reference - starlist
+
     Parameters:
     -----------
     ref_mat: astropy table
@@ -536,15 +541,3 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
 
 
         
-def calc_nparam(transformation):
-    """
-    calculate the degree of freedom for a transformation
-    """
-    # Read transformation: Extract X, Y coefficients from transform
-    if transformation.__class__.__name__ == 'four_paramNW':
-        npara = 4
-    elif transformation.__class__.__name__ == 'PolyTransform':
-        order = transformation.order
-        npara = (order+1) * (order+2) 
-
-    return npara
