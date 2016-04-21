@@ -1,3 +1,4 @@
+import analysis
 import pylab as py
 import numpy as np
 import matplotlib.mlab as mlab
@@ -185,8 +186,8 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     # Calculate reduced chi-square
     chi_sq_red = np.sum(chi_sq) / deg_freedom
     """
-    chi_sq, chi_sq_red = analysis.calc_chi2(ref_mat, starlist_mat, transform, errs=errs)[1]
-    deg_freedom = len(chi_sq) - analysis.calc_nparam(transform)
+    chi_sq, chi_sq_red, deg_freedom = analysis.calc_chi2(ref_mat, starlist_mat, transform, errs=errs)
+    num_mod_params = analysis.calc_nparam(transform)
 
     #-------------------------------------#
     # Plotting
@@ -217,7 +218,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
     py.annotate(xstr, xy=(0.3, 0.8), xycoords='figure fraction', color='black')
     txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(diff_x), num_mod_params,
-                                                  deg_freedom)
+                                                 deg_freedom)
     py.annotate(txt, xy=(0.25,0.77), xycoords='figure fraction', color='black')
     py.xlabel('(Ref Pos - label.dat Pos) / Ast. Error')
     py.ylabel('N stars')
@@ -261,7 +262,7 @@ def mag_diff_hist(ref_mat, starlist_mat, bins=25):
 def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, ylim=None,
                     outlier_reject=None):
     """
-    Plot histogram of position differences for the matched
+    quiver of position differences for the matched
     stars: reference - starlist
 
     Parameters:
@@ -463,17 +464,3 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
 
     return
     
-"""
-def calc_nparam(transformation):
-    """
-    calculate the degree of freedom for a transformation
-    """
-    # Read transformation: Extract X, Y coefficients from transform
-    if transformation.__class__.__name__ == 'four_paramNW':
-        npara = 4
-    elif transformation.__class__.__name__ == 'PolyTransform':
-        order = transformation.order
-        npara = (order+1) * (order+2) 
-
-    return npara
-"""
