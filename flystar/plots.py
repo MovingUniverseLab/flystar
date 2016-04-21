@@ -243,7 +243,7 @@ def mag_diff_hist(ref_mat, starlist_mat, bins=25):
 
     """
     diff_m = ref_mat['m'] - starlist_mat['m']
-
+ 
     py.figure(figsize=(10,10))
     py.clf()
     py.hist(diff_m, bins=bins)
@@ -255,11 +255,11 @@ def mag_diff_hist(ref_mat, starlist_mat, bins=25):
     return
 
 def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, ylim=None,
-                    outlier_reject=None):
+                    outlier_reject=None, sigma=False):
     """
-    Plot histogram of position differences for the matched
-    stars: reference - starlist
-
+    Plot histogram of position differences for the matched stars:
+    reference - starlist
+    
     Parameters:
     -----------
     ref_mat: astropy table
@@ -287,6 +287,9 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
         the float. difference = np.hypot(diff_x, diff_y). This value needs to be
         in reference units
 
+    sigma = boolean
+        If true, plot position differences divided by reference position error,
+        rather than just the position difference
     """
     diff_x = ref_mat['x'] - starlist_mat['x']
     diff_y = ref_mat['y'] - starlist_mat['y']
@@ -308,7 +311,15 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
         xpos = xpos[good]
         ypos = ypos[good]
         
-        
+
+    # Divide differences by reference error, if desired
+    if sigma:
+        xerr = ref_mat['xe']
+        yerr = ref_mat['ye']
+
+        diff_x /= xerr
+        diff_y /= yerr
+
     # Due to quiver silliness I need to add this twice
     xpos = np.append(xpos, max(xpos))
     xpos = np.append(xpos, max(xpos))
@@ -332,10 +343,14 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
     py.annotate(fmt, xy=(xpos[-1]-2, ypos[-1]+0.5), color='red')
     py.xlabel('X Position (Reference coords)')
     py.ylabel('Y Position (Reference coords)')
-    py.title('Reference - Transformed label.dat positions')
     if xlim != None:
         py.axis([xlim[0], ylim[1], ylim[0], ylim[1]])
-    py.savefig('Positions_quiver.png')
+    if sigma:
+        py.title('Reference - Transformed label.dat positions: SIGMA')
+        py.savefig('Positions_quiver_sigma.png')
+    else:
+        py.title('Reference - Transformed label.dat positions')
+        py.savefig('Positions_quiver.png')
 
     return
 
