@@ -238,6 +238,95 @@ def find_transform(table1_mat, table1T_mat, table2_mat, transModel=transforms.fo
     return t, N_trans
 
 
+def find_transform_new(table1_mat, table2_mat,
+                       transModel=transforms.four_paramNW, order=1,
+                       weights=None, transInit=None):
+    """
+    Given a matched starlist, derive a new transform. This transformation is
+    calculated for starlist 1 into starlist 2
+
+    Parameters:
+    -----------
+    table1_mat: astropy table
+        Table with matched stars from starlist 1, with original positions
+        (not transformed into starlist 2 frame)
+
+    table2_mat: astropy table
+        Table with matched stars from starlist 2, in starlist 2 frame.
+
+    transModel: transformation class (default: transform.four_paramNW)
+        Specify desired transform, e.g. four_paramNW or PolyTransform. If
+        PolyTransform is selected, order defines the order of polynomial used
+
+    order: int (default=1)
+        Order of polynomial to use in the transformation. Only active if
+        PolyTransform is selected
+
+    weights: string (default=None)
+        if weights=='both', we use position error  in transformed
+        starlist and reference starlist as uncertanties. And weights is the reciprocal 
+            of this uncertanty.
+        if weights=='starlist', we only use postion error and velocity error in transformed
+        starlist as uncertainty.
+        if weights=='reference', we only use position error in reference starlist as uncertainty.
+        if weights==None, we don't use weights.
+
+    transInit: Transform Object (default=None)
+        if weights = 'both' or 'starlist' then the positions in table 1 are first transformed
+        using the transInit object. This is necessary if the plate scales are very different
+        between the table 1 and the reference list.
+
+    Output:
+    ------
+    -transformation object
+    -number of stars used in transform
+    """
+    # First, check that desired transform is supported
+    if ( (transModel != transforms.four_paramNW) & (transModel != transforms.PolyTransform) ):
+        print '{0} not supported yet!'.format(transModel)
+        return
+    
+    # Extract *untransformed* coordinates from starlist 1 
+    # and the matching coordinates from starlist 2
+    x1 = table1_mat['x']
+    y1 = table1_mat['y']
+    x2 = table2_mat['x']
+    y2 = table2_mat['y']
+
+    # Get the uncertainties (if needed) and calculate the weights.
+    if weights != None:
+        x1e = table1_mat['xe']
+        y1e = table1_mat['ye']
+        x2e = table2_mat['xe']
+        y2e = table2_mat['ye']
+
+        if transInit != None:
+            table1T_mat = table1_mat.copy()
+            table1T_mat = transform_by_object(table1T_mat, transInit)
+
+            x1e = table1T_mag['xe']
+            y1e = table1T_mag['ye']
+
+        # Calculate weights as to user specification
+        if weights == 'both':
+            weight = 1.0 / ( x1e**2 + x2e**2 + y1e**2 + y2e**2 )
+        elif weights == 'starlist':
+            weight = 1.0 / ( x1e**2 + y1e**2 )
+        elif weights == 'reference':
+            weight = 1.0 / ( x2e**2 +  y2e**2 )
+        else:
+            weight = None
+
+    # Calculate transform based on the matched stars    
+    t = transModel(x1, y1, x2, y2, order=order, weights=weight)
+
+    N_trans = len(x1)
+    print '{0} stars used in transform\n'.format(N_trans)
+
+    # Return transformation object and number of stars used in transform
+    return t, N_trans
+
+
 def write_transform(transformation, starlist, reference, N_trans, deltaMag=0, restrict=False, weights=None,
                     outFile='outTrans.txt'):
     """
