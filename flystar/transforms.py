@@ -2,14 +2,85 @@ from astropy.modeling import models, fitting
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline as spline
 
+class Transform2D(object):
+    '''
+    Base class for transformations. Contains general methods like
+    calculating the uncertanties of the transformed quanities by Monte
+    Carlo simulations
+
+    
+    '''
+
+    def __init__(self, x, y, xref, yref):
+        self.x = x
+        self.y = y
+        self.xref = xref
+        self.yref = yref
+        #self.px = None
+        #self.px = None
+
+    def evaluate(self,x,y):
+        # method should be defined in the subclasses
+        pass
+    
+    def evaluate_errors(self,x,x_err,y,y_err,nsim=500):
+        '''
+        Run a MC simulation to figure out what the uncertainty from the
+        transformation should be.
+
+        Parameters:
+        -----------
+        x, x_err, y, y_err - x,y position and their uncertainties
+
+        Keywords:
+        ---------
+        nsim - number of simulations to run (default: 1000)
+
+        Outputs:
+        --------
+        x_trans, x_trans_err, y_trans, y_trans_err
+        '''
+
+        # evaluate the transformation for the input arrays
+        x_trans,y_trans = self.evaluate(x,y)
+        
+        # now run MC simulation to determine the uncertainties
+        
+        x_trans_all_stack = np.zeros((len(x),nsim))
+        y_trans_all_stack = np.zeros((len(y),nsim))
+
+        x_all_len = len(x)
+        y_all_len = len(y)
+
+        for i in xrange(nsim):
+            xsample = np.random.normal(loc=0.0,scale=1.0,size=len(x))
+            ysample = np.random.normal(loc=0.0,scale=1.0,size=len(y))
+
+            xsample_ref = np.random.normal(loc=0.0,scale=1.0,size=len(x))
+            ysample_ref = np.random.normal(loc=0.0,scale=1.0,size=len(y))
+
+            x_temp = x + xsample*x_err
+            y_temp = y + ysample*y_err
+
+            x_trans_temp,y_trans_temp = self.evaluate(x_temp,y_temp)
+            x_trans_all_stack[:,i] = x_trans_temp
+            y_trans_all_stack[:,i] = y_trans_temp
+
+        x_trans_all_err = np.std(x_trans_all_stack,axis=1)
+        y_trans_all_err = np.std(y_trans_all_stack,axis=1)
+
+
+        # the transformed positions of the points that were used to derive the transformation
+
+        return (x_trans, x_trans_all_err, y_trans, y_trans_all_err)
+        
+        
+        
+
 class four_paramNW:
     '''
     defines parameter tranformation between x,y and xref, yref
     does not weight the points
-
-    Output is:
-    self.px = a0 + a1*x + a2*y
-    self.py = b0 + b1*x + b2*y
     '''
 
     def __init__(self, x, y,xref, yref, order=None, weights=None):
@@ -24,7 +95,7 @@ class four_paramNW:
         return xn, yn 
         
 
-class PolyTransform:
+class PolyTransform(Transform2D):
 
 
     '''
@@ -37,12 +108,14 @@ class PolyTransform:
     def __init__(self, x, y, xref, yref, order,
                  init_gx=None, init_gy=None, weights=None):
 
-
+        Transform2D.__init__(self,x,y,xref,yref)
+        
         p0 = models.Polynomial2D(order)
         
         # now, if the initial guesses are not none, fill in terms until 
         init_gx = check_initial_guess(init_gx)
         init_gy = check_initial_guess(init_gy)
+        
         
         p_init_x = models.Polynomial2D(order, **init_gx )
         p_init_y = models.Polynomial2D(order, **init_gy )
@@ -54,12 +127,11 @@ class PolyTransform:
         self.py = fit_p(p_init_y, x, y, yref, weights=weights)
 
         self.order = order
-        
 
     def evaluate(self, x,y):
         return self.px(x,y), self.py(x,y)
     
-class LegTransform:
+class LegTransform(Transform2D):
 
     def __init__(self, x, y, xref, yref, degree,
                  init_gx=None,init_gy=None, weights=None):
@@ -72,6 +144,9 @@ class LegTransform:
         The evaulate function will use the same renomralization procedure
         '''
 
+        # initialize parent class
+        Transform2D.__init__(self,x,y,xref,yref)
+        
         init_gx = check_initial_guess(init_gx)
         init_gy = check_initial_guess(init_gy)
         
@@ -121,14 +196,15 @@ class LegTransform:
         
         return (x+1.0)   * n_param[1] + n_param[0]
 
-class PolyClipTransform:
+class PolyClipTransform(Transform2D):
 
     def __init__(self,x , y , xref, yref, degree,
                  niter=3, sig_clip =3 , weights=None):
-        
+
+        Transform2D.__init__(self,x,y,xref,yref)
         self.s_bool = np.ones(x.shape, dtype='bool')
 
-        if weights == None:
+        if weights is None:
             weights = np.ones(x.shape)
         c_x, c_y = four_param(x, y, xref, yref)
         
@@ -167,14 +243,17 @@ class PolyClipTransform:
     def evaluate(self,x,y):
         return self.t.evaluate(x,y)
             
-class LegClipTransform:
+class LegClipTransform(Transform2D):
 
     def __init__(self,x , y , xref, yref, degree,
                  niter=3, sig_clip =3 , weights=None):
+
+        Transform2D.__init__(self,x,y,xref,yref)
         
         self.s_bool = np.ones(x.shape, dtype='bool')
-
-        if weights == None:
+        self.s_bool = np.array(self.s_bool)
+        
+        if weights is None:
             weights = np.ones(x.shape)
         c_x, c_y = four_param(x, y, xref, yref)
         
@@ -207,6 +286,7 @@ class LegClipTransform:
                 #do not update the star boolean if we have performed the final tranformation
                 #self.s_bool = self.s_bool - ((dx > mx + sig_clip * sigx) + (dx < mx - sig_clip * sigx) + (dy > my + sig_clip * sigy) + (dy < my - sig_clip * sigy))
                 self.s_bool = self.s_bool - ((dr > mr + sig_clip * sigr) + (dr < mr - sig_clip * sigr))
+                self.s_bool = np.array(self.s_bool) # do this to prevent s_bool to become a pandas series
 
         self.t = t
 
@@ -214,7 +294,7 @@ class LegClipTransform:
         return self.t.evaluate(x,y)
             
         
-class PolyClipSplineTransform:
+class PolyClipSplineTransform(Transform2D):
     """
     Performs polynomail fit, then a spline fit on the residual
     optionally performs signma clipping, if niter > 0 (default is zero)
@@ -226,6 +306,8 @@ class PolyClipSplineTransform:
 
         '''
         '''
+
+        Transform2D.__init__(self,x,y,xref,yref)        
         self.poly = PolyTransform(x, y, xref, yref, degree, weights=weights)
         xev, yev = self.poly.evaluate(x, y)
 
@@ -260,10 +342,13 @@ class LegClipSplineTransform:
         
               
 
-class SplineTransform:
+class SplineTransform(Transform2D):
 
 
     def __init__(self, x, y, xref, yref,weights=None, kx=None,ky=None):
+        
+        Transform2D.__init__(self,x,y,xref,yref)
+        
         if weights==None:
             weights = np.ones(x.shape)
         if kx == None:
@@ -347,3 +432,51 @@ def four_param(x,y,x_ref,y_ref):
     #[x0,a1,a2], [y0,-a2,a1], should be applied ot x,y vector
     
     return np.array([a0,trans[0],trans[1]]), np.array([b0,-1.0*trans[1],trans[0]])
+
+############# Tests
+
+def test_PolyTransform():
+    # test the transformation
+    x = np.random.uniform(low=0,high=1000,size=1000)
+    y = np.random.uniform(low=0,high=1000,size=1000)
+    x_err = np.zeros(len(x))+0.1
+    y_err = np.zeros(len(x))+0.1
+    
+    xref = (x + 100.0)*.5
+    yref = (y + 100.0)*.5
+
+    t = PolyTransform(x,y,xref,yref,2)
+    x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
+
+    for i in xrange(len(x_trans)):
+        print '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (x[i],x_trans[i],x_trans_err[i],y[i],y_trans[i],y_trans_err[i])
+    return t
+
+def test_LegTransform():
+    # test the transformation
+    x = np.random.uniform(low=0,high=1000,size=1000)
+    y = np.random.uniform(low=0,high=1000,size=1000)
+    x_err = np.random.normal(loc=0.0,scale=0.1,size=len(x))
+    y_err = np.random.normal(loc=0.0,scale=0.1,size=len(x))
+    
+    xref = (x + 100.0)*.5
+    yref = (y + 100.0)*.5
+
+    x = x+x_err
+    y = y+y_err
+    
+    t = LegTransform(x,y,xref,yref,3)
+    x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
+
+    
+    for i in xrange(len(x_trans)):
+        print '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (xref[i],x_trans[i],x_trans_err[i],yref[i],y_trans[i],y_trans_err[i])
+
+    # make sure the real and transformed positions are close
+    np.testing.assert_allclose(xref,x_trans,atol=0.1,rtol=1e-3)
+    np.testing.assert_allclose(yref,y_trans,atol=0.1,rtol=1e-3)
+    
+    print 'PASSED!'
+    return t
+
+    
