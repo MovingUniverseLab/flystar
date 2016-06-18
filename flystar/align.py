@@ -136,7 +136,7 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     x1t, y1t = transform.evaluate(x1, y1)
 
     # Match starlist 1 and 2
-    idx1, idx2, dm, dr = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol) 
+    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol) 
 
     print '{0} of {1} stars matched'.format(len(idx1), len(x1t))
 

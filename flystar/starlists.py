@@ -267,20 +267,30 @@ def read_starlist(starlistFile, error=True):
     containing: name, m, x, y, xe, ye, t  
     """
     t_ref = Table.read(starlistFile, format='ascii', delimiter='\s')
-    t_ref.rename_column('col1', 'name')
-    t_ref.rename_column('col2', 'm')
-    t_ref.rename_column('col3', 't')
-    t_ref.rename_column('col4', 'x')
-    t_ref.rename_column('col5', 'y')
+
+    # Check if this already has column names:
+    cols = t_ref.colnames
+    
+    if cols[0] != 'col1':
+        return t_ref
+
+    t_ref.rename_column(cols[0], 'name')
+    t_ref.rename_column(cols[1], 'm')
+    t_ref.rename_column(cols[2], 't')
+    t_ref.rename_column(cols[3], 'x')
+    t_ref.rename_column(cols[4], 'y')
+    
     if error==True:
-        t_ref.rename_column('col6', 'xe')
-        t_ref.rename_column('col7', 'ye')
-        t_ref.rename_column('col8', 'snr')
-        t_ref.rename_column('col9', 'corr')
-        t_ref.rename_column('col10', 'N_frames')
-        t_ref.rename_column('col11', 'flux')
+        t_ref.rename_column(cols[5], 'xe')
+        t_ref.rename_column(cols[6], 'ye')
+        t_ref.rename_column(cols[7], 'snr')
+        t_ref.rename_column(cols[8], 'corr')
+        t_ref.rename_column(cols[9], 'N_frames')
+        t_ref.rename_column(cols[10], 'flux')
     else:
-        t_ref.rename_column('col7', 'corr')
-        t_ref.rename_column('col8', 'N_frames')        
+        t_ref.rename_column(cols[5], 'snr')
+        t_ref.rename_column(cols[6], 'corr')
+        t_ref.rename_column(cols[7], 'N_frames')        
+        t_ref.rename_column(cols[8], 'flux')
         
     return t_ref 
