@@ -110,12 +110,15 @@ def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, xlim=None):
 
     return
 
-def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None, errs='both', xlim=None):
+def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None, errs='both', xlim=None,
+                      outlier=10):
     """
     Plot histogram of position residuals / astrometric error for the matched
     stars: reference - starlist.
 
     Also calculates the reduced chi-square of the fit, annotates value on plot.
+    Calculate this reduced chi-square both including and excluding outliers,
+    which we identify as > +/- <outlier> sigma away from 0
 
     Parameters:
     -----------
@@ -150,6 +153,10 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
 
     xlim: None or [xmin, xmax] (default=None)
         If not None, set the min and max value of the X axis
+
+    outlier: float (default = 10)
+        Defines how many sigma away from 0 a star must be in order to be considered
+        an outlier. 
         
     """
     diff_x = ref_mat['x'] - starlist_mat['x']
@@ -171,6 +178,9 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     ratio_x = diff_x / xerr
     ratio_y = diff_y / yerr
 
+    # Identify non-outliers, within +/- <outlier> sigma away from 0
+    good = np.where( (ratio_x < outlier) & (ratio_y < outlier) )
+    
     """
     # For both X and Y, calculate chi-square. Combine arrays to get combined
     # chi-square
@@ -186,12 +196,20 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     # Calculate reduced chi-square
     chi_sq_red = np.sum(chi_sq) / deg_freedom
     """
-    chi_sq, chi_sq_red, deg_freedom = analysis.calc_chi2(ref_mat, starlist_mat, transform, errs=errs)
+    # Chi-square analysis for all stars, including outliers
+    chi_sq, chi_sq_red, deg_freedom = analysis.calc_chi2(ref_mat, starlist_mat,
+                                                        transform, errs=errs)
+    # Chi-square analysis for only non-outlier stars
+    chi_sq_good, chi_sq_red_good, deg_freedom_good = analysis.calc_chi2(ref_mat[good],
+                                                                   starlist_mat[good],
+                                                                   transform,
+                                                                   errs=errs)
+    
     num_mod_params = analysis.calc_nparam(transform)
 
-    #-------------------------------------#
+    #-------------------------------------------#
     # Plotting
-    #-------------------------------------#
+    #-------------------------------------------#
     
     # Set the binning as per user input
     bins = nbins
@@ -214,14 +232,28 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     x = np.arange(-6, 6, 0.1)
     py.plot(x, mlab.normpdf(x,mean,sigma), 'g-', linewidth=2)
     
-    # Annotate reduced chi-sqared values in plot
+    # Annotate reduced chi-sqared values in plot: with outliers
     xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
-    py.annotate(xstr, xy=(0.3, 0.8), xycoords='figure fraction', color='black')
+    py.annotate(xstr, xy=(0.3, 0.77), xycoords='figure fraction', color='black')
     txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(diff_x), num_mod_params,
                                                  deg_freedom)
-    py.annotate(txt, xy=(0.25,0.77), xycoords='figure fraction', color='black')
+    py.annotate(txt, xy=(0.25,0.74), xycoords='figure fraction', color='black')
+    xstr2 = 'With Outliers'
+    xstr3 = '{0} with +/- {1}+ sigma'.format(len(ratio_x) - len(good[0]), outlier)
+    py.annotate(xstr2, xy=(0.29, 0.83), xycoords='figure fraction', color='black')
+    py.annotate(xstr3, xy=(0.25, 0.80), xycoords='figure fraction', color='black')
+    
+    # Annotate reduced chi-sqared values in plot: without outliers
+    xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red_good, decimals=3))
+    py.annotate(xstr, xy=(0.7, 0.8), xycoords='figure fraction', color='black')
+    txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(good[0]), num_mod_params,
+                                                 deg_freedom_good)
+    py.annotate(txt, xy=(0.65,0.77), xycoords='figure fraction', color='black')
+    xstr2 = 'Without Outliers'
+    py.annotate(xstr2, xy=(0.67, 0.83), xycoords='figure fraction', color='black')
+    
     py.xlabel('(Ref Pos - label.dat Pos) / Ast. Error')
-    py.ylabel('N stars')
+    py.ylabel('N stars (normalized)')
     py.title('Position Residuals for Matched Stars')
     if xlim != None:
         py.xlim([xlim[0], xlim[1]])
@@ -248,6 +280,11 @@ def mag_diff_hist(ref_mat, starlist_mat, bins=25):
 
     """
     diff_m = ref_mat['m'] - starlist_mat['m']
+
+    # Deal with nans so it doesn't crash the code. Set to -99
+    bad = np.isnan(diff_m)
+    bad2 = np.where(bad == True)
+    diff_m = np.delete(diff_m, bad2)
  
     py.figure(figsize=(10,10))
     py.clf()
@@ -351,12 +388,11 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
     if xlim != None:
         py.axis([xlim[0], ylim[1], ylim[0], ylim[1]])
     if sigma:
-        py.title('Reference - Transformed label.dat positions: SIGMA')
+        py.title('(Reference - Transformed label.dat positions) / sigma')
         py.savefig('Positions_quiver_sigma.png')
     else:
         py.title('Reference - Transformed label.dat positions')
         py.savefig('Positions_quiver.png')
-
     return
 
 def vpd(ref, starlist_trans, vxlim, vylim):
