@@ -1,6 +1,7 @@
 import numpy as np
 from sets import Set
 from astropy.table import Table
+import pdb
 
 def restrict_by_name(table1, table2):
     """
@@ -31,7 +32,7 @@ def restrict_by_name(table1, table2):
 
     return idx1, idx2, len(idx1)
 
-def restrict_by_area(table1, area):
+def restrict_by_area(table1, area, exclude=False):
     """
     Restrict starlist to those within a specific area. Returns the
     indicies of the stars in table1 that fulfill this criteria. Area and table1
@@ -47,6 +48,11 @@ def restrict_by_area(table1, area):
         X and Y coordinate range to restric the stars too. Only stars with
         coordinates with x1 < X < x2 and y1 < Y < y2 will be allowed. We
         assume the area is given in same units as the table1 positions.
+        i.e., x1 = xmin, x2 = xmax; y1 = ymin, y2 = ymax
+
+    exclude: boolean (default=False)
+        If true, *exclude* the stars that fall within the given area. If false,
+        then only return stars that fall within the given area
         
     Output:
     ------
@@ -62,9 +68,14 @@ def restrict_by_area(table1, area):
     y_range = area[1]
 
     # Apply restriction
-    good = np.where( (xpos > x_range[0]) & (xpos < x_range[1]) &
+    if not exclude:
+        good = np.where( (xpos > x_range[0]) & (xpos < x_range[1]) &
                       (ypos > y_range[0]) & (ypos < y_range[1]) )
 
+    else:
+        good = np.where( ( (xpos < x_range[0]) | (xpos > x_range[1]) ) &
+                         ( (ypos < y_range[0]) | (ypos > y_range[1]) ) )
+        
     return good[0]
 
 def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
@@ -215,10 +226,10 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
         t_label['y'] = y0 + vy*(prop_to_time - t0)
         t_label['xe'] = np.sqrt(x0e**2 + (prop_to_time - t0)**2 * vxe**2)
         t_label['ye'] = np.sqrt(y0e**2 + (prop_to_time - t0)**2 * vye**2)
-        t_label['x'].format = '.3f'
-        t_label['y'].format = '.3f'
-        t_label['xe'].format = '.3f'
-        t_label['ye'].format = '.3f'
+        t_label['x'].format = '.5f'
+        t_label['y'].format = '.5f'
+        t_label['xe'].format = '.5f'
+        t_label['ye'].format = '.5f'
     
     # flip the x axis if flipX is True
     if flipX == True:
@@ -226,7 +237,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
         t_label['vx'] = t_label['vx'] * (-1.0)
         if prop_to_time != None:
             t_label['x'] = t_label['x'] * (-1.0)
-    
+
     return t_label
 
 
