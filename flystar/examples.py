@@ -265,20 +265,18 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
 
 
 
-def align_gc(labelFile, reference, transModel=transforms.PolyTransform, order=1, N_loop=2,
-          dr_tol=1.0, dm_tol=None, briteN=100, weights='both', restrict=False, outFile='outTrans.txt'):
+def align_gc(starFile, refFile, transModel=transforms.PolyTransform, order=1, N_loop=2,
+          dr_tol=1.0, briteN=100, weights='both', restrict=False, outFile='outTrans.txt'):
     """
-    Base example of how to use the flystar code. Assumes we are transforming a label.dat into
-    a reference starlist.
+    Transforming a starlist(label.dat) into a reference frame.
 
     Parameters:
     -----------
-    labelFile: ascii file
-        Starlist we would like to transform into the reference frame. For this
-        code, we expect a label.dat file
+    starFile: string
+        Starlist we would like to transform into the reference frame, eg:label.dat 
 
-    reference: ascii file
-        Starlist that defines the reference frame
+    refFile: string
+        Starlist that defines the reference frame.
 
     transModel: transformation class (default: transforms.polyTransform)
         Defines which transformation model to use. Both the four-parameter and
@@ -294,9 +292,6 @@ def align_gc(labelFile, reference, transModel=transforms.PolyTransform, order=1,
 
     dr_tol: float(default=1.0)
         the distance tolerance for matching two stars in align.transform_and_match
-
-    dm_tol: float (defalut=None)
-        the magnitude tolerance for matching two stars in align.trnasform_and_match
 
     briteN: int (default=100)
         the number of stars used in blind matching
@@ -316,34 +311,32 @@ def align_gc(labelFile, reference, transModel=transforms.PolyTransform, order=1,
     """
 
     #----------------------------------------------
-    # Read in label.dat file and reference starlist
+    # Read in starlist and reference 
     #----------------------------------------------
     # starlist has postion &  postion err
-    starlist = starlists.read_starlist(reference, error=True)
-    tref = starlist['t'][0]
+    ref = starlists.read_starlist(refFile, error=True)
+    t_ref = ref['t'][0]
     # label.dat has position & position err and velocity & velocity error
-    label = starlists.read_label(labelFile, prop_to_time=tref, flipX=True)
+    starlist = starlists.read_label(starFile, prop_to_time=t_ref, flipX=True)
 
 
     #--------------------------------------------------
     # Initial transformation with brightest briteN stars
     #--------------------------------------------------
     # define stars that are used to calculate initial transformation.
-    # here: I find stars based on their name, you can also do it by area.
-    idx_ini_label, idx_ini_starlist, briteN = starlists.restrict_by_name(label, starlist)
+    idx_ini_ref, idx_ini_starlist, briteN = starlists.restrict_by_name(ref, starlist)
 
     # Perform a blind trangle-matching of the brightest briteN stars
     # and calculate initial transform
-    label_ini = label[idx_ini_label]
+    ref_ini = ref[idx_ini_ref]
     starlist_ini = starlist[idx_ini_starlist]
 
-    trans = align.initial_align(label_ini, starlist_ini, briteN=briteN,
+    trans = align.initial_align(starlist_ini, ref_ini, briteN=briteN,
             transformModel=transModel, order=order)
 
     # apply the initial transform to label.dat
     # this is used for future weights calculation
-    label_trans_ini = align.transform_from_object(label, trans)
-
+    starlist_trans_ini = align.transform_from_object(starlist, trans)
 
     #------------------------------------------------------------------------
     # Use transformation to match starlists, then recalculate transformation.
@@ -352,25 +345,22 @@ def align_gc(labelFile, reference, transModel=transforms.PolyTransform, order=1,
     for i in range(N_loop):
         # apply the transformation to label.dat and
         # matched the transformed label with starlist.
-        idx_label, idx_starlist = align.transform_and_match(label, starlist, trans,
-                                                       dr_tol=dr_tol, dm_tol=dm_tol)
+        idx_starlist, idx_ref = align.transform_and_match(starlist, ref, trans, dr_tol=dr_tol)
 
         # use the matched stars to calculate new transformation
-        label_match = label[idx_label]
+        ref_match = ref[idx_ref]
         starlist_match = starlist[idx_starlist]
-        label_ini_match = label_trans_ini[idx_label]
+        starlist_ini_match = starlist_trans_ini[idx_starlist]
 
-        trans, N_trans = align.find_transform(label_match, label_ini_match, starlist_match,
+        trans, N_trans = align.find_transform(starlist_match, starlist_ini_match, ref_match,
                             transModel=transModel, order=order, weights = weights)
 
 
     #---------------------------------------------
     # Write final transform in java align format
     #---------------------------------------------
-    # Calculate delta mag (reference - starlist) for matching stars
-    delta_m = np.mean(starlist_match['m'] - label_match['m'])
-    # write the transformation coefficients to 'outTrans.txt'
-    align.write_transform(trans, labelFile, reference, N_trans, deltaMag=delta_m,
+    delta_m = np.mean(ref_match['m'] - starlist_match['m'])
+    align.write_transform(trans, starFile, refFile, N_trans, deltaMag=delta_m,
                           restrict=restrict, weights=weights, outFile=outFile)
 
 
@@ -378,25 +368,25 @@ def align_gc(labelFile, reference, transModel=transforms.PolyTransform, order=1,
     # Test transform: apply to label.dat, make diagnostic plots
     #-----------------------------------------------------------
     # apply the final transformation to label.dat
-    label_trans = align.transform_from_object(label, trans)
-    label_trans_match = label_trans[idx_label]
+    starlist_trans = align.transform_from_object(starlist, trans)
+    starlist_trans_match = starlist_trans[idx_starlist]
 
     # postion map with every star in starlist and transformed label.
     # both matched and unmatched stars.
-    plots.trans_positions( starlist, starlist_match, label_trans, label_trans_match)
+    plots.trans_positions(ref, ref_match, starlist_trans, starlist_trans_match)
 
     # position difference histogram for matched stars.
-    plots.pos_diff_hist( starlist_match, label_trans_match)
+    plots.pos_diff_hist(ref_match, starlist_trans_match)
 
     # position diff/ astrometric err histogrm for matched stars.
     # chi2, reduced_chi2, degree of freedom are showed on the plots.
-    plots.pos_diff_err_hist( starlist_match, label_trans_match, trans)
+    plots.pos_diff_err_hist(ref_match, starlist_trans_match, trans)
 
     # magnitude difference histogram for matched stars.
-    plots.mag_diff_hist( starlist_match, label_trans_match)
+    plots.mag_diff_hist(ref_match, starlist_trans_match)
 
     # quiver plot of postion residules
-    plots.pos_diff_quiver( starlist_match, label_trans_match)
+    plots.pos_diff_quiver(ref_match, starlist_trans_match)
 
     return
 
