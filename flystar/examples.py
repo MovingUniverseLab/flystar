@@ -390,3 +390,98 @@ def align_gc(starFile, refFile, transModel=transforms.PolyTransform, order=1, N_
 
     return
 
+
+def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2, N_loop=2,
+          dr_tol=1.0, briteN=None, weights='both', outFile='outTrans.txt'):
+    """
+    Transforming a starlist(label.dat) into a reference frame.
+
+    Parameters:
+    -----------
+    starlist: Table
+        Starlist we would like to transform into the reference frame, eg:label.dat 
+
+    ref: Table
+        Starlist that defines the reference frame.
+
+    transModel: transformation class (default: transforms.polyTransform)
+        Defines which transformation model to use. Both the four-parameter and
+        polynomial transformations are supported
+
+    order: int (default=1)
+        Order of the polynomial transformation. Only used for polynomial transform
+
+    N_loop: int (default=2)
+        How many times to iterate on the transformation calculation. Ideally,
+        each iteration adds more stars and thus a better transform, to some
+        limit.
+
+    dr_tol: float(default=1.0)
+        the distance tolerance for matching two stars in align.transform_and_match
+
+    briteN: int (default=100)
+        the number of stars used in blind matching
+
+    weights: string (default='both')
+        if weights=='both', we use both position error in transformed starlist and
+           reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
+        if weights=='starlist', we only use postion error in transformed starlist.
+        if weights=='reference', we only use position error in reference starlist.
+        if weights==None, we don't use weights.
+
+    outFile: string('outTrans.txt')
+        the name of the output transformation file
+    """
+    
+    #--------------------------------------------------
+    # Initial transformation with brightest briteN stars
+    #--------------------------------------------------
+    # define stars that are used to calculate initial transformation.
+    #pdb.set_trace()
+    idx_ini_ref, idx_ini_starlist, briteN_ini = starlists.restrict_by_name(ref, starlist)
+
+    # Perform a blind trangle-matching of the brightest briteN stars
+    # and calculate initial transform
+    ref_ini = ref[idx_ini_ref]
+    starlist_ini = starlist[idx_ini_starlist]
+
+    if briteN == None:
+        briteN = briteN_ini
+    #trans = align.initial_align(starlist_ini, ref_ini, briteN=briteN,
+    #        transformModel=transModel, order=order)
+    #pdb.set_trace()
+    trans = transModel(starlist_ini['x'], starlist_ini['y'], ref_ini['x'], ref_ini['y'],order=order, weights=None)
+
+    # apply the initial transform to label.dat
+    # this is used for future weights calculation
+    starlist_trans_ini = align.transform_from_object(starlist, trans)
+
+    #------------------------------------------------------------------------
+    # Use transformation to match starlists, then recalculate transformation.
+    #------------------------------------------------------------------------
+    # Iterate on this as many times as desired
+    for i in range(N_loop):
+        # apply the transformation to label.dat and
+        # matched the transformed label with starlist.
+        idx_starlist, idx_ref = align.transform_and_match(starlist, ref, trans, dr_tol=dr_tol)
+
+        # use the matched stars to calculate new transformation
+        ref_match = ref[idx_ref]
+        starlist_match = starlist[idx_starlist]
+        starlist_ini_match = starlist_trans_ini[idx_starlist]
+
+        trans, N_trans = align.find_transform(starlist_match, starlist_ini_match, ref_match,
+                            transModel=transModel, order=order, weights = weights)
+
+
+    #---------------------------------------------
+    # Write final transform in java align format
+    #---------------------------------------------
+    delta_m = np.mean(ref_match['m'] - starlist_match['m'])
+    #align.write_transform(trans, 'starFile', 'refFile', N_trans, deltaMag=delta_m,
+    #                      restrict=False, weights=weights, outFile=outFile)
+
+    starlist_trans = align.transform_from_object(starlist, trans)
+    starlist_trans_match = starlist_trans[idx_starlist]
+    return idx_starlist, idx_ref, starlist_trans
+
