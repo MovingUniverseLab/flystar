@@ -229,7 +229,6 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
     return t, N_trans
 
 
-<<<<<<< HEAD
 def find_transform_new(table1_mat, table2_mat,
                        transModel=transforms.four_paramNW, order=1,
                        weights=None, transInit=None):
