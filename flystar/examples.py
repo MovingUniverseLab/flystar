@@ -478,10 +478,24 @@ def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2,
     # Write final transform in java align format
     #---------------------------------------------
     delta_m = np.mean(ref_match['m'] - starlist_match['m'])
-    #align.write_transform(trans, 'starFile', 'refFile', N_trans, deltaMag=delta_m,
-    #                      restrict=False, weights=weights, outFile=outFile)
+    align.write_transform(trans, 'starFile', 'refFile', N_trans, deltaMag=delta_m,
+                          restrict=False, weights=weights, outFile=outFile)
 
     starlist_trans = align.transform_from_object(starlist, trans)
     starlist_trans_match = starlist_trans[idx_starlist]
     return idx_starlist, idx_ref, starlist_trans
 
+def apply_trans(starlist, ref, trans_file, dr_tol=1.0, dm_tol=None):
+    """
+    apply transformation to starlist with trans_file
+    match transformed starslist with ref
+    return"""
+    starlist_trans = align.transform_from_file(starlist, trans_file)
+    x1t = starlist_trans['x']
+    y1t = starlist_trans['y']
+    m1 = starlist_trans['m']
+    x2 = ref['x']
+    y2 = ref['y']
+    m2 = ref['m']
+    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol)
+    return idx1, idx2, starlist_trans
