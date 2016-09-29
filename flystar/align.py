@@ -136,7 +136,7 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     x1t, y1t = transform.evaluate(x1, y1)
 
     # Match starlist 1 and 2
-    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol) 
+    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol) 
 
     print '{0} of {1} stars matched'.format(len(idx1), len(x1t))
 
@@ -511,14 +511,16 @@ def transform_from_file(starlist, transFile):
     x_new, y_new = transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig,
                                            y_orig)
     
-    x0_new, y0_new = transform_pos_from_file(Xcoeff, Ycoeff, order, x0_orig,
+    if vel:
+        x0_new, y0_new = transform_pos_from_file(Xcoeff, Ycoeff, order, x0_orig,
                                              y0_orig)
 
     # Position error transformation
     xe_new, ye_new = transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig,
                                                 ye_orig, x_orig, y_orig)
 
-    x0e_new, y0e_new = transform_poserr_from_file(Xcoeff, Ycoeff, order, x0e_orig,
+    if vel:
+        x0e_new, y0e_new = transform_poserr_from_file(Xcoeff, Ycoeff, order, x0e_orig,
                                                 y0e_orig, x0_orig, y0_orig)
 
     if vel:
