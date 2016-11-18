@@ -11,7 +11,8 @@ import pdb
 ####################################################
 
 
-def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None):
+def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, fileName=None, 
+                    root='./'):
     """
     Plot positions of stars in reference list and the transformed starlist,
     in reference list coordinates. Stars used in the transformation are
@@ -44,21 +45,24 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None):
     py.figure(figsize=(10,10))
     py.clf()
     py.plot(ref['x'], ref['y'], 'g+', ms=5, label='Reference')
-    py.plot(starlist['x'], starlist['y'], 'rx', ms=5, label='Label.dat')
+    py.plot(starlist['x'], starlist['y'], 'rx', ms=5, label='starlist')
     py.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, linestyle='None', label='Matched Reference')
-    py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, linestyle='None', label='Matched label.dat')
+    py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, linestyle='None', label='Matched starlist')
     py.xlabel('X position (Reference Coords)')
     py.ylabel('Y position (Reference Coords)')
     py.legend(numpoints=1)
     py.title('Label.dat Positions After Transformation')
     if xlim != None:
         py.axis([xlim[0], xlim[1], ylim[0], ylim[1]])
-    py.savefig('Transformed_positions.png')
-
+    if fileName!=None:
+        py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
+    else:
+        py.savefig(root + 'Transformed_positions.png')
+    py.close()
     return
 
 
-def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, xlim=None):
+def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, xlim=None, fileName=None, root='./'):
     """
     Plot histogram of position differences for the matched
     stars: reference - starlist
@@ -100,18 +104,22 @@ def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, xlim=None):
     py.clf()
     py.hist(diff_x, histtype='step', bins=bins, color='blue', label='X')
     py.hist(diff_y, histtype='step', bins=bins, color='red', label='Y')
-    py.xlabel('Reference Position - label.dat Position (reference coords)')
+    py.xlabel('Reference Position - starlist Position')
     py.ylabel('N stars')
     py.title('Position Differences for matched stars')
     if xlim != None:
         py.xlim([xlim[0], xlim[1]])
     py.legend()
-    py.savefig('Positions_hist.png')
+    if fileName != None:
+        py.savefig(root + fileName[3:8] + 'Positions_hist_' + '.png')
+    else:
+        py.savefig(root + 'Positions_hist.png')
 
+    py.close()
     return
 
 def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None, errs='both', xlim=None,
-                      outlier=10):
+                      outlier=10, fileName=None, root='./'):
     """
     Plot histogram of position residuals / astrometric error for the matched
     stars: reference - starlist.
@@ -252,18 +260,22 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     xstr2 = 'Without Outliers'
     py.annotate(xstr2, xy=(0.67, 0.83), xycoords='figure fraction', color='black')
     
-    py.xlabel('(Ref Pos - label.dat Pos) / Ast. Error')
+    py.xlabel('(Ref Pos - TransStarlist Pos) / Ast. Error')
     py.ylabel('N stars (normalized)')
     py.title('Position Residuals for Matched Stars')
     if xlim != None:
         py.xlim([xlim[0], xlim[1]])
     py.legend()
-    py.savefig('Positions_err_ratio_hist.png')
+    if fileName != None:
+        py.savefig(root + fileName[3:8] + 'Positions_err_ratio_hist_' + '.png')
+    else:
+        py.savefig(root + 'Positions_err_ratio_hist.png')
 
+    py.close()
     return
 
 
-def mag_diff_hist(ref_mat, starlist_mat, bins=25):
+def mag_diff_hist(ref_mat, starlist_mat, bins=25, fileName=None, root='./'):
     """
     Plot histogram of mag differences for the matched
     stars: reference - starlist
@@ -289,15 +301,19 @@ def mag_diff_hist(ref_mat, starlist_mat, bins=25):
     py.figure(figsize=(10,10))
     py.clf()
     py.hist(diff_m, bins=bins)
-    py.xlabel('Reference Mag - label.dat Mag')
+    py.xlabel('Reference Mag - TransStarlist Mag')
     py.ylabel('N stars')
     py.title('Magnitude Difference for matched stars')
-    py.savefig('Magnitude_hist.png')
+    if fileName != None:
+        py.savefig(root + fileName[3:8] + 'Magnitude_hist_' + '.png')
+    else:
+        py.savefig(root + 'Magnitude_hist.png')
 
+    py.close()
     return
 
 def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, ylim=None,
-                    outlier_reject=None, sigma=False):
+                    outlier_reject=None, sigma=False, fileName=None, root='./'):
     """
     Quiver plot of position differences for the matched
     stars: reference - starlist
@@ -378,7 +394,7 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
     py.clf()
     q = py.quiver(xpos, ypos, diff_x, diff_y, scale=qscale)
     fmt = '{0} ref units'.format(keyLength)
-    py.quiverkey(q, 0.2, 0.92, keyLength, fmt, coordinates='figure', color='black')
+    #py.quiverkey(q, 0.2, 0.92, keyLength, fmt, coordinates='figure', color='black')
     # Make our reference arrow a different color
     q2 = py.quiver(xpos[s-2:s], ypos[s-2:s], diff_x[s-2:s], diff_y[s-2:s], scale=qscale, color='red')
     # Annotate our reference quiver arrow
@@ -388,11 +404,21 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
     if xlim != None:
         py.axis([xlim[0], ylim[1], ylim[0], ylim[1]])
     if sigma:
-        py.title('(Reference - Transformed label.dat positions) / sigma')
-        py.savefig('Positions_quiver_sigma.png')
+        if fileName != None:
+            py.title('(Reference - Transformed Starlist positions) / sigma')
+            py.savefig(root + fileName[3:8] + 'Positions_quiver_sigma_' + '.png')
+        else:
+            py.title('(Reference - Transformed Starlist positions) / sigma')
+            py.savefig(root + 'Positions_quiver_sigma.png')
     else:
-        py.title('Reference - Transformed label.dat positions')
-        py.savefig('Positions_quiver.png')
+        if fileName != None:
+            py.title('Reference - Transformed Starlist positions')
+            py.savefig(root + fileName[3:8] + 'Positions_quiver_' + '.png')
+        else:
+            py.title('Reference - Transformed Starlist positions')
+            py.savefig(root + 'Positions_quiver.png')
+
+    py.close()
     return
 
 def vpd(ref, starlist_trans, vxlim, vylim):

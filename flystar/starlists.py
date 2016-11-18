@@ -29,7 +29,15 @@ def restrict_by_name(table1, table2):
 
     name1 = table1['name']
     name2 = table2['name']
-    Name = set(name1) & set(name2)
+    
+    Name = np.intersect1d(name1, name2)
+    # trim out stars begin with 'star'
+    idx = []
+    for i in range(len(Name)):
+        name = Name[i]
+        if name[0:4] != 'star':
+            idx.append(i)
+    Name = Name[idx]
 
     idx1 = np.array([list(name1).index(i) for i in Name])
     idx2 = np.array([list(name2).index(i) for i in Name])
