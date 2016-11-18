@@ -417,9 +417,9 @@ def four_param(x,y,x_ref,y_ref):
     imat = np.linalg.pinv(mat_coo)
 
     trans = np.dot(imat, mat_ref)
-    #print 'trans all', trans
-    #print 'first guess x', np.array([trans[2],trans[0],trans[1]])
-    #print 'first guess y', np.array([trans[3],trans[1],trans[0]])
+    #print( 'trans all', trans)
+    #print( 'first guess x', np.array([trans[2],trans[0],trans[1]]))
+    #print( 'first guess y', np.array([trans[3],trans[1],trans[0]]))
 
     #before returning, recalculate the offsets (a0,b0), as they are susceptible to numberical error
     #we take the linear terms as constant, and compute the average offset
@@ -449,7 +449,7 @@ def test_PolyTransform():
     x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
 
     for i in xrange(len(x_trans)):
-        print '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (x[i],x_trans[i],x_trans_err[i],y[i],y_trans[i],y_trans_err[i])
+        print( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (x[i],x_trans[i],x_trans_err[i],y[i],y_trans[i],y_trans_err[i]))
     return t
 
 def test_LegTransform():
@@ -470,13 +470,13 @@ def test_LegTransform():
 
     
     for i in xrange(len(x_trans)):
-        print '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (xref[i],x_trans[i],x_trans_err[i],yref[i],y_trans[i],y_trans_err[i])
+        print( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (xref[i],x_trans[i],x_trans_err[i],yref[i],y_trans[i],y_trans_err[i]))
 
     # make sure the real and transformed positions are close
     np.testing.assert_allclose(xref,x_trans,atol=0.1,rtol=1e-3)
     np.testing.assert_allclose(yref,y_trans,atol=0.1,rtol=1e-3)
     
-    print 'PASSED!'
+    print( 'PASSED!')
     return t
 
     

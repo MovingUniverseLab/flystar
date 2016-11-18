@@ -1,7 +1,11 @@
 import numpy as np
-from sets import Set
 from astropy.table import Table
 import pdb
+
+try:
+    set
+except NameError:
+    from sets import Set as set
 
 def restrict_by_name(table1, table2):
     """
@@ -25,6 +29,7 @@ def restrict_by_name(table1, table2):
 
     name1 = table1['name']
     name2 = table2['name']
+    
     Name = np.intersect1d(name1, name2)
     # trim out stars begin with 'star'
     idx = []
@@ -125,7 +130,7 @@ def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
          in the label_mat table.
     
     """
-    print 'Restrict option activated'
+    print( 'Restrict option activated')
 
     # Among label.dat matched stars, determine which are allowed by -restrict
     idx_restrict = np.where(label_mat['use'] !='0')
@@ -141,9 +146,9 @@ def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
     #starlist_trim = starlist_mat[idx_restrict]
 
     #return label_orig_trim, label_trim, starlist_trim
-    print 'Restrict option activated'
-    print 'Keeping {0} of {1} stars'.format(len(idx_restrict),
-                                            len(label_mat))
+    print( 'Restrict option activated')
+    print( 'Keeping {0} of {1} stars'.format(len(idx_restrict),
+                                            len(label_mat)))
     
     return idx_label_f, idx_starlist_f
 
