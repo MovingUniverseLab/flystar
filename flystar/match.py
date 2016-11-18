@@ -29,26 +29,26 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     and brightness uncertainties, the more bigger the bin sizes should really
     be. But this isn't well tested.
     """
-    print ''
-    print '  miracle_match_briteN: mirmat50: use brightest 50'
-    print '  miracle_match_briteN:  '
-    print '  miracle_match_briteN:  '
+    print( '')
+    print( '  miracle_match_briteN: mirmat50: use brightest 50')
+    print( '  miracle_match_briteN:  ')
+    print( '  miracle_match_briteN:  ')
 
     # Get/check the lengths of the two starlists
     nin1 = len(xin1)
     nin2 = len(xin2)
 
     if (nin1 < Nbrite) or (nin2 < Nbrite):
-        print 'You need at least {0} to '.format(Nbrite)
-        print 'find the matches...'
-        print 'NIN1: ', nin1
-        print 'NIN2: ', nin2
+        print( 'You need at least {0} to '.format(Nbrite))
+        print( 'find the matches...')
+        print( 'NIN1: ', nin1)
+        print( 'NIN2: ', nin2)
         return (0, None, None, None, None, None, None)
 
     # Take the Nbrite brightest stars from each list and order by brightness.
-    print '  miracle_match_briteN: '
-    print '  miracle_match_briteN: ORD_BRITE: '
-    print '  miracle_match_briteN: '
+    print( '  miracle_match_briteN: ')
+    print( '  miracle_match_briteN: ORD_BRITE: ')
+    print( '  miracle_match_briteN: ')
     x1, y1, m1 = order_by_brite(xin1, yin1, min1, Nbrite, verbose=verbose)
     x2, y2, m2 = order_by_brite(xin2, yin2, min2, Nbrite, verbose=verbose)
 
@@ -57,9 +57,9 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     # Triangle Matching
     #
     ####################
-    print '  miracle_match_briteN: '
-    print '  miracle_match_briteN: DO Matching Triangles search...'
-    print '  miracle_match_briteN: '
+    print( '  miracle_match_briteN: ')
+    print( '  miracle_match_briteN: DO Matching Triangles search...')
+    print( '  miracle_match_briteN: ')
 
     # These are the bins for the 2D (vmax, angle) array we will be making later.
     bins_vmax = np.arange(-1.0, 1.01, 2.0 / Nbins_vmax)
@@ -138,9 +138,9 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     ##########
     # Return the good matches
     ##########
-    print '  miracle_match_briteN: '
-    print '  miracle_match_briteN: found {0} matches '.format(len(good))
-    print '  miracle_match_briteN: '
+    print( '  miracle_match_briteN: ')
+    print( '  miracle_match_briteN: found {0} matches '.format(len(good)))
+    print( '  miracle_match_briteN: ')
 
     x2_mat = x2[good]
     y2_mat = y2[good]
@@ -156,20 +156,20 @@ def order_by_brite(xi, yi, mi, Nout, verbose=True):
     # Length of the input starlists.
     Nin = len(xi)
     if verbose:
-        print 'order_by_brite: nstars in =', Nin
-        print 'order_by_brite: desired nstars out =', Nout
+        print( 'order_by_brite: nstars in =', Nin)
+        print( 'order_by_brite: desired nstars out =', Nout)
 
     if Nout > Nin:
         Nout = Nin
 
     if verbose:
-        print 'order_by_brite: return nstars out =', Nout
+        print( 'order_by_brite: return nstars out =', Nout)
 
     sdx = mi.argsort()
     brite = sdx[:Nout]
 
     if verbose:
-        print 'order_by_brite: faintest star m =', mi[brite[-1]]
+        print( 'order_by_brite: faintest star m =', mi[brite[-1]])
 
     xo = xi[brite]
     yo = yi[brite]
@@ -346,7 +346,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
 
     # Deal with duplicates
     duplicates = [item for item, count in Counter(idxs2).iteritems() if count > 1]
-    print 'Found {0:d} out of {1:d} duplicates'.format(len(duplicates), len(dm))
+    print( 'Found {0:d} out of {1:d} duplicates'.format(len(duplicates), len(dm)))
     # for dd in range(len(duplicates)):
     #     dups = np.where(idxs2 == duplicates[dd])[0]
 
@@ -367,9 +367,9 @@ def calc_triangles_vmax_angle(x, y):
     # combo_iter1 = itertools.combinations(idx1, 3)
     # combo_idx1_1 = np.array(list(combo_iter1), dtype=np.int16)
     # t2 = time.time()
-    # print 'Finished Option 1: ', t2 - t1
-    # print combo_idx1_1.shape
-    # print combo_idx1_1
+    # print( 'Finished Option 1: ', t2 - t1)
+    # print( combo_idx1_1.shape)
+    # print( combo_idx1_1)
     
     # Option 2 -- this takes 0.016 seconds for 50 objects
     combo_iter = itertools.combinations(idx, 3)
