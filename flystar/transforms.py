@@ -52,7 +52,7 @@ class Transform2D(object):
         x_all_len = len(x)
         y_all_len = len(y)
 
-        for i in xrange(nsim):
+        for i in np.arange(nsim):
             xsample = np.random.normal(loc=0.0,scale=1.0,size=len(x))
             ysample = np.random.normal(loc=0.0,scale=1.0,size=len(y))
 
@@ -76,7 +76,27 @@ class Transform2D(object):
         
         
         
+class Shift:
+    '''
+    Defines shift tranformation between x,y and xref, yref
+    Does not weight the points.
+    '''
 
+    def __init__(self, x, y, xref, yref, order=None, weights=None):
+        self.px = np.array([ np.average(xref - x, weights=weights) ])
+        self.py = np.array([ np.average(yref - y, weights=weights) ])
+    
+        self.order = 0
+        
+        return
+
+    def evaluate(self, x, y):
+        xn = self.px[0] + x
+        yn = self.py[0] + y
+        
+        return xn, yn 
+
+    
 class four_paramNW:
     '''
     defines parameter tranformation between x,y and xref, yref
@@ -84,14 +104,14 @@ class four_paramNW:
     '''
 
     def __init__(self, x, y,xref, yref, order=None, weights=None):
-        self.px, self.py =  four_param(x, y, xref,yref)
+        self.px, self.py =  four_param(x, y, xref, yref)
 
         self.order = order
 
         
     def evaluate(self, x, y):
-        xn =self.px[0] + self.px[1]*x + self.px[2]*y
-        yn = self.py[0] + self.py[1]*x + self.py[2] *y
+        xn = self.px[0] + self.px[1]*x + self.px[2]*y
+        yn = self.py[0] + self.py[1]*x + self.py[2]*y
         return xn, yn 
         
 
@@ -370,7 +390,7 @@ def check_initial_guess(initial_param):
     '''
     Checks initial guesses for polynomial (and LEgendre) tranformations
     '''
-    ord_dict = {3:1, 6:2, 10:3, 15:4, 21:5, 28:6, 36:7}
+    ord_dict = {1:0, 3:1, 6:2, 10:3, 15:4, 21:5, 28:6, 36:7}
     if initial_param == None:
         return  {'c0_0':0, 'c1_0':0, 'c0_1':0}
     assert len(initial_param) in ord_dict.keys()
@@ -398,10 +418,13 @@ def four_param(x,y,x_ref,y_ref):
     x'_1      x_1  y_1  1  0     *  a0
     y'_1   =  y_1  x_1  0  1        b0
 
-    Above is the first 4 line of the matrix equation, the LHS and matrix with the coordiantes set the pattern that contines through te entire list of coordinates
-    To solve, I take the psuedo inverse of  the coordinate matrix, and then take the dor product of coo_mat^-1 * LHS to give the tranformation coefficients
+    Above is the first 4 line of the matrix equation, the LHS and matrix with
+    the coordiantes set the pattern that contines through te entire list of coordinates
+    To solve, I take the psuedo inverse of  the coordinate matrix, and then take the 
+    dot product of coo_mat^-1 * LHS to give the tranformation coefficients
 
-    As a final step, I recalucate the translation terms based on fixed value of a1 and a2, as the translatoin term is prone to numerical error
+    As a final step, I recalucate the translation terms based on fixed value of a1 and a2, 
+    as the translatoin term is prone to numerical error
     '''
 
     mat_ref = []
@@ -448,7 +471,7 @@ def test_PolyTransform():
     t = PolyTransform(x,y,xref,yref,2)
     x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
 
-    for i in xrange(len(x_trans)):
+    for i in np.arange(len(x_trans)):
         print( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (x[i],x_trans[i],x_trans_err[i],y[i],y_trans[i],y_trans_err[i]))
     return t
 
@@ -469,7 +492,7 @@ def test_LegTransform():
     x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
 
     
-    for i in xrange(len(x_trans)):
+    for i in np.arange(len(x_trans)):
         print( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (xref[i],x_trans[i],x_trans_err[i],yref[i],y_trans[i],y_trans_err[i]))
 
     # make sure the real and transformed positions are close
