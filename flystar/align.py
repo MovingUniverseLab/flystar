@@ -8,7 +8,7 @@ import os
 import pdb
 
 
-def initial_align(table1, table2, briteN=100, transformModel=transforms.four_paramNW, order=1):
+def initial_align(table1, table2, briteN=100, transformModel=transforms.four_paramNW, order=1, req_match=5):
     """
     Calculates an initial (unweighted) transformation from table1 starlist into
     table2 starlist (i.e., table2 is the reference starlist). Matching is done using
@@ -59,6 +59,8 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.four_par
     -order: int
          Order of the transformation. Not relevant for 4 parameter or spline fit
 
+    -req_match: int
+         Number of required matches of the input catalog to the total reference
 
     Output:
     ------
@@ -77,11 +79,9 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.four_par
     print( 'Attempting match with {0} and {1} stars from starlist1 and starlist2'.format(len(table1), len(table2)))
     print( 'Begin initial match')
 
-    # number of required matches of the input catalog to the total reference
-    req_match = 5
 
     N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(x1, y1, m1, x2, y2, m2, briteN)
-    assert len(x1m) > req_match#, 'Failed to find at least '+str(req_match+' matches, giving up'
+    assert len(x1m) > req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
     print( '{0} stars matched between starlist1 and starlist2'.format(N))
 
     # Calculate transformation based on matches
@@ -189,7 +189,9 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
     -number of stars used in transform
     """
     # First, check that desired transform is supported
-    if ( (transModel != transforms.four_paramNW) & (transModel != transforms.PolyTransform) ):
+    if ( (transModel != transforms.four_paramNW) &
+         (transModel != transforms.PolyTransform) &
+         (transModel != transforms.Shift)):
         print( '{0} not supported yet!'.format(transModel))
         return
     
@@ -202,11 +204,13 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
 
     # calculate weights from *transformed* coords. This is where we use the
     # transformation object
-    x1e = table1_trans['xe']
-    y1e = table1_trans['ye']
+    if (table1_trans != None) and ('xe' in table1_trans.colnames):
+        x1e = table1_trans['xe']
+        y1e = table1_trans['ye']
 
-    x2e = table2['xe']
-    y2e = table2['ye']
+    if 'xe' in table2.colnames:
+        x2e = table2['xe']
+        y2e = table2['ye']
 
     # Calculate weights as to user specification
     if weights=='both':

@@ -345,17 +345,36 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
     dm = m1[idxs1] - m2[idxs2]
 
     # Deal with duplicates
-    duplicates = [item for item, count in Counter(idxs2).iteritems() if count > 1]
+    duplicates = [item for item, count in Counter(idxs2).items() if count > 1]
     print( 'Found {0:d} out of {1:d} duplicates'.format(len(duplicates), len(dm)))
-    # for dd in range(len(duplicates)):
-    #     dups = np.where(idxs2 == duplicates[dd])[0]
+    keep = np.ones(len(idxs1), dtype=bool)
+    for dd in range(len(duplicates)):
+        # Index into the idxs1, idxs2 array of this duplicate.
+        dups = np.where(idxs2 == duplicates[dd])[0]
 
-    #     # Handle them in brightness order -- brightest first in the first starlist
-    #     fsort = m1[dups].argsort()
+        # Assume the duplicates are confused first... see if we
+        # can resolve the confusion below.
+        keep[dups] = False
+        
+        dm_dups = m1[idxs1[dups]] - m2[idxs2[dups]]
+        dr_dups = np.hypot(x1[idxs1[dups]] - x2[idxs2[dups]], y1[idxs1[dups]] - y2[idxs2[dups]])
 
-    #     # For every duplicate, match to the star that is closest in space and 
-    #     # magnitude. HMMMM.... this doesn't seem like it will work optimally.
+        dm_min = np.abs(dm_dups).argmin()
+        dr_min = np.abs(dr_dups).argmin()
 
+        # If there is a clearly preferred match (closest in distance and brightness), then
+        # keep it and dump the other duplicates.
+        if dm_min == dr_min:
+            keep[dups[dm_min]] = True
+        else:
+            print('    confused, dropping')
+
+
+    # Clean up the duplicates
+    idxs1 = idxs1[keep]
+    idxs2 = idxs2[keep]
+    dr = dr[keep]
+    dm = dm[keep]
  
     return idxs1, idxs2, dr, dm
 
