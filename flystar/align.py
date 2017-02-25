@@ -191,7 +191,8 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
     # First, check that desired transform is supported
     if ( (transModel != transforms.four_paramNW) &
          (transModel != transforms.PolyTransform) &
-         (transModel != transforms.Shift)):
+         (transModel != transforms.Shift) &
+         (transModel != transforms.LegTransform) ):
         print( '{0} not supported yet!'.format(transModel))
         return
     
@@ -448,6 +449,9 @@ def transform_from_file(starlist, transFile):
     added columns with the transformed coordinates. NOTE: Transforms
     positions/position errors, plus velocities and velocity errors if they
     are present in starlist.
+
+    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
+    TRANSFORMS 
     
     Parameters:
     ----------
@@ -707,10 +711,13 @@ def position_transfer_object(x, y, xe, ye, transform):
         Xcoeff = transform.px
         Ycoeff = transform.py
         order = 1
-    elif transform.__class__.__name__ == 'PolyTransform':
+    elif (transform.__class__.__name__ == 'PolyTransform'):
         Xcoeff = transform.px.parameters
         Ycoeff = transform.py.parameters
         order = transform.order
+    else:
+        txt = 'Transform not yet supported by position_transfer_object'
+        raise StandardError(txt)
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
@@ -797,6 +804,9 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
         Xcoeff = transform.px.parameters
         Ycoeff = transform.py.parameters
         order = transform.order
+    else:
+        txt = 'Transform not yet supported by velocity_transfer_object'
+        raise StandardError(txt)
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
@@ -920,7 +930,10 @@ def transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig, y_orig):
     """
     Given the read-in coefficients from transform_from_file, apply the
     transformation to the observed positions. This is generalized to
-    work with any order transform.
+    work with any order polynomial transform.
+
+    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
+    TRANSFORMS
 
     Parameters:
     ----------
@@ -947,7 +960,7 @@ def transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig, y_orig):
     y_new: array
         Transformed Y positions 
 
-    """
+    """ 
     idx = 0 # coeff index
     x_new = 0.0
     y_new = 0.0
@@ -965,6 +978,9 @@ def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, 
     Given the read-in coefficients from transform_from_file, apply the
     transformation to the observed position errors. This is generalized to
     work with any order transform.
+
+    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
+    TRANSFORMS    
 
     Parameters:
     ----------
@@ -1028,6 +1044,9 @@ def transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig, vy_orig, x_orig, y_o
     transformation to the observed proper motions. This is generalized to
     work with any order transform.
 
+    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
+    TRANSFORMS 
+    
     Parameters:
     ----------
     Xcoeff: Array
@@ -1087,6 +1106,9 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
     transformation to the observed proper motion errors. This is generalized to
     work with any order transform.
 
+    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
+    TRANSFORMS
+    
     Parameters:
     ----------
     Xcoeff: Array
