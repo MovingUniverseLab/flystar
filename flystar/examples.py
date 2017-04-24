@@ -111,7 +111,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     -----------
     labelFile: ascii file
         Starlist we would like to transform into the reference frame. For this
-        code, we expect a label.dat file
+        code, we expect a label.dat file.
 
     reference: ascii file
         Starlist that defines the reference frame

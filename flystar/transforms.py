@@ -1,6 +1,7 @@
 from astropy.modeling import models, fitting
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline as spline
+import pdb
 
 class Transform2D(object):
     '''
@@ -153,7 +154,7 @@ class PolyTransform(Transform2D):
     
 class LegTransform(Transform2D):
 
-    def __init__(self, x, y, xref, yref, degree,
+    def __init__(self, x, y, xref, yref, order,
                  init_gx=None,init_gy=None, weights=None):
         '''
         defines a 2d polnyomial tranformation fomr x,y -> xref,yref using Legnedre polynomials as the basis
@@ -174,15 +175,16 @@ class LegTransform(Transform2D):
         self.x_ncr, x_norm_ref = self.norm0(xref)
         self.y_nc , y_norm = self.norm0(y)
         self.y_ncr , y_norm_ref = self.norm0(yref)
-        self.degree = degree
+        self.order = order
         
-        p_init_x = models.Legendre2D(degree, degree,**init_gx)
-        p_init_y = models.Legendre2D(degree, degree, **init_gy)
+        p_init_x = models.Legendre2D(order, order,**init_gx)
+        p_init_y = models.Legendre2D(order, order, **init_gy)
        
         fit_p  = fitting.LinearLSQFitter()
 
         self.px = fit_p(p_init_x, x_norm, y_norm, x_norm_ref, weights=weights)
         self.py = fit_p(p_init_y, x_norm, y_norm, y_norm_ref, weights=weights)
+        
 
     def evaluate(self, x, y):
         xnew = self.rnorm(self.px(self.norm(x, self.x_nc), self.norm(y, self.y_nc)),
