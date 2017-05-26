@@ -205,7 +205,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
 
     # calculate weights from *transformed* coords. This is where we use the
     # transformation object
-    if (table1_trans != None) and ('xe' in table1_trans.colnames):
+    if ('xe' in table1_trans.colnames):
         x1e = table1_trans['xe']
         y1e = table1_trans['ye']
 
