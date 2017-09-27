@@ -76,13 +76,13 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.four_par
     m2 = table2['m']
 
     # Run the blind triangle-matching algorithm to find the matches between the starlists
-    print( 'Attempting match with {0} and {1} stars from starlist1 and starlist2'.format(len(table1), len(table2)))
+    print(( 'Attempting match with {0} and {1} stars from starlist1 and starlist2'.format(len(table1), len(table2))))
     print( 'Begin initial match')
 
 
     N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(x1, y1, m1, x2, y2, m2, briteN)
     assert len(x1m) > req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
-    print( '{0} stars matched between starlist1 and starlist2'.format(N))
+    print(( '{0} stars matched between starlist1 and starlist2'.format(N)))
 
     # Calculate transformation based on matches
     t = transformModel(x1m, y1m ,x2m, y2m, order=order, weights=None)
@@ -137,7 +137,7 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     # Match starlist 1 and 2
     idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol) 
 
-    print( '{0} of {1} stars matched'.format(len(idx1), len(x1t)))
+    print(( '{0} of {1} stars matched'.format(len(idx1), len(x1t))))
 
     return idx1, idx2
 
@@ -193,7 +193,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
          (transModel != transforms.PolyTransform) &
          (transModel != transforms.Shift) &
          (transModel != transforms.LegTransform) ):
-        print( '{0} not supported yet!'.format(transModel))
+        print(( '{0} not supported yet!'.format(transModel)))
         return
     
     # Extract *untransformed* coordinates from starlist 1 
@@ -227,7 +227,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
     t = transModel(x1, y1, x2, y2, order=order, weights=weight)
 
     N_trans = len(x1)
-    print( '{0} stars used in transform\n'.format(N_trans))
+    print(( '{0} stars used in transform\n'.format(N_trans)))
 
     # Ret3urn transformation object and number of stars used in transform
     return t, N_trans
@@ -278,7 +278,7 @@ def find_transform_new(table1_mat, table2_mat,
     """
     # First, check that desired transform is supported
     if ( (transModel != transforms.four_paramNW) & (transModel != transforms.PolyTransform) ):
-        print( '{0} not supported yet!'.format(transModel))
+        print(( '{0} not supported yet!'.format(transModel)))
         return
     
     # Extract *untransformed* coordinates from starlist 1 
@@ -316,7 +316,7 @@ def find_transform_new(table1_mat, table2_mat,
     t = transModel(x1, y1, x2, y2, order=order, weights=weight)
 
     N_trans = len(x1)
-    print( '{0} stars used in transform\n'.format(N_trans))
+    print(( '{0} stars used in transform\n'.format(N_trans)))
 
     # Return transformation object and number of stars used in transform
     return t, N_trans
@@ -384,7 +384,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
         Xcoeff = transform.px.parameters
         Ycoeff = transform.py.parameters
     else:
-        print( '{0} not yet supported!'.format(transType))
+        print(( '{0} not yet supported!'.format(transType)))
         return
         
     # Write output
@@ -474,7 +474,7 @@ def transform_from_file(starlist, transFile):
     # Check to see if velocities are present in starlist. If so, we will
     # need to transform these as well as positions
     vel = False
-    keys = starlist.keys()
+    keys = list(starlist.keys())
     if 'vx' in keys:
         vel = True 
     
@@ -637,7 +637,7 @@ def transform_from_object(starlist, transform):
     # Check to see if velocities are present in starlist. If so, we will
     # need to transform these as well as positions
     vel = False
-    keys = starlist.keys()
+    keys = list(starlist.keys())
     if 'vx' in keys:
         vel = True 
     
@@ -717,7 +717,7 @@ def position_transfer_object(x, y, xe, ye, transform):
         order = transform.order
     else:
         txt = 'Transform not yet supported by position_transfer_object'
-        raise StandardError(txt)
+        raise Exception(txt)
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
@@ -806,7 +806,7 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
         order = transform.order
     else:
         txt = 'Transform not yet supported by velocity_transfer_object'
-        raise StandardError(txt)
+        raise Exception(txt)
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
