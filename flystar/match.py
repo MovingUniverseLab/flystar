@@ -1,4 +1,4 @@
-from __future__ import division
+
 import numpy as np
 from collections import Counter
 from scipy.spatial import cKDTree as KDT
@@ -39,10 +39,10 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     nin2 = len(xin2)
 
     if (nin1 < Nbrite) or (nin2 < Nbrite):
-        print( 'You need at least {0} to '.format(Nbrite))
+        print(( 'You need at least {0} to '.format(Nbrite)))
         print( 'find the matches...')
-        print( 'NIN1: ', nin1)
-        print( 'NIN2: ', nin2)
+        print(( 'NIN1: ', nin1))
+        print(( 'NIN2: ', nin2))
         return (0, None, None, None, None, None, None)
 
     # Take the Nbrite brightest stars from each list and order by brightness.
@@ -128,7 +128,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     # Reverse sort along the columns. Each column is a star in list #2.
     # For each star in list #2, sort the votes over all the different stars in list #1.
     votes_sdx = votes.argsort(axis=0)[::-1]
-    tmp = votes[votes_sdx, range(votes.shape[1])]
+    tmp = votes[votes_sdx, list(range(votes.shape[1]))]
 
     # For each star in list #2, figure out if the number of matches exceeds our threshold.
     # The threshold is that for each star in list #2, the highest voted list #1 stars has
@@ -139,7 +139,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     # Return the good matches
     ##########
     print( '  miracle_match_briteN: ')
-    print( '  miracle_match_briteN: found {0} matches '.format(len(good)))
+    print(( '  miracle_match_briteN: found {0} matches '.format(len(good))))
     print( '  miracle_match_briteN: ')
 
     x2_mat = x2[good]
@@ -156,20 +156,20 @@ def order_by_brite(xi, yi, mi, Nout, verbose=True):
     # Length of the input starlists.
     Nin = len(xi)
     if verbose:
-        print( 'order_by_brite: nstars in =', Nin)
-        print( 'order_by_brite: desired nstars out =', Nout)
+        print(( 'order_by_brite: nstars in =', Nin))
+        print(( 'order_by_brite: desired nstars out =', Nout))
 
     if Nout > Nin:
         Nout = Nin
 
     if verbose:
-        print( 'order_by_brite: return nstars out =', Nout)
+        print(( 'order_by_brite: return nstars out =', Nout))
 
     sdx = mi.argsort()
     brite = sdx[:Nout]
 
     if verbose:
-        print( 'order_by_brite: faintest star m =', mi[brite[-1]])
+        print(( 'order_by_brite: faintest star m =', mi[brite[-1]]))
 
     xo = xi[brite]
     yo = yi[brite]
@@ -345,8 +345,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
     dm = m1[idxs1] - m2[idxs2]
 
     # Deal with duplicates
-    duplicates = [item for item, count in Counter(idxs2).items() if count > 1]
-    print( 'Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm)))
+    duplicates = [item for item, count in list(Counter(idxs2).items()) if count > 1]
+    print(( 'Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
     keep = np.ones(len(idxs1), dtype=bool)
     for dd in range(len(duplicates)):
         # Index into the idxs1, idxs2 array of this duplicate.

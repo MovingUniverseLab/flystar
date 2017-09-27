@@ -1,4 +1,4 @@
-import analysis
+from . import analysis
 import pylab as py
 import numpy as np
 import matplotlib.mlab as mlab

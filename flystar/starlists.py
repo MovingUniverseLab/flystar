@@ -147,8 +147,8 @@ def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
 
     #return label_orig_trim, label_trim, starlist_trim
     print( 'Restrict option activated')
-    print( 'Keeping {0} of {1} stars'.format(len(idx_restrict),
-                                            len(label_mat)))
+    print(( 'Keeping {0} of {1} stars'.format(len(idx_restrict),
+                                            len(label_mat))))
     
     return idx_label_f, idx_starlist_f
 
