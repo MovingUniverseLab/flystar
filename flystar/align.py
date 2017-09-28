@@ -36,20 +36,20 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.four_par
     
     t0: linear motion time zero point
 
-    use: specify use in transformation 
+    use: specify use in transformation
     
 
     Parameters:
     ----------
-    -table1: astropy.table 
-        contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0. 
+    -table1: astropy.table
+        contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0.
 
     -table2: astropy.table
         contains name,m,x,y,xe,ye.
         this is the reference template
 
     -briteN: int
-        The number of brightest stars used to match two starlists.    
+        The number of brightest stars used to match two starlists.
 
     -transformModel:  transformation model object (class)
         The transformation model class that will be instantiated to find the
@@ -93,16 +93,16 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.four_par
 
 def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     """
-    apply transformation to starlist1 and 
+    apply transformation to starlist1 and
     match stars to given radius and magnitude tolerance.
 
     Starlists must be astropy tables with standard columns names as specified
-    in initial_align. 
+    in initial_align.
 
     Parameters:
    -----------
-    -table1: astropy.table 
-        contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0. 
+    -table1: astropy.table
+        contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0.
 
     -table2: astropy.table
         contains name,m,x,y,xe,ye.
@@ -134,14 +134,14 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     x1t, y1t = transform.evaluate(x1, y1)
 
     # Match starlist 1 and 2
-    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol) 
+    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol)
 
     print( '{0} of {1} stars matched'.format(len(idx1), len(x1t)))
 
     return idx1, idx2
 
 
-def find_transform(table1, table1_trans, table2, transModel=transforms.four_paramNW, order=1, 
+def find_transform(table1, table1_trans, table2, transModel=transforms.four_paramNW, order=1,
                 weights=None):
     """
     Given a matched starlist, derive a new transform. This transformation is
@@ -165,7 +165,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
 
     trans: transformation object
         Transformation used to transform table1 coords in transform_and_match
-        in order to do the star matching. 
+        in order to do the star matching.
 
     transModel: transformation class (default: transform.four_paramNW)
         Desired transform to apply to matched stars, e.g. four_paramNW or PolyTransform.
@@ -176,7 +176,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
         PolyTransform is selected
 
     weights: string (default=None)
-        if weights=='both', we use both position error in transformed starlist and 
+        if weights=='both', we use both position error in transformed starlist and
         reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
         if weights=='starlist', we only use postion error in transformed starlist.
         if weights=='reference', we only use position error in reference starlist.
@@ -195,7 +195,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
         print( '{0} not supported yet!'.format(transModel))
         return
     
-    # Extract *untransformed* coordinates from starlist 1 
+    # Extract *untransformed* coordinates from starlist 1
     # and the matching coordinates from starlist 2
     x1 = table1['x']
     y1 = table1['y']
@@ -204,7 +204,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
 
     # calculate weights from *transformed* coords. This is where we use the
     # transformation object
-    if (table1_trans != None) and ('xe' in table1_trans.colnames):
+    if ('xe' in table1_trans.colnames):
         x1e = table1_trans['xe']
         y1e = table1_trans['ye']
 
@@ -222,7 +222,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
     else:
         weight = None
 
-    # Calculate transform based on the matched stars    
+    # Calculate transform based on the matched stars
     t = transModel(x1, y1, x2, y2, order=order, weights=weight)
 
     N_trans = len(x1)
@@ -258,7 +258,7 @@ def find_transform_new(table1_mat, table2_mat,
 
     weights: string (default=None)
         if weights=='both', we use position error  in transformed
-        starlist and reference starlist as uncertanties. And weights is the reciprocal 
+        starlist and reference starlist as uncertanties. And weights is the reciprocal
             of this uncertanty.
         if weights=='starlist', we only use postion error and velocity error in transformed
         starlist as uncertainty.
@@ -280,7 +280,7 @@ def find_transform_new(table1_mat, table2_mat,
         print( '{0} not supported yet!'.format(transModel))
         return
     
-    # Extract *untransformed* coordinates from starlist 1 
+    # Extract *untransformed* coordinates from starlist 1
     # and the matching coordinates from starlist 2
     x1 = table1_mat['x']
     y1 = table1_mat['y']
@@ -311,7 +311,7 @@ def find_transform_new(table1_mat, table2_mat,
         else:
             weight = None
 
-    # Calculate transform based on the matched stars    
+    # Calculate transform based on the matched stars
     t = transModel(x1, y1, x2, y2, order=order, weights=weight)
 
     N_trans = len(x1)
@@ -357,7 +357,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
 
     weights: string (default=None)
         if weights=='both', we use both position error and velocity error in transformed
-        starlist and reference starlist as uncertanties. And weights is the reciprocal 
+        starlist and reference starlist as uncertanties. And weights is the reciprocal
             of this uncertanty.
         if weights=='starlist', we only use postion error and velocity error in transformed
         starlist as uncertainty.
@@ -366,7 +366,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
 
     outFile: string (default: 'outTrans.txt')
         Name of output text file
-         
+        
     Output:
     ------
     txt file with the file name outFile
@@ -374,7 +374,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
     # Extract info about transformation
     trans_name = transform.__class__.__name__
     trans_order = transform.order
-      
+    
     # Extract X, Y coefficients from transform
     if trans_name == 'four_paramNW':
         Xcoeff = transform.px
@@ -409,8 +409,8 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
         for i in range(len(Xcoeff)):
             _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
     elif (trans_name == 'PolyTransform'):
-        # CODE TO GET INDICIES 
-        N = trans_order - 1 
+        # CODE TO GET INDICIES
+        N = trans_order - 1
         idx_list = list()
         
         # when trans_order=1, N=0
@@ -450,7 +450,7 @@ def transform_from_file(starlist, transFile):
     are present in starlist.
 
     WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
-    TRANSFORMS 
+    TRANSFORMS
     
     Parameters:
     ----------
@@ -464,7 +464,7 @@ def transform_from_file(starlist, transFile):
 
     Output:
     ------
-    Copy of starlist astropy table with transformed coordinates.  
+    Copy of starlist astropy table with transformed coordinates.
     """
     # Make a copy of starlist. This is what we will eventually modify with
     # the transformed coordinates
@@ -475,7 +475,7 @@ def transform_from_file(starlist, transFile):
     vel = False
     keys = starlist.keys()
     if 'vx' in keys:
-        vel = True 
+        vel = True
     
     # Extract needed information from starlist
     x_orig = starlist['x']
@@ -494,7 +494,7 @@ def transform_from_file(starlist, transFile):
         vxe_orig = starlist['vxe']
         vye_orig = starlist['vye']
     
-    # Read transFile       
+    # Read transFile
     trans = Table.read(transFile, format='ascii.commented_header', header_start=-1)
     Xcoeff = trans['Xcoeff']
     Ycoeff = trans['Ycoeff']
@@ -583,7 +583,7 @@ def transform_from_file(starlist, transFile):
                                (Xcoeff[2] + 2*Xcoeff[5]*y_orig + Xcoeff[4]*x_orig)**2 * vye_orig**2 + \
                                (2*Xcoeff[3]*vx_orig + Xcoeff[4]*vy_orig)**2 * xe_orig**2 + \
                                (2*Xcoeff[5]*vy_orig + Xcoeff[4]*vx_orig)**2 * ye_orig**2 )
-                                
+                               
             vye_new = np.sqrt( (Ycoeff[1] + 2*Ycoeff[3]*x_orig + Ycoeff[4]*y_orig)**2 * vxe_orig**2 + \
                                (Ycoeff[2] + 2*Ycoeff[5]*y_orig + Ycoeff[4]*x_orig)**2 * vye_orig**2 + \
                                (2*Ycoeff[3]*vx_orig + Ycoeff[4]*vy_orig)**2 * xe_orig**2 + \
@@ -611,7 +611,7 @@ def transform_from_file(starlist, transFile):
 def transform_from_object(starlist, transform):
     """
     Apply transformation to starlist. Returns astropy table with
-    transformed positions/position errors, velocities and velocity errors 
+    transformed positions/position errors, velocities and velocity errors
     if they are present in starlits
     
     Parameters:
@@ -638,7 +638,7 @@ def transform_from_object(starlist, transform):
     vel = False
     keys = starlist.keys()
     if 'vx' in keys:
-        vel = True 
+        vel = True
     
     # Extract needed information from starlist
     x = starlist_f['x']
@@ -729,7 +729,7 @@ def position_transfer_object(x, y, xe, ye, transform):
         x_new += Xcoeff[N+1+j] * (y**j)
     for i in range(1, N+1):
         for j in range(1, N+2-i):
-            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.) 
             x_new += Xcoeff[sub] * (x**i) * (y**j)
 
     y_new = 0
@@ -739,7 +739,7 @@ def position_transfer_object(x, y, xe, ye, transform):
         y_new += Ycoeff[N+1+j] * (y**j)
     for i in range(1, N+1):
         for j in range(1, N+2-i):
-            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.)
             y_new += Ycoeff[sub] * (x**i) * (y**j)
 
     # xe_new & ye_new in (x,y,xe,ye)
@@ -750,13 +750,13 @@ def position_transfer_object(x, y, xe, ye, transform):
         temp1 += i * Xcoeff[i] * (x**(i-1))
     for i in range(1, N+1):
         for j in range(1, N+2-i):
-            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.)
             temp1 += i * Xcoeff[sub] * (x**(i-1)) * (y**j)
     for j in range(1, N+2):
         temp2 += j * Xcoeff[N+1+j] * (y**(j-1))
     for i in range(1, N+1):
         for j in range(N+2-i):
-            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.)
             temp2 += j * Xcoeff[sub] * (x**i) * (y**(j-1))
     xe_new = np.sqrt((temp1*xe)**2 + (temp2*ye)**2)
 
@@ -767,13 +767,13 @@ def position_transfer_object(x, y, xe, ye, transform):
         temp1 += i * Ycoeff[i] * (x**(i-1))
     for i in range(1, N+1):
         for j in range(1, N+2-i):
-            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.)
             temp1 += i * Ycoeff[sub] * (x**(i-1)) * (y**j)
     for j in range(1, N+2):
         temp2 += j * Ycoeff[N+1+j] * (y**(j-1))
     for i in range(1, N+1):
         for j in range(N+2-i):
-            sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
+            sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.)
             temp2 += j * Ycoeff[sub] * (x**i) * (y**(j-1))
     ye_new = np.sqrt((temp1*xe)**2 + (temp2*ye)**2)
 
@@ -782,8 +782,8 @@ def position_transfer_object(x, y, xe, ye, transform):
 
 def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     """
-    given the orginal position & position error & velocity & veolicty error, 
-    calculat the transformed velocity and velocity error based on transformation 
+    given the orginal position & position error & velocity & veolicty error,
+    calculat the transformed velocity and velocity error based on transformation
     from astropy.modling.models.polynomial2D.
     Input:
         - x0, y0, x0e, y0e: original position and position error
@@ -811,7 +811,7 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     # This can be determined by the length of Xcoeff, Ycoeff
     N = order - 1
 
-    # vx_new & vy_new 
+    # vx_new & vy_new
     vx_new = 0
     for i in range(1, N+2):
         vx_new += i * Xcoeff[i] * (x0**(i-1)) * vx
@@ -867,7 +867,7 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp3 += i * Xcoeff[sub] * (x0**(i-1)) * (y0**j) 
+            temp3 += i * Xcoeff[sub] * (x0**(i-1)) * (y0**j)
 
     for j in range(1, N+2):
         temp4 += j * Xcoeff[N+1+j] * (y0**(j-1))
@@ -911,7 +911,7 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp3 += i * Ycoeff[sub] * (x0**(i-1)) * (y0**j) 
+            temp3 += i * Ycoeff[sub] * (x0**(i-1)) * (y0**j)
 
     for j in range(1, N+2):
         temp4 += j * Ycoeff[N+1+j] * (y0**(j-1))
@@ -957,9 +957,9 @@ def transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig, y_orig):
        Transformed X positions
 
     y_new: array
-        Transformed Y positions 
+        Transformed Y positions
 
-    """ 
+    """
     idx = 0 # coeff index
     x_new = 0.0
     y_new = 0.0
@@ -979,7 +979,7 @@ def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, 
     work with any order transform.
 
     WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
-    TRANSFORMS    
+    TRANSFORMS
 
     Parameters:
     ----------
@@ -1022,13 +1022,13 @@ def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, 
             ye_new_sq += (Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j)**2. * xe_orig**2.
 
             idx += 1
-                
+            
     # Second loop: dy'/dy
     idx = 0 # coeff index
     for i in range(order+1):
         for j in range(i+1):
             xe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.
-            ye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.    
+            ye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.
 
             idx += 1
     # Take square root for xe/ye_new
@@ -1044,7 +1044,7 @@ def transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig, vy_orig, x_orig, y_o
     work with any order transform.
 
     WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
-    TRANSFORMS 
+    TRANSFORMS
     
     Parameters:
     ----------
@@ -1092,7 +1092,7 @@ def transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig, vy_orig, x_orig, y_o
     for i in range(order+1):
         for j in range(i+1):
             vx_new += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig
-            vy_new += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig         
+            vy_new += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig
 
             idx += 1
 
@@ -1160,7 +1160,7 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
             vxe_new_sq += (Xcoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
                   (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.
             vye_new_sq += (Ycoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
-                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.                  
+                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.
 
             idx += 1
 
@@ -1188,8 +1188,8 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
     idx = 0
     for i in range(order+1):
         for j in range(i+1):
-            vxe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2.        
-            vye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2. 
+            vxe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2.
+            vye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2.
 
             idx += 1
 
