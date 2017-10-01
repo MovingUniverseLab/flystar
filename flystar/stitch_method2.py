@@ -5,42 +5,42 @@ from astropy.table import vstack, Table
 import pandas as pd
 
 
-def weighted_mean(df,value,error,all_frames):
+def weighted_mean(df,x,xe,all_frames):
 	# value = x or y
 	# error = xe or ye
 	# all_frames = e.g. ['A', 'B', 'C', ...]
 
-	col_values=["{0}_{1}".format(value,x) for x in all_frames] # e.g. ['x_A', 'x_B', 'x_C', ....]
-	col_errors=["{0}_{1}".format(error,x) for x in all_frames] # e.g. ['xe_A', 'xe_B', 'xe_C', ....]
-	array_values=np.array(df[col_values])
-	array_errors=np.array(df[col_errors])
-	means=[]
-	stds=[]
-	for i in range(len(array_values)):
-		mask=~np.isnan(array_values[i])
+	cols_x=["{0}_{1}".format(x,f) for f in all_frames] # columns for x_* e.g. ['x_A', 'x_B', 'x_C', ....]
+	cols_xe=["{0}_{1}".format(xe,f) for f in all_frames] # columns for xe_* e.g. ['xe_A', 'xe_B', 'xe_C', ....]
+	array_x=np.array(df[cols_x]) # array that contains x_A, x_B, ...
+	array_w=1./np.array(df[cols_xe])**2. # array that contains w_A, w_B, ...
+	x_master=[]
+	xe_master=[]
+	for i in range(len(array_x)):
+		mask=~np.isnan(array_x[i])
 		if mask.sum()>1: # i.e. for stars that have at least one match, calculate weighted mean values and standard deviations.
-			mean=(array_values[i][mask]/array_errors[i][mask]**2.).sum()/(1./array_errors[i][mask]**2.).sum()
-			means.append(mean)
-			std=np.sqrt(((array_values[i][mask]-mean)**2./array_errors[i][mask]**2.)).sum()/(1./array_errors[i][mask]**2.).sum()
-			stds.append(std)
+			x_hat=(array_w[i][mask]*array_x[i][mask]).sum()/(array_w[i][mask]).sum() # x_hat=sum(w*x)/sum(w)
+			sigma_x=np.sqrt((array_w[i][mask]*(array_x[i][mask]-x_hat)**2.).sum()/array_w[i][mask].sum()) # sigma=sqrt( sum(w*(x-x_hat)^2)/sum(w) )
+			x_master.append(x_hat)
+			xe_master.append(sigma_x)
 		else:	# i.e. for stars that have no match, just append their original values and errors.
-			means.append(array_values[i][mask][0])
-			stds.append(array_errors[i][mask][0])
+			x_master.append(array_x[i][mask][0])
+			xe_master.append(array_e[i][mask][0])
 	
-	df[value]=np.array(means)
-	df[error]=np.array(stds)
+	df[x]=np.array(x_master)
+	df[xe]=np.array(xe_master)
 
 	return df
 
-def normal_mean(df,value,all_frames):
+def normal_mean(df,x,all_frames):
 
-	col_values=["{0}_{1}".format(value,x) for x in all_frames]
-	df[value]=df[col_values].mean(axis=1)
+	cols_x=["{0}_{1}".format(x,f) for f in all_frames]
+	df[x]=df[cols_x].mean(axis=1)
 	
 	return df
 
 
-def stitch(name_starlist,name_ref,name_initial_ref, corr_thresh_starlist=0.8, corr_thresh_ref=0.8, xmin=10, xmax=1040, ymin=10, ymax=1040):
+def stitch(name_starlist,name_ref, corr_thresh_starlist=0.8, corr_thresh_ref=0.8):
 
 	# name_starslist: the name of starlist
 	# name_ref : the name of reference, either the initial reference or master reference.
@@ -48,16 +48,8 @@ def stitch(name_starlist,name_ref,name_initial_ref, corr_thresh_starlist=0.8, co
 	# corr_thresh : threshold for correlation values.
 	# x/y_min/max: in order to remove false positives at the boundary.
 
-	starlist=starlists.read_starlist('mag2014_12_nirc2_BN_Mosaic_{0}_kp_rms.lis'.format(name_starlist))
-	ref=starlists.read_starlist('mag2014_12_nirc2_BN_Mosaic_{0}_kp_rms.lis'.format(name_ref))
-
-	#----------- Remove false positives at the boundary of the chip -------------
-
-	starlist=starlist[(starlist['x']>xmin) & (starlist['x']<xmax) & (starlist['y']>ymin) & (starlist['y']<ymax) & (starlist['snr']>3)]
-
-	# In the case of reference, this process is needed only for the initial reference. Master reference should have already passed this process.
-	if name_ref==name_initial_ref:
-		ref=ref[(ref['x']>xmin) & (ref['x']<xmax) & (ref['y']>ymin) & (ref['y']<ymax) & (ref['snr']>3)]
+	starlist=starlists.read_starlist('{0}.lis'.format(name_starlist))
+	ref=starlists.read_starlist('{0}.lis'.format(name_ref))
 
 	#------------ Choose good stars to use for a trans object --------------------
 
@@ -130,7 +122,7 @@ def stitch(name_starlist,name_ref,name_initial_ref, corr_thresh_starlist=0.8, co
 
 	#-------------- Convert the final dataframe back into an astropy table ------
 	new_ref=Table.from_pandas(df_comb)
-	new_ref.write('mag2014_12_nirc2_BN_Mosaic_{0}_kp_rms.lis'.format(name_new_ref),format='ascii.commented_header', header_start=-1, overwrite=True)
+	new_ref.write('{0}.lis'.format(name_new_ref),format='ascii.commented_header', header_start=-1, overwrite=True)
 
 	#print new_ref
 
@@ -139,12 +131,12 @@ def stitch(name_starlist,name_ref,name_initial_ref, corr_thresh_starlist=0.8, co
 
 #------test-----------
 
-name_initial_ref='B'
+
 name_new_ref='B'
 Names_all=['A','B','C']
 
-Names_all.remove(name_initial_ref)
+Names_all.remove(name_new_ref)
 
 for name_starlist in Names_all:
 
-	name_new_ref=stitch(name_starlist,name_new_ref,name_initial_ref)
+	name_new_ref=stitch(name_starlist,name_new_ref)
