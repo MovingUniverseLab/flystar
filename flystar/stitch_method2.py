@@ -1,9 +1,3 @@
-from flystar import examples,starlists,plots,match,align
-import matplotlib.pylab as plt
-import numpy as np
-from astropy.table import vstack, Table
-import pandas as pd
-
 
 def weighted_mean(df,x,xe,all_frames):
 	# value = x or y
@@ -13,6 +7,7 @@ def weighted_mean(df,x,xe,all_frames):
 	cols_x=["{0}_{1}".format(x,f) for f in all_frames] # columns for x_* e.g. ['x_A', 'x_B', 'x_C', ....]
 	cols_xe=["{0}_{1}".format(xe,f) for f in all_frames] # columns for xe_* e.g. ['xe_A', 'xe_B', 'xe_C', ....]
 	array_x=np.array(df[cols_x]) # array that contains x_A, x_B, ...
+	array_xe=np.array(df[cols_xe]) # array that contains xe_A, xe_B, ...
 	array_w=1./np.array(df[cols_xe])**2. # array that contains w_A, w_B, ...
 	x_master=[]
 	xe_master=[]
@@ -25,7 +20,7 @@ def weighted_mean(df,x,xe,all_frames):
 			xe_master.append(sigma_x)
 		else:	# i.e. for stars that have no match, just append their original values and errors.
 			x_master.append(array_x[i][mask][0])
-			xe_master.append(array_e[i][mask][0])
+			xe_master.append(array_xe[i][mask][0])
 	
 	df[x]=np.array(x_master)
 	df[xe]=np.array(xe_master)
@@ -40,7 +35,7 @@ def normal_mean(df,x,all_frames):
 	return df
 
 
-def stitch(name_starlist,name_ref, corr_thresh_starlist=0.8, corr_thresh_ref=0.8):
+def stitch(name_starlist,name_ref, name_initial_ref, corr_thresh_starlist=0.8, corr_thresh_ref=0.8):
 
 	# name_starslist: the name of starlist
 	# name_ref : the name of reference, either the initial reference or master reference.
@@ -53,15 +48,17 @@ def stitch(name_starlist,name_ref, corr_thresh_starlist=0.8, corr_thresh_ref=0.8
 
 	#------------ Choose good stars to use for a trans object --------------------
 
-	starlist_for_align=starlist[(starlist['corr']>corr_thresh_starlist)]
-	ref_for_align=ref[(ref['corr']>corr_thresh_ref)]
+	starlist_for_align=starlist[(starlist['corr']>corr_thresh_starlist) & (starlist['snr']>3)]
+	ref_for_align=ref[(ref['corr']>corr_thresh_ref) & (ref['snr']>3)]
 
 	# Select the very first 11 columns (i.e. the master reference) consistent with those of the starlist.
-	ref_for_align=ref_for_align[:][starlist_for_align.colnames] 
 	# Table -> dataframe -> Table, which lets us avoid the following error: 'MaskedColumn' object has no attribute '_mask'
-	ref_for_align=Table.from_pandas(ref_for_align.to_pandas()) 					  
+				  
+	ref_for_align=ref_for_align.to_pandas()
+	ref_for_align.dropna(axis=0, how='any', inplace=True) # In case that you want to use only stars in common among the dithered exposures.
+	ref_for_align=Table.from_pandas(ref_for_align[starlist_for_align.colnames]) 
 
-	_,_,_,trans=examples.align_starlists(starlist_for_align,ref_for_align,order=2,dr_tol=1,N_loop=15,outFile='/u/dkim/Documents/outTrans.txt')
+	idx_1,idx_2,t_t1,trans=examples.align_starlists(starlist_for_align,ref_for_align,order=2,dr_tol=1,N_loop=15,outFile='/u/dkim/Documents/outTrans.txt')
 
 	#------------ Transform the whole starlist using the trans object and match with the reference -------------
 
@@ -76,8 +73,7 @@ def stitch(name_starlist,name_ref, corr_thresh_starlist=0.8, corr_thresh_ref=0.8
 	#-------------Convet the astropy talbes into dataframes ---------------------
 	df_ref=ref.to_pandas()
 	df_starlist_transformed=starlist_transformed.to_pandas()
-	#df_ref.dropna(axis=0, how="any", inplace=True) # In case that you want to use only stars in common among the dithered exposures.
-
+	
 	#-------------Columns 11-21 contain the measurments for the initial reference--------------
 
 	colnames=starlist.colnames
@@ -133,10 +129,11 @@ def stitch(name_starlist,name_ref, corr_thresh_starlist=0.8, corr_thresh_ref=0.8
 
 
 name_new_ref='B'
-Names_all=['A','B','C']
+name_initial_ref='B'
+Names_all=['A','B','C', 'D', 'G', 'J', 'K']
 
 Names_all.remove(name_new_ref)
 
 for name_starlist in Names_all:
 
-	name_new_ref=stitch(name_starlist,name_new_ref)
+	name_new_ref=stitch(name_starlist,name_new_ref,name_initial_ref)
