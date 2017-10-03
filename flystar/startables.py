@@ -46,7 +46,17 @@ class StarTable(Table):
 
     ref_list : int
         Specify which list is the reference list (if any). 
-    
+
+
+    Examples
+    --------------------------
+
+    t = startables.StarTable(name=name, x=x, y=y, m=m)
+
+    # Access the data:
+    print(t)
+    print(t['name'][0:10])  # print the first 10 star names
+    print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
     """
     def __init__(self, ref_list=0, **kwargs):
         """
