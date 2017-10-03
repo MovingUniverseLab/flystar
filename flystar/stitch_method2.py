@@ -1,16 +1,25 @@
+from flystar import examples,starlists,plots,match,align
+import matplotlib.pylab as plt
+import numpy as np
+from astropy.table import vstack, Table
+import pandas as pd
+
 
 def weighted_mean(df,x,xe,all_frames):
 	# value = x or y
 	# error = xe or ye
 	# all_frames = e.g. ['A', 'B', 'C', ...]
 
+	all_frames=set(all_frames)
+
 	cols_x=["{0}_{1}".format(x,f) for f in all_frames] # columns for x_* e.g. ['x_A', 'x_B', 'x_C', ....]
 	cols_xe=["{0}_{1}".format(xe,f) for f in all_frames] # columns for xe_* e.g. ['xe_A', 'xe_B', 'xe_C', ....]
 	array_x=np.array(df[cols_x]) # array that contains x_A, x_B, ...
 	array_xe=np.array(df[cols_xe]) # array that contains xe_A, xe_B, ...
-	array_w=1./np.array(df[cols_xe])**2. # array that contains w_A, w_B, ...
+	array_w=1./np.array(df[cols_xe])**2. # array that contains weights i.e., w_A, w_B, ... 
 	x_master=[]
 	xe_master=[]
+	rows_to_drop=[]
 	for i in range(len(array_x)):
 		mask=~np.isnan(array_x[i])
 		if mask.sum()>1: # i.e. for stars that have at least one match, calculate weighted mean values and standard deviations.
@@ -18,12 +27,16 @@ def weighted_mean(df,x,xe,all_frames):
 			sigma_x=np.sqrt((array_w[i][mask]*(array_x[i][mask]-x_hat)**2.).sum()/array_w[i][mask].sum()) # sigma=sqrt( sum(w*(x-x_hat)^2)/sum(w) )
 			x_master.append(x_hat)
 			xe_master.append(sigma_x)
-		else:	# i.e. for stars that have no match, just append their original values and errors.
+		elif mask.sum()==1:	# i.e. for stars that have no match, just append their original values and errors.
 			x_master.append(array_x[i][mask][0])
 			xe_master.append(array_xe[i][mask][0])
-	
+		else:
+			rows_to_drop.append(i)
+					
+	df=df.drop(rows_to_drop)
 	df[x]=np.array(x_master)
 	df[xe]=np.array(xe_master)
+	
 
 	return df
 
@@ -55,10 +68,16 @@ def stitch(name_starlist,name_ref, name_initial_ref, corr_thresh_starlist=0.8, c
 	# Table -> dataframe -> Table, which lets us avoid the following error: 'MaskedColumn' object has no attribute '_mask'
 				  
 	ref_for_align=ref_for_align.to_pandas()
-	ref_for_align.dropna(axis=0, how='any', inplace=True) # In case that you want to use only stars in common among the dithered exposures.
+	"""
+	if len(ref_for_align.columns)>33:
+		thresh=len(ref_for_align.columns)-11*2
+	else:
+		thresh=len(ref_for_align.columns)
+	ref_for_align.dropna(axis=0, thresh=thresh, inplace=True) # In case that you want to use only stars in common among the dithered exposures.
+	"""
 	ref_for_align=Table.from_pandas(ref_for_align[starlist_for_align.colnames]) 
 
-	idx_1,idx_2,t_t1,trans=examples.align_starlists(starlist_for_align,ref_for_align,order=2,dr_tol=1,N_loop=15,outFile='/u/dkim/Documents/outTrans.txt')
+	_,_,_,trans=examples.align_starlists(starlist_for_align,ref_for_align,order=2,dr_tol=1,N_loop=15,outFile='/u/dkim/Documents/outTrans.txt')
 
 	#------------ Transform the whole starlist using the trans object and match with the reference -------------
 
@@ -70,7 +89,7 @@ def stitch(name_starlist,name_ref, name_initial_ref, corr_thresh_starlist=0.8, c
 	idx_starlist_transformed_unmatched=[x for x in range(len(starlist)) if x not in idx_starlist_transformed_matched]
 	idx_ref_unmatched=[x for x in range(len(ref)) if x not in idx_ref_matched]
 
-	#-------------Convet the astropy talbes into dataframes ---------------------
+	#-------------Convert the astropy talbes into dataframes ---------------------
 	df_ref=ref.to_pandas()
 	df_starlist_transformed=starlist_transformed.to_pandas()
 	
@@ -84,11 +103,19 @@ def stitch(name_starlist,name_ref, name_initial_ref, corr_thresh_starlist=0.8, c
 
 	#-------------- Add a column for the transformed starlist and insert its values to the reference ------------ 
 
-	for col in colnames:
-		df_ref.insert(len(df_ref.columns),'{0}_{1}'.format(col,name_starlist),np.nan)
-		df_ref.loc[idx_ref_matched,'{0}_{1}'.format(col,name_starlist)]= np.array(df_starlist_transformed.loc[idx_starlist_transformed_matched,col])
+	if 'x_{0}'.format(name_starlist) in ref.colnames: # if the input starlist has been already used and exists within the master reference,
+		for col in colnames:
+			df_ref['{0}_{1}'.format(col,name_starlist)]=np.nan
+			df_ref.loc[idx_ref_matched,'{0}_{1}'.format(col,name_starlist)]= np.array(df_starlist_transformed.loc[idx_starlist_transformed_matched,col])
+	
+	else: # if the input starlist is new to the reference,
 
-	#-------------- Append the unmatched stars in the starlist to the reference------------
+		for col in colnames:
+		
+			df_ref.insert(len(df_ref.columns),'{0}_{1}'.format(col,name_starlist),np.nan)
+			df_ref.loc[idx_ref_matched,'{0}_{1}'.format(col,name_starlist)]= np.array(df_starlist_transformed.loc[idx_starlist_transformed_matched,col])
+
+		#-------------- Append the unmatched stars in the starlist to the reference------------
 
 	columns=df_ref.columns
 	df_starlist_transformed.columns=["{0}_{1}".format(x,name_starlist) for x in colnames]
@@ -128,9 +155,11 @@ def stitch(name_starlist,name_ref, name_initial_ref, corr_thresh_starlist=0.8, c
 #------test-----------
 
 
-name_new_ref='B'
-name_initial_ref='B'
-Names_all=['A','B','C', 'D', 'G', 'J', 'K']
+name_new_ref='A'
+name_initial_ref='A'
+N_iter=5 # number of iterations
+Names_all=['A','B','C', 'D', 'G', 'J','K']*N_iter
+
 
 Names_all.remove(name_new_ref)
 
