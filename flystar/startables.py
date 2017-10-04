@@ -1,4 +1,5 @@
 from astropy.table import Table, Column
+from astropy.stats import sigma_clipping
 import numpy as np
 import pdb
 
@@ -138,4 +139,61 @@ class StarTable(Table):
             if arg in kwargs:
                 self.add_column(Column(data=kwargs[arg], name=arg))
 
+        return
+
+
+    def combine_lists_xym(self, weighted=True):
+        """
+        For all columns in the table that have dimensions (N_stars, N_lists),
+        collapse along the lists direction. For 'x', 'y' this means calculating
+        the median position with outlier rejection weighted by the 'xe' and 'ye'
+        individual uncertainties, if they exist. For 'm', convert to flux first 
+        and do the same. 
+        """
+        return
+
+    def combine_lists(self, col_name_in, weights_col=None, mask_val=None):
+        """
+        For the specified column (col_name_in), collapse along the starlists
+        direction and calculated the median value, with outlier rejection. 
+        Optionally, weight by a specified column (weights_col). The final 
+        values are stored in a new column named 
+        <col_name_in>_avg -- the mean (with outlier rejection) 
+        <col_name_in>_std -- the std (with outlier rejection)
+
+        Masking of NaN values is also performed. 
+        """
+        # Get the array we are going to combine. Also make a mask
+        # of invalid (NaN) values and a user-specified invalid value. 
+        val_2d = self[col_name_in].data
+        val_2d = np.ma.masked_values(val_2d, mask_val)
+
+        # Dedicde if we are going to have weights (before we
+        # do the expensive sigma clipping routine. 
+        if weights_col:
+            wgt_2d = np.ma.masked_invalid(1.0 / self[weights_col]**2)
+
+        # Figure out which ones are outliers. Returns a masked array.
+        val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=3, iters=5, axis=1)
+
+        # Calculate the (weighted) mean and standard deviation along
+        # the N_lists direction (axis=1).
+        if weights_col: 
+            avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
+            std = np.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
+        else:
+            avg = np.ma.mean(val_2d_clip, axis=1)
+            std = np.ma.std(val_2d_clip, axis=1)
+
+        # Save off our new AVG and STD into new columns with shape (N_stars).
+        col_name_avg = col_name_in + '_avg'
+        col_name_std = col_name_in + '_std'
+
+        if col_name_avg in self.colnames:
+            self[col_name_avg] = avg.data
+            self[col_name_std] = std.data
+        else:
+            self.add_column(Column(data=avg.data, name=col_name_avg))
+            self.add_column(Column(data=std.data, name=col_name_std))
+        
         return

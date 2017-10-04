@@ -8,7 +8,8 @@ import os
 import pdb
 
 
-def initial_align(table1, table2, briteN=100, transformModel=transforms.four_paramNW, order=1, req_match=5):
+def initial_align(table1, table2, briteN=100,
+                      transformModel=transforms.four_paramNW, order=1, req_match=5):
     """
     Calculates an initial (unweighted) transformation from table1 starlist into
     table2 starlist (i.e., table2 is the reference starlist). Matching is done using
@@ -659,14 +660,14 @@ def transform_from_object(starlist, transform):
     # calculate the transformed position and velocity
 
     # (x_new, y_new, xe_new, ye_new) in (x,y)
-    x_new, y_new, xe_new, ye_new = position_transfer_object(x, y, xe, ye, transform)
+    x_new, y_new, xe_new, ye_new = position_transform_from_object(x, y, xe, ye, transform)
 
     
     if vel:
         # (x0_new,  y0_new, x0e_new, y0e_new) in (x0, y0, x0e, y0e)
-        x0_new, y0_new, x0e_new, y0e_new = position_transfer_object(x0, y0, x0e, y0e, transform)
+        x0_new, y0_new, x0e_new, y0e_new = position_transform_from_object(x0, y0, x0e, y0e, transform)
         # (vx_new, vy_new, vxe_new, vye_new) in (x0, y0, x0e, y0e, vx, vy, vxe, vye)
-        vx_new, vy_new, vxe_new, vye_new = velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
+        vx_new, vy_new, vxe_new, vye_new = velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
 
     # update transformed coords to copy of astropy table
     starlist_f['x'] = x_new
@@ -690,11 +691,11 @@ def transform_from_object(starlist, transform):
 
 
 
-def position_transfer_object(x, y, xe, ye, transform):
+def position_transform_from_object(x, y, xe, ye, transform):
     """
-    given the orginal position and position error, calculat the transformed
-    position and position error based on transformation from
-    astropy.modling.models.polynomial2D.
+    given the orginal position and position error, calculate the transformed
+    position and position error based on transformation object from
+    astropy.modeling.models.polynomial2D.
     Input:
         - x, y: original position
         - xe, ye: original position error
@@ -715,7 +716,7 @@ def position_transfer_object(x, y, xe, ye, transform):
         Ycoeff = transform.py.parameters
         order = transform.order
     else:
-        txt = 'Transform not yet supported by position_transfer_object'
+        txt = 'Transform not yet supported by position_transform_from_object'
         raise StandardError(txt)
         
     # How the transformation is applied depends on the type of transform.
@@ -780,7 +781,7 @@ def position_transfer_object(x, y, xe, ye, transform):
     return x_new, y_new, xe_new, ye_new
 
 
-def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
+def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     """
     given the orginal position & position error & velocity & veolicty error,
     calculat the transformed velocity and velocity error based on transformation
@@ -804,7 +805,7 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
         Ycoeff = transform.py.parameters
         order = transform.order
     else:
-        txt = 'Transform not yet supported by velocity_transfer_object'
+        txt = 'Transform not yet supported by velocity_transform_from_object'
         raise StandardError(txt)
         
     # How the transformation is applied depends on the type of transform.
