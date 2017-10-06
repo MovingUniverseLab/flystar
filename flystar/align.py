@@ -8,7 +8,8 @@ import os
 import pdb
 
 
-def initial_align(table1, table2, briteN=100, transformModel=transforms.four_paramNW, order=1, req_match=5):
+def initial_align(table1, table2, briteN=100,
+                      transformModel=transforms.four_paramNW, order=1, req_match=5):
     """
     Calculates an initial (unweighted) transformation from table1 starlist into
     table2 starlist (i.e., table2 is the reference starlist). Matching is done using
@@ -78,7 +79,6 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.four_par
     # Run the blind triangle-matching algorithm to find the matches between the starlists
     print(( 'Attempting match with {0} and {1} stars from starlist1 and starlist2'.format(len(table1), len(table2))))
     print( 'Begin initial match')
-
 
     N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(x1, y1, m1, x2, y2, m2, briteN)
     assert len(x1m) > req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
@@ -660,14 +660,14 @@ def transform_from_object(starlist, transform):
     # calculate the transformed position and velocity
 
     # (x_new, y_new, xe_new, ye_new) in (x,y)
-    x_new, y_new, xe_new, ye_new = position_transfer_object(x, y, xe, ye, transform)
+    x_new, y_new, xe_new, ye_new = position_transform_from_object(x, y, xe, ye, transform)
 
     
     if vel:
         # (x0_new,  y0_new, x0e_new, y0e_new) in (x0, y0, x0e, y0e)
-        x0_new, y0_new, x0e_new, y0e_new = position_transfer_object(x0, y0, x0e, y0e, transform)
+        x0_new, y0_new, x0e_new, y0e_new = position_transform_from_object(x0, y0, x0e, y0e, transform)
         # (vx_new, vy_new, vxe_new, vye_new) in (x0, y0, x0e, y0e, vx, vy, vxe, vye)
-        vx_new, vy_new, vxe_new, vye_new = velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
+        vx_new, vy_new, vxe_new, vye_new = velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
 
     # update transformed coords to copy of astropy table
     starlist_f['x'] = x_new
@@ -691,11 +691,11 @@ def transform_from_object(starlist, transform):
 
 
 
-def position_transfer_object(x, y, xe, ye, transform):
+def position_transform_from_object(x, y, xe, ye, transform):
     """
-    given the orginal position and position error, calculat the transformed
-    position and position error based on transformation from
-    astropy.modling.models.polynomial2D.
+    given the orginal position and position error, calculate the transformed
+    position and position error based on transformation object from
+    astropy.modeling.models.polynomial2D.
     Input:
         - x, y: original position
         - xe, ye: original position error
@@ -716,8 +716,13 @@ def position_transfer_object(x, y, xe, ye, transform):
         Ycoeff = transform.py.parameters
         order = transform.order
     else:
+<<<<<<< HEAD
         txt = 'Transform not yet supported by position_transfer_object'
         raise Exception(txt)
+=======
+        txt = 'Transform not yet supported by position_transform_from_object'
+        raise StandardError(txt)
+>>>>>>> 9dedbf8d5008f74cc915a3cb11c6f4b9bc7ab5c2
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
@@ -781,7 +786,7 @@ def position_transfer_object(x, y, xe, ye, transform):
     return x_new, y_new, xe_new, ye_new
 
 
-def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
+def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     """
     given the orginal position & position error & velocity & veolicty error,
     calculat the transformed velocity and velocity error based on transformation
@@ -805,8 +810,13 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
         Ycoeff = transform.py.parameters
         order = transform.order
     else:
+<<<<<<< HEAD
         txt = 'Transform not yet supported by velocity_transfer_object'
         raise Exception(txt)
+=======
+        txt = 'Transform not yet supported by velocity_transform_from_object'
+        raise StandardError(txt)
+>>>>>>> 9dedbf8d5008f74cc915a3cb11c6f4b9bc7ab5c2
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
