@@ -6,7 +6,7 @@ import pdb
 
 class StarTable(Table):
     """
-    A StarTable is an astropy.Table with stars matched from multiple starlists. 
+    A StarTable is an astropy.Table with stars matched from multiple starlists.
 
     Required table columns (input as keywords):
     -------------------------
@@ -34,19 +34,22 @@ class StarTable(Table):
         Magnitude uncertainties of N_stars in each of N_lists.
 
     ep_name : 2D numpy.array with shape = (N_stars, N_lists)
-        Names in each epoch for each of N_stars in each of N_lists. This is 
-        useful for tracking purposes. 
+        Names in each epoch for each of N_stars in each of N_lists. This is
+        useful for tracking purposes.
+    
+    corr : 2D numpy.array with shape = (N_stars, N_lists)
+        Fitting correlation for each of N_stars in each of N_lists.
 
     Optional table meta data
     -------------------------
     list_names : list of strings
         List of names, one for each of the starlists.
 
-    list_times : list of floats
+    list_times : list of integers or floats
         List of times/dates for each starlist.
 
     ref_list : int
-        Specify which list is the reference list (if any). 
+        Specify which list is the reference list (if any).
 
 
     Examples
@@ -76,7 +79,7 @@ class StarTable(Table):
             raise TypeError("The StarTable class requires both 'xe' and" +
                             " 'ye' arguments")
 
-        # Figure out the shape 
+        # Figure out the shape
         n_stars = kwargs['x'].shape[0]
         n_lists = kwargs['x'].shape[1]
         
@@ -88,7 +91,7 @@ class StarTable(Table):
             raise TypeError(err_msg.format('name', n_stars))
 
         # Check all the 2D arrays.
-        arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'ep_name')
+        arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'ep_name', 'corr')
         
         for arg_test in arg_tab:
             if arg_test in kwargs:
@@ -100,7 +103,7 @@ class StarTable(Table):
                     err_msg = "The '{0:s}' argument has to have shape = ({1:d}, {2:d})"
                     raise TypeError(err_msg.format(arg_test, n_stars, n_lists))
 
-        # Check that the reference list is specified. 
+        # Check that the reference list is specified.
         if ref_list not in range(n_lists):
             err_msg = "The 'ref_list' argument has to be an integer between 0 and {0:d}"
             raise IndexError(err_msg.format(n_lists-1))
@@ -108,7 +111,7 @@ class StarTable(Table):
         # We have to have special handling of meta-data (i.e. info that has
         # dimensions of n_lists).
         meta_tab = ('list_times', 'list_names')
-        meta_type = (float, str)
+        meta_type = ((float, int), str)
         for mm in range(len(meta_tab)):
             meta_test = meta_tab[mm]
             meta_type_test = meta_type[mm]
@@ -140,36 +143,36 @@ class StarTable(Table):
                 self.add_column(Column(data=kwargs[arg], name=arg))
 
         return
-
+    
 
     def combine_lists_xym(self, weighted=True):
         """
         For all columns in the table that have dimensions (N_stars, N_lists),
         collapse along the lists direction. For 'x', 'y' this means calculating
         the median position with outlier rejection weighted by the 'xe' and 'ye'
-        individual uncertainties, if they exist. For 'm', convert to flux first 
-        and do the same. 
+        individual uncertainties, if they exist. For 'm', convert to flux first
+        and do the same.
         """
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None):
         """
         For the specified column (col_name_in), collapse along the starlists
-        direction and calculated the median value, with outlier rejection. 
-        Optionally, weight by a specified column (weights_col). The final 
-        values are stored in a new column named 
-        <col_name_in>_avg -- the mean (with outlier rejection) 
+        direction and calculated the median value, with outlier rejection.
+        Optionally, weight by a specified column (weights_col). The final
+        values are stored in a new column named
+        <col_name_in>_avg -- the mean (with outlier rejection)
         <col_name_in>_std -- the std (with outlier rejection)
 
-        Masking of NaN values is also performed. 
+        Masking of NaN values is also performed.
         """
         # Get the array we are going to combine. Also make a mask
-        # of invalid (NaN) values and a user-specified invalid value. 
+        # of invalid (NaN) values and a user-specified invalid value.
         val_2d = self[col_name_in].data
         val_2d = np.ma.masked_values(val_2d, mask_val)
 
         # Dedicde if we are going to have weights (before we
-        # do the expensive sigma clipping routine. 
+        # do the expensive sigma clipping routine.
         if weights_col:
             wgt_2d = np.ma.masked_invalid(1.0 / self[weights_col]**2)
 
@@ -178,7 +181,7 @@ class StarTable(Table):
 
         # Calculate the (weighted) mean and standard deviation along
         # the N_lists direction (axis=1).
-        if weights_col: 
+        if weights_col:
             avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
             std = np.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
         else:

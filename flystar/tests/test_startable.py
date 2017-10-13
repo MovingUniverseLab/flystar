@@ -14,7 +14,7 @@ def test_StarTable_init1():
     cat_file = test_dir + '/test_catalog.fits'
 
     # Read and arrange the test input
-    cat_tab = Table.read(cat_file)
+    cat_tab = Table.read(cat_file, format="ascii")
 
     N_stars = len(cat_tab)
     N_lists = cat_tab['x'].shape[1]
@@ -30,7 +30,7 @@ def test_StarTable_init1():
     ye_in = cat_tab['ye'].data
     me_in = cat_tab['me'].data
 
-    # Name is a unique name for each star and is a 1D array. 
+    # Name is a unique name for each star and is a 1D array.
     name_in = cat_tab['name'].data
     starlist_times = np.array([2001.0, 2002.1, 2003.0, 2004., 2005., 2006., 2007., 2008.])
     starlist_names = np.array(['file1', 'file2', 'file3', 'file4', 'file5', 'file6', 'file7', 'file8'])
@@ -104,7 +104,7 @@ def make_star_table():
     ye_in = cat_tab['ye'].data
     me_in = cat_tab['me'].data
 
-    # Name is a unique name for each star and is a 1D array. 
+    # Name is a unique name for each star and is a 1D array.
     name_in = cat_tab['name'].data
     starlist_times = np.array([2001.0, 2002.1, 2003.0, 2004., 2005., 2006., 2007., 2008.])
     starlist_names = np.array(['file1', 'file2', 'file3', 'file4', 'file5', 'file6', 'file7', 'file8'])

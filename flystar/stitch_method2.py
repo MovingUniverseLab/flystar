@@ -11,7 +11,7 @@ def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2,
     Parameters:
     -----------
     starlist: Table
-        Starlist we would like to transform into the reference frame, eg:label.dat 
+        Starlist we would like to transform into the reference frame, eg:label.dat
 
     ref: Table
         Starlist that defines the reference frame.
@@ -120,7 +120,7 @@ def weighted_mean(df,x,xe,frames_in_use):
 			xe_master.append(array_xe[i][mask][0])
 		else:
 			rows_to_drop.append(i)
-					
+			
 	df=df.drop(rows_to_drop)
 	df[x]=np.array(x_master)
 	df[xe]=np.array(xe_master)
@@ -138,17 +138,18 @@ def normal_mean(df,x,frames_in_use):
 
 def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaster='./master.lis'):
 	
-	# all_starslist: the list of the names of all starlists e.g. ['A', 'B', 'C', ... ] 
+	# all_starslist: the list of the names of all starlists e.g. ['A', 'B', 'C', ... ]
 	# name_initial_ref: the name of the reference that you use in the very first match.
 	# corr_thresh : threshold for correlation values.
 	# N_iter: number of iterations.
 	# outMaster: the name/location of master.lis
 
 	input_starslists=(all_starlists*N_iter)
-	input_starslists.remove(name_initial_ref)
+	if name_initial_ref in input_starslists:
+		input_starslists.remove(name_initial_ref)
 
 	for name_starlist in input_starslists:
-
+		
 		starlist=starlists.read_starlist('{0}.lis'.format(name_starlist))
 		if 'ref' not in locals():
 			ref=starlists.read_starlist('{0}.lis'.format(name_initial_ref))
@@ -161,10 +162,10 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 
 		# Select the very first 11 columns (i.e. the master reference) consistent with those of the starlist.
 		# Table -> dataframe -> Table, which lets us avoid the following error: 'MaskedColumn' object has no attribute '_mask'
-				  
+		
 		ref_for_align=ref_for_align.to_pandas()
 	
-		ref_for_align=Table.from_pandas(ref_for_align[starlist_for_align.colnames]) 
+		ref_for_align=Table.from_pandas(ref_for_align[starlist_for_align.colnames])
 
 		_,_,_,trans=align_starlists(starlist_for_align,ref_for_align,order=2,dr_tol=1,N_loop=15)
 
@@ -190,9 +191,9 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 			for col in colnames:
 				df_ref.insert(len(df_ref.columns),'{0}_{1}'.format(col,name_initial_ref),np.nan)
 				df_ref.loc[:,'{0}_{1}'.format(col,name_initial_ref)]= np.array(df_ref.loc[:,col])
-			name_initial_ref=False # i.e. the first match is done. 
+			name_initial_ref=False # i.e. the first match is done.
 
-		#-------------- Add a column for the transformed starlist and insert its values to the reference ------------ 
+		#-------------- Add a column for the transformed starlist and insert its values to the reference ------------
 
 		if 'x_{0}'.format(name_starlist) in ref.colnames:
 			for col in colnames:
@@ -238,6 +239,6 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 
 		ref=Table.from_pandas(df_comb)
 		
-	ref.write(outMaster,format='ascii.commented_header', header_start=-1, overwrite=True)	
+	ref.write(outMaster,format='ascii.commented_header', header_start=-1, overwrite=True)
 
-	return 
+	return

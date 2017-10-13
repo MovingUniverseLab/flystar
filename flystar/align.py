@@ -716,13 +716,8 @@ def position_transform_from_object(x, y, xe, ye, transform):
         Ycoeff = transform.py.parameters
         order = transform.order
     else:
-<<<<<<< HEAD
-        txt = 'Transform not yet supported by position_transfer_object'
-        raise Exception(txt)
-=======
         txt = 'Transform not yet supported by position_transform_from_object'
         raise StandardError(txt)
->>>>>>> 9dedbf8d5008f74cc915a3cb11c6f4b9bc7ab5c2
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
@@ -735,7 +730,7 @@ def position_transform_from_object(x, y, xe, ye, transform):
         x_new += Xcoeff[N+1+j] * (y**j)
     for i in range(1, N+1):
         for j in range(1, N+2-i):
-            sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.) 
+            sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.)
             x_new += Xcoeff[sub] * (x**i) * (y**j)
 
     y_new = 0
@@ -810,13 +805,8 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
         Ycoeff = transform.py.parameters
         order = transform.order
     else:
-<<<<<<< HEAD
-        txt = 'Transform not yet supported by velocity_transfer_object'
-        raise Exception(txt)
-=======
         txt = 'Transform not yet supported by velocity_transform_from_object'
         raise StandardError(txt)
->>>>>>> 9dedbf8d5008f74cc915a3cb11c6f4b9bc7ab5c2
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
