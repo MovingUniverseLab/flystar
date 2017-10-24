@@ -458,7 +458,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
     init_mode : str
         Initial matching method.
         If 'triangle', uses the blind triangle method.
-        If #########################################################################
+        If 'match_name', uses match by name
     model : str
         Transformation model to be used with the 'triangle' initial mode
     poly_order : int
@@ -480,38 +480,52 @@ def generic_match(sl1, sl2, init_mode='triangle',
 
     """
     
-    # Check the input StarLists and transform them into astropy Tables
+    #  Check the input StarLists and transform them into astropy Tables
     if not isinstance(sl1, starlists.StarList):
         raise TypeError("The first catalog has to be a StarList")
     if not isinstance(sl2, starlists.StarList):
         raise TypeError("The second catalog has to be a StarList")
     sl1_tab = sl1.starlist_to_table()
     sl2_tab = sl2.starlist_to_table()
-    
-    # Blind triangles method
+
+    #  Find the initial transformation
     if init_mode is 'triangle':
-        
-        #  Find the initial transformation
+    
+        #  Blind triangles method
         transf = align.initial_align(sl2_tab, sl1_tab, transformModel=model,
                                      order=poly_order)
         
-        #  Transfor the catalog to the reference frame
-        star_transf = align.transform_from_object(sl2_tab, transf)
+    elif init_mode is 'match_name':
         
-        #  Refine the transformation
-        for i_loop in range(loop):
+        #  Name match
+        sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(
+            sl1_tab, sl2_tab)
+        transf = model(sl2_tab['x'][sl2_idx_init], sl2_tab['y'][sl2_idx_init],
+                       sl1_tab['x'][sl1_idx_init], sl1_tab['y'][sl1_idx_init],
+                       order=poly_order)
+        
+    else:
+        
+        #  None of the above
+        raise TypeError('Unrecognized initial matching method')
+        
+    #  Transfor the catalog to the reference frame
+    star_transf = align.transform_from_object(sl2_tab, transf)
+        
+    #  Refine the transformation
+    for i_loop in range(loop):
+        
+        #  Transfor the catalog to the reference frame and match them
+        sl2_idx, sl1_idx = align.transform_and_match(sl2_tab, sl1_tab, transf,
+                                                     dr_tol=dr_tol,
+                                                     dm_tol=dm_tol)
             
-            #  Transfor the catalog to the reference frame and match them
-            sl2_idx, sl1_idx = align.transform_and_match(sl2_tab, sl1_tab, transf,
-                                                         dr_tol=dr_tol,
-                                                         dm_tol=dm_tol)
-            
-            #  Find a better transformation
-            transf, n_transf = align.find_transform(sl2_tab[sl2_idx], star_transf[sl2_idx],
-                                                    sl1_tab[sl1_idx],
-                                                    transModel=model, order=poly_order)
+        #  Find a better transformation
+        transf, n_transf = align.find_transform(sl2_tab[sl2_idx], star_transf[sl2_idx],
+                                                sl1_tab[sl1_idx], transModel=model,
+                                                order=poly_order)
     
-    # StarTable output
+    #  StarTable output
     sl2t_tab = align.transform_from_object(sl2_tab, transf)
     unames = np.array(range(len(sl1_idx)))
     st = startables.StarTable(name=unames,
