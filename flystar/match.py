@@ -5,6 +5,7 @@ from collections import Counter
 from scipy.spatial import cKDTree as KDT
 from astropy.table import Column, Table
 import itertools
+import numpy
 import pylab as py
 import scipy.signal
 from skimage import transform
@@ -53,7 +54,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     print( '  miracle_match_briteN: ')
     x1, y1, m1 = order_by_brite(xin1, yin1, min1, Nbrite, verbose=verbose)
     x2, y2, m2 = order_by_brite(xin2, yin2, min2, Nbrite, verbose=verbose)
-
+    
     ####################
     #
     # Triangle Matching
@@ -443,7 +444,7 @@ def add_votes(votes, match1, match2):
 
 def generic_match(sl1, sl2, init_mode='triangle',
                   model=transforms.PolyTransform, poly_order=2, loop=1,
-                  dr_tol=1.0, dm_tol=None):
+                  dr_tol=1.0, dm_tol=None, n_bright=100, **kwargs):
     """
     Finds the transformation between two starlists using the first one
     as reference frame. Different matching methods can be used. If no
@@ -459,6 +460,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
         Initial matching method.
         If 'triangle', uses the blind triangle method.
         If 'match_name', uses match by name
+        If 'load', uses the transformation from a loaded file
     model : str
         Transformation model to be used with the 'triangle' initial mode
     poly_order : int
@@ -469,6 +471,16 @@ def generic_match(sl1, sl2, init_mode='triangle',
         Search radius to refine the initial transformation
     dm_tol : float
         Magnitude tolerance to refine the initial transformation
+    n_bright : int
+        Number of bright stars used in the initial matching
+    remove_xy : array
+        Area of the images to remove in the initial matching [xmin, xmax, ymin,
+        ymax]
+    m_lim : float
+        Minimum magnitude to use in the initial matching
+    transf_file : str
+        File name and path of the transformation file used with the 'load'
+        init_mode
     
     Returns
     -------
@@ -487,13 +499,30 @@ def generic_match(sl1, sl2, init_mode='triangle',
         raise TypeError("The second catalog has to be a StarList")
     sl1_tab = sl1.starlist_to_table()
     sl2_tab = sl2.starlist_to_table()
+    sl1_tab_cut = sl1_tab
+    sl2_tab_cut = sl2_tab
+    
+    if 'remove_xy' in kwargs:
+        sl1_tab_cut = sl1_tab_cut[numpy.logical_not((sl1_tab_cut['x'] > kwargs['remove_xy'][0]) &
+                                                (sl1_tab_cut['x'] < kwargs['remove_xy'][1]) &
+                                                (sl1_tab_cut['y'] > kwargs['remove_xy'][2]) &
+                                                (sl1_tab_cut['y'] < kwargs['remove_xy'][3]))]
+        sl2_tab_cut = sl2_tab_cut[numpy.logical_not((sl2_tab_cut['x'] > kwargs['remove_xy'][0]) &
+                                                (sl2_tab_cut['x'] < kwargs['remove_xy'][1]) &
+                                                (sl2_tab_cut['y'] > kwargs['remove_xy'][2]) &
+                                                (sl2_tab_cut['y'] < kwargs['remove_xy'][3]))]
+    
+    if 'm_lim' in kwargs:
+        sl1_tab_cut = sl1_tab_cut[sl1_tab_cut['m'] > kwargs['m_lim']]
+        sl2_tab_cut = sl2_tab_cut[sl2_tab_cut['m'] > kwargs['m_lim']]
+        
 
     #  Find the initial transformation
     if init_mode is 'triangle':
     
         #  Blind triangles method
-        transf = align.initial_align(sl2_tab, sl1_tab, transformModel=model,
-                                     order=poly_order)
+        transf = align.initial_align(sl2_tab_cut, sl1_tab_cut, briteN=n_bright,
+                                     transformModel=model, order=poly_order)
         
     elif init_mode is 'match_name':
         
@@ -504,6 +533,11 @@ def generic_match(sl1, sl2, init_mode='triangle',
                        sl1_tab['x'][sl1_idx_init], sl1_tab['y'][sl1_idx_init],
                        order=poly_order)
         
+    elif init_mode is 'load':
+        
+        # Load a transformation file
+        transf = Table.read(kwargs['transf_file'],
+                             format='ascii.commented_header', header_start=-1)
     else:
         
         #  None of the above
