@@ -536,8 +536,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
     elif init_mode is 'load':
         
         # Load a transformation file
-        transf = Table.read(kwargs['transf_file'],
-                             format='ascii.commented_header', header_start=-1)
+        
+        transf = transforms.Transform2D.from_file(kwargs['transf_file'])
     else:
         
         #  None of the above

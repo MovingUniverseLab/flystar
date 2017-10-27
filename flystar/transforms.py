@@ -1,24 +1,44 @@
 from astropy.modeling import models, fitting
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline as spline
+from astropy.table import Table
+import re
 import pdb
 
 class Transform2D(object):
     '''
-    Base class for transformations. Contains general methods like
-    calculating the uncertanties of the transformed quanities by Monte
-    Carlo simulations
-
+    Base class for transformations. It contains the properties common to all
+    transformation objects.
     
     '''
 
-    def __init__(self, x, y, xref, yref):
+    """def __init__(self, x, y, xref, yref):
         self.x = x
         self.y = y
         self.xref = xref
         self.yref = yref
         #self.px = None
-        #self.px = None
+        #self.px = None"""
+
+    @classmethod
+    def from_file(cls, filename):
+    
+        transf_tab = Table.read(filename, format='ascii.commented_header',
+                                header_start=-1)
+        px = transf_tab.as_array()['Xcoeff']
+        py = transf_tab.as_array()['Ycoeff']
+        transf_file = open(filename, "r")
+        for line in transf_file:
+            if "## Transform Class:"  in line:
+                model = line.split(": ", 1)[1].rstrip("\n")
+            if "## Order:" in line:
+                order = int(re.search(r'\d+$', line).group(0))
+                break
+        transf_file.close()
+        if model == "PolyTransform":
+            transf = PolyTransform(order, px, py)
+    
+        return transf
 
     def evaluate(self,x,y):
         # method should be defined in the subclasses
@@ -126,7 +146,7 @@ class PolyTransform(Transform2D):
     y' = b0 + b1*x + b2*x**2. + b3*y + b4*y**2. + b5*x*y
     currently only supports initial guess of the linear terms
     '''
-    def __init__(self, x, y, xref, yref, order,
+    """def __init__(self, x, y, xref, yref, order,
                  init_gx=None, init_gy=None, weights=None):
 
         Transform2D.__init__(self,x,y,xref,yref)
@@ -147,8 +167,13 @@ class PolyTransform(Transform2D):
         self.px = fit_p(p_init_x, x, y, xref, weights=weights)
         self.py = fit_p(p_init_y, x, y, yref, weights=weights)
 
-        self.order = order
-
+        self.order = order"""
+    
+    def __init__(self, order, px, py):
+        
+        self.px = models.Polynomial2D(order, px)
+        self.py = models.Polynomial2D(order, py)
+    
     def evaluate(self, x,y):
         return self.px(x,y), self.py(x,y)
     
