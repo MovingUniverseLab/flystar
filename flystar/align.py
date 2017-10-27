@@ -7,6 +7,9 @@ import copy
 import os
 import pdb
 
+def mosaic_lists(list_of_starlists):
+    return
+
 
 def initial_align(table1, table2, briteN=100,
                       transformModel=transforms.four_paramNW, order=1, req_match=5):
