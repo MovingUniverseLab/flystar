@@ -9,7 +9,6 @@ class Transform2D(object):
     '''
     Base class for transformations. It contains the properties common to all
     transformation objects.
-    
     '''
 
     """def __init__(self, x, y, xref, yref):
@@ -20,13 +19,20 @@ class Transform2D(object):
         #self.px = None
         #self.px = None"""
 
+    def __init__(self):
+        '''
+        Initialization of base class Transform2D.
+        '''
+        return
+    
     @classmethod
     def from_file(cls, filename):
-    
-        transf_tab = Table.read(filename, format='ascii.commented_header',
-                                header_start=-1)
-        px = transf_tab.as_array()['Xcoeff']
-        py = transf_tab.as_array()['Ycoeff']
+        """
+        Initialize a Transform2D object (or a specified sub-class) from a file
+        containing the transformation coefficients. 
+        """
+        # Read the header of the coefficients file and get the
+        # transformation type and order. 
         transf_file = open(filename, "r")
         for line in transf_file:
             if "## Transform Class:"  in line:
@@ -35,16 +41,23 @@ class Transform2D(object):
                 order = int(re.search(r'\d+$', line).group(0))
                 break
         transf_file.close()
+
+        # Read in the coefficients.
+        transf_tab = Table.read(filename, format='ascii.commented_header',
+                                header_start=-1)
+        px = transf_tab.as_array()['Xcoeff']
+        py = transf_tab.as_array()['Ycoeff']
+
         if model == "PolyTransform":
             transf = PolyTransform(order, px, py)
     
         return transf
 
-    def evaluate(self,x,y):
+    def evaluate(self, x, y):
         # method should be defined in the subclasses
         pass
     
-    def evaluate_errors(self,x,x_err,y,y_err,nsim=500):
+    def evaluate_errors(self, x, x_err, y, y_err, nsim=500):
         '''
         Run a MC simulation to figure out what the uncertainty from the
         transformation should be.
@@ -137,45 +150,76 @@ class four_paramNW:
         
 
 class PolyTransform(Transform2D):
-
-
-    '''
-    defines a 2d polynomial transform between x,y -> xref,yref
-    tranforms are independent for x and y, of the form (for 2nd order fit):
+    """
+    Defines a 2D affine polynomial transform between x, y -> xref, yref
+    The tranformation is independent for x and y and has the form (for 2nd order fit):
     x' = a0 + a1*x + a2*x**2. + a3*y + a4*y**2. + a5*x*y
     y' = b0 + b1*x + b2*x**2. + b3*y + b4*y**2. + b5*x*y
-    currently only supports initial guess of the linear terms
-    '''
-    """def __init__(self, x, y, xref, yref, order,
-                 init_gx=None, init_gy=None, weights=None):
 
-        Transform2D.__init__(self,x,y,xref,yref)
+    Currently, this only supports an initial guess of the linear terms.
+    """
+    def __init__(self, order, px, py):
+        """
+        Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
+        and the coefficients for the x transformation and y transformation. 
         
+        Parameters
+        ----------
+        order : int
+            The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
+
+        px : array or list
+            array or list of coefficients to transform input x coordinates into output x' coordinates.
+
+        py : array or list
+            array or list of coefficients to transform input y coordinates into output y' coordinates.
+        """
+        self.px = models.Polynomial2D(order, px)
+        self.py = models.Polynomial2D(order, py)
+
+        return
+    
+    def evaluate(self, x, y):
+        """
+        Apply the transformation to a starlist.
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The raw x coordinates to be transformed.
+        y : numpy array
+            The raw y coordinates to be transformed.
+
+        Returns:
+        ----------
+        x' : array
+            The transformed x coordinates.
+        y' : array
+            The transformed y coordinates. 
+        """
+        return self.px(x,y), self.py(x,y)
+    
+    @classmethod
+    def derive_transform(cls, x, y, xref, yref, order,
+                         init_gx=None, init_gy=None, weights=None):
+
         p0 = models.Polynomial2D(order)
         
         # now, if the initial guesses are not none, fill in terms until 
         init_gx = check_initial_guess(init_gx)
         init_gy = check_initial_guess(init_gy)
         
-        
         p_init_x = models.Polynomial2D(order, **init_gx )
         p_init_y = models.Polynomial2D(order, **init_gy )
         
         fit_p  = fitting.LinearLSQFitter()
-        
 
-        self.px = fit_p(p_init_x, x, y, xref, weights=weights)
-        self.py = fit_p(p_init_y, x, y, yref, weights=weights)
+        px = fit_p(p_init_x, x, y, xref, weights=weights)
+        py = fit_p(p_init_y, x, y, yref, weights=weights)
 
-        self.order = order"""
+        return PolyTransform(order, px, py)
+
     
-    def __init__(self, order, px, py):
-        
-        self.px = models.Polynomial2D(order, px)
-        self.py = models.Polynomial2D(order, py)
-    
-    def evaluate(self, x,y):
-        return self.px(x,y), self.py(x,y)
     
 class LegTransform(Transform2D):
 
