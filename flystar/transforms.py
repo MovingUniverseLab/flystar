@@ -117,8 +117,6 @@ class four_paramNW:
         
 
 class PolyTransform(Transform2D):
-
-
     '''
     defines a 2d polynomial transform between x,y -> xref,yref
     tranforms are independent for x and y, of the form (for 2nd order fit):

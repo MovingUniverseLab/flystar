@@ -439,10 +439,95 @@ class StarList(Table):
         
         return
 
+    @classmethod
+    def from_lis_file(cls, filename, error=True):
+        """
+        Read in a starlist file, rename columns with standard names.
+        Assumes the starlist is the reference, so we have time as
+        t and don't try to propogate positions to a different time.
+
+        Parameter:
+        ---------
+        starlistFile: text file, containing:
+            col1: name
+            col2: mag
+            col3: t
+            col4: x (pix)
+            col5: y (pix)
+            if error==True:
+                col6: xerr
+                col7: yerr
+                col8: SNR
+                col9: corr
+                col10: N_frames
+                col11: flux
+            else:
+                col6: ? (left as default)
+                col7: corr
+                col8: N_frames
+                col9: ? (left as default)
+
+        error: boolean (default=True)
+            If true, assumes starlist has error columns. This significantly
+            changes the order of the columns.
+
+        Output:
+        ------
+        starlists.StarList() object (subclass of Astropy Table).
+        """
+        t_ref = Table.read(filename, format='ascii', delimiter='\s')
+
+        # Check if this already has column names:
+        cols = t_ref.colnames
+
+        if cols[0] != 'col1':
+            t_ref['name'] = t_ref['name'].astype(str)
+            return t_ref
+
+        t_ref.rename_column(cols[0], 'name')
+        t_ref['name'] = t_ref['name'].astype(str)
+        t_ref.rename_column(cols[1], 'm')
+        t_ref.rename_column(cols[2], 't')
+        t_ref.rename_column(cols[3], 'x')
+        t_ref.rename_column(cols[4], 'y')
+
+        if error==True:
+            t_ref.rename_column(cols[5], 'xe')
+            t_ref.rename_column(cols[6], 'ye')
+            t_ref.rename_column(cols[7], 'snr')
+            t_ref.rename_column(cols[8], 'corr')
+            t_ref.rename_column(cols[9], 'N_frames')
+            t_ref.rename_column(cols[10], 'flux')
+        else:
+            t_ref.rename_column(cols[5], 'snr')
+            t_ref.rename_column(cols[6], 'corr')
+            t_ref.rename_column(cols[7], 'N_frames')
+            t_ref.rename_column(cols[8], 'flux')
+
+        return cls.from_table(t_ref)
+
+    @classmethod
+    def from_table(cls, table):
+        """
+        Make a StarList from an astropy.table.Table object. Note that the input table
+        must have the columns ['name', 'x', 'y', 'm']. All other columns and meta data
+        will be added to the new StarList object that is returned.
+        """
+        starlist = cls(table['name'], table['x'], table['y'], table['m'], meta=table.meta)
+        
+        for col in table.colnames():
+            if col in ['name', 'x', 'y', 'm']:
+                continue
+            else:
+                starlist.add_column(table[col])
+
+        return starlist
 
     # Convert a StarList into a "normal" astropy Table
-    def starlist_to_table(self):
-        
+    def as_table(self):
+        """
+        WHY DO WE NEED THIS? 
+        """
         tab = Table(meta=self.meta)
         cols = self.colnames
         
