@@ -159,7 +159,7 @@ class PolyTransform(Transform2D):
 
     Currently, this only supports an initial guess of the linear terms.
     """
-    def __init__(self, order, px, py):
+    def __init__(self, order, px, py, pxerr=None, pyerr=None):
         """
         Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
@@ -169,14 +169,25 @@ class PolyTransform(Transform2D):
         order : int
             The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
 
-        px : array or list
+        px : Polynomial2D
             array or list of coefficients to transform input x coordinates into output x' coordinates.
 
-        py : array or list
+        py : Polynomial2D
             array or list of coefficients to transform input y coordinates into output y' coordinates.
+        
+        pxerr : array or list
+            array or list of errors of the coefficients to transform input x coordinates into output x' coordinates.
+        
+        pyerr : array or list
+            array or list of errors of the coefficients to transform input y coordinates into output y' coordinates.
         """
-        self.px = models.Polynomial2D(order, px)
-        self.py = models.Polynomial2D(order, py)
+        px_dict = check_initial_guess(px.parameters)
+        py_dict = check_initial_guess(py.parameters)
+        self.px = models.Polynomial2D(order, **px_dict)
+        self.py = models.Polynomial2D(order, **py_dict)
+        self.pxerr = pxerr
+        self.pyerr = pyerr
+        self.order = order
 
         return
     
