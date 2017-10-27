@@ -9,7 +9,7 @@ import pdb
 
 
 def initial_align(table1, table2, briteN=100,
-                      transformModel=transforms.four_paramNW, order=1, req_match=5):
+                      transformModel=transforms.PolyTransform, order=1, req_match=5):
     """
     Calculates an initial (unweighted) transformation from table1 starlist into
     table2 starlist (i.e., table2 is the reference starlist). Matching is done using
@@ -85,7 +85,7 @@ def initial_align(table1, table2, briteN=100,
     print(( '{0} stars matched between starlist1 and starlist2'.format(N)))
 
     # Calculate transformation based on matches
-    t = transformModel(x1m, y1m ,x2m, y2m, order=order, weights=None)
+    t = transformModel.derive_transform(x1m, y1m ,x2m, y2m, order=order, weights=None)
 
     print( 'End initial match \n')
     return t
