@@ -83,7 +83,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
             
     
             # Calculate transform based on the matched stars    
-            trans = trans_class.(star_list['x'][idx1], star_list['y'][idx1],
+            trans = trans_class(star_list['x'][idx1], star_list['y'][idx1],
                                              ref_list['x'][idx2], ref_list['y'][idx2],
                                              order=1)
 
