@@ -1,5 +1,6 @@
 import numpy as np
 from astropy.table import Table, Column
+import warnings
 import pdb
 
 try:
@@ -370,72 +371,77 @@ class StarList(Table):
         
         # Check if the required arguments are present
         arg_req = ('name', 'x', 'y', 'm')
-        
+
+        found_all_required = True
         for arg_test in arg_req:
             if arg_test not in kwargs:
-                err_msg = "The StarList class requires a '{0:s}' argument"
-                raise TypeError(err_msg.format(arg_test))
-        
-        # If we have errors, we need them in both dimensions.
-        if ('xe' in kwargs) ^ ('ye' in kwargs):
-            raise TypeError("The StarList class requires both 'xe' and" +
-                            " 'ye' arguments")
-        
-        # Figure out the shape
-        n_stars = kwargs['x'].shape[0]
-        
-        # Check if the type and size of the arguments are correct.
-        # Name checking: type and shape
-        if (not isinstance(kwargs['name'], np.ndarray)) or (
-            len(kwargs['name']) != n_stars):
-            err_msg = "The '{0:s}' argument has to be a numpy array "
-            err_msg += "with length = {1:d}"
-            raise TypeError(err_msg.format('name', n_stars))
-        
-        # Check all the arrays.
-        arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'corr')
-        
-        for arg_test in arg_tab:
-            if arg_test in kwargs:
-                if not isinstance(kwargs[arg_test], np.ndarray):
-                    err_msg = "The '{0:s}' argument has to be a numpy array"
-                    raise TypeError(err_msg.format(arg_test))
-                
-                if kwargs[arg_test].shape != (n_stars,):
-                    err_msg = "The '{0:s}' argument has to have shape = ({1:d},)"
-                    raise TypeError(err_msg.format(arg_test, n_stars))
-        
-        # We have to have special handling of meta-data
-        meta_tab = ('list_time', 'list_name')
-        meta_type = ((float, int), str)
-        for mm in range(len(meta_tab)):
-            meta_test = meta_tab[mm]
-            meta_type_test = meta_type[mm]
-            
-            if meta_test in kwargs:
-                
-                if not isinstance(kwargs[meta_test], meta_type_test):
-                    err_msg = "The '{0:s}' argument has to be a {1:s}."
-                    raise TypeError(
-                        err_msg.format(meta_test, str(meta_type_test)))
-        
-        #####
-        # Create the starlist
-        #####
-        Table.__init__(self,
-                       (kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
-                       names=('name', 'x', 'y', 'm'))
-        self.meta = {'n_stars': n_stars}
-        
-        for meta_arg in meta_tab:
-            if meta_arg in kwargs:
-                self.meta[meta_arg] = kwargs[meta_arg]
-        
-        for arg in arg_tab:
-            if arg in ['name', 'x', 'y', 'm']:
-                continue
-            if arg in kwargs:
-                self.add_column(Column(data=kwargs[arg], name=arg))
+                found_all_required = False
+
+        if not found_all_required:
+            err_msg = "The StarList class requires a '{0:s}' argument"
+            warnings.warn(err_msg, UserWarning)
+            Table.__init__(self, **kwargs)
+        else:
+            # If we have errors, we need them in both dimensions.
+            if ('xe' in kwargs) ^ ('ye' in kwargs):
+                raise TypeError("The StarList class requires both 'xe' and" +
+                                " 'ye' arguments")
+
+            # Figure out the shape
+            n_stars = kwargs['x'].shape[0]
+
+            # Check if the type and size of the arguments are correct.
+            # Name checking: type and shape
+            if (not isinstance(kwargs['name'], np.ndarray)) or (
+                len(kwargs['name']) != n_stars):
+                err_msg = "The '{0:s}' argument has to be a numpy array "
+                err_msg += "with length = {1:d}"
+                raise TypeError(err_msg.format('name', n_stars))
+
+            # Check all the arrays.
+            arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'corr')
+
+            for arg_test in arg_tab:
+                if arg_test in kwargs:
+                    if not isinstance(kwargs[arg_test], np.ndarray):
+                        err_msg = "The '{0:s}' argument has to be a numpy array"
+                        raise TypeError(err_msg.format(arg_test))
+
+                    if kwargs[arg_test].shape != (n_stars,):
+                        err_msg = "The '{0:s}' argument has to have shape = ({1:d},)"
+                        raise TypeError(err_msg.format(arg_test, n_stars))
+
+            # We have to have special handling of meta-data
+            meta_tab = ('list_time', 'list_name')
+            meta_type = ((float, int), str)
+            for mm in range(len(meta_tab)):
+                meta_test = meta_tab[mm]
+                meta_type_test = meta_type[mm]
+
+                if meta_test in kwargs:
+
+                    if not isinstance(kwargs[meta_test], meta_type_test):
+                        err_msg = "The '{0:s}' argument has to be a {1:s}."
+                        raise TypeError(
+                            err_msg.format(meta_test, str(meta_type_test)))
+
+            #####
+            # Create the starlist
+            #####
+            Table.__init__(self,
+                           (kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
+                           names=('name', 'x', 'y', 'm'))
+            self.meta = {'n_stars': n_stars}
+
+            for meta_arg in meta_tab:
+                if meta_arg in kwargs:
+                    self.meta[meta_arg] = kwargs[meta_arg]
+
+            for arg in arg_tab:
+                if arg in ['name', 'x', 'y', 'm']:
+                    continue
+                if arg in kwargs:
+                    self.add_column(Column(data=kwargs[arg], name=arg))
         
         return
 
@@ -482,7 +488,7 @@ class StarList(Table):
 
         if cols[0] != 'col1':
             t_ref['name'] = t_ref['name'].astype(str)
-            return t_ref
+            return cls.from_table(t_ref)
 
         t_ref.rename_column(cols[0], 'name')
         t_ref['name'] = t_ref['name'].astype(str)
@@ -513,9 +519,9 @@ class StarList(Table):
         must have the columns ['name', 'x', 'y', 'm']. All other columns and meta data
         will be added to the new StarList object that is returned.
         """
-        starlist = cls(table['name'], table['x'], table['y'], table['m'], meta=table.meta)
+        starlist = cls(name=table['name'], x=table['x'], y=table['y'], m=table['m'], meta=table.meta)
         
-        for col in table.colnames():
+        for col in table.colnames:
             if col in ['name', 'x', 'y', 'm']:
                 continue
             else:
@@ -535,3 +541,7 @@ class StarList(Table):
             tab.add_column(Column(data=self[col], name=col))
         
         return tab
+
+    def fubar(self):
+        print('This is in StarList')
+        return
