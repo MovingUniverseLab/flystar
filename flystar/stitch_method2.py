@@ -228,7 +228,7 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 		df_comb=weighted_mean(df_comb,'y','ye',frames_in_use)
 		
 		#-------------Recalculate 'N_frames' for the master frame -> N_frames = the number of input starlists containing the star-----------
-        # N_frames = the number of notnull columns at each row in the master frame divided by the number of columns in an input starlist, then minus one.
+		# N_frames = the number of notnull columns at each row in the master frame divided by the number of columns in an input starlist, then minus one.
 		# The "minus one" at the end accounts for the very first columns, i.e. master columns, that contain the averaged values of all the input starlists.
 
 		df_comb['N_frames'] = np.array(df_comb.notnull().sum(axis=1) / len(colnames) - 1)
