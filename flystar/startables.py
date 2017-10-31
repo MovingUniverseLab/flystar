@@ -198,18 +198,20 @@ class StarTable(Table):
             
             if len(self[col_name].shape) == 2:      # Find the 2D columns
                 if (col_name in kwargs):            # Add data if it was input
-                    self[col_name].append(kwargs[col_name], axis=1)
+                    self[col_name].data = np.hstack((self[col_name].data, [kwargs[col_name].T))
                 else:                               # Add junk data it if wasn't input
                     new_type = self[col_name].data.dtype
+                    new_data = np.empty(len(self), dtype=new_type)
 
                     if issubclass(self[col_name].info.dtype, np.integer):
-                        new_data = np.empty(len(self), dtype=new_type)
-                        new_data.fill()
+                        new_data.fill(-1)
                     elif issubclass(self[col_name].info.dtype, np.floating):
-                        new_data = np.empty(len(self), dtype=new_type)
                         new_data.fill(np.nan)
-                        
-                    self[col_name].append(new_data, axis=1)
+                    else:
+                        new_data.fill(None)
+
+                    pdb.set_trace()
+                    self[col_name].data = np.hstack((self[col_name].data, new_data.T))
                 
         return
     
