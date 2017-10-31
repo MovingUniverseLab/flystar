@@ -76,7 +76,7 @@ class StarTable(Table):
                 found_all_required = False
 
         if not found_all_required:
-            err_msg = "The StarList class requires a '{0:s}' argument"
+            err_msg = "The StarTable class requires arguments: " + str(arg_req)
             warnings.warn(err_msg, UserWarning)
             Table.__init__(self, **kwargs)
         else:
@@ -197,21 +197,26 @@ class StarTable(Table):
         for col_name in self.colnames:
             
             if len(self[col_name].shape) == 2:      # Find the 2D columns
+                # Make a new 2D array with +1 extra column. Copy over the old data.
+                # This is much faster than hstack or concatenate according to:
+                # https://stackoverflow.com/questions/8486294/how-to-add-an-extra-column-to-an-numpy-array
+                old_data = self[col_name].data
+                old_type = self[col_name].info.dtype
+                new_data = np.empty((old_data.shape[0], old_data.shape[1] + 1), dtype=old_type)
+                new_data[:, :-1] = old_data
+                
                 if (col_name in kwargs):            # Add data if it was input
-                    self[col_name].data = np.hstack((self[col_name].data, [kwargs[col_name].T))
+                    new_data[:, -1] = kwargs[col_name]
                 else:                               # Add junk data it if wasn't input
-                    new_type = self[col_name].data.dtype
-                    new_data = np.empty(len(self), dtype=new_type)
-
                     if issubclass(self[col_name].info.dtype, np.integer):
-                        new_data.fill(-1)
+                        new_data[:, -1] = -1
                     elif issubclass(self[col_name].info.dtype, np.floating):
-                        new_data.fill(np.nan)
+                        new_data[:, -1] = np.nan
                     else:
-                        new_data.fill(None)
+                        new_data[:, -1] = None
 
+                    self[col_name].data = new_data
                     pdb.set_trace()
-                    self[col_name].data = np.hstack((self[col_name].data, new_data.T))
                 
         return
     

@@ -94,15 +94,15 @@ def test_add_list():
     Test the startables.combine_lists() functionality.
     """
     t = make_star_table()
-    t_orig = t.copy()
+    t_orig = Table(t)
 
     # Make some new data for a new "list".
-    x_new = t['x'][0] + 0.1
-    y_new = t['y'][0] + 0.1
-    m_new = t['m'][0] + 0.1
-    xe_new = t['xe'][0] + 0.01
-    ye_new = t['ye'][0] + 0.01
-    me_new = t['me'][0] + 0.01
+    x_new = t['x'][:, 0] + 0.1
+    y_new = t['y'][:, 0] + 0.1
+    m_new = t['m'][:, 0] + 0.1
+    xe_new = t['xe'][:, 0] + 0.01
+    ye_new = t['ye'][:, 0] + 0.01
+    me_new = t['me'][:, 0] + 0.01
     t_new = 2008.0
 
     # Test 1: Add new list to the end with complete data
@@ -110,7 +110,7 @@ def test_add_list():
                    meta={'list_times': t_new})
 
     assert len(t) == len(t_orig)
-    assert t['x'].shape == (t_orig['x'].shape + [0, 1])
+    assert t['x'].shape == (t_orig['x'].shape + (0, 1))
 
     return
 
