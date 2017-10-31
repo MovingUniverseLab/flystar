@@ -14,7 +14,7 @@ def test_StarTable_init1():
     cat_file = test_dir + '/test_catalog.fits'
 
     # Read and arrange the test input
-    cat_tab = Table.read(cat_file, format="ascii")
+    cat_tab = Table.read(cat_file)
 
     N_stars = len(cat_tab)
     N_lists = cat_tab['x'].shape[1]
@@ -51,6 +51,7 @@ def test_StarTable_init1():
     assert startable['me'].shape == (N_stars, N_lists)
     assert len(startable['name']) == N_stars
     assert startable.meta['list_times'][0] == starlist_times[0]
+    assert type(startable) == StarTable
     
     return
 
@@ -85,6 +86,31 @@ def test_combine_lists():
     x_wgt_last = 1.0 / t['xe'][-1, :]**2
     x_avg_last = np.average(t['x'][-1, [2,7]], weights=x_wgt_last[[2,7]])
     assert t['x_avg'][-1] == pytest.approx(x_avg_last)
+
+    return
+
+def test_add_list():
+    """
+    Test the startables.combine_lists() functionality.
+    """
+    t = make_star_table()
+    t_orig = t.copy()
+
+    # Make some new data for a new "list".
+    x_new = t['x'][0] + 0.1
+    y_new = t['y'][0] + 0.1
+    m_new = t['m'][0] + 0.1
+    xe_new = t['xe'][0] + 0.01
+    ye_new = t['ye'][0] + 0.01
+    me_new = t['me'][0] + 0.01
+    t_new = 2008.0
+
+    # Test 1: Add new list to the end with complete data
+    t.add_list(x=x_new, y=y_new, m=m_new, xe=xe_new, ye=ye_new, me=me_new,
+                   meta={'list_times': t_new})
+
+    assert len(t) == len(t_orig)
+    assert t['x'].shape == (t_orig['x'].shape + [0, 1])
 
     return
 
