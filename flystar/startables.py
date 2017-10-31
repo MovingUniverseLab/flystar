@@ -63,7 +63,7 @@ class StarTable(Table):
     print(t['name'][0:10])  # print the first 10 star names
     print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
     """
-    def __init__(self, ref_list=0, **kwargs):
+    def __init__(self, *args, ref_list=0, **kwargs):
         """
         """
         
@@ -78,7 +78,7 @@ class StarTable(Table):
         if not found_all_required:
             err_msg = "The StarTable class requires arguments: " + str(arg_req)
             warnings.warn(err_msg, UserWarning)
-            Table.__init__(self, **kwargs)
+            Table.__init__(self, *args, **kwargs)
         else:
             # If we have errors, we need them in both dimensions.
             if ('xe' in kwargs) ^ ('ye' in kwargs):
@@ -195,8 +195,7 @@ class StarTable(Table):
         # If there is no input data for a particular column, then fill it with
         # zeros and mask it.
         for col_name in self.colnames:
-            
-            if len(self[col_name].shape) == 2:      # Find the 2D columns
+            if len(self[col_name].data.shape) == 2:      # Find the 2D columns
                 # Make a new 2D array with +1 extra column. Copy over the old data.
                 # This is much faster than hstack or concatenate according to:
                 # https://stackoverflow.com/questions/8486294/how-to-add-an-extra-column-to-an-numpy-array
@@ -216,7 +215,6 @@ class StarTable(Table):
                         new_data[:, -1] = None
 
                     self[col_name].data = new_data
-                    pdb.set_trace()
                 
         return
     

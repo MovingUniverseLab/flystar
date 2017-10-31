@@ -365,10 +365,9 @@ class StarList(Table):
 
     """
     
-    def __init__(self, **kwargs):
+    def __init__(self, *args, **kwargs):
         """
         """
-        
         # Check if the required arguments are present
         arg_req = ('name', 'x', 'y', 'm')
 
@@ -378,9 +377,9 @@ class StarList(Table):
                 found_all_required = False
 
         if not found_all_required:
-            err_msg = "The StarList class requires a '{0:s}' argument"
+            err_msg = "The StarList class requires a arguments" + str(arg_req)
             warnings.warn(err_msg, UserWarning)
-            Table.__init__(self, **kwargs)
+            Table.__init__(self, *args, **kwargs)
         else:
             # If we have errors, we need them in both dimensions.
             if ('xe' in kwargs) ^ ('ye' in kwargs):

@@ -33,3 +33,13 @@ def make_star_list():
                         list_name=starlist_name)
 
     return starlist
+
+
+def test_copy():
+    lis = make_star_list()
+
+    lis2 = StarList(lis)
+
+    assert len(lis) == len(lis2)
+
+    return
