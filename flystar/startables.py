@@ -2,6 +2,7 @@ from astropy.table import Table, Column
 from astropy.stats import sigma_clipping
 import numpy as np
 import warnings
+import collections
 import pdb
 
 
@@ -171,12 +172,55 @@ class StarTable(Table):
         # Check if we are dealing with a StarList object or a
         # set of arguments with individual arrays.
         if 'starlist' in kwargs:
-            self._add_list_data_from_starlist(list)
+            self._add_list_data_from_starlist(kwargs['starlist'])
         else:
             self._add_list_data_from_keywords(**kwargs)
 
         return
 
+    def _add_list_data_from_starlist(self, starlist):
+        # Loop through the 2D columns and add the new data to each.
+        # If there is no input data for a particular column, then fill it with
+        # zeros and mask it.
+        for col_name in self.colnames:
+            if len(self[col_name].data.shape) == 2:      # Find the 2D columns
+                # Make a new 2D array with +1 extra column. Copy over the old data.
+                # This is much faster than hstack or concatenate according to:
+                # https://stackoverflow.com/questions/8486294/how-to-add-an-extra-column-to-an-numpy-array
+                old_data = self[col_name].data
+                old_type = self[col_name].info.dtype
+                new_data = np.empty((old_data.shape[0], old_data.shape[1] + 1), dtype=old_type)
+                new_data[:, :-1] = old_data
+                
+                # Save the new data array (with both old and new data in it) to the table.
+                self[col_name] = new_data
+                
+                if (col_name in starlist.colnames):            # Add data if it was input
+                    new_data[:, -1] = starlist[col_name]
+                else:                               # Add junk data it if wasn't input
+                    self._set_invalid_list_values(col_name, -1)
+                        
+
+        # Update the table meta-data. Remember that entries are lists not numpy arrays.
+        for key in self.meta.keys():
+            # Meta table entries with a size that matches the n_lists size are the ones
+            # that need a new value. We have to add something... whatever was passed in or None
+            if isinstance(self.meta[key], collections.Iterable) and (len(self.meta[key]) == self.meta['n_lists']):
+
+                # If we find the key in the starlists' meta argument, then add the new values.
+                # Otherwise, add "None".
+                new_meta_keys = starlist.meta.keys()
+                if key in new_meta_keys:
+                    self.meta[key] = np.append(self.meta[key], [starlist.meta[key]])
+                else:
+                    self._append_invalid_meta_values(key)
+
+        # Update the n_lists meta keyword.
+        self.meta['n_lists'] += 1
+                    
+        return
+                
+    
     def _add_list_data_from_keywords(self, **kwargs):
         # Check if the required arguments are present
         arg_req = ('x', 'y', 'm')
@@ -204,19 +248,103 @@ class StarTable(Table):
                 new_data = np.empty((old_data.shape[0], old_data.shape[1] + 1), dtype=old_type)
                 new_data[:, :-1] = old_data
                 
+                # Save the new data array (with both old and new data in it) to the table.
+                self[col_name] = new_data
+                
                 if (col_name in kwargs):            # Add data if it was input
-                    new_data[:, -1] = kwargs[col_name]
+                    self[col_name][:, -1] = kwargs[col_name]
                 else:                               # Add junk data it if wasn't input
-                    if issubclass(self[col_name].info.dtype, np.integer):
-                        new_data[:, -1] = -1
-                    elif issubclass(self[col_name].info.dtype, np.floating):
-                        new_data[:, -1] = np.nan
-                    else:
-                        new_data[:, -1] = None
+                    self._set_invalid_list_values(col_name, -1)
+                    
 
-                    self[col_name].data = new_data
+        # Update the table meta-data. Remember that entries are lists not numpy arrays.
+        for key in self.meta.keys():
+            # Meta table entries with a size that matches the n_lists size are the ones
+            # that need a new value. We have to add something... whatever was passed in or None
+            if isinstance(self.meta[key], collections.Iterable) and (len(self.meta[key]) == self.meta['n_lists']):
+
+                # If we find the key in the passed in meta argument, then add the new values.
+                # Otherwise, add "None".
+                new_meta_keys = kwargs['meta'].keys()
+                if key in new_meta_keys:
+                    self.meta[key] = np.append(self.meta[key], [kwargs['meta'][key]])
+                else:
+                    self._append_invalid_meta_values(key)
+
+        # Update the n_lists meta keyword.
+        self.meta['n_lists'] += 1
                 
         return
+
+    def _set_invalid_list_values(self, col_name, col_idx):
+        """
+        Set the contents of the specified column (in the 2D column objects)
+        to an invalide value depending on the data type.
+        """
+        if issubclass(self[col_name].info.dtype, np.integer):
+            self[col_name][:, -1] = -1
+        elif issubclass(self[col_name].info.dtype, np.floating):
+            self[col_name][:, -1] = np.nan
+        else:
+            self[col_name][:, -1] = None
+        
+        return
+    
+    def _append_invalid_meta_values(self, key):
+        """
+        For an existing meta keyword that is a list (already known), 
+        add an invalid value depending on the type. 
+        """
+        if issubclass(type(self.meta[key][0]), np.integer):
+            self.meta[key] = np.append(self.meta[key], [-1])
+        if issubclass(type(self.meta[key][0]), np.floating):
+            self.meta[key] = np.append(self.meta[key], [np.nan])
+        if issubclass(type(self.meta[key][0]), str):
+            self.meta[key] = np.append(self.meta[key], [''])
+        else:
+            self.meta[key] = np.append(self.meta[key], [None])
+
+        # Print a warning message:
+        err_msg = "StarTable.add_list(): Missing meta keyword: {0:s}".format(key)
+        warnings.warn(err_msg, UserWarning)
+
+        return
+        
+        
+    def get_starlist(self, list_index):
+        """
+        Return a StarList object for the specified list_index or epoch. 
+
+        Parameters
+        ----------
+        list_index : int
+            The index of the list to fetch and return as a StarList object.
+        """
+        from flystar.starlists import StarList
+
+        # Get the required arrays first.
+        col_req_dict = {'name': None, 'x': None, 'y': None, 'm': None}
+        col_req_names = col_req_dict.keys()
+
+        for col_name in col_req_names:
+            if len(self[col_name].data.shape) == 2:      # Find the 2D columns
+                col_req_dict[col_name] = self[col_name][:, list_index]
+            else:
+                col_req_dict[col_name] = self[col_name]
+
+        starlist = StarList(**col_req_dict)
+        
+        for col_name in self.colnames:
+            if col_name in col_req_names:
+                pass
+            
+            if len(self[col_name].data.shape) == 2:      # Find the 2D columns
+                starlist[col_name] = self[col_name][:, list_index]
+            else:
+                starlist[col_name] = self[col_name]
+        
+        return starlist
+    
     
     
     def combine_lists_xym(self, weighted=True):
@@ -274,3 +402,4 @@ class StarTable(Table):
             self.add_column(Column(data=std.data, name=col_name_std))
         
         return
+
