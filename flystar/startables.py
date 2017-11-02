@@ -77,8 +77,9 @@ class StarTable(Table):
                 found_all_required = False
 
         if not found_all_required:
-            err_msg = "The StarTable class requires arguments: " + str(arg_req)
-            warnings.warn(err_msg, UserWarning)
+            if len(args): # If there are no arguments, it's because the StarTable is being created as a copy
+                err_msg = "The StarTable class requires arguments: " + str(arg_req)
+                warnings.warn(err_msg, UserWarning)
             Table.__init__(self, *args, **kwargs)
         else:
             # If we have errors, we need them in both dimensions.
@@ -344,17 +345,47 @@ class StarTable(Table):
                 starlist[col_name] = self[col_name]
         
         return starlist
-    
-    
-    
-    def combine_lists_xym(self, weighted=True):
+
+
+    def combine_lists_xym(self, weighted_xy=True, weighted_m=True):
         """
-        For all columns in the table that have dimensions (N_stars, N_lists),
-        collapse along the lists direction. For 'x', 'y' this means calculating
-        the median position with outlier rejection weighted by the 'xe' and 'ye'
-        individual uncertainties, if they exist. For 'm', convert to flux first
-        and do the same.
+        For x, y and m columns in the table, collapse along the lists
+        direction. For 'x', 'y' this means calculating the median position with
+        outlier rejection. Optionally, weight by the 'xe' and 'ye' individual
+        uncertainties.
         """
+    
+        # Combine by position
+        if weighted_xy:
+            weights_colx = 'xe'
+            weights_coly = 'ye'
+        else:
+            weights_colx = None
+            weights_coly = None
+    
+        self.combine_lists('x', weights_col=weights_colx)
+        self.combine_lists('y', weights_col=weights_coly)
+    
+        # Combine by magnitude. Magnitude is first converted to intensity (arbitrary units)
+        self['i'] = 10 ** (-self['m'] / 2.5)
+    
+        if weighted_m:
+            # Magnitude error is converted to intensity error. The positive and
+            # negative errors are averaged.
+            self['ie'] = self['i'] * (10 ** (self['me'] / 2.5) - 10 **
+                                      (-self['me'] / 2.5)) / 2
+            weights_colm = 'ie'
+        else:
+            weights_colm = None
+    
+        self.combine_lists('i', weights_col=weights_colm)
+        # Intensity is converted back to magnitude
+        self['m_avg'] = -2.5 * np.log10(self['i_avg'])
+        # Intensity error is converted back to magnitude error. The positive
+        # and negative errors are averaged.
+        self['m_std'] = 2.5 * (np.log10(1 + self['i_std'] / self['i_avg']) -
+                               np.log10(1 - self['i_std'] / self['i_avg'])) / 2
+    
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None):
@@ -371,12 +402,17 @@ class StarTable(Table):
         # Get the array we are going to combine. Also make a mask
         # of invalid (NaN) values and a user-specified invalid value.
         val_2d = self[col_name_in].data
-        val_2d = np.ma.masked_values(val_2d, mask_val)
+
+        val_2d = np.ma.masked_invalid(val_2d)
+        if mask_val:
+            val_2d = np.ma.masked_values(val_2d, mask_val)
 
         # Dedicde if we are going to have weights (before we
         # do the expensive sigma clipping routine.
         if weights_col:
+            np.seterr(divide='ignore')
             wgt_2d = np.ma.masked_invalid(1.0 / self[weights_col]**2)
+            np.seterr(divide='warn')
 
         # Figure out which ones are outliers. Returns a masked array.
         val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=3, iters=5, axis=1)
