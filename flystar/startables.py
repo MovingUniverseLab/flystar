@@ -366,29 +366,33 @@ class StarTable(Table):
         self.combine_lists('x', weights_col=weights_colx)
         self.combine_lists('y', weights_col=weights_coly)
     
-        # Combine by magnitude. Magnitude is first converted to intensity (arbitrary units)
-        self['i'] = 10 ** (-self['m'] / 2.5)
+        # Combine by magnitude. Magnitude is first converted to flux (arbitrary units)
+        self['f'] = 10 ** (-self['m'] / 2.5)
     
         if weighted_m:
-            # Magnitude error is converted to intensity error. The positive and
+            # Magnitude error is converted to flux error. The positive and
             # negative errors are averaged.
-            self['ie'] = self['i'] * (10 ** (self['me'] / 2.5) - 10 **
+            self['fe'] = self['f'] * (10 ** (self['me'] / 2.5) - 10 **
                                       (-self['me'] / 2.5)) / 2
-            weights_colm = 'ie'
+            weights_colm = 'fe'
+            self.meta['m_avg'] = 'weighted'
         else:
             weights_colm = None
+            self.meta['m_avg'] = 'not_weighted'
     
-        self.combine_lists('i', weights_col=weights_colm)
-        # Intensity is converted back to magnitude
-        self['m_avg'] = -2.5 * np.log10(self['i_avg'])
-        # Intensity error is converted back to magnitude error. The positive
+        self.combine_lists('f', weights_col=weights_colm, meta_add=False)
+        # Flux is converted back to magnitude
+        self['m_avg'] = -2.5 * np.log10(self['f_avg'])
+        # Flux error is converted back to magnitude error. The positive
         # and negative errors are averaged.
-        self['m_std'] = 2.5 * (np.log10(1 + self['i_std'] / self['i_avg']) -
-                               np.log10(1 - self['i_std'] / self['i_avg'])) / 2
-    
+        self['m_std'] = 2.5 * (np.log10(1 + self['f_std'] / self['f_avg']) -
+                               np.log10(1 - self['f_std'] / self['f_avg'])) / 2
+        self.remove_columns(['f', 'fe'])
+        
         return
 
-    def combine_lists(self, col_name_in, weights_col=None, mask_val=None):
+    def combine_lists(self, col_name_in, weights_col=None, mask_val=None,
+                      meta_add=True):
         """
         For the specified column (col_name_in), collapse along the starlists
         direction and calculated the median value, with outlier rejection.
@@ -398,6 +402,9 @@ class StarTable(Table):
         <col_name_in>_std -- the std (with outlier rejection)
 
         Masking of NaN values is also performed.
+        
+        A flag can be stored in the metadata to record if the average was
+        weighted or not.
         """
         # Get the array we are going to combine. Also make a mask
         # of invalid (NaN) values and a user-specified invalid value.
@@ -413,6 +420,11 @@ class StarTable(Table):
             np.seterr(divide='ignore')
             wgt_2d = np.ma.masked_invalid(1.0 / self[weights_col]**2)
             np.seterr(divide='warn')
+            if meta_add:
+                self.meta[col_name_in + '_avg'] = 'weighted'
+        else:
+            if meta_add:
+                self.meta[col_name_in + '_avg'] = 'not_weighted'
 
         # Figure out which ones are outliers. Returns a masked array.
         val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=3, iters=5, axis=1)
