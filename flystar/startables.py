@@ -200,20 +200,30 @@ class StarTable(Table):
                 else:                               # Add junk data it if wasn't input
                     self._set_invalid_list_values(col_name, -1)
                         
-
+        ##########
         # Update the table meta-data. Remember that entries are lists not numpy arrays.
-        for key in self.meta.keys():
+        ##########
+        # Get the meta keynames in the startable and the input starlist
+        tab_meta_keys = list(self.meta.keys())
+        lis_meta_keys = list(starlist.meta.keys())
+        # append 's' to the end to pluralize the input starlist.
+        lis_meta_keys_plural = [lis_meta_key + 's' for lis_meta_key in lis_meta_keys]
+        
+        for kk in range(len(tab_meta_keys)):
+            tab_key = tab_meta_keys[kk]
+
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if isinstance(self.meta[key], collections.Iterable) and (len(self.meta[key]) == self.meta['n_lists']):
+            if isinstance(self.meta[tab_key], collections.Iterable) and (len(self.meta[tab_key]) == self.meta['n_lists']):
 
                 # If we find the key in the starlists' meta argument, then add the new values.
                 # Otherwise, add "None".
-                new_meta_keys = starlist.meta.keys()
-                if key in new_meta_keys:
-                    self.meta[key] = np.append(self.meta[key], [starlist.meta[key]])
+                idx = np.where(lis_meta_keys_plural == tab_key)[0]
+                if len(idx) > 0:
+                    lis_key = lis_meta_keys[idx[0]]
+                    self.meta[tab_key] = np.append(self.meta[tab_key], [starlist.meta[lis_key]])
                 else:
-                    self._append_invalid_meta_values(key)
+                    self._append_invalid_meta_values(tab_key)
 
         # Update the n_lists meta keyword.
         self.meta['n_lists'] += 1
@@ -297,9 +307,9 @@ class StarTable(Table):
         """
         if issubclass(type(self.meta[key][0]), np.integer):
             self.meta[key] = np.append(self.meta[key], [-1])
-        if issubclass(type(self.meta[key][0]), np.floating):
+        elif issubclass(type(self.meta[key][0]), np.floating):
             self.meta[key] = np.append(self.meta[key], [np.nan])
-        if issubclass(type(self.meta[key][0]), str):
+        elif issubclass(type(self.meta[key][0]), str):
             self.meta[key] = np.append(self.meta[key], [''])
         else:
             self.meta[key] = np.append(self.meta[key], [None])
