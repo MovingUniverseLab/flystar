@@ -42,17 +42,17 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
     
     # Start with the reference list.... this will change and grow
     # over time, so make a copy.
-    ref_list = Table(star_lists[ref_index])
+    ref_table = Table(star_lists[ref_index])
 
     # Calculate N_lists and N_stars, where N_stars starts as the number in the
     # reference epoch. This will grow as we find new stars in the new epochs.
     N_lists = len(star_lists)
-    N_stars = len(ref_list)
+    N_stars = len(ref_table)
 
     # Save the reference index and number of epochs to the meta data on the
     # reference list for now. 
-    ref_list.meta['L_REF'] = ref
-    ref_list.meta['N_epochs'] = N_epochs
+    ref_table.meta['L_REF'] = ref
+    ref_table.meta['N_epochs'] = N_epochs
 
     # Keep a list of the transformation objects for each epochs.
     # Load up previous transformations, if they exist.
@@ -64,16 +64,17 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
         star_list = star_lists[ii]
         trans = trans_list[ii]
 
+        ref_list = ref_table.get_list(0)
+
         # Preliminary match and calculate a 1st order transformation. (if we haven't already).
         if trans == None:
             trans = align.initial_align(star_list, ref_list, briteN=50,
                                             transformModel=transforms.PolyTransform, order=1)
-
+            
         # Repeat transform + match several times.
         for nn in range(iters):
             # Apply the transformation to the starlist.
-            star_list_T = Table.copy(star_list)
-            star_list_T = align.transform_from_object(star_list_T, trans)
+            star_list_T = align.transform_from_object(star_list, trans)
 
             # Match stars between the lists.
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -87,36 +88,21 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
                                                  ref_list['x'][idx2], ref_list['y'][idx2],
                                                  order=1)
 
+        trans_list.append(trans)
         
         # The point is matching... lets do one final match.
-        star_list_T = Table.copy(star_list)
-        star_list_T = align.transform_from_object(star_list_T, trans)
+        star_list_T = align.transform_from_object(star_list, trans)
         idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                             ref_list['x'], ref_list['y'], ref_list['m'],
                                             dr_tol=3, dm_tol=2)
 
-        # Add a new column to our ref_list to keep track of the indices for this starlis.
+        # Add the matched stars to the reference table. These will be un-transformed positions.
+        suffix = '_{0:03d}'.format(ii)
+        ref_table.add_list(star_list[idx1])
+        ref_table.meta['L' + suffix] = os.path.split(star_lists[ii])[-1]
 
-        # Add the matched stars to the reference list table. These will be un-transformed positions.
-        suffix = '_{0:d}'.format(ii)
-        ref_list['name' + suffix] = np.zeros(len(ref_list), dtype='S15')
-        ref_list['t' + suffix] = np.zeros(len(ref_list), dtype=float)
-        ref_list['x' + suffix] = np.zeros(len(ref_list), dtype=float)
-        ref_list['y' + suffix] = np.zeros(len(ref_list), dtype=float)
-        ref_list['m' + suffix] = np.zeros(len(ref_list), dtype=float)
-        ref_list['xe' + suffix] = np.zeros(len(ref_list), dtype=float)
-        ref_list['ye' + suffix] = np.zeros(len(ref_list), dtype=float)
-
-        ref_list['name' + suffix][idx2] = star_list['name'][idx1]
-        ref_list['t' + suffix][idx2] = star_list['t'][idx1]
-        ref_list['x' + suffix][idx2] = star_list['x'][idx1]
-        ref_list['y' + suffix][idx2] = star_list['y'][idx1]
-        ref_list['m' + suffix][idx2] = star_list['m'][idx1]
-        ref_list['xe' + suffix][idx2] = star_list['xe'][idx1]
-        ref_list['ye' + suffix][idx2] = star_list['ye'][idx1]
-
-        ref_list.meta['L' + suffix] = os.path.split(star_lists[ii])[-1]
-
+        # Add the unmatched stars and grow the size of the table.
+        
 
     # Clean up th extra copy of the reference star list:
     ref_list.remove_columns(['name', 't', 'x', 'y', 'm', 'xe', 'ye'])
