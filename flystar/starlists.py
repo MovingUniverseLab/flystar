@@ -372,13 +372,17 @@ class StarList(Table):
         arg_req = ('name', 'x', 'y', 'm')
 
         found_all_required = True
+        
         for arg_test in arg_req:
             if arg_test not in kwargs:
                 found_all_required = False
 
         if not found_all_required:
-            err_msg = "The StarList class requires a arguments" + str(arg_req)
-            warnings.warn(err_msg, UserWarning)
+            if not ('copy' in kwargs) | ('names' in kwargs.keys()) | \
+                ('masked' in kwargs.keys()): # If it's not making a copy of the
+                # StarList or replacing columns or selecting from slices
+                err_msg = "The StarList class requires a arguments" + str(arg_req)
+                warnings.warn(err_msg, UserWarning)
             Table.__init__(self, *args, **kwargs)
         else:
             # If we have errors, we need them in both dimensions.
@@ -528,19 +532,24 @@ class StarList(Table):
 
         return starlist
 
-    # Convert a StarList into a "normal" astropy Table
-    def as_table(self):
-        """
-        WHY DO WE NEED THIS? 
-        """
-        tab = Table(meta=self.meta)
-        cols = self.colnames
-        
-        for col in cols:
-            tab.add_column(Column(data=self[col], name=col))
-        
-        return tab
-
     def fubar(self):
         print('This is in StarList')
         return
+    
+    def restrict_by_value(self, **kwargs):
+        
+        import copy
+        aaa = copy.deepcopy(self)
+        
+        for kwarg in kwargs:
+            
+            if kwargs[kwarg] is not None:
+                kwarg_split = kwarg.split('_')
+            
+                if kwarg_split[1] == 'min':
+                    aaa = aaa[aaa[kwarg_split[0]] >= kwargs[kwarg]]
+                
+                if kwarg_split[1] == 'max':
+                    aaa = aaa[aaa[kwarg_split[0]] <= kwargs[kwarg]]
+        
+        return aaa

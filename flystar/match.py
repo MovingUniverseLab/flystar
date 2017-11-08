@@ -5,7 +5,7 @@ from collections import Counter
 from scipy.spatial import cKDTree as KDT
 from astropy.table import Column, Table
 import itertools
-import numpy
+import copy
 import pylab as py
 import scipy.signal
 from skimage import transform
@@ -474,10 +474,10 @@ def generic_match(sl1, sl2, init_mode='triangle',
     n_bright : int
         Number of bright stars used in the initial matching
     remove_xy : array
-        Area of the images to remove in the initial matching [xmin, xmax, ymin,
-        ymax]
+        Area of the images to remove in the initial 'triangle' matching [xmin,
+        xmax, ymin, ymax]
     m_lim : float
-        Minimum magnitude to use in the initial matching
+        Magnitude limits to use in the initial 'triangle' matching [mmin, mmax]
     transf_file : str
         File name and path of the transformation file used with the 'load'
         init_mode
@@ -497,78 +497,81 @@ def generic_match(sl1, sl2, init_mode='triangle',
         raise TypeError("The first catalog has to be a StarList")
     if not isinstance(sl2, starlists.StarList):
         raise TypeError("The second catalog has to be a StarList")
-    sl1_tab = sl1.starlist_to_table()
-    sl2_tab = sl2.starlist_to_table()
-    sl1_tab_cut = sl1_tab
-    sl2_tab_cut = sl2_tab
     
-    if 'remove_xy' in kwargs:
-        sl1_tab_cut = sl1_tab_cut[numpy.logical_not((sl1_tab_cut['x'] > kwargs['remove_xy'][0]) &
-                                                (sl1_tab_cut['x'] < kwargs['remove_xy'][1]) &
-                                                (sl1_tab_cut['y'] > kwargs['remove_xy'][2]) &
-                                                (sl1_tab_cut['y'] < kwargs['remove_xy'][3]))]
-        sl2_tab_cut = sl2_tab_cut[numpy.logical_not((sl2_tab_cut['x'] > kwargs['remove_xy'][0]) &
-                                                (sl2_tab_cut['x'] < kwargs['remove_xy'][1]) &
-                                                (sl2_tab_cut['y'] > kwargs['remove_xy'][2]) &
-                                                (sl2_tab_cut['y'] < kwargs['remove_xy'][3]))]
-    
-    if 'm_lim' in kwargs:
-        sl1_tab_cut = sl1_tab_cut[sl1_tab_cut['m'] > kwargs['m_lim']]
-        sl2_tab_cut = sl2_tab_cut[sl2_tab_cut['m'] > kwargs['m_lim']]
-        
-
     #  Find the initial transformation
     if init_mode is 'triangle':
     
+        #  Prepare the reduced starlists for matching
+        sl1_cut = copy.deepcopy(sl1)
+        sl2_cut = copy.deepcopy(sl2)
+    
+        if 'remove_xy' in kwargs:
+            sl1_cut = sl1_cut.restrict_by_value(x_min=kwargs['remove_xy'][0],
+                                                x_max=kwargs['remove_xy'][1],
+                                                y_min=kwargs['remove_xy'][2],
+                                                y_max=kwargs['remove_xy'][3])
+            sl2_cut = sl2_cut.restrict_by_value(x_min=kwargs['remove_xy'][0],
+                                                x_max=kwargs['remove_xy'][1],
+                                                y_min=kwargs['remove_xy'][2],
+                                                y_max=kwargs['remove_xy'][3])
+    
+        if 'm_lim' in kwargs:
+            sl1_cut = sl1_cut.restrict_by_value(m_min=kwargs['m_lim'][0],
+                                                m_max=kwargs['m_lim'][1])
+            sl2_cut = sl2_cut.restrict_by_value(m_min=kwargs['m_lim'][0],
+                                                m_max=kwargs['m_lim'][1])
+    
         #  Blind triangles method
-        transf = align.initial_align(sl2_tab_cut, sl1_tab_cut, briteN=n_bright,
+        # TODO: test 'initial_align' with StarList input
+        transf = align.initial_align(sl1_cut, sl2_cut, briteN=n_bright,
                                      transformModel=model, order=poly_order)
         
     elif init_mode is 'match_name':
         
         #  Name match
-        sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(
-            sl1_tab, sl2_tab)
-        transf = model(sl2_tab['x'][sl2_idx_init], sl2_tab['y'][sl2_idx_init],
-                       sl1_tab['x'][sl1_idx_init], sl1_tab['y'][sl1_idx_init],
+        sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(sl1, sl2)
+        transf = model(sl2['x'][sl2_idx_init], sl2['y'][sl2_idx_init],
+                       sl1['x'][sl1_idx_init], sl1['y'][sl1_idx_init],
                        order=poly_order)
         
     elif init_mode is 'load':
         
-        # Load a transformation file
-        
+        #  Load a transformation file
         transf = transforms.Transform2D.from_file(kwargs['transf_file'])
+        
     else:
         
         #  None of the above
         raise TypeError('Unrecognized initial matching method')
-        
+    
     #  Transfor the catalog to the reference frame
-    star_transf = align.transform_from_object(sl2_tab, transf)
-        
+    sl2_transf = align.transform_from_object(sl2, transf)
+    
     #  Refine the transformation
     for i_loop in range(loop):
         
-        #  Transfor the catalog to the reference frame and match them
-        sl2_idx, sl1_idx = align.transform_and_match(sl2_tab, sl1_tab, transf,
+        #  Transfor and match the catalog to the reference frame
+        sl2_idx, sl1_idx = align.transform_and_match(sl2, sl1, transf,
                                                      dr_tol=dr_tol,
                                                      dm_tol=dm_tol)
             
         #  Find a better transformation
-        transf, n_transf = align.find_transform(sl2_tab[sl2_idx], star_transf[sl2_idx],
-                                                sl1_tab[sl1_idx], transModel=model,
+        transf, n_transf = align.find_transform(sl2[sl2_idx],
+                                                sl2_transf[sl2_idx],
+                                                sl1[sl1_idx], transModel=model,
                                                 order=poly_order)
     
     #  StarTable output
-    sl2t_tab = align.transform_from_object(sl2_tab, transf)
+    sl2_transf = align.transform_from_object(sl2, transf)
     unames = np.array(range(len(sl1_idx)))
     st = startables.StarTable(name=unames,
-         x=np.column_stack((np.array(sl1_tab['x'][sl1_idx]),np.array(sl2t_tab['x'][sl2_idx]))),
-         y=np.column_stack((np.array(sl1_tab['y'][sl1_idx]),np.array(sl2t_tab['y'][sl2_idx]))),
-         m=np.column_stack((np.array(sl1_tab['m'][sl1_idx]),np.array(sl2t_tab['m'][sl2_idx]))))
-
-    for col in sl2t_tab.colnames:
-        if col not in ['name', 'x', 'y', 'm']:
-            st.add_column(Column(np.column_stack((np.array(sl1_tab[col][sl1_idx]),np.array(sl2t_tab[col][sl2_idx]))), name=col))
+         x=np.column_stack((np.array(sl1['x'][sl1_idx]), np.array(sl2_transf['x'][sl2_idx]))),
+         y=np.column_stack((np.array(sl1['y'][sl1_idx]), np.array(sl2_transf['y'][sl2_idx]))),
+         m=np.column_stack((np.array(sl1['m'][sl1_idx]), np.array(sl2_transf['m'][sl2_idx]))))
+    
+    for col in sl1.colnames:
+        if col in sl2.colnames:
+            if col not in ['name', 'x', 'y', 'm']:
+                st.add_column(Column(np.column_stack((np.array(sl1[col][sl1_idx]),np.array(sl2_transf[col][sl2_idx]))), name=col))
     
     return transf, st

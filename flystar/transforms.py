@@ -181,8 +181,8 @@ class PolyTransform(Transform2D):
         pyerr : array or list
             array or list of errors of the coefficients to transform input y coordinates into output y' coordinates.
         """
-        px_dict = check_initial_guess(px.parameters)
-        py_dict = check_initial_guess(py.parameters)
+        px_dict = check_initial_guess(px)
+        py_dict = check_initial_guess(py)
         self.px = models.Polynomial2D(order, **px_dict)
         self.py = models.Polynomial2D(order, **py_dict)
         self.pxerr = pxerr
@@ -229,7 +229,7 @@ class PolyTransform(Transform2D):
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
 
-        return PolyTransform(order, px, py)
+        return PolyTransform(order, px.parameters, py.parameters)
 
     
     
@@ -474,7 +474,7 @@ def check_initial_guess(initial_param):
     Checks initial guesses for polynomial (and LEgendre) tranformations
     '''
     ord_dict = {1:0, 3:1, 6:2, 10:3, 15:4, 21:5, 28:6, 36:7}
-    if initial_param == None:
+    if initial_param is None:
         return  {'c0_0':0, 'c1_0':0, 'c0_1':0}
     assert len(initial_param) in list(ord_dict.keys())
     var_name = models.Polynomial2D(ord_dict[len(initial_param)]).param_names

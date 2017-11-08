@@ -637,7 +637,7 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     return idx1, idx2
 
 
-def find_transform(table1, table1_trans, table2, transModel=transforms.four_paramNW, order=1,
+def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTransform, order=1,
                 weights=None):
     """
     Given a matched starlist, derive a new transform. This transformation is
@@ -719,7 +719,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
         weight = None
 
     # Calculate transform based on the matched stars
-    t = transModel(x1, y1, x2, y2, order=order, weights=weight)
+    t = transModel.derive_transform(x1, y1, x2, y2, order)
 
     N_trans = len(x1)
     print(( '{0} stars used in transform\n'.format(N_trans)))
