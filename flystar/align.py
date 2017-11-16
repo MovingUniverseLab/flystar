@@ -587,7 +587,7 @@ def initial_align(table1, table2, briteN=100,
 
 
 
-def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
+def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, verbose=True):
     """
     apply transformation to starlist1 and
     match stars to given radius and magnitude tolerance.
@@ -609,6 +609,9 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
         starlist file positions.
 
     -transform: transformation object
+    
+    -verbose: bool, optional
+        Prints on screen information on the matching
 
 
     Output:
@@ -630,15 +633,16 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     x1t, y1t = transform.evaluate(x1, y1)
 
     # Match starlist 1 and 2
-    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol)
+    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol, verbose=verbose)
 
-    print(( '{0} of {1} stars matched'.format(len(idx1), len(x1t))))
+    if verbose:
+        print(( '{0} of {1} stars matched'.format(len(idx1), len(x1t))))
 
     return idx1, idx2
 
 
 def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTransform, order=1,
-                weights=None):
+                weights=None, verbose=True):
     """
     Given a matched starlist, derive a new transform. This transformation is
     calculated for starlist 1 into starlist 2
@@ -677,6 +681,9 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
         if weights=='starlist', we only use postion error in transformed starlist.
         if weights=='reference', we only use position error in reference starlist.
         if weights==None, we don't use weights.
+    
+    verbose: bool (default=True)
+        Prints on screen information on the matching
 
     Output:
     ------
@@ -722,7 +729,8 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
     t = transModel.derive_transform(x1, y1, x2, y2, order)
 
     N_trans = len(x1)
-    print(( '{0} stars used in transform\n'.format(N_trans)))
+    if verbose:
+        print(( '{0} stars used in transform\n'.format(N_trans)))
 
     # Ret3urn transformation object and number of stars used in transform
     return t, N_trans
@@ -730,7 +738,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
 
 def find_transform_new(table1_mat, table2_mat,
                        transModel=transforms.four_paramNW, order=1,
-                       weights=None, transInit=None):
+                       weights=None, transInit=None, verbose=True):
     """
     Given a matched starlist, derive a new transform. This transformation is
     calculated for starlist 1 into starlist 2
@@ -765,6 +773,9 @@ def find_transform_new(table1_mat, table2_mat,
         if weights = 'both' or 'starlist' then the positions in table 1 are first transformed
         using the transInit object. This is necessary if the plate scales are very different
         between the table 1 and the reference list.
+    
+    verbose: bool (default=True)
+        Prints on screen information on the matching
 
     Output:
     ------
@@ -811,7 +822,8 @@ def find_transform_new(table1_mat, table2_mat,
     t = transModel(x1, y1, x2, y2, order=order, weights=weight)
 
     N_trans = len(x1)
-    print(( '{0} stars used in transform\n'.format(N_trans)))
+    if verbose:
+        print(( '{0} stars used in transform\n'.format(N_trans)))
 
     # Return transformation object and number of stars used in transform
     return t, N_trans

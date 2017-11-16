@@ -181,7 +181,7 @@ def order_by_brite(xi, yi, mi, Nout, verbose=True):
     return xo, yo, mo
 
 
-def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
+def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     """
     Finds matches between two different catalogs. No transformations are done and it
     is assumed that the two catalogs are already on the same coordinate system
@@ -214,6 +214,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
     dm_tol : float or None, optional
         How close in delta-magnitude a match has to be to count as a match.
         If None, then any delta-magnitude is allowed.
+    verbose : bool, optional
+        Prints on screen information on the matching
  
     Returns
     -------
@@ -349,7 +351,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
 
     # Deal with duplicates
     duplicates = [item for item, count in list(Counter(idxs2).items()) if count > 1]
-    print(( 'Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
+    if verbose:
+        print(( 'Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
     keep = np.ones(len(idxs1), dtype=bool)
     for dd in range(len(duplicates)):
         # Index into the idxs1, idxs2 array of this duplicate.
@@ -370,7 +373,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
         if dm_min == dr_min:
             keep[dups[dm_min]] = True
         else:
-            print('    confused, dropping')
+            if verbose:
+                print('    confused, dropping')
 
 
     # Clean up the duplicates
@@ -444,7 +448,7 @@ def add_votes(votes, match1, match2):
 
 def generic_match(sl1, sl2, init_mode='triangle',
                   model=transforms.PolyTransform, poly_order=2, loop=1,
-                  dr_tol=1.0, dm_tol=None, n_bright=100, **kwargs):
+                  dr_tol=1.0, dm_tol=None, n_bright=100, verbose=True, **kwargs):
     """
     Finds the transformation between two starlists using the first one
     as reference frame. Different matching methods can be used. If no
@@ -467,8 +471,11 @@ def generic_match(sl1, sl2, init_mode='triangle',
         Order of the transformation model
     loop : int
         Number of loops to refine the initial transformation
-    dr_tol : float
-        Search radius to refine the initial transformation
+    dr_tol: float or int, float [n, 2])
+        Search radius to refine the transformation. If dr_tol is not an array,
+        its value is used for all the n_loop loops. If it is an array, the
+        values in column 1 are repeated each for the number of times in column
+        0 (loop is not used)
     dm_tol : float
         Magnitude tolerance to refine the initial transformation
     n_bright : int
@@ -481,6 +488,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
     transf_file : str
         File name and path of the transformation file used with the 'load'
         init_mode
+    verbose : bool, optional
+        Prints on screen information on the matching
     
     Returns
     -------
@@ -547,19 +556,28 @@ def generic_match(sl1, sl2, init_mode='triangle',
     #  Transfor the catalog to the reference frame
     sl2_transf = align.transform_from_object(sl2, transf)
     
+    # Specify dr_tol for each loop
+    if isinstance(dr_tol, list):
+        dr_tol_loop = []
+        for i1 in range(len(dr_tol)):
+            for i2 in range(dr_tol[i1][0]):
+                dr_tol_loop = np.append(dr_tol_loop, dr_tol[i1][1])
+    else:
+        dr_tol_loop = np.repeat(dr_tol, loop)
+    
     #  Refine the transformation
-    for i_loop in range(loop):
+    for i_loop in range(len(dr_tol_loop)):
         
         #  Transfor and match the catalog to the reference frame
         sl2_idx, sl1_idx = align.transform_and_match(sl2, sl1, transf,
-                                                     dr_tol=dr_tol,
-                                                     dm_tol=dm_tol)
-            
+                                                     dr_tol=dr_tol_loop[i_loop],
+                                                     dm_tol=dm_tol, verbose=verbose)
+        
         #  Find a better transformation
         transf, n_transf = align.find_transform(sl2[sl2_idx],
                                                 sl2_transf[sl2_idx],
                                                 sl1[sl1_idx], transModel=model,
-                                                order=poly_order)
+                                                order=poly_order, verbose=verbose)
     
     #  StarTable output
     sl2_transf = align.transform_from_object(sl2, transf)
