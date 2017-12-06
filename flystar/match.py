@@ -273,7 +273,6 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
     # What is the largest number of matches we have for a given star?
     Nmatch_max = Nmatch.max()
 
-
     # Loop through and handle all the different numbers of matches.
     # This turns out to be the most efficient so we can use numpy
     # array operations. Remember, skip the Nmatch=0 objects... they

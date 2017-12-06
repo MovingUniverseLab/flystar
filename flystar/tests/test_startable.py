@@ -57,6 +57,26 @@ def test_StarTable_init1():
     
     return
 
+def test_StarTable_init2():
+    """
+    Initialize a StarTable with a StarList... this should 
+    work (and just add a few meta keywords) if everything is working correctly. 
+    Also double check that we can add a second list to it using add_starlist and
+    we can get_starlist() as well.
+    """
+    list_file1 = 'A.lis'
+    list_file2 = 'B.lis'
+    list1 = starlists.StarList.from_lis_file(list_file1)
+    list2 = starlists.StarList.from_lis_file(list_file2)
+
+    # Test initializer
+    tab = StarTable(list1)
+
+    assert len(tab) == len(list1)
+
+    
+    return
+    
 def test_combine_lists():
     """
     Test the startables.combine_lists() functionality.
@@ -91,7 +111,7 @@ def test_combine_lists():
 
     return
 
-def test_add_list():
+def test_add_starlist():
     """
     Test the startables.combine_lists() functionality.
     """
@@ -108,7 +128,7 @@ def test_add_list():
     t_new = 2008.0
 
     # Test 1: Add new list to the end with complete data: Keyword format
-    t.add_list(x=x_new, y=y_new, m=m_new, xe=xe_new, ye=ye_new, me=me_new,
+    t.add_starlist(x=x_new, y=y_new, m=m_new, xe=xe_new, ye=ye_new, me=me_new,
                    meta={'list_times': t_new})
 
     assert len(t) == len(t_orig)
@@ -149,7 +169,7 @@ def test_add_list():
                             xe=xe_new, ye=ye_new, me=me_new, list_time=2001.0, list_name='A.lis')
     
     t = make_star_table()
-    t.add_list(starlist=starlist)
+    t.add_starlist(starlist=starlist)
 
     assert len(t) == len(t_orig)
 

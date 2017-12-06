@@ -2,6 +2,7 @@ from astropy.modeling import models, fitting
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline as spline
 from astropy.table import Table
+import collections
 import re
 import pdb
 
@@ -166,23 +167,26 @@ class PolyTransform(Transform2D):
         
         Parameters
         ----------
+        px : list or array [a0, a1, a2, ...] 
+            coefficients to transform input x coordinates into output x' coordinates.
+
+        py : list or array [b0, b1, b2, ...] 
+            coefficients to transform input y coordinates into output y' coordinates.
+        
         order : int
             The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
 
-        px : Polynomial2D
-            array or list of coefficients to transform input x coordinates into output x' coordinates.
-
-        py : Polynomial2D
-            array or list of coefficients to transform input y coordinates into output y' coordinates.
-        
         pxerr : array or list
-            array or list of errors of the coefficients to transform input x coordinates into output x' coordinates.
+            array or list of errors of the coefficients to transform input x coordinates 
+            into output x' coordinates.
         
         pyerr : array or list
-            array or list of errors of the coefficients to transform input y coordinates into output y' coordinates.
+            array or list of errors of the coefficients to transform input y coordinates 
+            into output y' coordinates.
         """
-        px_dict = check_initial_guess(px.parameters)
-        py_dict = check_initial_guess(py.parameters)
+        px_dict = make_param_dict(px)
+        py_dict = make_param_dict(py)
+        
         self.px = models.Polynomial2D(order, **px_dict)
         self.py = models.Polynomial2D(order, **py_dict)
         self.pxerr = pxerr
@@ -218,19 +222,20 @@ class PolyTransform(Transform2D):
         p0 = models.Polynomial2D(order)
         
         # now, if the initial guesses are not none, fill in terms until 
-        init_gx = check_initial_guess(init_gx)
-        init_gy = check_initial_guess(init_gy)
+        init_gx = make_param_dict(init_gx)
+        init_gy = make_param_dict(init_gy)
         
-        p_init_x = models.Polynomial2D(order, **init_gx )
-        p_init_y = models.Polynomial2D(order, **init_gy )
+        p_init_x = models.Polynomial2D(order, **init_gx)
+        p_init_y = models.Polynomial2D(order, **init_gy)
         
         fit_p  = fitting.LinearLSQFitter()
 
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
 
-        return PolyTransform(order, px, py)
+        trans = PolyTransform(order, px.parameters, py.parameters)
 
+        return trans
     
     
 class LegTransform(Transform2D):
@@ -249,8 +254,8 @@ class LegTransform(Transform2D):
         # initialize parent class
         Transform2D.__init__(self,x,y,xref,yref)
         
-        init_gx = check_initial_guess(init_gx)
-        init_gy = check_initial_guess(init_gy)
+        init_gx = make_param_dict(init_gx)
+        init_gy = make_param_dict(init_gy)
         
         self.x_nc , x_norm= self.norm0(x)
         self.x_ncr, x_norm_ref = self.norm0(xref)
@@ -467,16 +472,22 @@ class SplineTransform(Transform2D):
 
 
 
-
-
-def check_initial_guess(initial_param):
+def make_param_dict(initial_param):
     '''
-    Checks initial guesses for polynomial (and LEgendre) tranformations
+    Convert an array of initial guesses
     '''
     ord_dict = {1:0, 3:1, 6:2, 10:3, 15:4, 21:5, 28:6, 36:7}
-    if initial_param == None:
+
+    # If the input variable is not a list or array and is None,
+    # then we will set new defaults. 
+    if not isinstance(initial_param, collections.Iterable) and (initial_param == None):
         return  {'c0_0':0, 'c1_0':0, 'c0_1':0}
+
+    # If we have input values, make sure the length makes sense for some
+    # specific order of a polynomial.
     assert len(initial_param) in list(ord_dict.keys())
+
+    # Now set the coefficients into the dictionary. 
     var_name = models.Polynomial2D(ord_dict[len(initial_param)]).param_names
     i_d = {}
     for i in range(len(initial_param)):

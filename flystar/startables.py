@@ -77,7 +77,8 @@ class StarTable(Table):
                 found_all_required = False
 
         if not found_all_required:
-            if len(args): # If there are no arguments, it's because the StarTable is being created as a copy
+            if len(args): # If there are no arguments, it's because the
+                          # StarTable is being created as a copy.
                 err_msg = "The StarTable class requires arguments: " + str(arg_req)
                 warnings.warn(err_msg, UserWarning)
             Table.__init__(self, *args, **kwargs)
@@ -99,7 +100,7 @@ class StarTable(Table):
                 raise TypeError(err_msg.format('name', n_stars))
 
             # Check all the 2D arrays.
-            arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'ep_name', 'corr')
+            arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'name_in_list', 'corr')
 
             for arg_test in arg_tab:
                 if arg_test in kwargs:
@@ -152,7 +153,7 @@ class StarTable(Table):
 
         return
     
-    def add_list(self, **kwargs):
+    def add_starlist(self, **kwargs):
         """
         Add data from a new list to an existing StarTable. 
         Note, you can pass in the data via a StarList object or
@@ -163,11 +164,11 @@ class StarTable(Table):
         Example 1: Pass in data via StarList object.
         ----------
         print(t['x'].shape)
-        t.add_list(starlist=my_list)
+        t.add_starlist(starlist=my_list)
         print(t['x'].shape)   # Should be 1 column larger than before.
 
         Example 2: Pass in data via keywords and 1D arrays.
-        t.add_list(x=x_new, y=y_new, m=m_new)
+        t.add_starlist(x=x_new, y=y_new, m=m_new)
 
         """
         # Check if we are dealing with a StarList object or a
@@ -233,18 +234,18 @@ class StarTable(Table):
                 
     
     def _add_list_data_from_keywords(self, **kwargs):
-        # Check if the required arguments are present
-        arg_req = ('x', 'y', 'm')
+        # # Check if the required arguments are present
+        # arg_req = ('x', 'y', 'm')
         
-        for arg_test in arg_req:
-            if arg_test not in kwargs:
-                err_msg = "Added lists require a '{0:s}' argument"
-                raise TypeError(err_msg.format(arg_test))
+        # for arg_test in arg_req:
+        #     if arg_test not in kwargs:
+        #         err_msg = "Added lists require a '{0:s}' argument"
+        #         raise TypeError(err_msg.format(arg_test))
             
-        # If we have errors, we need them in both dimensions.
-        if ('xe' in kwargs) ^ ('ye' in kwargs):
-            raise TypeError("Added lists with errors require both 'xe' and" +
-                            " 'ye' arguments")
+        # # If we have errors, we need them in both dimensions.
+        # if ('xe' in kwargs) ^ ('ye' in kwargs):
+        #     raise TypeError("Added lists with errors require both 'xe' and" +
+        #                     " 'ye' arguments")
 
         # Loop through the 2D columns and add the new data to each.
         # If there is no input data for a particular column, then fill it with
@@ -272,7 +273,8 @@ class StarTable(Table):
         for key in self.meta.keys():
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if isinstance(self.meta[key], collections.Iterable) and (len(self.meta[key]) == self.meta['n_lists']):
+            if (isinstance(self.meta[key], collections.Iterable) and
+                    (len(self.meta[key]) == self.meta['n_lists'])):
 
                 # If we find the key in the passed in meta argument, then add the new values.
                 # Otherwise, add "None".
@@ -292,12 +294,12 @@ class StarTable(Table):
         Set the contents of the specified column (in the 2D column objects)
         to an invalide value depending on the data type.
         """
-        if issubclass(self[col_name].info.dtype, np.integer):
-            self[col_name][:, -1] = -1
-        elif issubclass(self[col_name].info.dtype, np.floating):
-            self[col_name][:, -1] = np.nan
+        if np.issubclass_(self[col_name].info.dtype, np.integer):
+            self[col_name][:, col_idx] = -1
+        elif np.issubclass_(self[col_name].info.dtype, np.floating):
+            self[col_name][:, col_idx] = np.nan
         else:
-            self[col_name][:, -1] = None
+            self[col_name][:, col_idx] = None
         
         return
     
@@ -316,7 +318,7 @@ class StarTable(Table):
             self.meta[key] = np.append(self.meta[key], [None])
 
         # Print a warning message:
-        err_msg = "StarTable.add_list(): Missing meta keyword: {0:s}".format(key)
+        err_msg = "StarTable.add_starlist(): Missing meta keyword: {0:s}".format(key)
         warnings.warn(err_msg, UserWarning)
 
         return
@@ -402,7 +404,7 @@ class StarTable(Table):
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None,
-                      meta_add=True):
+                      meta_add=True, ismag=False):
         """
         For the specified column (col_name_in), collapse along the starlists
         direction and calculated the median value, with outlier rejection.
@@ -420,15 +422,23 @@ class StarTable(Table):
         # of invalid (NaN) values and a user-specified invalid value.
         val_2d = self[col_name_in].data
 
+        if ismag:
+            # Convert to flux.
+            val_2d = 10**(-val_2d / 2.5)
+
         val_2d = np.ma.masked_invalid(val_2d)
         if mask_val:
             val_2d = np.ma.masked_values(val_2d, mask_val)
 
         # Dedicde if we are going to have weights (before we
         # do the expensive sigma clipping routine.
-        if weights_col:
+        if weights_col and weights_col in self.colnames:
             np.seterr(divide='ignore')
             wgt_2d = np.ma.masked_invalid(1.0 / self[weights_col]**2)
+
+            if ismag:
+                wgt_2d = wgt_2d * 1.0  # FIX ME 
+                
             np.seterr(divide='warn')
             if meta_add:
                 self.meta[col_name_in + '_avg'] = 'weighted'
@@ -441,7 +451,7 @@ class StarTable(Table):
 
         # Calculate the (weighted) mean and standard deviation along
         # the N_lists direction (axis=1).
-        if weights_col:
+        if weights_col and weights_col in self.colnames:
             avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
             std = np.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
         else:
@@ -451,6 +461,10 @@ class StarTable(Table):
         # Save off our new AVG and STD into new columns with shape (N_stars).
         col_name_avg = col_name_in + '_avg'
         col_name_std = col_name_in + '_std'
+
+        if ismag:
+            avg = -2.5 * np.log10(avg)
+            std = std * 1.0    ## FIX ME
 
         if col_name_avg in self.colnames:
             self[col_name_avg] = avg.data

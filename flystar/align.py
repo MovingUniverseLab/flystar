@@ -1,6 +1,7 @@
 import numpy as np
 from flystar import match
 from flystar import transforms
+from flystar.startables import StarTable
 from astropy.table import Table, Column
 import datetime
 import copy
@@ -39,78 +40,222 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
     """
     # Shorthand:
     star_lists = list_of_starlists
-    
-    # Start with the reference list.... this will change and grow
-    # over time, so make a copy.
-    ref_table = Table(star_lists[ref_index])
 
+    # Setup a reference table to store data. It will contain:
+    #    x_avg, y_avg, m_avg -- the running average of positions: 1D
+    #    x, y, m, (opt. errors) -- the transformed positions for the lists: 2D
+    #    x_orig, y_orig, m_orig, (opt. errors) -- the transformed errors for the lists: 2D
+    ref_table = setup_ref_table_from_starlist(star_lists[ref_index])
+    
+    # Save the reference index and number of epochs to the meta data on the
+    # reference list for now. 
+    ref_table.meta['L_REF'] = ref_index
+    
     # Calculate N_lists and N_stars, where N_stars starts as the number in the
     # reference epoch. This will grow as we find new stars in the new epochs.
     N_lists = len(star_lists)
     N_stars = len(ref_table)
 
-    # Save the reference index and number of epochs to the meta data on the
-    # reference list for now. 
-    ref_table.meta['L_REF'] = ref
-    ref_table.meta['N_epochs'] = N_epochs
-
     # Keep a list of the transformation objects for each epochs.
     # Load up previous transformations, if they exist.
     trans_list = [None for ii in range(N_lists)]
-    if input_transforms != None:
+    if trans_input != None:
         trans_list = [trans_input[ii] for ii in range(N_lists)]
     
     for ii in range(len(star_lists)):
         star_list = star_lists[ii]
         trans = trans_list[ii]
 
-        ref_list = ref_table.get_list(0)
+        ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
 
         # Preliminary match and calculate a 1st order transformation. (if we haven't already).
         if trans == None:
-            trans = align.initial_align(star_list, ref_list, briteN=50,
-                                            transformModel=transforms.PolyTransform, order=1)
+            briteN = 50
+            req_match = 5
+            
+            N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(star_list['x'],
+                                                                         star_list['y'],
+                                                                         star_list['m'],
+                                                                         ref_list['x_avg'],
+                                                                         ref_list['y_avg'],
+                                                                         ref_list['m_avg'],
+                                                                         briteN)
+            err_msg = 'Failed to find at least '+str(req_match)
+            err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
+            assert len(x1m) > req_match, err_msg
+            print('{0:d} stars matched between starlist {1:d} and reference list'.format(N, ii))
+
+            # Calculate transformation based on matches
+            trans = transforms.PolyTransform.derive_transform(x1m, y1m ,x2m, y2m, order=1, weights=None)
+
             
         # Repeat transform + match several times.
+        dr_tol = np.linspace(1, 1.0, iters)
+        dm_tol = np.linspace(2, 0.5, iters)
         for nn in range(iters):
             # Apply the transformation to the starlist.
-            star_list_T = align.transform_from_object(star_list, trans)
+            star_list_T = transform_from_object(star_list, trans)
 
             # Match stars between the lists.
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                            ref_list['x'], ref_list['y'], ref_list['m'],
-                                            dr_tol=5, dm_tol=2)
+                                            ref_list['x_avg'], ref_list['y_avg'], ref_list['m_avg'],
+                                            dr_tol=dr_tol[nn], dm_tol=dm_tol[nn])
             print( 'In Loop ', nn, ' found ', len(idx1), ' matches' )
             
     
             # Calculate transform based on the matched stars    
             trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1],
-                                                 ref_list['x'][idx2], ref_list['y'][idx2],
+                                                 ref_list['x_avg'][idx2], ref_list['y_avg'][idx2],
                                                  order=1)
 
         trans_list.append(trans)
         
         # The point is matching... lets do one final match.
-        star_list_T = align.transform_from_object(star_list, trans)
-        idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                            ref_list['x'], ref_list['y'], ref_list['m'],
-                                            dr_tol=3, dm_tol=2)
+        star_list_T = transform_from_object(star_list, trans)
+        star_list_T.rename_column('name', 'name_in_list')
+        idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                                               ref_list['x_avg'], ref_list['y_avg'], ref_list['m_avg'],
+                                               dr_tol=1, dm_tol=0.5)
 
-        # Add the matched stars to the reference table. These will be un-transformed positions.
-        suffix = '_{0:03d}'.format(ii)
-        ref_table.add_list(star_list[idx1])
-        ref_table.meta['L' + suffix] = os.path.split(star_lists[ii])[-1]
-
+        # Add the matched stars to the reference table.
+        # For every epoch except the first, we need to add a starlist.
+        if ii != 0:
+            ref_table.add_starlist()
+        copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref, idx_lis)
+                    
         # Add the unmatched stars and grow the size of the table.
+        idx_lis_new, idx_ref_new = add_rows_for_new_stars(ref_table, star_list, idx_lis)
+
+        # Add the un-matched "new" stars to the reference table. 
+        copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref_new, idx_lis_new)
+
+        # Make new ref_list names for the new stars.
+        new_names = ['{0:03d}{1:s}'.format(ii, ref_table['name_in_list'][ss, ii]) for ss in idx_ref_new]
+        ref_table['name'][idx_ref_new] = new_names
+
+    return ref_table
+
+def setup_ref_table_from_starlist(star_list):
+    """ 
+    Start with the reference list.... this will change and grow
+    over time, so make a copy that we will keep updating.
+    The reference table will contain one columne for every named
+    array in the original reference star list.
+    """
+    col_arrays = {}
+    for col_name in star_list.colnames:
+        if col_name == 'name':
+            # The "name" column will be 1D; but we will also add a "name_in_list" column.
+            col_arrays['name'] = star_list[col_name].data
+            new_col_name = "name_in_list"
+        else:
+            new_col_name = col_name
+            
+        # Make every single column except "name" a 2D array. 
+        new_col_data = np.array([star_list[col_name].data]).T
+        col_arrays[new_col_name] = new_col_data
+
+    # Use the columns from the ref list to make the ref_table.
+    ref_table = StarTable(**col_arrays)
+
+    # Make new columns to hold original values. These will be copies
+    # of the old columns and will only include x, y, m, xe, ye, me.
+    # The columns we have already created will hold transformed values. 
+    trans_col_names = ['x', 'y', 'm', 'xe', 'ye', 'me']
+    for tt in range(len(trans_col_names)):
+        old_name = trans_col_names[tt]
+
+        if old_name in ref_table.colnames:
+            new_col = ref_table[old_name].copy()
+            new_col.name = old_name + '_orig'
+            ref_table.add_column(new_col)
+
+    # Average the x, y, and m columns (althought this is just a copy) and store in
+    # x_avg, y_avg, m_avg. This will be what we use to align with. We will keep
+    # updating the average with every new starlist.
+    ref_table.combine_lists('x', weights_col='xe')
+    ref_table.combine_lists('y', weights_col='ye')
+    ref_table.combine_lists('m', weights_col='me', ismag=True)
+
+    # Now reset the original values to invalids... they will be filled in
+    # at later times. Preserve content only in the columns: name, x_avg, y_avg, m_avg (and _std).
+    # Note that these are all the 1D columsn.
+    for col_name in ref_table.colnames:
+        if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
+            ref_table._set_invalid_list_values(col_name, -1)    
+
+    return ref_table
+
+def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_lis):
+    """
+    Copy values from an individual starlist (both untransformed and transformed)
+    into the reference table we carry around and that is the final output product.
+    Copy only those values for stars that match.
+
+    Copy all columns that are in both ref_table and star_list_T. 
+    Copy all columsn that are also in star_list but copy them into <col>_orig.
+
+    Parameters
+    ----------
+    ref_table : StarTable
+        The table we will be copying values into. Note the columns with the appropriate
+        names and dimensions must already exist. 
+    star_list : StarList
+        The astropy table to copy values from. These should be untransformed (orig) values.
+    star_list_T : StarList
+        The astropy table to copy values from. These should be transformed values.
+    idx_ref : list or array
+        The indices into the ref_table where values are copied to.
+    idx_lis : list or array
+        The indices into the star_list or star_lsit_T where values are copied from.
+    """
+    for col_name in ref_table.colnames:
+        if col_name in star_list_T.colnames:
+            ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][idx_lis]
+
+            orig_col_name = col_name + '_orig'
+            if orig_col_name in ref_table.colnames:
+                ref_table[orig_col_name][idx_ref, idx_epoch] = star_list[col_name][idx_lis]
+
+    return
+
+def add_rows_for_new_stars(ref_table, star_list, idx_lis):
+    """
+    For each star that is in star_list and NOT in idx_list, make a 
+    new row in the reference table. The values will be empty. 
+
+    Parameters
+    ----------
+    ref_table : StarTable
+        The reference table that the rows will be added to.
+
+    star_list : StarList
+        The starlist that will be used to estimate how many new stars there are.
+
+    idx_lis : array or list
+        The indices of the non-new stars (those that matched already). The complement
+        of this array will be used as the new stars.
+
+    Returns
+    ----------
+    idx_lis_new : list
+        The list of indices into the star_list object for the "new" stars.
+    idx_ref_new : list
+        The list of indices into the ref_table object for the "new" stars. 
+
+    """
+    idx_lis_new = []
+    last_star_idx = len(ref_table)
         
+    for ii in range(len(star_list)):
+        if ii not in idx_lis:
+            idx_lis_new.append(ii)
+            ref_table.add_row()
 
-    # Clean up th extra copy of the reference star list:
-    ref_list.remove_columns(['name', 't', 'x', 'y', 'm', 'xe', 'ye'])
-    ref_list.remove_columns(['snr', 'corr', 'N_frames', 'flux'])
+    idx_ref_new = np.arange(last_star_idx, len(ref_table))
 
-    ref_list.write(lis_dir + output_name, overwrite=True)
+    return idx_lis_new, idx_ref_new
 
-    return ref_list
 
 def run_align_iter(catalog, trans_order=1, poly_deg=1, ref_mag_lim=19, ref_radius_lim=300):
     # Load up data with matched stars.
