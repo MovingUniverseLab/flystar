@@ -1,6 +1,7 @@
 from astropy.modeling import models, fitting
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline as spline
+from scipy import stats
 from astropy.table import Table
 import collections
 import re
@@ -101,8 +102,8 @@ class Transform2D(object):
             x_trans_all_stack[:,i] = x_trans_temp
             y_trans_all_stack[:,i] = y_trans_temp
 
-        x_trans_all_err = np.std(x_trans_all_stack,axis=1)
-        y_trans_all_err = np.std(y_trans_all_stack,axis=1)
+        x_trans_all_err = np.std(x_trans_all_stack, axis=1)
+        y_trans_all_err = np.std(y_trans_all_stack, axis=1)
 
 
         # the transformed positions of the points that were used to derive the transformation
@@ -111,26 +112,96 @@ class Transform2D(object):
         
         
         
-class Shift:
+class Shift(PolyTransform):
     '''
     Defines shift tranformation between x,y and xref, yref
     Does not weight the points.
     '''
 
-    def __init__(self, x, y, xref, yref, order=None, weights=None):
-        self.px = np.array([ np.average(xref - x, weights=weights) ])
-        self.py = np.array([ np.average(yref - y, weights=weights) ])
-    
-        self.order = 0
+    def __init__(self, xshift, yshift, xshift_err=None, yshift_err=None):
+        px = [xshift]
+        py = [yshift]
+        pxerr = [xshift_err]
+        pyerr = [yshift_err]
+        order = 0
         
+        px_dict = make_param_dict(px)
+        py_dict = make_param_dict(py)
+        
+        self.px = models.Polynomial2D(order, **px_dict)
+        self.py = models.Polynomial2D(order, **py_dict)
+        self.pxerr = pxerr
+        self.pyerr = pyerr
+        self.order = order
+
         return
-
-    def evaluate(self, x, y):
-        xn = self.px[0] + x
-        yn = self.py[0] + y
+                     
+    @classmethod
+    def derive_transform(cls, x, y, xref, yref, weights=None):
+        dx = xref - x
+        dy = yref - y
         
-        return xn, yn 
+        xshift = np.average(dx, weights=weights)
+        yshift = np.average(dy, weights=weights)
 
+        # Error is estimated as the error on the mean (optionally weighted)
+        if weights != None:
+            wgt_sum = np.sum(weights)
+            xshift_err = np.sqrt( np.sum(weights * (dx - xshift)**2) / wgt_sum) / len(x)**0.5
+            yshift_err = np.sqrt( np.sum(weights * (dy - yshift)**2) / wgt_sum) / len(x)**0.5
+        else:
+            xshift_err = stats.sem(dx)
+            yshift_err = stats.sem(dy)
+        
+        trans = Shift(xshift, yshift,
+                          xshift_err=xshift_err, yshift_err=yshift_err)
+
+        return trans
+
+    def evaluate(self, x, y, xerr=None, yerr=None):
+        """
+        Transform x and y (and optionally xerr and yerr). 
+        Both xerr and yerr must be present or absent. 
+
+        Returns
+        ----------
+        (x_new, y_new) : if xerr and yerr are not provided
+
+        OR 
+
+        (x_new, y_new, xe_new, ye_new) : if xerr and yerr are provided
+
+        """
+        x_new = self.px(x, y)
+        y_new = self.py(x, y)
+
+        if (xerr != None) & (yerr != None):
+            xe_new = np.hypot(xerr, self.pxerr[0])
+            ye_new = np.hypot(yerr, self.pyerr[0])
+            return_vals = (x_new, y_new, xe_new, ye_new)
+        else:
+            return_vals = (x_new, y_new)
+
+        return return_vals
+
+    def evaluate_with_velocity(self, x, y, vx, vy, xerr=None, yerr=None, vxerr=None, vyerr=None):
+        """
+        Evaluate positions and velocities. Errors are only propogated IF all 4 errors
+        (position and velocity) are input. 
+        """
+        x_new, y_new = self.evaluate(x, y, xerr=xerr, yerr=yerr)
+        vx_new = vx
+        vy_new = vy
+        vxe_new = vxerr
+        vye_new = vyerr
+        
+        if (xerr != None) & (yerr != None) & (vxerr != None) & (vyerr != None):
+            return_vals = (x_new, y_new, vx_new, vy_new, xe_new, ye_new, vxe_new, vye_new)
+        else:
+            return_vals = (x_new, y_new, vx_new, vy_new)
+        
+        return return_vals
+    
     
 class four_paramNW:
     '''
@@ -213,7 +284,7 @@ class PolyTransform(Transform2D):
         y' : array
             The transformed y coordinates. 
         """
-        return self.px(x,y), self.py(x,y)
+        return self.px(x, y), self.py(x, y)
     
     @classmethod
     def derive_transform(cls, x, y, xref, yref, order,
@@ -241,7 +312,7 @@ class PolyTransform(Transform2D):
 class LegTransform(Transform2D):
 
     def __init__(self, x, y, xref, yref, order,
-                 init_gx=None,init_gy=None, weights=None):
+                 init_gx=None, init_gy=None, weights=None):
         '''
         defines a 2d polnyomial tranformation fomr x,y -> xref,yref using Legnedre polynomials as the basis
         transforms are independent for x and y, of the form

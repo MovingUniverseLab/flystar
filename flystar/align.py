@@ -8,7 +8,7 @@ import copy
 import os
 import pdb
 
-def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
+def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1], mag_trans=True,
                      trans_input=None, trans_class=transforms.PolyTransform, trans_args={'order': 2}):
     """
     Parameters
@@ -38,6 +38,11 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
         For instance, "order".
 
     """
+    ###
+    ### QUESTION: Do we want to add support for preserving (not updating) the reference list.
+    ### We would only update the reference at the end (outside of mosaic_lists).
+    ###
+    
     # Shorthand:
     star_lists = list_of_starlists
 
@@ -61,7 +66,10 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
     trans_list = [None for ii in range(N_lists)]
     if trans_input != None:
         trans_list = [trans_input[ii] for ii in range(N_lists)]
-    
+
+    ##########
+    # Loop through starlists and align them to the reference list, one at a time.
+    ##########
     for ii in range(len(star_lists)):
         star_list = star_lists[ii]
         trans = trans_list[ii]
@@ -70,7 +78,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
 
         # Preliminary match and calculate a 1st order transformation. (if we haven't already).
         if trans == None:
-            briteN = 50
+            briteN = min(50, len(star_list))
             req_match = 5
             
             N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(star_list['x'],
@@ -88,13 +96,20 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
             # Calculate transformation based on matches
             trans = transforms.PolyTransform.derive_transform(x1m, y1m ,x2m, y2m, order=1, weights=None)
 
+            # TO DO: Handle different filters, magnitude offsets... calculated a rough filter conversion
+            # factor and apply it to the starlist. Keep track of the zeropoint offset and then back
+            # it out after the fact. In other words, we need to "transform" the magnitudes too.
+            # TO DO: Add support for mag_trans
+
             
         # Repeat transform + match several times.
-        dr_tol = np.linspace(1, 1.0, iters)
-        dm_tol = np.linspace(2, 0.5, iters)
+        # TO DO: Check dr_tol and dm_tol have the right length,
         for nn in range(iters):
             # Apply the transformation to the starlist.
-            star_list_T = transform_from_object(star_list, trans)
+            star_list_T = copy.deepcopy(star_list)
+            x_T, y_T = trans.evaluate(star_list['x'], star_list['y'])
+            star_list_T['x'] = x_T
+            star_list_T['y'] = y_T
 
             # Match stars between the lists.
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -102,17 +117,22 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
                                             dr_tol=dr_tol[nn], dm_tol=dm_tol[nn])
             print( 'In Loop ', nn, ' found ', len(idx1), ' matches' )
             
-    
             # Calculate transform based on the matched stars    
             trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1],
                                                  ref_list['x_avg'][idx2], ref_list['y_avg'][idx2],
-                                                 order=1)
+                                                 **trans_args)
 
-        trans_list.append(trans)
+            # TO DO: Outlier rejection in the last iterations??
+
+        trans_list[ii] = trans
         
         # The point is matching... lets do one final match.
-        star_list_T = transform_from_object(star_list, trans)
+        star_list_T = copy.deepcopy(star_list)
+        x_T, y_T = trans.evaluate(star_list['x'], star_list['y'])
+        star_list_T['x'] = x_T
+        star_list_T['y'] = y_T
         star_list_T.rename_column('name', 'name_in_list')
+        
         idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                ref_list['x_avg'], ref_list['y_avg'], ref_list['m_avg'],
                                                dr_tol=1, dm_tol=0.5)
@@ -123,17 +143,37 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
             ref_table.add_starlist()
         copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref, idx_lis)
                     
-        # Add the unmatched stars and grow the size of the table.
+        # Add the unmatched stars and grow the size of the table. 
         idx_lis_new, idx_ref_new = add_rows_for_new_stars(ref_table, star_list, idx_lis)
 
-        # Add the un-matched "new" stars to the reference table. 
-        copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref_new, idx_lis_new)
+        # Add the un-matched "new" stars to the reference table (if we have them)
+        if len(idx_ref_new) > 0:
+            copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref_new, idx_lis_new)
 
-        # Make new ref_list names for the new stars.
-        new_names = ['{0:03d}{1:s}'.format(ii, ref_table['name_in_list'][ss, ii]) for ss in idx_ref_new]
-        ref_table['name'][idx_ref_new] = new_names
+            # Make new ref_list names for the new stars.
+            new_names = ['{0:03d}{1:s}'.format(ii, ref_table['name_in_list'][ss, ii]) for ss in idx_ref_new]
+            # Check if length of new name is a problem... if so, expand.
+            new_name_len = [len(new_name) for new_name in new_names]
+            new_name_len_max = np.max(new_name_len)
 
-    return ref_table
+            old_names = ref_table['name']
+            old_name_len = [len(old_name) for old_name in old_names]
+            old_name_len_max = np.max(old_name_len)
+
+            if new_name_len_max > old_name_len_max:
+                all_names = old_names.astype('U{0:d}'.format(new_name_len_max))
+            else:
+                all_names = old_names
+            
+            all_names[idx_ref_new] = new_names
+            ref_table['name'] = all_names
+
+        # Update the "average" values.
+        weighted_xy = ('xe' in ref_table.colnames) and ('ye' in ref_table.colnames)
+        weighted_m = ('me' in ref_table.colnames)
+        ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
+        
+    return ref_table, trans_list
 
 def setup_ref_table_from_starlist(star_list):
     """ 
@@ -222,7 +262,7 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
 def add_rows_for_new_stars(ref_table, star_list, idx_lis):
     """
     For each star that is in star_list and NOT in idx_list, make a 
-    new row in the reference table. The values will be empty. 
+    new row in the reference table. The values will be empty (None, NAN, etc.). 
 
     Parameters
     ----------
@@ -253,6 +293,11 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis):
             ref_table.add_row()
 
     idx_ref_new = np.arange(last_star_idx, len(ref_table))
+
+    # Loop through the columns and set all the new rows to empty (None, nan) values.
+    if len(idx_ref_new) > 0:
+        for col_name in ref_table.colnames:
+            ref_table._set_invalid_star_values(col_name, idx_ref_new)        
 
     return idx_lis_new, idx_ref_new
 
@@ -732,7 +777,7 @@ def initial_align(table1, table2, briteN=100,
 
 
 
-def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
+def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, verbose=True):
     """
     apply transformation to starlist1 and
     match stars to given radius and magnitude tolerance.
@@ -754,6 +799,9 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
         starlist file positions.
 
     -transform: transformation object
+    
+    -verbose: bool, optional
+        Prints on screen information on the matching
 
 
     Output:
@@ -775,15 +823,16 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None):
     x1t, y1t = transform.evaluate(x1, y1)
 
     # Match starlist 1 and 2
-    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol)
+    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol, verbose=verbose)
 
-    print(( '{0} of {1} stars matched'.format(len(idx1), len(x1t))))
+    if verbose:
+        print(( '{0} of {1} stars matched'.format(len(idx1), len(x1t))))
 
     return idx1, idx2
 
 
-def find_transform(table1, table1_trans, table2, transModel=transforms.four_paramNW, order=1,
-                weights=None):
+def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTransform, order=1,
+                weights=None, verbose=True):
     """
     Given a matched starlist, derive a new transform. This transformation is
     calculated for starlist 1 into starlist 2
@@ -822,6 +871,9 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
         if weights=='starlist', we only use postion error in transformed starlist.
         if weights=='reference', we only use position error in reference starlist.
         if weights==None, we don't use weights.
+    
+    verbose: bool (default=True)
+        Prints on screen information on the matching
 
     Output:
     ------
@@ -864,10 +916,11 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
         weight = None
 
     # Calculate transform based on the matched stars
-    t = transModel(x1, y1, x2, y2, order=order, weights=weight)
+    t = transModel.derive_transform(x1, y1, x2, y2, order)
 
     N_trans = len(x1)
-    print(( '{0} stars used in transform\n'.format(N_trans)))
+    if verbose:
+        print(( '{0} stars used in transform\n'.format(N_trans)))
 
     # Ret3urn transformation object and number of stars used in transform
     return t, N_trans
@@ -875,7 +928,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.four_para
 
 def find_transform_new(table1_mat, table2_mat,
                        transModel=transforms.four_paramNW, order=1,
-                       weights=None, transInit=None):
+                       weights=None, transInit=None, verbose=True):
     """
     Given a matched starlist, derive a new transform. This transformation is
     calculated for starlist 1 into starlist 2
@@ -910,6 +963,9 @@ def find_transform_new(table1_mat, table2_mat,
         if weights = 'both' or 'starlist' then the positions in table 1 are first transformed
         using the transInit object. This is necessary if the plate scales are very different
         between the table 1 and the reference list.
+    
+    verbose: bool (default=True)
+        Prints on screen information on the matching
 
     Output:
     ------
@@ -956,7 +1012,8 @@ def find_transform_new(table1_mat, table2_mat,
     t = transModel(x1, y1, x2, y2, order=order, weights=weight)
 
     N_trans = len(x1)
-    print(( '{0} stars used in transform\n'.format(N_trans)))
+    if verbose:
+        print(( '{0} stars used in transform\n'.format(N_trans)))
 
     # Return transformation object and number of stars used in transform
     return t, N_trans
@@ -1273,19 +1330,20 @@ def transform_from_object(starlist, transform):
     # Make a copy of starlist. This is what we will eventually modify with
     # the transformed coordinates
     starlist_f = copy.deepcopy(starlist)
+    keys = list(starlist.keys())
 
     # Check to see if velocities are present in starlist. If so, we will
     # need to transform these as well as positions
-    vel = False
-    keys = list(starlist.keys())
-    if 'vx' in keys:
-        vel = True
+    vel = 'vx' in keys
+    err = 'xe' in keys
     
     # Extract needed information from starlist
     x = starlist_f['x']
     y = starlist_f['y']
-    xe = starlist_f['xe']
-    ye = starlist_f['ye']
+
+    if err:
+        xe = starlist_f['xe']
+        ye = starlist_f['ye']
 
     if vel:
         x0 = starlist_f['x0']
@@ -1298,7 +1356,7 @@ def transform_from_object(starlist, transform):
         vye = starlist_f['vye']
     
     # calculate the transformed position and velocity
-
+    
     # (x_new, y_new, xe_new, ye_new) in (x,y)
     x_new, y_new, xe_new, ye_new = position_transform_from_object(x, y, xe, ye, transform)
 

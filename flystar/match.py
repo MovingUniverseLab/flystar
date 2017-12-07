@@ -5,13 +5,14 @@ from collections import Counter
 from scipy.spatial import cKDTree as KDT
 from astropy.table import Column, Table
 import itertools
-import numpy
+import copy
 import pylab as py
 import scipy.signal
 from skimage import transform
 from scipy.spatial import distance
 import math
 import pdb
+
 
 def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
                          Nbins_vmax=200, Nbins_angle=360,verbose=False):
@@ -33,7 +34,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     be. But this isn't well tested.
     """
     print( '')
-    print( '  miracle_match_briteN: mirmat50: use brightest 50')
+    print( '  miracle_match_briteN: use brightest {0}'.format(Nbrite))
     print( '  miracle_match_briteN:  ')
     print( '  miracle_match_briteN:  ')
 
@@ -77,15 +78,15 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
 
     # Over 2D (vmax, angle) space, decide where everything goes.
     # We only care about the first instance in any bin.
-    idx1_vmax_hist = np.digitize(vmax1, bins_vmax) - 1  # indices into the 2D arraya
-    idx1_angl_hist = np.digitize(angle1, bins_angle) - 1
+    idx1_vmax_hist = np.digitize(vmax1, bins_vmax)  # indices into the 2D array
+    idx1_angl_hist = np.digitize(angle1, bins_angle)
 
     # Make a 2D array and every position is a 3 element vector containing the indicies
     # for the points in this triangle. At each 2D position, we only have a single
     # triangle recorded. We want the first insance. So we just go in reverse order
     # of the triangles and the last updates are the first entries in the original
     # array.
-    stars1_at_hist = np.ones((len(bins_vmax)-1, len(bins_angle)-1, 3), dtype=np.int16) * -1
+    stars1_at_hist = np.ones((len(bins_vmax) + 1, len(bins_angle) + 1, 3), dtype=np.int16) * -1
     stars1_at_hist[idx1_vmax_hist[::-1], idx1_angl_hist[::-1], :] = stars_in_tri1[::-1]
 
     ##########
@@ -96,13 +97,25 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
 
     # Over 2D (vmax, angle) space, decide where everything goes.
     # We only care about the first instance in any bin.
-    idx2_vmax_hist = np.digitize(vmax2, bins_vmax) - 1  # indices into the 2D arraya
-    idx2_angl_hist = np.digitize(angle2, bins_angle) - 1
+    idx2_vmax_hist = np.digitize(vmax2, bins_vmax)  # indices into the 2D arraya
+    idx2_angl_hist = np.digitize(angle2, bins_angle)
 
+    ##########
+    # Trim out stars outside our histogram. This only occurs for nan cases.
+    # Note, this is a result of digitize not rejecting values outside the specified
+    # range. Instead it drops them into bin ii=0 or bin ii=len(bins).
+    ##########
+    good_idx2 = np.where((idx2_vmax_hist > 0) & (idx2_vmax_hist < len(bins_vmax)) &
+                         (idx2_angl_hist > 0) & (idx2_angl_hist < len(bins_angle)))[0]
+    idx2_vmax_hist = idx2_vmax_hist[good_idx2]
+    idx2_angl_hist = idx2_angl_hist[good_idx2]
+
+    
     ##########
     # Possible Matches
     ##########
     # Find the triangles that have the same vmax and angle in list 1 and list 2.
+    # Make sure to trim out the stuff that fell outside the range (typically nan).
     stars_in1_matches2 = stars1_at_hist[idx2_vmax_hist, idx2_angl_hist, :]
 
     ##########
@@ -181,7 +194,7 @@ def order_by_brite(xi, yi, mi, Nout, verbose=True):
     return xo, yo, mo
 
 
-def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
+def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     """
     Finds matches between two different catalogs. No transformations are done and it
     is assumed that the two catalogs are already on the same coordinate system
@@ -214,6 +227,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
     dm_tol : float or None, optional
         How close in delta-magnitude a match has to be to count as a match.
         If None, then any delta-magnitude is allowed.
+    verbose : bool, optional
+        Prints on screen information on the matching
  
     Returns
     -------
@@ -348,7 +363,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
 
     # Deal with duplicates
     duplicates = [item for item, count in list(Counter(idxs2).items()) if count > 1]
-    print(( 'Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
+    if verbose:
+        print(( 'Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
     keep = np.ones(len(idxs1), dtype=bool)
     for dd in range(len(duplicates)):
         # Index into the idxs1, idxs2 array of this duplicate.
@@ -369,7 +385,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
         if dm_min == dr_min:
             keep[dups[dm_min]] = True
         else:
-            print('    confused, dropping')
+            if verbose:
+                print('    confused, dropping')
 
 
     # Clean up the duplicates
@@ -442,8 +459,11 @@ def add_votes(votes, match1, match2):
 
 
 def generic_match(sl1, sl2, init_mode='triangle',
-                  model=transforms.PolyTransform, poly_order=2, loop=1,
-                  dr_tol=1.0, dm_tol=None, n_bright=100, **kwargs):
+                  model=transforms.PolyTransform, order_dr=(1, 1.0),
+                  dr_final=1.0,
+                  xy_match=(None, None, None, None, None, None, None, None),
+                  m_match=(None, None, None, None), sigma_match=None,
+                  n_bright=100, verbose=True, **kwargs):
     """
     Finds the transformation between two starlists using the first one
     as reference frame. Different matching methods can be used. If no
@@ -464,28 +484,38 @@ def generic_match(sl1, sl2, init_mode='triangle',
         Transformation model to be used with the 'triangle' initial mode
     poly_order : int
         Order of the transformation model
-    loop : int
-        Number of loops to refine the initial transformation
-    dr_tol : float
-        Search radius to refine the initial transformation
-    dm_tol : float
-        Magnitude tolerance to refine the initial transformation
+    order_dr : int, float [n, 2]
+        Combinations of polinomial order (first column) and search radius
+        (second column) to refine the transformation. Rows are executed in
+        orders
+    dr_final: float
+        Search radius used for the final matching
     n_bright : int
-        Number of bright stars used in the initial matching
-    remove_xy : array
-        Area of the images to remove in the initial matching [xmin, xmax, ymin,
-        ymax]
-    m_lim : float
-        Minimum magnitude to use in the initial matching
+        Number of bright stars used in the initial blind triangles matching
+    xy_match : array
+        Area of the images to remove in the matching [reference catalog min x,
+        reference catalog max x, reference catalog min y, reference catalog max y,
+        transformed catalog min x, transformed catalog max x,
+        transformed catalog min y, transformed catalog max y]. Use None for values not used.
+    m_match : array
+        Magnitude limits of matching stars used to find transformations
+        [reference catalog min mag, reference catalog max mag, transformed
+        catalog min mag, transformed catalog max mag]. Use None for values not
+        used
+    sigma_match : array
+        Number of Deltap movement sigmas [0] used for sigma-cutting matched
+        stars for a number of times [1]. Use None for no sigma-cut. The last
+        polynomial order and search radius in 'order_dr' are used
     transf_file : str
         File name and path of the transformation file used with the 'load'
         init_mode
+    verbose : bool, optional
+        Prints on screen information on the matching
     
     Returns
     -------
     transf : Transform2D
         Transformation of the second starlist respect to the first
-    
     st : StarTable
         Startable of the two matched catalogs
 
@@ -496,78 +526,134 @@ def generic_match(sl1, sl2, init_mode='triangle',
         raise TypeError("The first catalog has to be a StarList")
     if not isinstance(sl2, starlists.StarList):
         raise TypeError("The second catalog has to be a StarList")
-    sl1_tab = sl1.starlist_to_table()
-    sl2_tab = sl2.starlist_to_table()
-    sl1_tab_cut = sl1_tab
-    sl2_tab_cut = sl2_tab
     
-    if 'remove_xy' in kwargs:
-        sl1_tab_cut = sl1_tab_cut[numpy.logical_not((sl1_tab_cut['x'] > kwargs['remove_xy'][0]) &
-                                                (sl1_tab_cut['x'] < kwargs['remove_xy'][1]) &
-                                                (sl1_tab_cut['y'] > kwargs['remove_xy'][2]) &
-                                                (sl1_tab_cut['y'] < kwargs['remove_xy'][3]))]
-        sl2_tab_cut = sl2_tab_cut[numpy.logical_not((sl2_tab_cut['x'] > kwargs['remove_xy'][0]) &
-                                                (sl2_tab_cut['x'] < kwargs['remove_xy'][1]) &
-                                                (sl2_tab_cut['y'] > kwargs['remove_xy'][2]) &
-                                                (sl2_tab_cut['y'] < kwargs['remove_xy'][3]))]
-    
-    if 'm_lim' in kwargs:
-        sl1_tab_cut = sl1_tab_cut[sl1_tab_cut['m'] > kwargs['m_lim']]
-        sl2_tab_cut = sl2_tab_cut[sl2_tab_cut['m'] > kwargs['m_lim']]
-        
-
     #  Find the initial transformation
-    if init_mode is 'triangle':
-    
-        #  Blind triangles method
-        transf = align.initial_align(sl2_tab_cut, sl1_tab_cut, briteN=n_bright,
+    if init_mode is 'triangle': #  Blind triangles method
+        
+        #  Prepare the reduced starlists for matching
+        sl1_cut = copy.deepcopy(sl1)
+        sl2_cut = copy.deepcopy(sl2)
+        sl1_cut = sl1_cut.restrict_by_value(x_min=xy_match[0], x_max=xy_match[1],
+                                            y_min=xy_match[2], y_max=xy_match[3])
+        sl2_cut = sl2_cut.restrict_by_value(x_min=xy_match[4], x_max=xy_match[5],
+                                            y_min=xy_match[6], y_max=xy_match[7])
+        sl1_cut = sl1_cut.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
+        sl2_cut = sl2_cut.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
+        
+        # Find the transformation
+        # TODO: test 'initial_align' with StarList input
+        transf = align.initial_align(sl1_cut, sl2_cut, briteN=n_bright,
                                      transformModel=model, order=poly_order)
         
-    elif init_mode is 'match_name':
+    elif init_mode is 'match_name': #  Name match
+        sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(sl1, sl2)
+        transf = model(sl2['x'][sl2_idx_init], sl2['y'][sl2_idx_init],
+                       sl1['x'][sl1_idx_init], sl1['y'][sl1_idx_init],
+                       order=int(order_dr[0][0]))
         
-        #  Name match
-        sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(
-            sl1_tab, sl2_tab)
-        transf = model(sl2_tab['x'][sl2_idx_init], sl2_tab['y'][sl2_idx_init],
-                       sl1_tab['x'][sl1_idx_init], sl1_tab['y'][sl1_idx_init],
-                       order=poly_order)
-        
-    elif init_mode is 'load':
-        
-        # Load a transformation file
-        
+    elif init_mode is 'load': #  Load a transformation file
         transf = transforms.Transform2D.from_file(kwargs['transf_file'])
-    else:
         
-        #  None of the above
-        raise TypeError('Unrecognized initial matching method')
-        
-    #  Transfor the catalog to the reference frame
-    star_transf = align.transform_from_object(sl2_tab, transf)
-        
-    #  Refine the transformation
-    for i_loop in range(loop):
-        
-        #  Transfor the catalog to the reference frame and match them
-        sl2_idx, sl1_idx = align.transform_and_match(sl2_tab, sl1_tab, transf,
-                                                     dr_tol=dr_tol,
-                                                     dm_tol=dm_tol)
-            
-        #  Find a better transformation
-        transf, n_transf = align.find_transform(sl2_tab[sl2_idx], star_transf[sl2_idx],
-                                                sl1_tab[sl1_idx], transModel=model,
-                                                order=poly_order)
+    else: #  None of the above
+        raise TypeError("Unrecognized initial matching method")
+
+    # Restrict the matching catalogs
+    sl1_match = copy.deepcopy(sl1)
+    sl2_match = copy.deepcopy(sl2)
+    sl1_match = sl1_match.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
+    sl2_match = sl2_match.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
     
+    #  Refine the transformation
+    if sigma_match:
+        order_dr_len = len(order_dr)
+        
+        for i_loop in range(sigma_match[1]):
+            order_dr = np.vstack((np.array(order_dr), np.array(order_dr[-1])))
+    
+    for i_loop in range(len(order_dr)):
+        
+        #  Transform and match the catalog to the reference frame
+        sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
+                                                     dr_tol=order_dr[i_loop][1],
+                                                     verbose=verbose)
+
+        #  Transform the catalog to the reference frame
+        sl2_transf_match = align.transform_from_object(sl2_match, transf)
+        
+        # Sigma-rejection
+        if sigma_match and (i_loop >= order_dr_len):
+            resid = np.sqrt((sl1_match['x'][sl1_idx] -
+                            sl2_transf_match['x'][sl2_idx])**2 +
+                            (sl1_match['y'][sl1_idx] -
+                            sl2_transf_match['y'][sl2_idx])**2)
+            sl1_idx = sl1_idx[resid <= (sigma_match[0] * np.std(resid))]
+            sl2_idx = sl2_idx[resid <= (sigma_match[0] * np.std(resid))]
+        
+        # Test section to observe the matching catalogs before refining the transformation
+        """
+        from matplotlib import pyplot
+        
+        _, axarr = pyplot.subplots(nrows=1, ncols=1, figsize=(10,10))
+        axarr.scatter(sl1_match['x'][sl1_idx], sl1_match['y'][sl1_idx])
+        xlim = axarr.get_xlim()
+        ylim = axarr.get_ylim()
+        
+        _, axarr = pyplot.subplots(nrows=1, ncols=1, figsize=(10, 10))
+        axarr.scatter(sl2_transf_match['x'][sl2_idx], sl2_transf_match['y'][sl2_idx])
+        axarr.set_xlim(xlim)
+        axarr.set_ylim(ylim)
+        """
+        
+        #  Find a better transformation
+        transf, _ = align.find_transform(sl2_match[sl2_idx],
+                                         sl2_transf_match[sl2_idx],
+                                         sl1_match[sl1_idx], transModel=model,
+                                         order=int(order_dr[i_loop][0]), verbose=verbose)
+        
+        # This section was used for testing transformations with normalized
+        # coordinates. Only several catalogs had reduced residuals when using
+        # high order polynomials (>3), some of them became unstable
+        """sl1_match_norm = sl1_match[sl1_idx]
+        sl2_match_norm = sl2_match[sl2_idx]
+        sl2_transf_match_norm = sl2_transf_match[sl2_idx]
+        mm = max(max(sl1_match_norm['x']), max(sl1_match_norm['y']),
+                 max(sl2_transf_match_norm['x']), max(sl2_transf_match_norm['y']))
+        sl1_match_norm['x'] = sl1_match_norm['x'] / mm
+        sl1_match_norm['y'] = sl1_match_norm['y'] / mm
+        sl2_match_norm['x'] = sl2_match_norm['x'] / mm
+        sl2_match_norm['y'] = sl2_match_norm['y'] / mm
+        sl2_transf_match_norm['x'] = sl2_transf_match_norm['x'] / mm
+        sl2_transf_match_norm['y'] = sl2_transf_match_norm['y'] / mm
+        transf, _ = align.find_transform(sl2_match_norm, sl2_transf_match_norm,
+                                         sl1_match_norm, transModel=model,
+                                         order=poly_order, verbose=verbose)
+        c_exp = np.zeros(len(transf.px._parameters))
+        
+        for i_c in range(len(transf.px._parameters)):
+            c_exp[i_c] = int(transf.px._param_names[i_c][1:].split('_')[0]) +\
+                         int(transf.px._param_names[i_c][1:].split('_')[1])
+        
+        c_corr = mm ** (1 - c_exp)
+        transf.px._parameters = transf.px._parameters * c_corr
+        transf.py._parameters = transf.py._parameters * c_corr"""
+    
+    # Do the final transformation and matching using
+    sl2_idx, sl1_idx = align.transform_and_match(sl2, sl1, transf, dr_tol=dr_final,
+                                                 verbose=verbose)
     #  StarTable output
-    sl2t_tab = align.transform_from_object(sl2_tab, transf)
+    sl2_transf = align.transform_from_object(sl2, transf)
     unames = np.array(range(len(sl1_idx)))
     st = startables.StarTable(name=unames,
-         x=np.column_stack((np.array(sl1_tab['x'][sl1_idx]),np.array(sl2t_tab['x'][sl2_idx]))),
-         y=np.column_stack((np.array(sl1_tab['y'][sl1_idx]),np.array(sl2t_tab['y'][sl2_idx]))),
-         m=np.column_stack((np.array(sl1_tab['m'][sl1_idx]),np.array(sl2t_tab['m'][sl2_idx]))))
-
-    for col in sl2t_tab.colnames:
-        if col not in ['name', 'x', 'y', 'm']:
-            st.add_column(Column(np.column_stack((np.array(sl1_tab[col][sl1_idx]),np.array(sl2t_tab[col][sl2_idx]))), name=col))
+         x=np.column_stack((np.array(sl1['x'][sl1_idx]), np.array(sl2_transf['x'][sl2_idx]))),
+         y=np.column_stack((np.array(sl1['y'][sl1_idx]), np.array(sl2_transf['y'][sl2_idx]))),
+         m=np.column_stack((np.array(sl1['m'][sl1_idx]), np.array(sl2_transf['m'][sl2_idx]))),
+         ep_name=np.column_stack((np.array(sl1['name'][sl1_idx]), np.array(sl2_transf['name'][sl2_idx]))),
+         list_times=[sl1.meta['list_time'], sl2.meta['list_time']],
+         list_names=[sl1.meta['list_name'], sl2.meta['list_name']])
+    
+    for col in sl1.colnames:
+        if col in sl2.colnames:
+            if col not in ['name', 'x', 'y', 'm']:
+                st.add_column(Column(np.column_stack((np.array(sl1[col][sl1_idx]),np.array(sl2_transf[col][sl2_idx]))), name=col))
     
     return transf, st

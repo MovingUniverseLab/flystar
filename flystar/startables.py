@@ -100,7 +100,7 @@ class StarTable(Table):
                 raise TypeError(err_msg.format('name', n_stars))
 
             # Check all the 2D arrays.
-            arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'name_in_list', 'corr')
+            arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'name_in_list')
 
             for arg_test in arg_tab:
                 if arg_test in kwargs:
@@ -302,6 +302,20 @@ class StarTable(Table):
             self[col_name][:, col_idx] = None
         
         return
+
+    def _set_invalid_star_values(self, col_name, row_idx):
+        """
+        Set the contents of the specified rows (in the 2D column objects)
+        to an invalide value depending on the data type.
+        """
+        if np.issubclass_(self[col_name].info.dtype, np.integer):
+            self[col_name][row_idx] = -1
+        elif np.issubclass_(self[col_name].info.dtype, np.floating):
+            self[col_name][row_idx] = np.nan
+        else:
+            self[col_name][row_idx] = None
+        
+        return
     
     def _append_invalid_meta_values(self, key):
         """
@@ -374,33 +388,16 @@ class StarTable(Table):
         else:
             weights_colx = None
             weights_coly = None
-    
-        self.combine_lists('x', weights_col=weights_colx)
-        self.combine_lists('y', weights_col=weights_coly)
-    
-        # Combine by magnitude. Magnitude is first converted to flux (arbitrary units)
-        self['f'] = 10 ** (-self['m'] / 2.5)
-    
+
         if weighted_m:
-            # Magnitude error is converted to flux error. The positive and
-            # negative errors are averaged.
-            self['fe'] = self['f'] * (10 ** (self['me'] / 2.5) - 10 **
-                                      (-self['me'] / 2.5)) / 2
-            weights_colm = 'fe'
-            self.meta['m_avg'] = 'weighted'
+            weights_colm = 'me'
         else:
             weights_colm = None
-            self.meta['m_avg'] = 'not_weighted'
-    
-        self.combine_lists('f', weights_col=weights_colm, meta_add=False)
-        # Flux is converted back to magnitude
-        self['m_avg'] = -2.5 * np.log10(self['f_avg'])
-        # Flux error is converted back to magnitude error. The positive
-        # and negative errors are averaged.
-        self['m_std'] = 2.5 * (np.log10(1 + self['f_std'] / self['f_avg']) -
-                               np.log10(1 - self['f_std'] / self['f_avg'])) / 2
-        self.remove_columns(['f', 'fe'])
-        
+            
+        self.combine_lists('x', weights_col=weights_colx)
+        self.combine_lists('y', weights_col=weights_coly)
+        self.combine_lists('m', weights_col=weights_colm, ismag=True)
+            
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None,
@@ -463,8 +460,8 @@ class StarTable(Table):
         col_name_std = col_name_in + '_std'
 
         if ismag:
+            std = (2.5 / np.log(10)) * std / avg
             avg = -2.5 * np.log10(avg)
-            std = std * 1.0    ## FIX ME
 
         if col_name_avg in self.colnames:
             self[col_name_avg] = avg.data
