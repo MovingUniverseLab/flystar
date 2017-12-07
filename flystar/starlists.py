@@ -553,3 +553,27 @@ class StarList(Table):
                     aaa = aaa[aaa[kwarg_split[0]] <= kwargs[kwarg]]
         
         return aaa
+
+    def transform_xym(self, trans):
+        """
+        Apply a transformation (instance of flystar.transforms.Transform2D)
+        to the x, y, m columns.
+
+        TO DO: Evenutally we need to add error support.
+        """
+        x_T, y_T = trans.evaluate(self['x'], self['y'])
+        self['x'] = x_T
+        self['y'] = y_T
+
+        try:
+            # Note that we will fail silently when no magnitude
+            # transformation is supported... we just leave the magnitudes
+            # alone. 
+            m_T = self['m'] + trans.mag_offset
+            self['m'] = m_T
+        except AttributeError:
+            pass
+            
+        return
+        
+    
