@@ -175,7 +175,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
         if len(idx_ref_new) > 0:
             copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref_new, idx_lis_new)
 
-            ref_table['name'] = update_old_and_new_names(ref_table, idx_ref_new)
+            ref_table['name'] = update_old_and_new_names(ref_table, ii, idx_ref_new)
 
         ### Update the "average" values to be used as the reference frame for the next list.
         weighted_xy = ('xe' in ref_table.colnames) and ('ye' in ref_table.colnames)
