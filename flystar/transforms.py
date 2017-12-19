@@ -154,72 +154,6 @@ class Transform2D(object):
         
         
         
-class Shift(PolyTransform):
-    '''
-    Defines shift tranformation between x,y and xref, yref
-    Does not weight the points.
-    '''
-
-    def __init__(self, xshift, yshift, xshift_err=None, yshift_err=None):
-        px = [xshift]
-        py = [yshift]
-        pxerr = [xshift_err]
-        pyerr = [yshift_err]
-        order = 0
-        
-        px_dict = make_param_dict(px)
-        py_dict = make_param_dict(py)
-        
-        self.px = models.Polynomial2D(order, **px_dict)
-        self.py = models.Polynomial2D(order, **py_dict)
-        self.pxerr = pxerr
-        self.pyerr = pyerr
-        self.order = order
-
-        return
-
-    @classmethod
-    def derive_transform(cls, x, y, xref, yref, weights=None):
-        dx = xref - x
-        dy = yref - y
-        
-        xshift = np.average(dx, weights=weights)
-        yshift = np.average(dy, weights=weights)
-
-        # Error is estimated as the error on the mean (optionally weighted)
-        if weights != None:
-            wgt_sum = np.sum(weights)
-            xshift_err = np.sqrt( np.sum(weights * (dx - xshift)**2) / wgt_sum) / len(x)**0.5
-            yshift_err = np.sqrt( np.sum(weights * (dy - yshift)**2) / wgt_sum) / len(x)**0.5
-        else:
-            xshift_err = stats.sem(dx)
-            yshift_err = stats.sem(dy)
-        
-        trans = Shift(xshift, yshift,
-                          xshift_err=xshift_err, yshift_err=yshift_err)
-
-        return trans
-
-    def evaluate_error(self, x, y, xe, ye):
-        xe_new = np.hypot(xe, self.pxerr[0])
-        ye_new = np.hypot(ye, self.pyerr[0])
-        
-        return (xe_new, ye_new)
-
-    def evaluate_vel(self, x, y, vx, vy):
-        """
-        Evaluate positions and velocities. Errors are only propogated IF all 4 errors
-        (position and velocity) are input. 
-        """
-        return (vx, vy)
-
-    def evaluate_vel_error(self, x, y, vx, vy, xe, ye, vxe, vye):
-        """
-        Evaluate positions and velocities. Errors are only propogated IF all 4 errors
-        (position and velocity) are input. 
-        """
-        return (vxe, vye)
-    
     
 class four_paramNW:
     '''
@@ -271,8 +205,8 @@ class PolyTransform(Transform2D):
             array or list of errors of the coefficients to transform input y coordinates 
             into output y' coordinates.
         """
-        px_dict = make_param_dict(px)
-        py_dict = make_param_dict(py)
+        px_dict = PolyTransform.make_param_dict(px, order)
+        py_dict = PolyTransform.make_param_dict(py, order)
         
         self.px = models.Polynomial2D(order, **px_dict)
         self.py = models.Polynomial2D(order, **py_dict)
@@ -283,7 +217,7 @@ class PolyTransform(Transform2D):
         return
 
     @staticmethod
-    def make_param_dict(initial_param):
+    def make_param_dict(initial_param, order):
         """
         Convert initial parameter arrays into a format that astropy model Polynomial2D
         can understand. We expect input arrays in the form:
@@ -316,19 +250,26 @@ class PolyTransform(Transform2D):
 
         param_dict = {}
 
-        for i in range(self.order + 1):
+        for i in range(order + 1):
             for j in range(i + 1):
                 xid = i - j
                 yid = j
 
                 coeff_key = 'c{0}_{1}'.format(xid, yid)
-                coeff = initial_param[idx]
+                
+                if initial_param == None:
+                    # Handle case of no initial guess
+                    coeff = 0.0
+                    if xid == 1 and yid == 0:
+                        coeff = 1.0
+                else:
+                    coeff = initial_param[idx]
 
                 param_dict[coeff_key] = coeff
 
                 idx += 1
 
-        return coeff_dict
+        return param_dict
     
     
     def evaluate(self, x, y):
@@ -530,8 +471,8 @@ class PolyTransform(Transform2D):
                          init_gx=None, init_gy=None, weights=None):
         
         # now, if the initial guesses are not none, fill in terms until 
-        init_gx = PolyTransform.make_param_dict(init_gx)
-        init_gy = PolyTransform.make_param_dict(init_gy)
+        init_gx = PolyTransform.make_param_dict(init_gx, order)
+        init_gy = PolyTransform.make_param_dict(init_gy, order)
         
         p_init_x = models.Polynomial2D(order, **init_gx)
         p_init_y = models.Polynomial2D(order, **init_gy)
@@ -636,9 +577,75 @@ class PolyTransform(Transform2D):
 
         return
         
+class Shift(PolyTransform):
+    '''
+    Defines shift tranformation between x,y and xref, yref
+    Does not weight the points.
+    '''
+
+    def __init__(self, xshift, yshift, xshift_err=None, yshift_err=None):
+        px = [xshift]
+        py = [yshift]
+        pxerr = [xshift_err]
+        pyerr = [yshift_err]
+        order = 0
+        
+        px_dict = make_param_dict(px, 0)
+        py_dict = make_param_dict(py, 0)
+        
+        self.px = models.Polynomial2D(order, **px_dict)
+        self.py = models.Polynomial2D(order, **py_dict)
+        self.pxerr = pxerr
+        self.pyerr = pyerr
+        self.order = order
+
+        return
+
+    @classmethod
+    def derive_transform(cls, x, y, xref, yref, weights=None):
+        dx = xref - x
+        dy = yref - y
+        
+        xshift = np.average(dx, weights=weights)
+        yshift = np.average(dy, weights=weights)
+
+        # Error is estimated as the error on the mean (optionally weighted)
+        if weights != None:
+            wgt_sum = np.sum(weights)
+            xshift_err = np.sqrt( np.sum(weights * (dx - xshift)**2) / wgt_sum) / len(x)**0.5
+            yshift_err = np.sqrt( np.sum(weights * (dy - yshift)**2) / wgt_sum) / len(x)**0.5
+        else:
+            xshift_err = stats.sem(dx)
+            yshift_err = stats.sem(dy)
+        
+        trans = Shift(xshift, yshift,
+                          xshift_err=xshift_err, yshift_err=yshift_err)
+
+        return trans
+
+    def evaluate_error(self, x, y, xe, ye):
+        xe_new = np.hypot(xe, self.pxerr[0])
+        ye_new = np.hypot(ye, self.pyerr[0])
+        
+        return (xe_new, ye_new)
+
+    def evaluate_vel(self, x, y, vx, vy):
+        """
+        Evaluate positions and velocities. Errors are only propogated IF all 4 errors
+        (position and velocity) are input. 
+        """
+        return (vx, vy)
+
+    def evaluate_vel_error(self, x, y, vx, vy, xe, ye, vxe, vye):
+        """
+        Evaluate positions and velocities. Errors are only propogated IF all 4 errors
+        (position and velocity) are input. 
+        """
+        return (vxe, vye)
+    
     
 class LegTransform(Transform2D):
-    def __init__(self, order, px, py)
+    def __init__(self, order, px, py):
         """
         Specify the order of the Legendre transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
@@ -684,8 +691,8 @@ class LegTransform(Transform2D):
         The evaulate function will use the same renomralization procedure.
         """
         # Initialize transformation object.
-        init_gx = LegTransform.make_param_dict(init_gx)
-        init_gy = LegTransform.make_param_dict(init_gy)
+        init_gx = LegTransform.make_param_dict(init_gx, order)
+        init_gy = LegTransform.make_param_dict(init_gy, order)
 
         p_init_x = models.Legendre2D(order, order, **init_gx)
         p_init_y = models.Legendre2D(order, order, **init_gy)

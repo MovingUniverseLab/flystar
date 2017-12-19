@@ -8,7 +8,8 @@ import copy
 import os
 import pdb
 
-def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1], mag_trans=True,
+def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1], outlier_tol=[None, None],
+                     mag_trans=True,
                      trans_input=None, trans_class=transforms.PolyTransform, trans_args={'order': 2}):
     """
     Required Parameters
@@ -53,8 +54,10 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
         transformation parameters between each list and the reference list. 
 
     trans_args : dictionary
-        A dictionary containing any extra keywords that are needed in the transformation object.
-        For instance, "order".
+        A dictionary (or a list of dictionaries) containing any extra keywords that are needed 
+        in the transformation object. For instance, "order". Note that if a list is passed in, 
+        then the transformation argument (i.e. order) will be changed for every iteration in
+        iters.
 
     """
     ###
@@ -93,6 +96,12 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     if trans_input != None:
         trans_list = [trans_input[ii] for ii in range(N_lists)]
 
+    # Keep a list of trans_args, one for each starlist. If only
+    # a single is passed in, replicate for all star lists, all loop iterations.
+    if type(trans_args) == dict:
+        tmp = trans_args
+        trans_args = [tmp for ii in range(iters)]
+
     ##########
     #
     # Loop through starlists and align them to the reference list, one at a time.
@@ -120,12 +129,25 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                                             dr_tol=dr_tol[nn], dm_tol=dm_tol[nn])
             print( 'In Loop ', nn, ' found ', len(idx1), ' matches' )
             
+            # TO DO: Outlier rejection in the last iterations??
+            if outlier_tol[nn] != None:
+                print('Rejecting outliers')
+                x_resid_on_old_trans = star_list_T['x'][idx1] - ref_list['x_avg'][idx2]
+                y_resid_on_old_trans = star_list_T['y'][idx1] - ref_list['y_avg'][idx2]
+                resid_on_old_trans = np.hypot(x_resid_on_old_trans)
+
+                threshold = outlier_tol[nn] * resid_on_old_trans.std()
+                keepers = np.where(resid_on_old_trans < theshold)[0]
+
+                idx1 = idx1[keepers]
+                idx2 = idx2[keepers]
+                
             # Calculate transform based on the matched stars    
             trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1],
                                                  ref_list['x_avg'][idx2], ref_list['y_avg'][idx2],
-                                                 **trans_args)
+                                                 **(trans_args[nn]))
 
-            # TO DO: Outlier rejection in the last iterations??
+                
 
         ### Save the final transformation.
         trans_list[ii] = trans
