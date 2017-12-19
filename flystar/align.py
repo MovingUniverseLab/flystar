@@ -1428,6 +1428,17 @@ def position_transform_from_object(x, y, xe, ye, transform):
             sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.)
             y_new += Ycoeff[sub] * (x**i) * (y**j)
 
+            
+    """
+    THIS IS WRONG BELOW!
+
+    Currently doing:
+    ((A + B + C) * xe)**2
+
+    Should be doing:
+    ((A**2 + B**2 + C**2) * xe**2)
+    """
+            
     # xe_new & ye_new in (x,y,xe,ye)
     xe_new = 0
     temp1 = 0
@@ -1699,13 +1710,16 @@ def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, 
         Transformed Y position errs
     """
     idx = 0 # coeff index
-    xe_new_sq = 0.0
-    ye_new_sq = 0.0
+    xe_new_tmp1 = 0.0
+    ye_new_tmp1 = 0.0
+    xe_new_tmp2 = 0.0
+    ye_new_tmp2 = 0.0
+    
     # First loop: dx'/dx
     for i in range(order+1):
         for j in range(i+1):
-            xe_new_sq += (Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j)**2. * xe_orig**2.
-            ye_new_sq += (Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j)**2. * xe_orig**2.
+            xe_new_tmp1 += Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j
+            ye_new_tmp1 += Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j
 
             idx += 1
             
@@ -1713,13 +1727,13 @@ def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, 
     idx = 0 # coeff index
     for i in range(order+1):
         for j in range(i+1):
-            xe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.
-            ye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * ye_orig**2.
+            xe_new_tmp2 += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1)
+            ye_new_tmp2 += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1)
 
             idx += 1
     # Take square root for xe/ye_new
-    xe_new = np.sqrt(xe_new_sq)
-    ye_new = np.sqrt(ye_new_sq)
+    xe_new = np.sqrt((xe_new_tmp1 * xe_orig)**2 + (xe_new_tmp2 * ye_orig)**2)
+    ye_new = np.sqrt((ye_new_tmp1 * ye_orig)**2 + (ye_new_tmp2 * ye_orig)**2)
 
     return xe_new, ye_new
 
@@ -1838,15 +1852,23 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
         Transformed Y proper motion errs
     """
     idx = 0
-    vxe_new_sq = 0.0
-    vye_new_sq = 0.0
+    vxe_new_tmp1 = 0.0
+    vye_new_tmp1 = 0.0
+    vxe_new_tmp2 = 0.0
+    vye_new_tmp2 = 0.0
+    vxe_new_tmp3 = 0.0
+    vye_new_tmp3 = 0.0
+    vxe_new_tmp4 = 0.0
+    vye_new_tmp4 = 0.0
+
+    
     # First loop: dvx' / dx
     for i in range(order+1):
         for j in range(i+1):
-            vxe_new_sq += (Xcoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
-                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.
-            vye_new_sq += (Ycoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig)**2. * xe_orig**2. + \
-                  (Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig)**2. * xe_orig**2.
+            vxe_new_tmp1 += Xcoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig
+            vxe_new_tmp1 += Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig
+            vye_new_tmp1 += Ycoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig
+            vye_new_tmp1 += Ycoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig
 
             idx += 1
 
@@ -1854,10 +1876,10 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
     idx = 0
     for i in range(order+1):
         for j in range(i+1):
-            vxe_new_sq += (Xcoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
-                  (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
-            vye_new_sq += (Ycoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig)**2. * ye_orig**2. + \
-                  (Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig)**2. * ye_orig**2.
+            vxe_new_tmp2 += Xcoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig
+            vxe_new_tmp2 += Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig
+            vye_new_tmp2 += Ycoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig
+            vye_new_tmp2 += Ycoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig
 
             idx += 1
 
@@ -1865,8 +1887,8 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
     idx = 0
     for i in range(order+1):
         for j in range(i+1):
-            vxe_new_sq += (Xcoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j)**2. * vxe_orig**2.
-            vye_new_sq += (Ycoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j)**2. * vxe_orig**2.
+            vxe_new_tmp3 += Xcoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j
+            vye_new_tmp3 += Ycoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j
 
             idx += 1
 
@@ -1874,13 +1896,15 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
     idx = 0
     for i in range(order+1):
         for j in range(i+1):
-            vxe_new_sq += (Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2.
-            vye_new_sq += (Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1))**2. * vye_orig**2.
+            vxe_new_tmp4 += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1)
+            vye_new_tmp4 += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1)
 
             idx += 1
 
-    vxe_new = np.sqrt(vxe_new_sq)
-    vye_new = np.sqrt(vye_new_sq)
+    vxe_new = np.sqrt((vxe_new_tmp1 * xe_orig)**2 + (vxe_new_tmp2 * ye_orig)**2 + \
+                      (vxe_new_tmp3 * vxe_orig)**2 + (vxe_new_tmp4 * vye_orig)**2)
+    vye_new = np.sqrt((vye_new_tmp1 * xe_orig)**2 + (vye_new_tmp2 * ye_orig)**2 + \
+                      (vye_new_tmp3 * vxe_orig)**2 + (vye_new_tmp4 * vye_orig)**2)
 
     return vxe_new, vye_new
 

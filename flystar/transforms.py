@@ -58,8 +58,50 @@ class Transform2D(object):
     def evaluate(self, x, y):
         # method should be defined in the subclasses
         pass
+
+    def evaluate_starlist(self, star_list):
+        new_list = copy.deepcopy(star_list)
+
+        # Cases we need to consider:
+        # 1. x and y, no errors, no velocities
+        # 2. x, y, x errors, y errors, no velocities
+        # 3. x, y, vx, vy, no xy or vel errors
+        # 4. x, y, vx, vy, xe, ye, vxe, vye
+        #
+        # We will assume that all input is symmetric/2D (i.e. only check on x)
+
+        # Positions
+        vals = self.evaluate(star_list['x'], star_list['y'])
+        
+        new_list['x'] = vals[0]
+        new_list['y'] = vals[1]
+
+        # Positional errors (if they exist)
+        if 'xe' in new_list.colnames:
+            vals = self.evaluate_error(star_list['x'], star_list['y'],
+                                       star_list['xe'], star_list['ye'])
+            new_list['xe'] = vals[0]
+            new_list['ye'] = vals[1]
+
+        # Velocities (if they exist)
+        if 'vx' in new_list.colnames:
+            vals = self.evaluate_vel(star_list['x'], star_list['y'],
+                                     star_list['vx'], star_list['vy'])
+            new_list['vx'] = vals[0]
+            new_list['vy'] = vals[1]
+
+            # Velocity errors (if they exist)
+            if 'vxe' in new_list.colnames:
+                vals = self.evaluate_vel_error(star_list['x'], star_list['y'],
+                                               star_list['vx'], star_list['vy'],
+                                               star_list['xe'], star_list['ye'],
+                                               star_list['vxe'], star_list['vye'])
+                new_list['vxe'] = vals[0]
+                new_list['vye'] = vals[1]
+                
+        return new_list
     
-    def evaluate_errors(self, x, x_err, y, y_err, nsim=500):
+    def evaluate_MC_errors(self, x, x_err, y, y_err, nsim=500):
         '''
         Run a MC simulation to figure out what the uncertainty from the
         transformation should be.
@@ -135,7 +177,7 @@ class Shift(PolyTransform):
         self.order = order
 
         return
-                     
+
     @classmethod
     def derive_transform(cls, x, y, xref, yref, weights=None):
         dx = xref - x
@@ -158,49 +200,25 @@ class Shift(PolyTransform):
 
         return trans
 
-    def evaluate(self, x, y, xerr=None, yerr=None):
-        """
-        Transform x and y (and optionally xerr and yerr). 
-        Both xerr and yerr must be present or absent. 
+    def evaluate_error(self, x, y, xe, ye):
+        xe_new = np.hypot(xe, self.pxerr[0])
+        ye_new = np.hypot(ye, self.pyerr[0])
+        
+        return (xe_new, ye_new)
 
-        Returns
-        ----------
-        (x_new, y_new) : if xerr and yerr are not provided
-
-        OR 
-
-        (x_new, y_new, xe_new, ye_new) : if xerr and yerr are provided
-
-        """
-        x_new = self.px(x, y)
-        y_new = self.py(x, y)
-
-        if (xerr != None) & (yerr != None):
-            xe_new = np.hypot(xerr, self.pxerr[0])
-            ye_new = np.hypot(yerr, self.pyerr[0])
-            return_vals = (x_new, y_new, xe_new, ye_new)
-        else:
-            return_vals = (x_new, y_new)
-
-        return return_vals
-
-    def evaluate_with_velocity(self, x, y, vx, vy, xerr=None, yerr=None, vxerr=None, vyerr=None):
+    def evaluate_vel(self, x, y, vx, vy):
         """
         Evaluate positions and velocities. Errors are only propogated IF all 4 errors
         (position and velocity) are input. 
         """
-        x_new, y_new = self.evaluate(x, y, xerr=xerr, yerr=yerr)
-        vx_new = vx
-        vy_new = vy
-        vxe_new = vxerr
-        vye_new = vyerr
-        
-        if (xerr != None) & (yerr != None) & (vxerr != None) & (vyerr != None):
-            return_vals = (x_new, y_new, vx_new, vy_new, xe_new, ye_new, vxe_new, vye_new)
-        else:
-            return_vals = (x_new, y_new, vx_new, vy_new)
-        
-        return return_vals
+        return (vx, vy)
+
+    def evaluate_vel_error(self, x, y, vx, vy, xe, ye, vxe, vye):
+        """
+        Evaluate positions and velocities. Errors are only propogated IF all 4 errors
+        (position and velocity) are input. 
+        """
+        return (vxe, vye)
     
     
 class four_paramNW:
@@ -226,10 +244,8 @@ class PolyTransform(Transform2D):
     Defines a 2D affine polynomial transform between x, y -> xref, yref
     The tranformation is independent for x and y and has the form (for 2nd order fit):
 
-    x' = a0 + a1*x + a2*x**2. + a3*y + a4*y**2. + a5*x*y
-    y' = b0 + b1*x + b2*x**2. + b3*y + b4*y**2. + b5*x*y
-
-    Currently, this only supports an initial guess of the linear terms.
+    x' = a0 + a1*x + a2*y. + a3*x**2 + a4*x*y. + a5*y**2
+    y' = b0 + b1*x + b2*y. + b3*x**2 + b4*x*y. + b5*y**2
     """
     def __init__(self, order, px, py, pxerr=None, pyerr=None):
         """
@@ -265,6 +281,55 @@ class PolyTransform(Transform2D):
         self.order = order
 
         return
+
+    @staticmethod
+    def make_param_dict(initial_param):
+        """
+        Convert initial parameter arrays into a format that astropy model Polynomial2D
+        can understand. We expect input arrays in the form:
+
+        a0 + a1*x + a2*y + a3*x^2 + a4*x*y + a5*y^2 + a6*x^3 + a7*x^2*y + a8*x*y^2 + a9*y^3
+
+        and conver this into a dictionary where:
+
+        c0_0 = a0
+        c1_0 = a1
+        c0_1 = a2
+        c2_0 = a3
+        c1_1 = a4
+        c0_2 = a5
+        c3_0 = a6
+        c2_1 = a7
+        c1_2 = a8
+        c0_3 = a9
+
+        The input/output ordering is set for easy coding using:
+
+        for i in range(self.order + 1):
+            for j in range(i + 1):
+                coeff[i-j, j] for term x**(i-j) * y**(j)
+
+        But astropy models Polynomial2D has its own special order... we try to 
+        hide this entirely inside our object. 
+        """
+        idx = 0
+
+        param_dict = {}
+
+        for i in range(self.order + 1):
+            for j in range(i + 1):
+                xid = i - j
+                yid = j
+
+                coeff_key = 'c{0}_{1}'.format(xid, yid)
+                coeff = initial_param[idx]
+
+                param_dict[coeff_key] = coeff
+
+                idx += 1
+
+        return coeff_dict
+    
     
     def evaluate(self, x, y):
         """
@@ -285,16 +350,188 @@ class PolyTransform(Transform2D):
             The transformed y coordinates. 
         """
         return self.px(x, y), self.py(x, y)
+
+    
+    def evaluate_error(self, x, y, xe, ye):
+        """
+        Transform positional uncertainties. 
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        xe : numpy array
+            The raw x errors to be transformed.
+        ye : numpy array
+            The raw y errors to be transformed.
+
+        Returns:
+        ----------
+        xe' : array
+            The transformed x errors.
+        ye' : array
+            The transformed y errors. 
+
+        """
+        dxnew_dx = 0.0
+        dxnew_dy = 0.0
+        
+        dynew_dx = 0.0
+        dynew_dy = 0.0
+
+        for i in range(self.order + 1):
+            for j in range(i + 1):
+                xid = i - j
+                yid = j
+
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                # First loop: df'/dx
+                dxnew_dx += Xcoeff * (i - j) * x**(i-j-1) * y**j
+                dynew_dx += Ycoeff * (i - j) * x**(i-j-1) * y**j
+
+                # Second loop: df'/dy
+                dxnew_dy += Xcoeff * (j) * x**(i-j) * y**(j-1)
+                dynew_dy += Ycoeff * (j) * x**(i-j) * y**(j-1)
+
+                
+        # Take square root for xe/ye_new
+        xe_new = np.sqrt((dxnew_dx * xe)**2 + (dxnew_dy * ye)**2)
+        ye_new = np.sqrt((dynew_dx * xe)**2 + (dynew_dy * ye)**2)
+
+        return xe_new, ye_new
+
+    def evaluate_vel(self, x, y, vx, vy):
+        """
+        Transform velocities.
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        vx : numpy array
+            The raw vx to be transformed.
+        vy : numpy array
+            The raw vy to be transformed.
+
+        Returns:
+        ----------
+        vx' : array
+            The transformed vx errors.
+        vy' : array
+            The transformed vy errors. 
+
+        """
+        vx_new = 0.0
+        vy_new = 0.0
+
+        for i in range(self.order + 1):
+            for j in range(i + 1):
+                xid = i - j
+                yid = j
+
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                # First term: df'/dx
+                vx_new += Xcoeff * (i - j) * x**(i-j-1) * y**j * vx
+                vy_new += Ycoeff * (i - j) * x**(i-j-1) * y**j * vx
+
+                # Second term: df'/dy
+                vx_new += Xcoeff * (j) * x**(i-j) * y**(j-1) * vy
+                vy_new += Ycoeff * (j) * x**(i-j) * y**(j-1) * vy
+                
+        return vx_new, vy_new
+
+    def evaluate_vel_err(self, x, y, vx, vy, xe, ye, vxe, vye):
+        """
+        Transform velocities.
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        vx : numpy array
+            The raw vx to be transformed.
+        vy : numpy array
+            The raw vy to be transformed.
+        xe : numpy array
+            The original x coordinates to be used in the transformation.
+        ye : numpy array
+            The original y coordinates to be used in the transformation.
+        vxe : numpy array
+            The raw vx to be transformed.
+        vye : numpy array
+            The raw vy to be transformed.
+
+
+        Returns:
+        ----------
+        vxe' : array
+            The transformed vx errors.
+        vye' : array
+            The transformed vy errors. 
+
+        """
+        dvxnew_dx = 0.0
+        dvxnew_dy = 0.0
+        dvxnew_dvx = 0.0
+        dvxnew_dvy = 0.0
+
+        dvynew_dx = 0.0
+        dvynew_dy = 0.0
+        dvynew_dvx = 0.0
+        dvynew_dvy = 0.0
+        
+        for i in range(self.order+1):
+            for j in range(i+1):
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                # First term: dv' / dx
+                dvxnew_dx += Xcoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
+                dvxnew_dx += Xcoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
+                    
+                dvynew_dx += Ycoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
+                dvynew_dx += Ycoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
+    
+                # Second term: dvx' / dy
+                dvxnew_dy += Xcoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
+                dvxnew_dy += Xcoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
+                    
+                dvynew_dy += Ycoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
+                dvynew_dy += Ycoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
+    
+                # Third term: dvx' / dvx
+                dvxnew_dvx += Xcoeff * (i-j) * x**(i-j-1) * y**j
+                dvynew_dvx += Ycoeff * (i-j) * x**(i-j-1) * y**j
+    
+                # Fourth term: dvx' / dvy
+                dvxnew_dvy += Xcoeff * (j) * x**(i-j) * y**(j-1)
+                dvynew_dvy += Ycoeff * (j) * x**(i-j) * y**(j-1)
+    
+        vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 + (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
+        vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 + (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
+
+        return vxe_new, vye_new
     
     @classmethod
     def derive_transform(cls, x, y, xref, yref, order,
                          init_gx=None, init_gy=None, weights=None):
-
-        p0 = models.Polynomial2D(order)
         
         # now, if the initial guesses are not none, fill in terms until 
-        init_gx = make_param_dict(init_gx)
-        init_gy = make_param_dict(init_gy)
+        init_gx = PolyTransform.make_param_dict(init_gx)
+        init_gy = PolyTransform.make_param_dict(init_gy)
         
         p_init_x = models.Polynomial2D(order, **init_gx)
         p_init_y = models.Polynomial2D(order, **init_gy)
@@ -304,76 +541,356 @@ class PolyTransform(Transform2D):
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
 
-        trans = PolyTransform(order, px.parameters, py.parameters)
+        trans = cls(order, px.parameters, py.parameters)
 
         return trans
+
+    @classmethod
+    def from_file(cls, trans_file):
+        """
+        Given a transformation coefficients file, read in the coefficients and create
+        a PolyTransform object.
     
+        Coefficients in the input file should have the following order:
+        x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
+        y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
+    
+        Parameters:
+        ----------
+        trans_file : str
+            The name of the input file to read in.
+
+        Returns:
+        ----------
+        trans_obj: PolyTransform
+            A transformation object instance.
+        """
+        trans_table = Table.read(trans_file, format='ascii.commented_header', header_start=-1)
+        Xcoeff = trans_table['Xcoeff']
+        Ycoeff = trans_table['Ycoeff']
+
+        # First determine the order based on the number of terms
+        # Comes from Nterms = (N + 1) * (N + 2) / 2
+        order = int((np.sqrt(1 + 8*len(Xcoeff)) - 3) / 2.)
+
+        trans_obj = cls(order, Xcoeff, Ycoeff)
+        
+        return trans_obj
+
+    def to_file(self, trans_file):
+        """
+        Given a transformation object, write out the coefficients in a text file
+        (readable by java align). Outfile name is specified by user.
+    
+        Coefficients are output in file in the following way:
+        x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
+        y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
+    
+        Parameters:
+        ----------
+        trans_file : str
+            The name of the output file to save the coefficients and meta data to. 
+            This file can be read back in with 
+
+                trans_obj = PolyTransfrom.from_file(trans_file).
+
+        """
+        # Extract info about transformation
+        trans_name = transform.__class__.__name__
+        trans_order = transform.order
+        
+        # Extract X, Y coefficients from transform
+        Xcoeff = transform.px.parameters
+        Ycoeff = transform.py.parameters
+        coeff_names = transform.px.param_names  # same for both.
+            
+        # Write output
+        _out = open(outFile, 'w')
+        
+        # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
+        _out.write('## Date: {0}\n'.format(datetime.date.today()) )
+        _out.write('## File: {0}, Reference: {1}\n'.format(starlist, reference) )
+        _out.write('## Directory: {0}\n'.format(os.getcwd()) )
+        _out.write('## Transform Class: {0}\n'.format(transform.__class__.__name__))
+        _out.write('## Order: {0}\n'.format(transform.order))
+        _out.write('## Restrict: {0}\n'.format(restrict))
+        _out.write('## Weights: {0}\n'.format(weights))
+        _out.write('## N_coeff: {0}\n'.format(len(Xcoeff)))
+        _out.write('## N_trans: {0}\n'.format(N_trans))
+        _out.write('## Delta Mag: {0}\n'.format(deltaMag))
+        _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
+        
+        # Write the coefficients such that the orders are together as defined in
+        # documentation. This is a pain because PolyTransform output is weird.
+        # (see astropy Polynomial2D documentation)
+        # CODE TO GET INDICIES
+        for i in range(self.order+1):
+            for j in range(i+1):
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff, Ycoeff) )
+    
+        _out.close()
+
+        return
+        
     
 class LegTransform(Transform2D):
-
-    def __init__(self, x, y, xref, yref, order,
-                 init_gx=None, init_gy=None, weights=None):
-        '''
-        defines a 2d polnyomial tranformation fomr x,y -> xref,yref using Legnedre polynomials as the basis
-        transforms are independent for x and y, of the form
-        x' = c0_0 + c1_0 * L_1(x) + c0_1*L_1(y) + ....
-        y' = d0_0 + d1_0 * L_1(x) + d0_1*L_1(y) + ....
-        Note that all input coorindates will be renomalized to be on the interval of [-1:1] for fitting
-        The evaulate function will use the same renomralization procedure
-        '''
-
-        # initialize parent class
-        Transform2D.__init__(self,x,y,xref,yref)
+    def __init__(self, order, px, py)
+        """
+        Specify the order of the Legendre transformation (0th, 1st, 2nd, etc.)
+        and the coefficients for the x transformation and y transformation. 
         
-        init_gx = make_param_dict(init_gx)
-        init_gy = make_param_dict(init_gy)
+        Parameters
+        ----------
+        px : list or array [a0, a1, a2, ...] 
+            coefficients to transform input x coordinates into output x' coordinates.
+
+        py : list or array [b0, b1, b2, ...] 
+            coefficients to transform input y coordinates into output y' coordinates.
         
-        self.x_nc , x_norm= self.norm0(x)
-        self.x_ncr, x_norm_ref = self.norm0(xref)
-        self.y_nc , y_norm = self.norm0(y)
-        self.y_ncr , y_norm_ref = self.norm0(yref)
+        order : int
+            The order of the transformation.
+
+        pxerr : array or list
+            array or list of errors of the coefficients to transform input x coordinates 
+            into output x' coordinates.
+        
+        pyerr : array or list
+            array or list of errors of the coefficients to transform input y coordinates 
+            into output y' coordinates.
+        """
+        px_dict = make_param_dict(px)
+        py_dict = make_param_dict(py)
+        
+        self.px = models.Legendre2D(order, order, **px_dict)
+        self.py = models.Legendre2D(order, order, **py_dict)
         self.order = order
-        
-        p_init_x = models.Legendre2D(order, order,**init_gx)
+
+        return
+
+
+    @classmethod
+    def derive_transform(cls, x, y, xref, yref, order,
+                 init_gx=None, init_gy=None, weights=None):
+        """
+        Defines a bivariate legendre tranformation from x,y -> xref,yref using Legnedre polynomials as the basis.
+        Transforms are independent for x and y and of the form:
+            x' = c0_0 + c1_0 * L_1(x) + c0_1*L_1(y) + ....
+            y' = d0_0 + d1_0 * L_1(x) + d0_1*L_1(y) + ....
+        Note that all input coorindates will be renomalized to be on the interval of [-1:1] before fitting.
+        The evaulate function will use the same renomralization procedure.
+        """
+        # Initialize transformation object.
+        init_gx = LegTransform.make_param_dict(init_gx)
+        init_gy = LegTransform.make_param_dict(init_gy)
+
+        p_init_x = models.Legendre2D(order, order, **init_gx)
         p_init_y = models.Legendre2D(order, order, **init_gy)
-       
+        
         fit_p  = fitting.LinearLSQFitter()
 
-        self.px = fit_p(p_init_x, x_norm, y_norm, x_norm_ref, weights=weights)
-        self.py = fit_p(p_init_y, x_norm, y_norm, y_norm_ref, weights=weights)
+        px = fit_p(p_init_x, x, y, x_ref, weights=weights)
+        py = fit_p(p_init_y, x, y, y_ref, weights=weights)
+
+        trans = cls(order, px.parameters, py.parameters)
         
 
     def evaluate(self, x, y):
-        xnew = self.rnorm(self.px(self.norm(x, self.x_nc), self.norm(y, self.y_nc)),
-                          self.x_ncr)
-        ynew = self.rnorm(self.py(self.norm(x, self.x_nc), self.norm(y, self.y_nc)),
-                          self.y_ncr)
-        return xnew, ynew
+        """
+        Apply the transformation to a starlist.
 
+        Parameters: 
+        ----------
+        x : numpy array
+            The raw x coordinates to be transformed.
+        y : numpy array
+            The raw y coordinates to be transformed.
+
+        Returns:
+        ----------
+        x' : array
+            The transformed x coordinates.
+        y' : array
+            The transformed y coordinates. 
+        """
+        return self.px(x, y), self.py(x, y)
+
+    
+    def evaluate_error(self, x, y, xe, ye):
+        """
+        Transform positional uncertainties. 
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        xe : numpy array
+            The raw x errors to be transformed.
+        ye : numpy array
+            The raw y errors to be transformed.
+
+        Returns:
+        ----------
+        xe' : array
+            The transformed x errors.
+        ye' : array
+            The transformed y errors. 
+
+        """
+        dxnew_dx = 0.0
+        dxnew_dy = 0.0
         
+        dynew_dx = 0.0
+        dynew_dy = 0.0
+
+        for i in range(self.order + 1):
+            for j in range(i + 1):
+                xid = i - j
+                yid = j
+
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                # First loop: df'/dx
+                dxnew_dx += Xcoeff * (i - j) * x**(i-j-1) * y**j
+                dynew_dx += Ycoeff * (i - j) * x**(i-j-1) * y**j
+
+                # Second loop: df'/dy
+                dxnew_dy += Xcoeff * (j) * x**(i-j) * y**(j-1)
+                dynew_dy += Ycoeff * (j) * x**(i-j) * y**(j-1)
+
+                
+        # Take square root for xe/ye_new
+        xe_new = np.sqrt((dxnew_dx * xe)**2 + (dxnew_dy * ye)**2)
+        ye_new = np.sqrt((dynew_dx * xe)**2 + (dynew_dy * ye)**2)
+
+        return xe_new, ye_new
+
+    def evaluate_vel(self, x, y, vx, vy):
+        """
+        Transform velocities.
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        vx : numpy array
+            The raw vx to be transformed.
+        vy : numpy array
+            The raw vy to be transformed.
+
+        Returns:
+        ----------
+        vx' : array
+            The transformed vx errors.
+        vy' : array
+            The transformed vy errors. 
+
+        """
+        vx_new = 0.0
+        vy_new = 0.0
+
+        for i in range(self.order + 1):
+            for j in range(i + 1):
+                xid = i - j
+                yid = j
+
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                # First term: df'/dx
+                vx_new += Xcoeff * (i - j) * x**(i-j-1) * y**j * vx
+                vy_new += Ycoeff * (i - j) * x**(i-j-1) * y**j * vx
+
+                # Second term: df'/dy
+                vx_new += Xcoeff * (j) * x**(i-j) * y**(j-1) * vy
+                vy_new += Ycoeff * (j) * x**(i-j) * y**(j-1) * vy
+                
+        return vx_new, vy_new
+
+    def evaluate_vel_err(self, x, y, vx, vy, xe, ye, vxe, vye):
+        """
+        Transform velocities.
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        vx : numpy array
+            The raw vx to be transformed.
+        vy : numpy array
+            The raw vy to be transformed.
+        xe : numpy array
+            The original x coordinates to be used in the transformation.
+        ye : numpy array
+            The original y coordinates to be used in the transformation.
+        vxe : numpy array
+            The raw vx to be transformed.
+        vye : numpy array
+            The raw vy to be transformed.
 
 
-    def norm0(self, x):
+        Returns:
+        ----------
+        vxe' : array
+            The transformed vx errors.
+        vye' : array
+            The transformed vy errors. 
 
+        """
+        dvxnew_dx = 0.0
+        dvxnew_dy = 0.0
+        dvxnew_dvx = 0.0
+        dvxnew_dvy = 0.0
+
+        dvynew_dx = 0.0
+        dvynew_dy = 0.0
+        dvynew_dvx = 0.0
+        dvynew_dvy = 0.0
         
-        xmin = np.min(x)
-        xdiv = np.max(x- xmin)/2.0
-        n_param = np.array([xmin, xdiv])
-        return n_param, self.norm(x, n_param)
-        
-    def norm(self, x, n_param):
-        '''
-        x is vector to be normalized, n_param is an array of [offset to subtract, value to divide]
-        '''
-        return (x - n_param[0]) / n_param[1] - 1.0
-       
-        
-    def rnorm(self,x,n_param):
-        '''
-        reverses normalization process 
-        '''
-        
-        return (x+1.0)   * n_param[1] + n_param[0]
+        for i in range(self.order+1):
+            for j in range(i+1):
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                # First term: dv' / dx
+                dvxnew_dx += Xcoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
+                dvxnew_dx += Xcoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
+                    
+                dvynew_dx += Ycoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
+                dvynew_dx += Ycoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
+    
+                # Second term: dvx' / dy
+                dvxnew_dy += Xcoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
+                dvxnew_dy += Xcoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
+                    
+                dvynew_dy += Ycoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
+                dvynew_dy += Ycoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
+    
+                # Third term: dvx' / dvx
+                dvxnew_dvx += Xcoeff * (i-j) * x**(i-j-1) * y**j
+                dvynew_dvx += Ycoeff * (i-j) * x**(i-j-1) * y**j
+    
+                # Fourth term: dvx' / dvy
+                dvxnew_dvy += Xcoeff * (j) * x**(i-j) * y**(j-1)
+                dvynew_dvy += Ycoeff * (j) * x**(i-j) * y**(j-1)
+    
+        vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 + (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
+        vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 + (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
+
+        return vxe_new, vye_new
 
 class PolyClipTransform(Transform2D):
 
@@ -540,7 +1057,6 @@ class SplineTransform(Transform2D):
 
     def evaluate(self,x,y):
         return self.spline_x.ev(x,y), self.spline_y.ev(x,y)
-
 
 
 def make_param_dict(initial_param):

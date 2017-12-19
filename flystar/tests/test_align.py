@@ -35,7 +35,7 @@ def test_mosaic_lists_shifts():
     assert star_table['x'][0].std() < 0.2
     assert star_table['x_orig'][0, 0] == lists[0]['x'][0]
 
-    return
+    return trans_table[0]
     
     
 
