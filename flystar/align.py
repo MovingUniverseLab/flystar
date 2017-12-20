@@ -1,5 +1,5 @@
 import numpy as np
-from flystar import match
+from flystar import align, match
 from flystar import transforms
 from astropy.table import Table, Column
 import datetime
@@ -46,18 +46,18 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
 
     # Calculate N_lists and N_stars, where N_stars starts as the number in the
     # reference epoch. This will grow as we find new stars in the new epochs.
-    N_lists = len(star_lists)
+    N_lists = len(star_lists) - 1
     N_stars = len(ref_list)
 
     # Save the reference index and number of epochs to the meta data on the
     # reference list for now. 
-    ref_list.meta['L_REF'] = ref
-    ref_list.meta['N_epochs'] = N_epochs
+    ref_list.meta['L_REF'] = ref_index
+    ref_list.meta['N_epochs'] = N_lists
 
     # Keep a list of the transformation objects for each epochs.
     # Load up previous transformations, if they exist.
     trans_list = [None for ii in range(N_lists)]
-    if input_transforms != None:
+    if trans_input != None:
         trans_list = [trans_input[ii] for ii in range(N_lists)]
     
     for ii in range(len(star_lists)):
@@ -65,7 +65,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
         trans = trans_list[ii]
 
         # Preliminary match and calculate a 1st order transformation. (if we haven't already).
-        if trans == None:
+        if trans is None:
             trans = align.initial_align(star_list, ref_list, briteN=50,
                                             transformModel=transforms.PolyTransform, order=1)
 

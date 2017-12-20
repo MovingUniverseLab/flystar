@@ -198,7 +198,7 @@ class StarTable(Table):
             
             if len(self[col_name].shape) == 2:      # Find the 2D columns
                 if (col_name in kwargs):            # Add data if it was input
-                    self[col_name].data = np.hstack((self[col_name].data, [kwargs[col_name].T))
+                    self[col_name].data = np.hstack(self[col_name].data, kwargs[col_name].T)
                 else:                               # Add junk data it if wasn't input
                     new_type = self[col_name].data.dtype
                     new_data = np.empty(len(self), dtype=new_type)
