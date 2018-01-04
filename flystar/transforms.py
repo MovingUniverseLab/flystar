@@ -41,7 +41,10 @@ class Transform2D(object):
                 model = line.split(": ", 1)[1].rstrip("\n")
             if "## Order:" in line:
                 order = int(re.search(r'\d+$', line).group(0))
+            if "## Delta Mag:" in line:
+                deltamag = float(re.search(r'\d.\d+$', line).group(0))
                 break
+            
         transf_file.close()
 
         # Read in the coefficients.
@@ -51,7 +54,7 @@ class Transform2D(object):
         py = transf_tab.as_array()['Ycoeff']
 
         if model == "PolyTransform":
-            transf = PolyTransform(order, px, py)
+            transf = PolyTransform(order, px, py, mag_offset=deltamag)
     
         return transf
 
@@ -181,7 +184,7 @@ class PolyTransform(Transform2D):
     x' = a0 + a1*x + a2*y. + a3*x**2 + a4*x*y. + a5*y**2
     y' = b0 + b1*x + b2*y. + b3*x**2 + b4*x*y. + b5*y**2
     """
-    def __init__(self, order, px, py, pxerr=None, pyerr=None):
+    def __init__(self, order, px, py, pxerr=None, pyerr=None, mag_offset=0.0):
         """
         Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
@@ -204,6 +207,10 @@ class PolyTransform(Transform2D):
         pyerr : array or list
             array or list of errors of the coefficients to transform input y coordinates 
             into output y' coordinates.
+        
+        mag_offset : float
+            magnitude difference with the reference catalog (mag_ref - mag_cat)
+            
         """
         px_dict = PolyTransform.make_param_dict(px, order, isY=False)
         py_dict = PolyTransform.make_param_dict(py, order, isY=True)
@@ -213,6 +220,7 @@ class PolyTransform(Transform2D):
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.order = order
+        self.mag_offset = mag_offset
 
         return
 

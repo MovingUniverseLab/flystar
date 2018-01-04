@@ -565,15 +565,27 @@ class StarList(Table):
         self['x'] = x_T
         self['y'] = y_T
 
+        self.transform_m(trans)
+            
+        return
+
+    def transform_m(self, trans):
+        """
+        Apply a transformation (instance of flystar.transforms.Transform2D)
+        to the m column.
+
+        TO DO: Evenutally we need to add error support.
+        """
+        
         try:
             # Note that we will fail silently when no magnitude
             # transformation is supported... we just leave the magnitudes
-            # alone. 
+            # alone.
             m_T = self['m'] + trans.mag_offset
             self['m'] = m_T
         except AttributeError:
             pass
-            
+    
         return
         
     
