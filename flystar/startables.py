@@ -429,7 +429,7 @@ class StarTable(Table):
 
         # Dedicde if we are going to have weights (before we
         # do the expensive sigma clipping routine.
-        if weights_col and weights_col in self.colnames:
+        if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1)):
             np.seterr(divide='ignore')
             wgt_2d = np.ma.masked_invalid(1.0 / self[weights_col]**2)
 

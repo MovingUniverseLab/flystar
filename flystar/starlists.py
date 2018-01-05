@@ -559,8 +559,13 @@ class StarList(Table):
         Apply a transformation (instance of flystar.transforms.Transform2D)
         to the x, y, m columns.
 
+        Note that this case will handle trans == None (nothing is done).
+
         TO DO: Evenutally we need to add error support.
         """
+        if trans == None:
+            return
+        
         x_T, y_T = trans.evaluate(self['x'], self['y'])
         self['x'] = x_T
         self['y'] = y_T

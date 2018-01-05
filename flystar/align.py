@@ -1,5 +1,5 @@
 import numpy as np
-from flystar import match
+from flystar import align, match
 from flystar import transforms
 from flystar.startables import StarTable
 from astropy.table import Table, Column
@@ -81,14 +81,15 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     ##########
     ref_table = setup_ref_table_from_starlist(star_lists[ref_index])
     
-    # Save the reference index and number of epochs to the meta data on the
-    # reference list for now. 
-    ref_table.meta['L_REF'] = ref_index
-    
     # Calculate N_lists and N_stars, where N_stars starts as the number in the
     # reference epoch. This will grow as we find new stars in the new epochs.
     N_lists = len(star_lists)
     N_stars = len(ref_table)
+
+    # Save the reference index and number of epochs to the meta data on the
+    # reference list for now. 
+    ref_table.meta['ref_list'] = ref_index
+    ref_table.meta['n_lists'] = N_lists
 
     # Keep a list of the transformation objects for each epochs.
     # Load up previous transformations, if they exist.
@@ -111,41 +112,43 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
         star_list = star_lists[ii]
         trans = trans_list[ii]
 
-        ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
+        ### If it is matching the reference frame to itself, do not improve the transformation
+        if ii != ref_index:
+            ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
 
-        ### Initial match and transform: 1st order (if we haven't already).
-        if trans == None:
-            trans = trans_initial_guess(ref_list, star_list)
+            ### Initial match and transform: 1st order (if we haven't already).
+            if trans == None:
+                trans = trans_initial_guess(ref_list, star_list)
 
-        ### Repeat transform + match several times.
-        for nn in range(iters):
-            # Apply the transformation to the starlist.
-            star_list_T = copy.deepcopy(star_list)
-            star_list_T.transform_xym(trans)
+            ### Repeat transform + match several times.
+            for nn in range(iters):
+                # Apply the transformation to the starlist.
+                star_list_T = copy.deepcopy(star_list)
+                star_list_T.transform_xym(trans)
 
-            # Match stars between the lists.
-            idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                            ref_list['x_avg'], ref_list['y_avg'], ref_list['m_avg'],
-                                            dr_tol=dr_tol[nn], dm_tol=dm_tol[nn])
-            print( 'In Loop ', nn, ' found ', len(idx1), ' matches' )
-            
-            # TO DO: Outlier rejection in the last iterations??
-            if outlier_tol[nn] != None:
-                print('Rejecting outliers')
-                x_resid_on_old_trans = star_list_T['x'][idx1] - ref_list['x_avg'][idx2]
-                y_resid_on_old_trans = star_list_T['y'][idx1] - ref_list['y_avg'][idx2]
-                resid_on_old_trans = np.hypot(x_resid_on_old_trans)
+                # Match stars between the lists.
+                idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                                                ref_list['x_avg'], ref_list['y_avg'], ref_list['m_avg'],
+                                                dr_tol=dr_tol[nn], dm_tol=dm_tol[nn])
+                print( 'In Loop ', nn, ' found ', len(idx1), ' matches' )
 
-                threshold = outlier_tol[nn] * resid_on_old_trans.std()
-                keepers = np.where(resid_on_old_trans < theshold)[0]
+                # TO DO: Outlier rejection in the last iterations??
+                if outlier_tol[nn] != None:
+                    print('Rejecting outliers')
+                    x_resid_on_old_trans = star_list_T['x'][idx1] - ref_list['x_avg'][idx2]
+                    y_resid_on_old_trans = star_list_T['y'][idx1] - ref_list['y_avg'][idx2]
+                    resid_on_old_trans = np.hypot(x_resid_on_old_trans)
 
-                idx1 = idx1[keepers]
-                idx2 = idx2[keepers]
-                
-            # Calculate transform based on the matched stars    
-            trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1],
-                                                 ref_list['x_avg'][idx2], ref_list['y_avg'][idx2],
-                                                 **(trans_args[nn]))
+                    threshold = outlier_tol[nn] * resid_on_old_trans.std()
+                    keepers = np.where(resid_on_old_trans < theshold)[0]
+
+                    idx1 = idx1[keepers]
+                    idx2 = idx2[keepers]
+
+                # Calculate transform based on the matched stars    
+                trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1],
+                                                     ref_list['x_avg'][idx2], ref_list['y_avg'][idx2],
+                                                     **(trans_args[nn]))
 
                 
 
@@ -156,10 +159,16 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
         star_list_T = copy.deepcopy(star_list)
         star_list_T.transform_xym(trans)
         star_list_T.rename_column('name', 'name_in_list')
-        
-        idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                               ref_list['x_avg'], ref_list['y_avg'], ref_list['m_avg'],
-                                               dr_tol=1, dm_tol=0.5)
+
+        if ii == ref_index:
+            # If this is the reference epoch, then we just copy over what we already have. 
+            idx_lis = np.arange(len(star_list_T), dtype=int)
+            idx_ref = np.arange(len(star_list_T), dtype=int)
+        else:
+            # If not the reference epoch, do one final match between the two (now transformed) lists.
+            idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                                                       ref_list['x_avg'], ref_list['y_avg'], ref_list['m_avg'],
+                                                       dr_tol=1, dm_tol=0.5)
 
         ### Update the reference table for matched stars.
         # Add the matched stars to the reference table.
@@ -295,10 +304,11 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis):
     """
     idx_lis_new = []
     last_star_idx = len(ref_table)
+
+    idx_lis_orig = np.arange(len(star_list))
+    idx_lis_new = set(idx_lis_orig) - set(idx_lis)
         
-    for ii in range(len(star_list)):
-        if ii not in idx_lis:
-            idx_lis_new.append(ii)
+    for ii in idx_lis_new:
             ref_table.add_row()
 
     idx_ref_new = np.arange(last_star_idx, len(ref_table))
