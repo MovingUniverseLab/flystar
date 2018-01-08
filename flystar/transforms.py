@@ -41,7 +41,10 @@ class Transform2D(object):
                 model = line.split(": ", 1)[1].rstrip("\n")
             if "## Order:" in line:
                 order = int(re.search(r'\d+$', line).group(0))
+            if "## Delta Mag:" in line:
+                deltamag = float(re.search(r'\d.\d+$', line).group(0))
                 break
+            
         transf_file.close()
 
         # Read in the coefficients.
@@ -51,7 +54,7 @@ class Transform2D(object):
         py = transf_tab.as_array()['Ycoeff']
 
         if model == "PolyTransform":
-            transf = PolyTransform(order, px, py)
+            transf = PolyTransform(order, px, py, mag_offset=deltamag)
     
         return transf
 
@@ -181,7 +184,7 @@ class PolyTransform(Transform2D):
     x' = a0 + a1*x + a2*y. + a3*x**2 + a4*x*y. + a5*y**2
     y' = b0 + b1*x + b2*y. + b3*x**2 + b4*x*y. + b5*y**2
     """
-    def __init__(self, order, px, py, pxerr=None, pyerr=None):
+    def __init__(self, order, px, py, pxerr=None, pyerr=None, mag_offset=0.0):
         """
         Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
@@ -204,20 +207,25 @@ class PolyTransform(Transform2D):
         pyerr : array or list
             array or list of errors of the coefficients to transform input y coordinates 
             into output y' coordinates.
+        
+        mag_offset : float
+            magnitude difference with the reference catalog (mag_ref - mag_cat)
+            
         """
-        px_dict = PolyTransform.make_param_dict(px, order)
-        py_dict = PolyTransform.make_param_dict(py, order)
+        px_dict = PolyTransform.make_param_dict(px, order, isY=False)
+        py_dict = PolyTransform.make_param_dict(py, order, isY=True)
         
         self.px = models.Polynomial2D(order, **px_dict)
         self.py = models.Polynomial2D(order, **py_dict)
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.order = order
+        self.mag_offset = mag_offset
 
         return
 
     @staticmethod
-    def make_param_dict(initial_param, order):
+    def make_param_dict(initial_param, order, isY=False):
         """
         Convert initial parameter arrays into a format that astropy model Polynomial2D
         can understand. We expect input arrays in the form:
@@ -257,13 +265,15 @@ class PolyTransform(Transform2D):
 
                 coeff_key = 'c{0}_{1}'.format(xid, yid)
                 
-                if initial_param == None:
+                if isinstance(initial_param, (list, tuple, np.ndarray)):
+                    coeff = initial_param[idx]
+                else:
                     # Handle case of no initial guess
                     coeff = 0.0
-                    if xid == 1 and yid == 0:
+                    if isY == False and xid == 1 and yid == 0:
                         coeff = 1.0
-                else:
-                    coeff = initial_param[idx]
+                    if isY == True and xid == 0 and yid == 1:
+                        coeff = 1.0
 
                 param_dict[coeff_key] = coeff
 
@@ -471,8 +481,8 @@ class PolyTransform(Transform2D):
                          init_gx=None, init_gy=None, weights=None):
         
         # now, if the initial guesses are not none, fill in terms until 
-        init_gx = PolyTransform.make_param_dict(init_gx, order)
-        init_gy = PolyTransform.make_param_dict(init_gy, order)
+        init_gx = PolyTransform.make_param_dict(init_gx, order, isY=False)
+        init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
         
         p_init_x = models.Polynomial2D(order, **init_gx)
         p_init_y = models.Polynomial2D(order, **init_gy)
@@ -482,7 +492,16 @@ class PolyTransform(Transform2D):
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
 
-        trans = cls(order, px.parameters, py.parameters)
+        # Re-order the parameters for ingest by PolyTransform.
+        Xcoeff = []
+        Ycoeff = []
+        for i in range(order+1):
+            for j in range(i+1):
+                coeff_idx = px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
+                Xcoeff.append( px.parameters[coeff_idx] )
+                Ycoeff.append( py.parameters[coeff_idx] )
+        
+        trans = cls(order, Xcoeff, Ycoeff)
 
         return trans
 
@@ -590,8 +609,8 @@ class Shift(PolyTransform):
         pyerr = [yshift_err]
         order = 0
         
-        px_dict = make_param_dict(px, 0)
-        py_dict = make_param_dict(py, 0)
+        px_dict = make_param_dict(px, 0, isY=False)
+        py_dict = make_param_dict(py, 0, isY=True)
         
         self.px = models.Polynomial2D(order, **px_dict)
         self.py = models.Polynomial2D(order, **py_dict)

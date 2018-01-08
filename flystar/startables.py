@@ -77,8 +77,10 @@ class StarTable(Table):
                 found_all_required = False
 
         if not found_all_required:
-            if len(args): # If there are no arguments, it's because the
-                          # StarTable is being created as a copy.
+            if len(args) > 1: # If there are no arguments, it's because the
+                          # StarTable is being created as a copy. If there is
+                          # only one, it's likely to be a copy with only some
+                          # columns selected
                 err_msg = "The StarTable class requires arguments: " + str(arg_req)
                 warnings.warn(err_msg, UserWarning)
             Table.__init__(self, *args, **kwargs)
@@ -373,12 +375,12 @@ class StarTable(Table):
         return starlist
 
 
-    def combine_lists_xym(self, weighted_xy=True, weighted_m=True):
+    def combine_lists_xym(self, weighted_xy=True, weighted_m=True, sigma=3):
         """
         For x, y and m columns in the table, collapse along the lists
         direction. For 'x', 'y' this means calculating the median position with
         outlier rejection. Optionally, weight by the 'xe' and 'ye' individual
-        uncertainties.
+        uncertainties. Optionally, use sigma clipping.
         """
     
         # Combine by position
@@ -394,19 +396,19 @@ class StarTable(Table):
         else:
             weights_colm = None
             
-        self.combine_lists('x', weights_col=weights_colx)
-        self.combine_lists('y', weights_col=weights_coly)
-        self.combine_lists('m', weights_col=weights_colm, ismag=True)
+        self.combine_lists('x', weights_col=weights_colx, sigma=sigma)
+        self.combine_lists('y', weights_col=weights_coly, sigma=sigma)
+        self.combine_lists('m', weights_col=weights_colm, sigma=sigma, ismag=True)
             
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None,
-                      meta_add=True, ismag=False):
+                      meta_add=True, ismag=False, sigma=3):
         """
         For the specified column (col_name_in), collapse along the starlists
         direction and calculated the median value, with outlier rejection.
-        Optionally, weight by a specified column (weights_col). The final
-        values are stored in a new column named
+        Optionally, weight by a specified column (weights_col). Optionally,
+        use sigma clipping. The final values are stored in a new column named
         <col_name_in>_avg -- the mean (with outlier rejection)
         <col_name_in>_std -- the std (with outlier rejection)
 
@@ -415,21 +417,22 @@ class StarTable(Table):
         A flag can be stored in the metadata to record if the average was
         weighted or not.
         """
-        # Get the array we are going to combine. Also make a mask
-        # of invalid (NaN) values and a user-specified invalid value.
+        # Get the array we are going to combine. 
         val_2d = self[col_name_in].data
 
         if ismag:
             # Convert to flux.
             val_2d = 10**(-val_2d / 2.5)
 
+        # Make a mask of invalid (NaN) values and a user-specified invalid value.
         val_2d = np.ma.masked_invalid(val_2d)
         if mask_val:
             val_2d = np.ma.masked_values(val_2d, mask_val)
 
         # Dedicde if we are going to have weights (before we
-        # do the expensive sigma clipping routine.
-        if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1)):
+        # do the expensive sigma clipping routine). Note that
+        # if we have only 1 column to average, then we can't do weighting. 
+        if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
             np.seterr(divide='ignore')
             wgt_2d = np.ma.masked_invalid(1.0 / self[weights_col]**2)
 
@@ -440,15 +443,19 @@ class StarTable(Table):
             if meta_add:
                 self.meta[col_name_in + '_avg'] = 'weighted'
         else:
+            wgt_2d = None
             if meta_add:
                 self.meta[col_name_in + '_avg'] = 'not_weighted'
 
         # Figure out which ones are outliers. Returns a masked array.
-        val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=3, iters=5, axis=1)
-
-        # Calculate the (weighted) mean and standard deviation along
+        if sigma:
+            val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=3, iters=5, axis=1)
+        else:
+            val_2d_clip = val_2d
+    
+            # Calculate the (weighted) mean and standard deviation along
         # the N_lists direction (axis=1).
-        if weights_col and weights_col in self.colnames:
+        if wgt_2d is not None:
             avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
             std = np.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
         else:
@@ -461,7 +468,7 @@ class StarTable(Table):
 
         if ismag:
             std = (2.5 / np.log(10)) * std / avg
-            avg = -2.5 * np.log10(avg)
+            avg = -2.5 * np.ma.log10(avg)
 
         if col_name_avg in self.colnames:
             self[col_name_avg] = avg.data

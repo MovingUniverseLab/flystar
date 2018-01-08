@@ -2,6 +2,11 @@ from flystar import transforms
 import numpy as np
 import pdb
 
+def test_PolyTransform_init_no_guess():
+    t = transforms.PolyTransform(order=2)
+
+    return
+
 def compare_evaluate_errors():
     px_init = [ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
     py_init = [ 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]

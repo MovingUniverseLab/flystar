@@ -47,6 +47,7 @@ def test_mosaic_lists():
     lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
 
     star_table, trans_table = align.mosaic_lists(lists, ref_index=0, iters=2,
+                                                 dr_tol=[3, 3], dm_tol=[1, 1],
                                                  trans_class=transforms.PolyTransform,
                                                  trans_args={'order': 2})
 

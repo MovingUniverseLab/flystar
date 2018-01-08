@@ -66,8 +66,8 @@ def test_StarTable_init2():
     """
     list_file1 = 'A.lis'
     list_file2 = 'B.lis'
-    list1 = starlists.StarList.from_lis_file(list_file1)
-    list2 = starlists.StarList.from_lis_file(list_file2)
+    list1 = StarList.from_lis_file(list_file1)
+    list2 = StarList.from_lis_file(list_file2)
 
     # Test initializer
     tab = StarTable(list1)
@@ -220,7 +220,39 @@ def test_get_starlist():
     assert len(t_list['x'].shape) == 1
     
     return
+
+
+def test_combine_1col():
+    # User input
+    cat_file = test_dir + '/test_catalog.fits'
+
+    # Read and arrange the test input
+    cat_tab = Table.read(cat_file)
     
+    # Make a fake 2D array of names per epoch. We will call them "id".
+    # Note that all of these inputs will be numpy arrays.
+    x_in = cat_tab['x'].data[:, [0]]
+    y_in = cat_tab['y'].data[:, [0]]
+    m_in = cat_tab['m'].data[:, [0]]
+    xe_in = cat_tab['xe'].data[:, [0]]
+    ye_in = cat_tab['ye'].data[:, [0]]
+    me_in = cat_tab['me'].data[:, [0]]
+
+    # Name is a unique name for each star and is a 1D array.
+    name_in = cat_tab['name'].data
+    starlist_times = np.array([2001.0])
+    starlist_names = np.array(['file1'])
+
+    # Generate the startable
+    t = StarTable(name=name_in, x=x_in, y=y_in, m=m_in, xe=xe_in, ye=ye_in, me=me_in,
+                  ref_list=0,
+                  list_times=starlist_times, list_names=starlist_names)
+
+    t.combine_lists('x', weights_col='xe')
+
+    assert t['x_avg'][0] == t['x'][0]
+
+    return
     
 def make_star_table():
     # User input
