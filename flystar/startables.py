@@ -147,10 +147,10 @@ class StarTable(Table):
                 if meta_arg in kwargs:
                     self.meta[meta_arg] = kwargs[meta_arg]
 
-            for arg in arg_tab:
+            for arg in kwargs:
                 if arg in ['name', 'x', 'y', 'm']:
                     continue
-                if arg in kwargs:
+                else:
                     self.add_column(Column(data=kwargs[arg], name=arg))
 
         return

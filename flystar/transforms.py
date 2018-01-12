@@ -61,6 +61,32 @@ class Transform2D(object):
     def evaluate(self, x, y):
         # method should be defined in the subclasses
         pass
+    
+    def evaluate_error(self, x, y, xe, ye):
+        # method should be defined in the subclasses
+        pass
+    
+    def evaluate_mag(self, m):
+        try:
+            # Note that we will fail silently when no magnitude
+            # transformation is supported... we just leave the magnitudes
+            # alone.
+            m_T = m + self.mag_offset
+        except AttributeError:
+            pass
+        
+        return m_T
+
+    def evaluate_magerror(self, m, me):
+        try:
+            # Note that we will fail silently when no magnitude
+            # transformation is supported... we just leave the magnitudes
+            # alone.
+            me_T = me
+        except AttributeError:
+            pass
+    
+        return me_T
 
     def evaluate_starlist(self, star_list):
         new_list = copy.deepcopy(star_list)
@@ -477,7 +503,7 @@ class PolyTransform(Transform2D):
         return vxe_new, vye_new
     
     @classmethod
-    def derive_transform(cls, x, y, xref, yref, order,
+    def derive_transform(cls, x, y, m, xref, yref, mref, order,
                          init_gx=None, init_gy=None, weights=None):
         
         # now, if the initial guesses are not none, fill in terms until 
@@ -501,7 +527,13 @@ class PolyTransform(Transform2D):
                 Xcoeff.append( px.parameters[coeff_idx] )
                 Ycoeff.append( py.parameters[coeff_idx] )
         
-        trans = cls(order, Xcoeff, Ycoeff)
+        # Calculate the magnitude offset using a 3-sigma clipped mean
+        m_resid = mref - m
+        threshold = 3 * m_resid.std()
+        keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+        mag_offset = np.mean((mref - m)[keepers])
+        
+        trans = cls(order, Xcoeff, Ycoeff, mag_offset=mag_offset)
 
         return trans
 
