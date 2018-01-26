@@ -368,12 +368,14 @@ class PolyTransform(Transform2D):
                 Ycoeff = self.py.parameters[coeff_idx]
                 
                 # First loop: df'/dx
-                dxnew_dx += Xcoeff * (i - j) * x**(i-j-1) * y**j
-                dynew_dx += Ycoeff * (i - j) * x**(i-j-1) * y**j
+                if (i - j):
+                    dxnew_dx += Xcoeff * (i - j) * x**(i-j-1) * y**j
+                    dynew_dx += Ycoeff * (i - j) * x**(i-j-1) * y**j
 
                 # Second loop: df'/dy
-                dxnew_dy += Xcoeff * (j) * x**(i-j) * y**(j-1)
-                dynew_dy += Ycoeff * (j) * x**(i-j) * y**(j-1)
+                if j:
+                    dxnew_dy += Xcoeff * (j) * x**(i-j) * y**(j-1)
+                    dynew_dy += Ycoeff * (j) * x**(i-j) * y**(j-1)
 
                 
         # Take square root for xe/ye_new
@@ -418,12 +420,14 @@ class PolyTransform(Transform2D):
                 Ycoeff = self.py.parameters[coeff_idx]
                 
                 # First term: df'/dx
-                vx_new += Xcoeff * (i - j) * x**(i-j-1) * y**j * vx
-                vy_new += Ycoeff * (i - j) * x**(i-j-1) * y**j * vx
+                if (i - j):
+                    vx_new += Xcoeff * (i - j) * x**(i-j-1) * y**j * vx
+                    vy_new += Ycoeff * (i - j) * x**(i-j-1) * y**j * vx
 
                 # Second term: df'/dy
-                vx_new += Xcoeff * (j) * x**(i-j) * y**(j-1) * vy
-                vy_new += Ycoeff * (j) * x**(i-j) * y**(j-1) * vy
+                if j:
+                    vx_new += Xcoeff * (j) * x**(i-j) * y**(j-1) * vy
+                    vy_new += Ycoeff * (j) * x**(i-j) * y**(j-1) * vy
                 
         return vx_new, vy_new
 
@@ -476,26 +480,32 @@ class PolyTransform(Transform2D):
                 Ycoeff = self.py.parameters[coeff_idx]
                 
                 # First term: dv' / dx
-                dvxnew_dx += Xcoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
-                dvxnew_dx += Xcoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
-                    
-                dvynew_dx += Ycoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
-                dvynew_dx += Ycoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
+                if ((i-j) * (i-j-1)):
+                    dvxnew_dx += Xcoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
+                    dvynew_dx += Ycoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
+                
+                if (j * (i-j)):
+                    dvxnew_dx += Xcoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
+                    dvynew_dx += Ycoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
     
                 # Second term: dvx' / dy
-                dvxnew_dy += Xcoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
-                dvxnew_dy += Xcoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
-                    
-                dvynew_dy += Ycoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
-                dvynew_dy += Ycoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
+                if ((i-j) * (j)):
+                    dvxnew_dy += Xcoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
+                    dvynew_dy += Ycoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
+                
+                if (j * (j-1)):
+                    dvxnew_dy += Xcoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
+                    dvynew_dy += Ycoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
     
                 # Third term: dvx' / dvx
-                dvxnew_dvx += Xcoeff * (i-j) * x**(i-j-1) * y**j
-                dvynew_dvx += Ycoeff * (i-j) * x**(i-j-1) * y**j
+                if (i-j):
+                    dvxnew_dvx += Xcoeff * (i-j) * x**(i-j-1) * y**j
+                    dvynew_dvx += Ycoeff * (i-j) * x**(i-j-1) * y**j
     
                 # Fourth term: dvx' / dvy
-                dvxnew_dvy += Xcoeff * (j) * x**(i-j) * y**(j-1)
-                dvynew_dvy += Ycoeff * (j) * x**(i-j) * y**(j-1)
+                if j:
+                    dvxnew_dvy += Xcoeff * (j) * x**(i-j) * y**(j-1)
+                    dvynew_dvy += Ycoeff * (j) * x**(i-j) * y**(j-1)
     
         vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 + (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
         vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 + (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)

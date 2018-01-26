@@ -11,7 +11,8 @@ import pdb
 def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1],
                  outlier_tol=[None, None], mag_trans=True, mag_lim=[None, None],
                  trans_input=None, trans_class=transforms.PolyTransform,
-                 trans_args={'order': 2}, update_mag_offset=True, verbose=True):
+                 trans_args=[{'order': 2}, {'order': 2}], update_mag_offset=True,
+                 ref_epoch_mean=True, verbose=True):
     """
     Required Parameters
     ----------
@@ -67,6 +68,9 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     update_mag_offset : boolean
         Update the magnitude offset every time a new transformation is found.
         A 3-sigma clipped mean is used
+    
+    ref_epoch_mean : boolean
+        Include the reference catalog to calculate the last xym combination
 
     """
     ###
@@ -116,7 +120,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     ##########
     
     for ii in range(len(star_lists)):
-        print("\rMatching catalog {0} / {1}...".format((ii + 1), (len(star_lists) - 1)), end="")
+        print("\r   Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)), end="")
         star_list = star_lists[ii]
         trans = trans_list[ii]
         mag_offset = trans.mag_offset
@@ -215,14 +219,22 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
             if len(idx_ref_new) > 0:
                 copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref_new, idx_lis_new)
                 ref_table['name'] = update_old_and_new_names(ref_table, ii, idx_ref_new)
-
+        
         ### Update the "average" values to be used as the reference frame for the next list.
         weighted_xy = ('xe' in ref_table.colnames) and ('ye' in ref_table.colnames)
         weighted_m = ('me' in ref_table.colnames)
         ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
-
+    
+    ### Find where stars are detected
     print('')
-        
+    print('   Preparing the reference table...')
+    ref_table.detections()
+    
+    ### Remove the reference epoch from the mean
+    if not ref_epoch_mean:
+        ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m,
+                                    mask_lists=[ref_index])
+
     return ref_table, trans_list
 
 def setup_ref_table_from_starlist(star_list):
