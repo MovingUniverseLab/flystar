@@ -976,8 +976,10 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
     # and the matching coordinates from starlist 2
     x1 = table1['x']
     y1 = table1['y']
+    m1 = table1['m']
     x2 = table2['x']
     y2 = table2['y']
+    m2 = table2['m']
 
     # calculate weights from *transformed* coords. This is where we use the
     # transformation object
@@ -1000,7 +1002,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
         weight = None
 
     # Calculate transform based on the matched stars
-    t = transModel.derive_transform(x1, y1, x2, y2, order)
+    t = transModel.derive_transform(x1, y1, m1, x2, y2, m2, order)
 
     N_trans = len(x1)
     if verbose:
