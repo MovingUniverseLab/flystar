@@ -560,16 +560,9 @@ class StarList(Table):
         to the x, y, m columns.
 
         Note that this case will handle trans == None (nothing is done).
-
-        TO DO: Evenutally we need to add error support.
         """
-        if trans == None:
-            return
-        
-        x_T, y_T = trans.evaluate(self['x'], self['y'])
-        self['x'] = x_T
-        self['y'] = y_T
 
+        self.transform_xy(trans)
         self.transform_m(trans)
             
         return
@@ -580,8 +573,6 @@ class StarList(Table):
         to the x, y, m columns.
 
         Note that this case will handle trans == None (nothing is done).
-
-        TO DO: Evenutally we need to add error support.
         """
         if trans == None:
             return
@@ -590,25 +581,26 @@ class StarList(Table):
         self['x'] = x_T
         self['y'] = y_T
 
+        xe_T, ye_T = trans.evaluate_error(self['x'], self['y'], self['xe'], self['ye'])
+        self['xe'] = xe_T
+        self['ye'] = ye_T
+
         return
-    
+
     def transform_m(self, trans):
         """
         Apply a transformation (instance of flystar.transforms.Transform2D)
         to the m column.
 
-        TO DO: Evenutally we need to add error support.
+        Note that this case will handle trans == None (nothing is done).
         """
-        
-        try:
-            # Note that we will fail silently when no magnitude
-            # transformation is supported... we just leave the magnitudes
-            # alone.
-            m_T = self['m'] + trans.mag_offset
-            self['m'] = m_T
-        except AttributeError:
-            pass
+        if trans == None:
+            return
+    
+        m_T = trans.evaluate_mag(self['m'])
+        self['m'] = m_T
+
+        me_T = trans.evaluate_magerror(self['m'], self['me'])
+        self['me'] = me_T
     
         return
-        
-    

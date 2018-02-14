@@ -147,10 +147,10 @@ class StarTable(Table):
                 if meta_arg in kwargs:
                     self.meta[meta_arg] = kwargs[meta_arg]
 
-            for arg in arg_tab:
+            for arg in kwargs:
                 if arg in ['name', 'x', 'y', 'm']:
                     continue
-                if arg in kwargs:
+                else:
                     self.add_column(Column(data=kwargs[arg], name=arg))
 
         return
@@ -253,7 +253,7 @@ class StarTable(Table):
         # If there is no input data for a particular column, then fill it with
         # zeros and mask it.
         for col_name in self.colnames:
-            if len(self[col_name].data.shape) == 2:      # Find the 2D columns
+            if (len(self[col_name].data.shape) == 2) and (col_name not in ['detect', 'n_detect']):      # Find the 2D columns
                 # Make a new 2D array with +1 extra column. Copy over the old data.
                 # This is much faster than hstack or concatenate according to:
                 # https://stackoverflow.com/questions/8486294/how-to-add-an-extra-column-to-an-numpy-array
@@ -275,10 +275,10 @@ class StarTable(Table):
         for key in self.meta.keys():
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if (isinstance(self.meta[key], collections.Iterable) and
-                    (len(self.meta[key]) == self.meta['n_lists'])):
+            if (isinstance(self.meta[key], list) and
+                  (len(self.meta[key]) == self.meta['n_lists'])):
 
-                # If we find the key in the passed in meta argument, then add the new values.
+                # If we find the key is the passed in meta argument, then add the new values.
                 # Otherwise, add "None".
                 if 'meta' in kwargs:
                     new_meta_keys = kwargs['meta'].keys()
@@ -378,12 +378,15 @@ class StarTable(Table):
         return starlist
 
 
-    def combine_lists_xym(self, weighted_xy=True, weighted_m=True, sigma=3):
+    def combine_lists_xym(self, weighted_xy=True, weighted_m=True, mask_lists=False, sigma=3):
         """
         For x, y and m columns in the table, collapse along the lists
         direction. For 'x', 'y' this means calculating the median position with
         outlier rejection. Optionally, weight by the 'xe' and 'ye' individual
         uncertainties. Optionally, use sigma clipping.
+        "mask_lists" is an array with the indeces of lists that excluded from
+        the combination.
+        Also, count the number of times a star is found in starlists.
         """
     
         # Combine by position
@@ -399,14 +402,14 @@ class StarTable(Table):
         else:
             weights_colm = None
             
-        self.combine_lists('x', weights_col=weights_colx, sigma=sigma)
-        self.combine_lists('y', weights_col=weights_coly, sigma=sigma)
-        self.combine_lists('m', weights_col=weights_colm, sigma=sigma, ismag=True)
-            
+        self.combine_lists('x', weights_col=weights_colx, mask_lists=mask_lists, sigma=sigma)
+        self.combine_lists('y', weights_col=weights_coly, mask_lists=mask_lists, sigma=sigma)
+        self.combine_lists('m', weights_col=weights_colm, mask_lists=mask_lists, sigma=sigma, ismag=True)
+        
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None,
-                      meta_add=True, ismag=False, sigma=3):
+                      mask_lists=False, meta_add=True, ismag=False, sigma=3):
         """
         For the specified column (col_name_in), collapse along the starlists
         direction and calculated the median value, with outlier rejection.
@@ -416,6 +419,9 @@ class StarTable(Table):
         <col_name_in>_std -- the std (with outlier rejection)
 
         Masking of NaN values is also performed.
+        
+        "mask_lists" is an array with the indeces of lists that excluded from
+        the combination.
         
         A flag can be stored in the metadata to record if the average was
         weighted or not.
@@ -431,18 +437,26 @@ class StarTable(Table):
         val_2d = np.ma.masked_invalid(val_2d)
         if mask_val:
             val_2d = np.ma.masked_values(val_2d, mask_val)
+        
+        # Remove a list
+        if isinstance(mask_lists, list):
+            if all(isinstance(item, int) for item in mask_lists):
+                val_2d.mask[:, mask_lists] = True
 
         # Dedicde if we are going to have weights (before we
         # do the expensive sigma clipping routine). Note that
         # if we have only 1 column to average, then we can't do weighting. 
         if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
-            np.seterr(divide='ignore')
-            wgt_2d = np.ma.masked_invalid(1.0 / self[weights_col]**2)
-
+            err_2d = self[weights_col].data
+    
             if ismag:
-                wgt_2d = wgt_2d * 1.0  # FIX ME 
-                
+                # Convert to flux error
+                err_2d = err_2d * val_2d * np.log(10) / 2.5
+            
+            np.seterr(divide='ignore')
+            wgt_2d = np.ma.masked_invalid(1.0 / err_2d**2)
             np.seterr(divide='warn')
+                
             if meta_add:
                 self.meta[col_name_in + '_avg'] = 'weighted'
         else:
@@ -452,7 +466,9 @@ class StarTable(Table):
 
         # Figure out which ones are outliers. Returns a masked array.
         if sigma:
-            val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=3, iters=5, axis=1)
+            warnings.filterwarnings('ignore', category=RuntimeWarning)
+            val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=sigma, iters=5, axis=1)
+            warnings.filterwarnings('default', category=RuntimeWarning)
         else:
             val_2d_clip = val_2d
     
@@ -482,3 +498,25 @@ class StarTable(Table):
         
         return
 
+    def detections(self):
+        """
+        Find where stars are detected.
+        """
+        
+        where_detect = np.transpose(np.ma.nonzero(~np.isnan(self['x'])))
+        detect = [where_detect[np.where(where_detect[:, 0] == i)[0], 1] for i
+                  in np.unique(where_detect[:, 0])]
+        
+        if 'detect' in self.colnames:
+            self['detect'] = detect
+        else:
+            self.add_column(Column(detect), name='detect')
+        
+        n_detect = np.sum(~np.isnan(self['x']), axis=1)
+        
+        if 'n_detect' in self.colnames:
+            self['n_detect'] = n_detect
+        else:
+            self.add_column(Column(n_detect), name='n_detect')
+        
+        return
