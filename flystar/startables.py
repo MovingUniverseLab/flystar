@@ -280,9 +280,12 @@ class StarTable(Table):
 
                 # If we find the key in the passed in meta argument, then add the new values.
                 # Otherwise, add "None".
-                new_meta_keys = kwargs['meta'].keys()
-                if key in new_meta_keys:
-                    self.meta[key] = np.append(self.meta[key], [kwargs['meta'][key]])
+                if 'meta' in kwargs:
+                    new_meta_keys = kwargs['meta'].keys()
+                    if key in new_meta_keys:
+                        self.meta[key] = np.append(self.meta[key], [kwargs['meta'][key]])
+                    else:
+                        self._append_invalid_meta_values(key)
                 else:
                     self._append_invalid_meta_values(key)
 

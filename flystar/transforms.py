@@ -334,10 +334,7 @@ class PolyTransform(Transform2D):
 
         for i in range(self.order + 1):
             for j in range(i + 1):
-                xid = i - j
-                yid = j
-
-                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
                 Xcoeff = self.px.parameters[coeff_idx]
                 Ycoeff = self.py.parameters[coeff_idx]
                 
@@ -384,10 +381,7 @@ class PolyTransform(Transform2D):
 
         for i in range(self.order + 1):
             for j in range(i + 1):
-                xid = i - j
-                yid = j
-
-                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
                 Xcoeff = self.px.parameters[coeff_idx]
                 Ycoeff = self.py.parameters[coeff_idx]
                 

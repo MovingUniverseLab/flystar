@@ -298,11 +298,11 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
     """
     for col_name in ref_table.colnames:
         if col_name in star_list_T.colnames:
-            ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][idx_lis]
+            ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]
 
             orig_col_name = col_name + '_orig'
             if orig_col_name in ref_table.colnames:
-                ref_table[orig_col_name][idx_ref, idx_epoch] = star_list[col_name][idx_lis]
+                ref_table[orig_col_name][idx_ref, idx_epoch] = star_list[col_name][list(idx_lis)]
 
     return
 
