@@ -731,7 +731,7 @@ def position_transfer_object(x, y, xe, ye, transform):
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            x_new += Xcoeff[sub] * (x**i) * (y**j)
+            x_new += Xcoeff[int(sub)] * (x**i) * (y**j)
 
     y_new = 0
     for i in range(0, N+2):
@@ -741,7 +741,7 @@ def position_transfer_object(x, y, xe, ye, transform):
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            y_new += Ycoeff[sub] * (x**i) * (y**j)
+            y_new += Ycoeff[int(sub)] * (x**i) * (y**j)
 
     # xe_new & ye_new in (x,y,xe,ye)
     xe_new = 0
@@ -752,13 +752,13 @@ def position_transfer_object(x, y, xe, ye, transform):
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp1 += i * Xcoeff[sub] * (x**(i-1)) * (y**j)
+            temp1 += i * Xcoeff[int(sub)] * (x**(i-1)) * (y**j)
     for j in range(1, N+2):
         temp2 += j * Xcoeff[N+1+j] * (y**(j-1))
     for i in range(1, N+1):
         for j in range(N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp2 += j * Xcoeff[sub] * (x**i) * (y**(j-1))
+            temp2 += j * Xcoeff[int(sub)] * (x**i) * (y**(j-1))
     xe_new = np.sqrt((temp1*xe)**2 + (temp2*ye)**2)
 
     ye_new = 0
@@ -769,13 +769,13 @@ def position_transfer_object(x, y, xe, ye, transform):
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp1 += i * Ycoeff[sub] * (x**(i-1)) * (y**j)
+            temp1 += i * Ycoeff[int(sub)] * (x**(i-1)) * (y**j)
     for j in range(1, N+2):
         temp2 += j * Ycoeff[N+1+j] * (y**(j-1))
     for i in range(1, N+1):
         for j in range(N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp2 += j * Ycoeff[sub] * (x**i) * (y**(j-1))
+            temp2 += j * Ycoeff[int(sub)] * (x**i) * (y**(j-1))
     ye_new = np.sqrt((temp1*xe)**2 + (temp2*ye)**2)
 
     return x_new, y_new, xe_new, ye_new
@@ -821,8 +821,8 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            vx_new += i * Xcoeff[sub] * (x0**(i-1)) * (y0**j) * vx
-            vx_new += j * Xcoeff[sub] * (x0**i) * (y0**(j-1)) * vy
+            vx_new += i * Xcoeff[int(sub)] * (x0**(i-1)) * (y0**j) * vx
+            vx_new += j * Xcoeff[int(sub)] * (x0**i) * (y0**(j-1)) * vy
 
     vy_new = 0
     for i in range(1, N+2):
@@ -832,8 +832,8 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            vy_new += i * Ycoeff[sub] * (x0**(i-1)) * (y0**j) * vx
-            vy_new += j * Ycoeff[sub] * (x0**i) * (y0**(j-1)) * vy
+            vy_new += i * Ycoeff[int(sub)] * (x0**(i-1)) * (y0**j) * vx
+            vy_new += j * Ycoeff[int(sub)] * (x0**i) * (y0**(j-1)) * vy
 
     # vxe_new & vye_new
     vxe_new = 0
@@ -846,36 +846,36 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     for i in range(2, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp1 += i * (i-1) * Xcoeff[sub] * (x0**(i-2)) * (y0**j) * vx
+            temp1 += i * (i-1) * Xcoeff[int(sub)] * (x0**(i-2)) * (y0**j) * vx
     for i in range(1,N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp1 += i * j * Xcoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vy
+            temp1 += i * j * Xcoeff[int(sub)] * (x0**(i-1)) * (y0**(j-1)) * vy
 
     for j in range(2, N+2):
         temp2 += j * (j-1) * Xcoeff[N+1+j] * (y0**(j-2)) * vy
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp2 += i * j * Xcoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vx
+            temp2 += i * j * Xcoeff[int(sub)] * (x0**(i-1)) * (y0**(j-1)) * vx
     for i in range(1, N+1):
         for j in range(2, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp2 += j * (j-1) * Xcoeff[sub] * (x0**i) * (y0**(j-2)) * vy
+            temp2 += j * (j-1) * Xcoeff[int(sub)] * (x0**i) * (y0**(j-2)) * vy
 
     for i in range(1, N+2):
         temp3 += i * Xcoeff[i] * (x0**(i-1))
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp3 += i * Xcoeff[sub] * (x0**(i-1)) * (y0**j) 
+            temp3 += i * Xcoeff[int(sub)] * (x0**(i-1)) * (y0**j) 
 
     for j in range(1, N+2):
         temp4 += j * Xcoeff[N+1+j] * (y0**(j-1))
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp4 += j * Xcoeff[sub] * (x0**i) * (y0**(j-1))
+            temp4 += j * Xcoeff[int(sub)] * (x0**i) * (y0**(j-1))
 
     vxe_new = np.sqrt((temp1*x0e)**2 + (temp2*y0e)**2 + (temp3*vxe)**2 + (temp4*vye)**2)
 
@@ -890,36 +890,36 @@ def velocity_transfer_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform):
     for i in range(2, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp1 += i * (i-1) * Ycoeff[sub] * (x0**(i-2)) * (y0**j) * vx
+            temp1 += i * (i-1) * Ycoeff[int(sub)] * (x0**(i-2)) * (y0**j) * vx
     for i in range(1,N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp1 += j * i * Ycoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vy
+            temp1 += j * i * Ycoeff[int(sub)] * (x0**(i-1)) * (y0**(j-1)) * vy
 
     for j in range(2, N+2):
         temp2 += j * (j-1) * Ycoeff[N+1+j] * (y0**(j-2)) * vy
     for i in range(1, N+1):
         for j in range(2, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp2 += j * (j-1) * Ycoeff[sub] * (x0**i) * (y0**(j-2)) * vy
+            temp2 += j * (j-1) * Ycoeff[int(sub)] * (x0**i) * (y0**(j-2)) * vy
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp2 += i * j * Ycoeff[sub] * (x0**(i-1)) * (y0**(j-1)) * vx
+            temp2 += i * j * Ycoeff[int(sub)] * (x0**(i-1)) * (y0**(j-1)) * vx
 
     for i in range(1, N+2):
         temp3 += i * Ycoeff[i] * (x0**(i-1))
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp3 += i * Ycoeff[sub] * (x0**(i-1)) * (y0**j) 
+            temp3 += i * Ycoeff[int(sub)] * (x0**(i-1)) * (y0**j) 
 
     for j in range(1, N+2):
         temp4 += j * Ycoeff[N+1+j] * (y0**(j-1))
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp4 += j * Ycoeff[sub] * (x0**i) * (y0**(j-1))
+            temp4 += j * Ycoeff[int(sub)] * (x0**i) * (y0**(j-1))
 
     vye_new = np.sqrt((temp1*x0e)**2 + (temp2*y0e)**2 + (temp3*vxe)**2 + (temp4*vye)**2)
 

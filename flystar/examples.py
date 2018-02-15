@@ -89,7 +89,7 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
 
 
     # Write final transform in java align format
-    print 'Write transform to {0}'.format(outFile)
+    print('Write transform to {0}'.format(outFile))
     align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
     
     # Test transform: apply final transformation to label.dat
@@ -220,7 +220,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     delta_m = np.mean(starlist[idx_starlist]['m'] - label[idx_label]['m'])
 
     # Write final transform in java align format
-    print 'Write transform to {0}'.format(outFile)
+    print('Write transform to {0}'.format(outFile))
     align.write_transform(trans, labelFile, reference, N_trans, deltaMag=delta_m,
                           restrict=restrict, weights=weights, outFile=outFile)
     
@@ -230,7 +230,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     #--------------------#
     # Diagnostic plots
     #--------------------#
-    print 'Making test plots'
+    print('Making test plots')
     xlim = [0, 1200]
     ylim = [0, 1200]
     #vxlim = [-5/121.625, 8/121.625]
@@ -259,7 +259,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                           keyLength=0.2, qscale=10, xlim=xlim,
                           ylim=ylim, outlier_reject=None)
 
-    print 'Done with plots'   
+    print('Done with plots')
 
     return
 
