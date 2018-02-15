@@ -1,4 +1,4 @@
-from flystar import analysis
+from . import analysis
 import pylab as py
 import numpy as np
 import matplotlib.mlab as mlab
@@ -187,7 +187,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     ratio_y = diff_y / yerr
 
     # Identify non-outliers, within +/- <outlier> sigma away from 0
-    good = np.where( (ratio_x < outlier) & (ratio_y < outlier) )
+    good = np.where( (np.abs(ratio_x) < outlier) & (np.abs(ratio_y) < outlier) )
     
     """
     # For both X and Y, calculate chi-square. Combine arrays to get combined

@@ -1,5 +1,5 @@
 import numpy as np
-from astropy.table import Table
+from astropy.table import Table, Column
 import pdb
 
 try:
@@ -24,7 +24,7 @@ def restrict_by_name(table1, table2):
     ------
     -Array with indicies of named stars in table1
     -Array with indicies of named stars from table2
-    -Number of named stars 
+    -Number of named stars
     """
 
     name1 = table1['name']
@@ -69,7 +69,7 @@ def restrict_by_area(table1, area, exclude=False):
     Output:
     ------
     array of indicies corresponding to stars which are within the designated
-    area. 
+    area.
     """
     # Extract star coordinates
     xpos = table1['x']
@@ -112,7 +112,7 @@ def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
 
     idx_starlist: array of indicies
         Indicies of the matched stars in the starlist.
-         
+        
     Output:
     -------
     idx_label_f: array of indicies in the label catalog that fulfill the restrict
@@ -147,8 +147,8 @@ def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
 
     #return label_orig_trim, label_trim, starlist_trim
     print( 'Restrict option activated')
-    print( 'Keeping {0} of {1} stars'.format(len(idx_restrict),
-                                            len(label_mat)))
+    print(( 'Keeping {0} of {1} stars'.format(len(idx_restrict),
+                                            len(label_mat))))
     
     return idx_label_f, idx_starlist_f
 
@@ -187,16 +187,16 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
          useful when label.dat has +x to the east, while reference starlist
          has +x to the west.
          
-    #OLD# tref: reference epoch that label.dat is converted to. 
+    #OLD# tref: reference epoch that label.dat is converted to.
 
     Output:
     ------
-    labelFile: astropy.table. 
+    labelFile: astropy.table.
     containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r2d,
     (if prop_to_time: x, y, xe, ye, t)
     
-    x and y is in arcsec, 
-    converted to tref epoch, 
+    x and y is in arcsec,
+    converted to tref epoch,
     *(-1) so it increases to west
     
     vx, vy, vxe, vye is converted to arcsec/yr
@@ -286,8 +286,8 @@ def read_starlist(starlistFile, error=True):
     
     Output:
     ------
-    starlist astropy table. 
-    containing: name, m, x, y, xe, ye, t  
+    starlist astropy table.
+    containing: name, m, x, y, xe, ye, t
     """
     t_ref = Table.read(starlistFile, format='ascii', delimiter='\s')
 
@@ -295,9 +295,11 @@ def read_starlist(starlistFile, error=True):
     cols = t_ref.colnames
     
     if cols[0] != 'col1':
+        t_ref['name'] = t_ref['name'].astype(str)
         return t_ref
 
     t_ref.rename_column(cols[0], 'name')
+    t_ref['name'] = t_ref['name'].astype(str)
     t_ref.rename_column(cols[1], 'm')
     t_ref.rename_column(cols[2], 't')
     t_ref.rename_column(cols[3], 'x')
@@ -313,7 +315,223 @@ def read_starlist(starlistFile, error=True):
     else:
         t_ref.rename_column(cols[5], 'snr')
         t_ref.rename_column(cols[6], 'corr')
-        t_ref.rename_column(cols[7], 'N_frames')        
+        t_ref.rename_column(cols[7], 'N_frames')
         t_ref.rename_column(cols[8], 'flux')
         
-    return t_ref 
+    return t_ref
+
+
+class StarList(Table):
+    """
+    A StarList is an astropy.Table with star catalog from a single image.
+
+    Required table columns (input as keywords):
+    -------------------------
+    name : 1D numpy.array with shape = N_stars
+        List of names of the stars in the table.
+
+    x : 1D numpy.array with shape = N_stars
+        Positions of N_stars in the x dimension.
+
+    y : 1D numpy.array with shape = N_stars
+        Positions of N_stars in the y dimension.
+
+    m : 1D numpy.array with shape = N_stars
+        Magnitudes of N_stars.
+
+    Optional table columns (input as keywords):
+    -------------------------
+    xe : 1D numpy.array with shape = N_stars
+        Position uncertainties of N_stars in the x dimension.
+
+    ye : 1D numpy.array with shape = N_stars
+        Position uncertainties of N_stars in the y dimension.
+
+    me : 1D numpy.array with shape = N_stars
+        Magnitude uncertainties of N_stars.
+        
+    corr : 1D numpy.array with shape = N_stars
+        Fitting correlation of N_stars.
+
+    Optional table meta data
+    -------------------------
+    list_name : str
+        Name of the starlist.
+
+    list_time : int or float
+        Time/date of the starlist.
+
+
+    """
+    
+    def __init__(self, **kwargs):
+        """
+        """
+        
+        # Check if the required arguments are present
+        arg_req = ('name', 'x', 'y', 'm')
+        
+        for arg_test in arg_req:
+            if arg_test not in kwargs:
+                err_msg = "The StarList class requires a '{0:s}' argument"
+                raise TypeError(err_msg.format(arg_test))
+        
+        # If we have errors, we need them in both dimensions.
+        if ('xe' in kwargs) ^ ('ye' in kwargs):
+            raise TypeError("The StarList class requires both 'xe' and" +
+                            " 'ye' arguments")
+        
+        # Figure out the shape
+        n_stars = kwargs['x'].shape[0]
+        
+        # Check if the type and size of the arguments are correct.
+        # Name checking: type and shape
+        if (not isinstance(kwargs['name'], np.ndarray)) or (
+            len(kwargs['name']) != n_stars):
+            err_msg = "The '{0:s}' argument has to be a numpy array "
+            err_msg += "with length = {1:d}"
+            raise TypeError(err_msg.format('name', n_stars))
+        
+        # Check all the arrays.
+        arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'corr')
+        
+        for arg_test in arg_tab:
+            if arg_test in kwargs:
+                if not isinstance(kwargs[arg_test], np.ndarray):
+                    err_msg = "The '{0:s}' argument has to be a numpy array"
+                    raise TypeError(err_msg.format(arg_test))
+                
+                if kwargs[arg_test].shape != (n_stars,):
+                    err_msg = "The '{0:s}' argument has to have shape = ({1:d},)"
+                    raise TypeError(err_msg.format(arg_test, n_stars))
+        
+        # We have to have special handling of meta-data
+        meta_tab = ('list_time', 'list_name')
+        meta_type = ((float, int), str)
+        for mm in range(len(meta_tab)):
+            meta_test = meta_tab[mm]
+            meta_type_test = meta_type[mm]
+            
+            if meta_test in kwargs:
+                
+                if not isinstance(kwargs[meta_test], meta_type_test):
+                    err_msg = "The '{0:s}' argument has to be a {1:s}."
+                    raise TypeError(
+                        err_msg.format(meta_test, str(meta_type_test)))
+        
+        #####
+        # Create the starlist
+        #####
+        Table.__init__(self,
+                       (kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
+                       names=('name', 'x', 'y', 'm'))
+        self.meta = {'n_stars': n_stars}
+        
+        for meta_arg in meta_tab:
+            if meta_arg in kwargs:
+                self.meta[meta_arg] = kwargs[meta_arg]
+        
+        for arg in arg_tab:
+            if arg in ['name', 'x', 'y', 'm']:
+                continue
+            if arg in kwargs:
+                self.add_column(Column(data=kwargs[arg], name=arg))
+        
+        return
+
+    @classmethod
+    def from_lis_file(cls, filename, error=True):
+        """
+        Read in a starlist file, rename columns with standard names.
+        Assumes the starlist is the reference, so we have time as
+        t and don't try to propogate positions to a different time.
+
+        Parameter:
+        ---------
+        starlistFile: text file, containing:
+            col1: name
+            col2: mag
+            col3: t
+            col4: x (pix)
+            col5: y (pix)
+            if error==True:
+                col6: xerr
+                col7: yerr
+                col8: SNR
+                col9: corr
+                col10: N_frames
+                col11: flux
+            else:
+                col6: ? (left as default)
+                col7: corr
+                col8: N_frames
+                col9: ? (left as default)
+
+        error: boolean (default=True)
+            If true, assumes starlist has error columns. This significantly
+            changes the order of the columns.
+
+        Output:
+        ------
+        starlists.StarList() object (subclass of Astropy Table).
+        """
+        t_ref = Table.read(filename, format='ascii', delimiter='\s')
+
+        # Check if this already has column names:
+        cols = t_ref.colnames
+
+        if cols[0] != 'col1':
+            t_ref['name'] = t_ref['name'].astype(str)
+            return t_ref
+
+        t_ref.rename_column(cols[0], 'name')
+        t_ref['name'] = t_ref['name'].astype(str)
+        t_ref.rename_column(cols[1], 'm')
+        t_ref.rename_column(cols[2], 't')
+        t_ref.rename_column(cols[3], 'x')
+        t_ref.rename_column(cols[4], 'y')
+
+        if error==True:
+            t_ref.rename_column(cols[5], 'xe')
+            t_ref.rename_column(cols[6], 'ye')
+            t_ref.rename_column(cols[7], 'snr')
+            t_ref.rename_column(cols[8], 'corr')
+            t_ref.rename_column(cols[9], 'N_frames')
+            t_ref.rename_column(cols[10], 'flux')
+        else:
+            t_ref.rename_column(cols[5], 'snr')
+            t_ref.rename_column(cols[6], 'corr')
+            t_ref.rename_column(cols[7], 'N_frames')
+            t_ref.rename_column(cols[8], 'flux')
+
+        return cls.from_table(t_ref)
+
+    @classmethod
+    def from_table(cls, table):
+        """
+        Make a StarList from an astropy.table.Table object. Note that the input table
+        must have the columns ['name', 'x', 'y', 'm']. All other columns and meta data
+        will be added to the new StarList object that is returned.
+        """
+        starlist = cls(table['name'], table['x'], table['y'], table['m'], meta=table.meta)
+        
+        for col in table.colnames():
+            if col in ['name', 'x', 'y', 'm']:
+                continue
+            else:
+                starlist.add_column(table[col])
+
+        return starlist
+
+    # Convert a StarList into a "normal" astropy Table
+    def as_table(self):
+        """
+        WHY DO WE NEED THIS? 
+        """
+        tab = Table(meta=self.meta)
+        cols = self.colnames
+        
+        for col in cols:
+            tab.add_column(Column(data=self[col], name=col))
+        
+        return tab

@@ -117,8 +117,6 @@ class four_paramNW:
         
 
 class PolyTransform(Transform2D):
-
-
     '''
     defines a 2d polynomial transform between x,y -> xref,yref
     tranforms are independent for x and y, of the form (for 2nd order fit):
@@ -395,7 +393,7 @@ def check_initial_guess(initial_param):
     ord_dict = {1:0, 3:1, 6:2, 10:3, 15:4, 21:5, 28:6, 36:7}
     if initial_param == None:
         return  {'c0_0':0, 'c1_0':0, 'c0_1':0}
-    assert len(initial_param) in ord_dict.keys()
+    assert len(initial_param) in list(ord_dict.keys())
     var_name = models.Polynomial2D(ord_dict[len(initial_param)]).param_names
     i_d = {}
     for i in range(len(initial_param)):
@@ -474,7 +472,7 @@ def test_PolyTransform():
     x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
 
     for i in np.arange(len(x_trans)):
-        print( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (x[i],x_trans[i],x_trans_err[i],y[i],y_trans[i],y_trans_err[i]))
+        print(( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (x[i],x_trans[i],x_trans_err[i],y[i],y_trans[i],y_trans_err[i])))
     return t
 
 def test_LegTransform():
@@ -495,7 +493,7 @@ def test_LegTransform():
 
     
     for i in np.arange(len(x_trans)):
-        print( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (xref[i],x_trans[i],x_trans_err[i],yref[i],y_trans[i],y_trans_err[i]))
+        print(( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (xref[i],x_trans[i],x_trans_err[i],yref[i],y_trans[i],y_trans_err[i])))
 
     # make sure the real and transformed positions are close
     np.testing.assert_allclose(xref,x_trans,atol=0.1,rtol=1e-3)

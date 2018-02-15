@@ -260,6 +260,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                           ylim=ylim, outlier_reject=None)
 
     print('Done with plots')
+    print('Done with plots')   
 
     return
 

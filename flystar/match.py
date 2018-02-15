@@ -1,8 +1,11 @@
-from __future__ import division
+
 import numpy as np
+from flystar import starlists, align, transforms, startables
 from collections import Counter
 from scipy.spatial import cKDTree as KDT
+from astropy.table import Column, Table
 import itertools
+import numpy
 import pylab as py
 import scipy.signal
 from skimage import transform
@@ -39,10 +42,10 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     nin2 = len(xin2)
 
     if (nin1 < Nbrite) or (nin2 < Nbrite):
-        print( 'You need at least {0} to '.format(Nbrite))
+        print(( 'You need at least {0} to '.format(Nbrite)))
         print( 'find the matches...')
-        print( 'NIN1: ', nin1)
-        print( 'NIN2: ', nin2)
+        print(( 'NIN1: ', nin1))
+        print(( 'NIN2: ', nin2))
         return (0, None, None, None, None, None, None)
 
     # Take the Nbrite brightest stars from each list and order by brightness.
@@ -51,7 +54,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     print( '  miracle_match_briteN: ')
     x1, y1, m1 = order_by_brite(xin1, yin1, min1, Nbrite, verbose=verbose)
     x2, y2, m2 = order_by_brite(xin2, yin2, min2, Nbrite, verbose=verbose)
-
+    
     ####################
     #
     # Triangle Matching
@@ -128,7 +131,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     # Reverse sort along the columns. Each column is a star in list #2.
     # For each star in list #2, sort the votes over all the different stars in list #1.
     votes_sdx = votes.argsort(axis=0)[::-1]
-    tmp = votes[votes_sdx, range(votes.shape[1])]
+    tmp = votes[votes_sdx, list(range(votes.shape[1]))]
 
     # For each star in list #2, figure out if the number of matches exceeds our threshold.
     # The threshold is that for each star in list #2, the highest voted list #1 stars has
@@ -139,7 +142,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     # Return the good matches
     ##########
     print( '  miracle_match_briteN: ')
-    print( '  miracle_match_briteN: found {0} matches '.format(len(good)))
+    print(( '  miracle_match_briteN: found {0} matches '.format(len(good))))
     print( '  miracle_match_briteN: ')
 
     x2_mat = x2[good]
@@ -156,20 +159,20 @@ def order_by_brite(xi, yi, mi, Nout, verbose=True):
     # Length of the input starlists.
     Nin = len(xi)
     if verbose:
-        print( 'order_by_brite: nstars in =', Nin)
-        print( 'order_by_brite: desired nstars out =', Nout)
+        print(( 'order_by_brite: nstars in =', Nin))
+        print(( 'order_by_brite: desired nstars out =', Nout))
 
     if Nout > Nin:
         Nout = Nin
 
     if verbose:
-        print( 'order_by_brite: return nstars out =', Nout)
+        print(( 'order_by_brite: return nstars out =', Nout))
 
     sdx = mi.argsort()
     brite = sdx[:Nout]
 
     if verbose:
-        print( 'order_by_brite: faintest star m =', mi[brite[-1]])
+        print(( 'order_by_brite: faintest star m =', mi[brite[-1]]))
 
     xo = xi[brite]
     yo = yi[brite]
@@ -295,7 +298,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
             i2_tmp = np.array([i2_match[mm] for mm in i1_nn])
 
             # Repeat star list 1 positions and magnitudes
-            # for nn times (tile then transpose) 
+            # for nn times (tile then transpose)
             x1_nn = np.tile(x1[i1_nn], (nn, 1)).T
             y1_nn = np.tile(y1[i1_nn], (nn, 1)).T
             m1_nn = np.tile(m1[i1_nn], (nn, 1)).T
@@ -309,7 +312,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
 
             if dm_tol != None:
                 # Don't even consider stars that exceed our
-                # delta-mag threshold. 
+                # delta-mag threshold.
                 dr_msk = np.ma.masked_where(dm > dm_tol, dr)
                 dm_msk = np.ma.masked_where(dm > dm_tol, dm)
 
@@ -339,14 +342,14 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None):
             idxs2[i1_nn[keep]] = i2_keep_2D[ii_keep, dr_keep]
 
     idxs1 = idxs1[idxs1 >= 0]
-    idxs2 = idxs2[idxs2 >= 0]        
+    idxs2 = idxs2[idxs2 >= 0]
 
     dr = np.hypot(x1[idxs1] - x2[idxs2], y1[idxs1] - y2[idxs2])
     dm = m1[idxs1] - m2[idxs2]
 
     # Deal with duplicates
-    duplicates = [item for item, count in Counter(idxs2).items() if count > 1]
-    print( 'Found {0:d} out of {1:d} duplicates'.format(len(duplicates), len(dm)))
+    duplicates = [item for item, count in list(Counter(idxs2).items()) if count > 1]
+    print(( 'Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
     keep = np.ones(len(idxs1), dtype=bool)
     for dd in range(len(duplicates)):
         # Index into the idxs1, idxs2 array of this duplicate.
@@ -437,3 +440,135 @@ def add_votes(votes, match1, match2):
     votes.flat[unique_idx] += deltas
     
     return
+
+
+def generic_match(sl1, sl2, init_mode='triangle',
+                  model=transforms.PolyTransform, poly_order=2, loop=1,
+                  dr_tol=1.0, dm_tol=None, n_bright=100, **kwargs):
+    """
+    Finds the transformation between two starlists using the first one
+    as reference frame. Different matching methods can be used. If no
+    transformation is found, it returns an error message.
+
+
+    Parameters
+    sl1 : StarList
+        starlist used for reference frame
+    sl2 : StarList
+        starlist transformed
+    init_mode : str
+        Initial matching method.
+        If 'triangle', uses the blind triangle method.
+        If 'match_name', uses match by name
+        If 'load', uses the transformation from a loaded file
+    model : str
+        Transformation model to be used with the 'triangle' initial mode
+    poly_order : int
+        Order of the transformation model
+    loop : int
+        Number of loops to refine the initial transformation
+    dr_tol : float
+        Search radius to refine the initial transformation
+    dm_tol : float
+        Magnitude tolerance to refine the initial transformation
+    n_bright : int
+        Number of bright stars used in the initial matching
+    remove_xy : array
+        Area of the images to remove in the initial matching [xmin, xmax, ymin,
+        ymax]
+    m_lim : float
+        Minimum magnitude to use in the initial matching
+    transf_file : str
+        File name and path of the transformation file used with the 'load'
+        init_mode
+    
+    Returns
+    -------
+    transf : Transform2D
+        Transformation of the second starlist respect to the first
+    
+    st : StarTable
+        Startable of the two matched catalogs
+
+    """
+    
+    #  Check the input StarLists and transform them into astropy Tables
+    if not isinstance(sl1, starlists.StarList):
+        raise TypeError("The first catalog has to be a StarList")
+    if not isinstance(sl2, starlists.StarList):
+        raise TypeError("The second catalog has to be a StarList")
+    sl1_tab = sl1.starlist_to_table()
+    sl2_tab = sl2.starlist_to_table()
+    sl1_tab_cut = sl1_tab
+    sl2_tab_cut = sl2_tab
+    
+    if 'remove_xy' in kwargs:
+        sl1_tab_cut = sl1_tab_cut[numpy.logical_not((sl1_tab_cut['x'] > kwargs['remove_xy'][0]) &
+                                                (sl1_tab_cut['x'] < kwargs['remove_xy'][1]) &
+                                                (sl1_tab_cut['y'] > kwargs['remove_xy'][2]) &
+                                                (sl1_tab_cut['y'] < kwargs['remove_xy'][3]))]
+        sl2_tab_cut = sl2_tab_cut[numpy.logical_not((sl2_tab_cut['x'] > kwargs['remove_xy'][0]) &
+                                                (sl2_tab_cut['x'] < kwargs['remove_xy'][1]) &
+                                                (sl2_tab_cut['y'] > kwargs['remove_xy'][2]) &
+                                                (sl2_tab_cut['y'] < kwargs['remove_xy'][3]))]
+    
+    if 'm_lim' in kwargs:
+        sl1_tab_cut = sl1_tab_cut[sl1_tab_cut['m'] > kwargs['m_lim']]
+        sl2_tab_cut = sl2_tab_cut[sl2_tab_cut['m'] > kwargs['m_lim']]
+        
+
+    #  Find the initial transformation
+    if init_mode is 'triangle':
+    
+        #  Blind triangles method
+        transf = align.initial_align(sl2_tab_cut, sl1_tab_cut, briteN=n_bright,
+                                     transformModel=model, order=poly_order)
+        
+    elif init_mode is 'match_name':
+        
+        #  Name match
+        sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(
+            sl1_tab, sl2_tab)
+        transf = model(sl2_tab['x'][sl2_idx_init], sl2_tab['y'][sl2_idx_init],
+                       sl1_tab['x'][sl1_idx_init], sl1_tab['y'][sl1_idx_init],
+                       order=poly_order)
+        
+    elif init_mode is 'load':
+        
+        # Load a transformation file
+        transf = Table.read(kwargs['transf_file'],
+                             format='ascii.commented_header', header_start=-1)
+    else:
+        
+        #  None of the above
+        raise TypeError('Unrecognized initial matching method')
+        
+    #  Transfor the catalog to the reference frame
+    star_transf = align.transform_from_object(sl2_tab, transf)
+        
+    #  Refine the transformation
+    for i_loop in range(loop):
+        
+        #  Transfor the catalog to the reference frame and match them
+        sl2_idx, sl1_idx = align.transform_and_match(sl2_tab, sl1_tab, transf,
+                                                     dr_tol=dr_tol,
+                                                     dm_tol=dm_tol)
+            
+        #  Find a better transformation
+        transf, n_transf = align.find_transform(sl2_tab[sl2_idx], star_transf[sl2_idx],
+                                                sl1_tab[sl1_idx], transModel=model,
+                                                order=poly_order)
+    
+    #  StarTable output
+    sl2t_tab = align.transform_from_object(sl2_tab, transf)
+    unames = np.array(range(len(sl1_idx)))
+    st = startables.StarTable(name=unames,
+         x=np.column_stack((np.array(sl1_tab['x'][sl1_idx]),np.array(sl2t_tab['x'][sl2_idx]))),
+         y=np.column_stack((np.array(sl1_tab['y'][sl1_idx]),np.array(sl2t_tab['y'][sl2_idx]))),
+         m=np.column_stack((np.array(sl1_tab['m'][sl1_idx]),np.array(sl2t_tab['m'][sl2_idx]))))
+
+    for col in sl2t_tab.colnames:
+        if col not in ['name', 'x', 'y', 'm']:
+            st.add_column(Column(np.column_stack((np.array(sl1_tab[col][sl1_idx]),np.array(sl2t_tab[col][sl2_idx]))), name=col))
+    
+    return transf, st
