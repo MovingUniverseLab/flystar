@@ -299,9 +299,9 @@ class StarTable(Table):
         Set the contents of the specified column (in the 2D column objects)
         to an invalide value depending on the data type.
         """
-        if np.issubclass_(self[col_name].info.dtype, np.integer):
+        if np.issubdtype(self[col_name].info.dtype, np.integer):
             self[col_name][:, col_idx] = -1
-        elif np.issubclass_(self[col_name].info.dtype, np.floating):
+        elif np.issubdtype(self[col_name].info.dtype, np.floating):
             self[col_name][:, col_idx] = np.nan
         else:
             self[col_name][:, col_idx] = None
@@ -313,9 +313,9 @@ class StarTable(Table):
         Set the contents of the specified rows (in the 2D column objects)
         to an invalide value depending on the data type.
         """
-        if np.issubclass_(self[col_name].info.dtype, np.integer):
+        if np.issubdtype(self[col_name].info.dtype, np.integer):
             self[col_name][row_idx] = -1
-        elif np.issubclass_(self[col_name].info.dtype, np.floating):
+        elif np.issubdtype(self[col_name].info.dtype, np.floating):
             self[col_name][row_idx] = np.nan
         else:
             self[col_name][row_idx] = None

@@ -1,3 +1,4 @@
+
 import numpy as np
 from flystar import align, match
 from flystar import transforms
@@ -9,7 +10,7 @@ import os
 import pdb
 
 def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1],
-                 outlier_tol=[None, None], mag_trans=True, mag_lim=[None, None],
+                 outlier_tol=[None, None], mag_trans=True, mag_lim=None,
                  trans_input=None, trans_class=transforms.PolyTransform,
                  trans_args=[{'order': 2}, {'order': 2}], update_mag_offset=True,
                  ref_epoch_mean=True, verbose=True):
@@ -120,10 +121,11 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     ##########
     
     for ii in range(len(star_lists)):
-        print("\r   Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)), end="")
+        print("   **********")
+        print("   Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)))
+        print("   **********")
         star_list = star_lists[ii]
         trans = trans_list[ii]
-        mag_offset = trans.mag_offset
 
         ### If it is matching the reference frame to itself, do not improve the transformation
         if ii != ref_index:
@@ -132,7 +134,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
             ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
             ref_list_T = copy.deepcopy(ref_list)
             
-            if mag_lim[ref_index][0] or mag_lim[ref_index][1]:
+            if (mag_lim != None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
                 idx2_in_mag_range = np.where((ref_list_T['m_avg'] > mag_lim[ref_index][0])
                                    & (ref_list_T['m_avg'] < mag_lim[ref_index][1]))[0]
                 ref_list_T = ref_list_T[idx2_in_mag_range]
@@ -140,6 +142,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
                 trans = trans_initial_guess(ref_list, star_list)
+            mag_offset = trans.mag_offset
 
             ### Repeat transform + match several times.
             for nn in range(iters):
@@ -149,7 +152,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
 
                 # Trim down to just those stars in the specified magnitude range. Only on the T=transformed version.
                 # Note ref_list_T has already been trimmed. 
-                if mag_lim[ii][0] or mag_lim[ii][1]:
+                if (mag_lim != None) and (mag_lim[ii][0] or mag_lim[ii][1]):
                     idx1_in_mag_range = np.where((star_list_T['m'] > mag_lim[ii][0]) & (star_list_T['m'] < mag_lim[ii][1]))[0]
                     star_list_T = star_list_T[idx1_in_mag_range]
 
@@ -157,7 +160,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                  ref_list_T['x_avg'], ref_list_T['y_avg'], ref_list_T['m_avg'],
                                                  dr_tol=dr_tol[nn], dm_tol=dm_tol[nn], verbose=verbose)
-                
+
                 if verbose:
                     print( 'In Loop ', nn, ' found ', len(idx1), ' matches' )
                 
@@ -176,7 +179,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                     idx2 = idx2[keepers]
 
                 # Modify the indices in the
-                if mag_lim[ii][0] or mag_lim[ii][1]:
+                if (mag_lim != None) and (mag_lim[ii][0] or mag_lim[ii][1]):
                     idx1 = idx1_in_mag_range[idx1]
                     idx2 = idx2_in_mag_range[idx2]
                 
@@ -2024,13 +2027,14 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
 
         if mag_trans: 
             for ii in range(len(trans_input)):
-                try:
-                    trans_input[ii].mag_offset
-                except NameError:
-                    print('Missing trans.mag_offset on trans_input[{0:d}].'.format(ii))
-                    print('Setting mag_offset = 0 and dm_tol[0] = 100 and hoping for the best!!')
-                    trans_input[ii].mag_offset = 0.0
-                    
+                if trans_input[ii] != None:
+                    try:
+                        trans_input[ii].mag_offset
+                    except NameError:
+                        print('Missing trans.mag_offset on trans_input[{0:d}].'.format(ii))
+                        print('Setting mag_offset = 0 and dm_tol[0] = 100 and hoping for the best!!')
+                        trans_input[ii].mag_offset = 0.0
+                
     return
 
 def trans_initial_guess(ref_list, star_list):
