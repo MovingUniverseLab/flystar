@@ -870,7 +870,7 @@ def initial_align(table1, table2, briteN=100,
     print( 'Begin initial match')
 
     N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(x1, y1, m1, x2, y2, m2, briteN)
-    Assert len(x1m) > req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
+    assert len(x1m) > req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
     print(( '{0} stars matched between starlist1 and starlist2'.format(N)))
 
     # Calculate transformation based on matches
