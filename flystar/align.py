@@ -191,10 +191,10 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
 
                 if weights != None:
                     if weights == 'both':
-                        weight = 1.0 / np.sqrt(ref_list['xe'][idx2]**2 + star_list_T['xe'][idx1]**2 +
-                                               ref_list['ye'][idx2]**2 + star_list_T['ye'][idx1]**2)
+                        weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + star_list_T['xe'][idx1]**2 +
+                                               ref_list_T['y_std'][idx2]**2 + star_list_T['ye'][idx1]**2)
                     if weights == 'reference':
-                        weight = 1.0 / np.sqrt(ref_list['xe'][idx2]**2 + ref_list['ye'][idx2]**2)
+                        weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + ref_list_T['y_std'][idx2]**2)
                     if weights == 'starlist':
                         weight = 1.0 / np.sqrt(star_list_T['xe'][idx1]**2 + star_list_T['ye'][idx1]**2)
                 else:
