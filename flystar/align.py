@@ -1005,7 +1005,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
         weight = None
 
     # Calculate transform based on the matched stars
-    t = transModel.derive_transform(x1, y1, m1, x2, y2, m2, order)
+    t = transModel.derive_transform(x1, y1, m1, x2, y2, m2, order, weights=weight)
 
     N_trans = len(x1)
     if verbose:
