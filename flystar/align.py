@@ -12,7 +12,8 @@ import pdb
 def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1],
                  outlier_tol=[None, None], mag_trans=True, mag_lim=None,
                  trans_input=None, trans_class=transforms.PolyTransform,
-                 trans_args=[{'order': 2}, {'order': 2}], update_mag_offset=True,
+                 trans_args=[{'order': 2}, {'order': 2}],
+                 update_mag_offset=True, update_ref_per_iter=True,
                  ref_epoch_mean=True, verbose=True):
     """
     Required Parameters
@@ -69,6 +70,12 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     update_mag_offset : boolean
         Update the magnitude offset every time a new transformation is found.
         A 3-sigma clipped mean is used
+
+    update_ref_per_iter : boolean
+        Update the reference list positions for each new starlist that is transformed. In 
+        other words, if you are aligning lists A, B, C, and D, then the first loop has
+        ref=A and the second loop has ref=(A+B)/2, etc. by default. Set update_ref_per_iter=False
+        to keep referenece list fixed for every new list transform.
     
     ref_epoch_mean : boolean
         Include the reference catalog to calculate the last xym combination
@@ -130,8 +137,11 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
         ### If it is matching the reference frame to itself, do not improve the transformation
         if ii != ref_index:
             
-            ### Get the updated reference list and trim it
-            ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
+            ### Get the updated reference list and trim it based on magnitude.
+            if update_ref_per_iter:
+                ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
+            else:
+                ref_list = starlists[ref_index]['x', 'y', 'm', 'xe', 'ye', 'me']
             ref_list_T = copy.deepcopy(ref_list)
             
             if (mag_lim != None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
