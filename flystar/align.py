@@ -10,7 +10,7 @@ import os
 import pdb
 
 def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1],
-                 outlier_tol=[None, None], mag_trans=True, mag_lim=None,
+                 outlier_tol=[None, None], mag_trans=True, mag_lim=None, weights=None,
                  trans_input=None, trans_class=transforms.PolyTransform,
                  trans_args=[{'order': 2}, {'order': 2}],
                  update_mag_offset=True, update_ref_per_iter=True,
@@ -52,6 +52,12 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     mag_lim : array
         If different from None, it indicates the minimum and maximum magnitude
         on the catalogs for finding the transformations
+
+    weights : str
+        Either None (def), 'both', 'starlist', or 'reference' depending on whether you want
+        to weight by the positional uncertainties in the individual starlists, or also with
+        the uncertainties in the reference frame itself.  Note weighting only works when there
+        are positional uncertainties availabe. 
     
     trans_input : array or list of transform objects
         def = None. If not None, then this should contain an array or list of transform
@@ -192,10 +198,21 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 if (mag_lim != None) and (mag_lim[ii][0] or mag_lim[ii][1]):
                     idx1 = idx1_in_mag_range[idx1]
                     idx2 = idx2_in_mag_range[idx2]
+
+                if weights != None:
+                    if weights == 'both':
+                        weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + star_list_T['xe'][idx1]**2 +
+                                               ref_list_T['y_std'][idx2]**2 + star_list_T['ye'][idx1]**2)
+                    if weights == 'reference':
+                        weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + ref_list_T['y_std'][idx2]**2)
+                    if weights == 'starlist':
+                        weight = 1.0 / np.sqrt(star_list_T['xe'][idx1]**2 + star_list_T['ye'][idx1]**2)
+                else:
+                    weight = None
                 
                 trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], star_list['m'][idx1],
                                                     ref_list['x_avg'][idx2], ref_list['y_avg'][idx2], ref_list['m_avg'][idx2],
-                                                    **(trans_args[nn]))
+                                                    **(trans_args[nn]), weights=weight)
                 
                 if ~update_mag_offset:
                     trans.mag_offset = mag_offset
@@ -1015,7 +1032,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
         weight = None
 
     # Calculate transform based on the matched stars
-    t = transModel.derive_transform(x1, y1, m1, x2, y2, m2, order)
+    t = transModel.derive_transform(x1, y1, m1, x2, y2, m2, order, weights=weight)
 
     N_trans = len(x1)
     if verbose:

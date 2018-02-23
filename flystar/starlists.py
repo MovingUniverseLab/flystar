@@ -557,7 +557,7 @@ class StarList(Table):
     def transform_xym(self, trans):
         """
         Apply a transformation (instance of flystar.transforms.Transform2D)
-        to the x, y, m columns.
+        to the x, y, m, xe, ye, me columns.
 
         Note that this case will handle trans == None (nothing is done).
         """
@@ -570,7 +570,7 @@ class StarList(Table):
     def transform_xy(self, trans):
         """
         Apply a transformation (instance of flystar.transforms.Transform2D)
-        to the x, y, m columns.
+        to the x, y, xe, ye columns.
 
         Note that this case will handle trans == None (nothing is done).
         """
@@ -581,6 +581,7 @@ class StarList(Table):
         self['x'] = x_T
         self['y'] = y_T
 
+        ### TO DO: Add check for no errors. 
         xe_T, ye_T = trans.evaluate_error(self['x'], self['y'], self['xe'], self['ye'])
         self['xe'] = xe_T
         self['ye'] = ye_T
@@ -590,7 +591,7 @@ class StarList(Table):
     def transform_m(self, trans):
         """
         Apply a transformation (instance of flystar.transforms.Transform2D)
-        to the m column.
+        to the m and me column.
 
         Note that this case will handle trans == None (nothing is done).
         """
