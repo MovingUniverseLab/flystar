@@ -481,6 +481,12 @@ class StarTable(Table):
             avg = np.ma.mean(val_2d_clip, axis=1)
             std = np.ma.std(val_2d_clip, axis=1)
 
+        # To Do: bring the previous uncertainties of stars that are detected
+        # in only one input frame.
+        if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
+            mask_for_singles = ((~np.isnan(val_2d_clip)).sum(axis=1)==1)
+            std[mask_for_singles]=np.nanmean(err_2d[mask_for_singles], axis=1)
+
         # Save off our new AVG and STD into new columns with shape (N_stars).
         col_name_avg = col_name_in + '_avg'
         col_name_std = col_name_in + '_std'
