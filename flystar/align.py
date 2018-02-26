@@ -144,12 +144,17 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
         if ii != ref_index:
             
             ### Get the updated reference list and trim it based on magnitude.
+
+            ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
+  
             if update_ref_per_iter:
-                ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
+                ref_list_T = copy.deepcopy(ref_list)
             else:
-                ref_list = starlists[ref_index]['x', 'y', 'm', 'xe', 'ye', 'me']
-            ref_list_T = copy.deepcopy(ref_list)
-            
+                fixed_ref_list_for_transform = star_lists[ref_index]['x', 'y', 'm', 'xe', 'ye', 'me']
+                ref_list_T = copy.deepcopy(fixed_ref_list_for_transform)
+                ref_list_T['x'].name, ref_list_T['y'].name, ref_list_T['m'].name = 'x_avg', 'y_avg', 'm_avg'
+                ref_list_T['xe'].name, ref_list_T['ye'].name, ref_list_T['me'].name = 'x_std', 'y_std', 'm_std'
+
             if (mag_lim != None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
                 idx2_in_mag_range = np.where((ref_list_T['m_avg'] > mag_lim[ref_index][0])
                                    & (ref_list_T['m_avg'] < mag_lim[ref_index][1]))[0]
@@ -209,11 +214,11 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                         weight = 1.0 / np.sqrt(star_list_T['xe'][idx1]**2 + star_list_T['ye'][idx1]**2)
                 else:
                     weight = None
-                
+
                 trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], star_list['m'][idx1],
-                                                    ref_list['x_avg'][idx2], ref_list['y_avg'][idx2], ref_list['m_avg'][idx2],
+                                                    ref_list_T['x_avg'][idx2], ref_list_T['y_avg'][idx2], ref_list_T['m_avg'][idx2],
                                                     **(trans_args[nn]), weights=weight)
-                
+
                 if ~update_mag_offset:
                     trans.mag_offset = mag_offset
 
