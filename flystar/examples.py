@@ -438,20 +438,16 @@ def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2,
     # Initial transformation with brightest briteN stars
     #--------------------------------------------------
     # define stars that are used to calculate initial transformation.
-    #pdb.set_trace()
-    idx_ini_ref, idx_ini_starlist, briteN_ini = starlists.restrict_by_name(ref, starlist)
-
-    # Perform a blind trangle-matching of the brightest briteN stars
-    # and calculate initial transform
-    ref_ini = ref[idx_ini_ref]
-    starlist_ini = starlist[idx_ini_starlist]
-
     if briteN == None:
-        briteN = briteN_ini
-    #trans = align.initial_align(starlist_ini, ref_ini, briteN=briteN,
-    #        transformModel=transModel, order=order)
-    #pdb.set_trace()
-    trans = transModel(starlist_ini['x'], starlist_ini['y'], ref_ini['x'], ref_ini['y'],order=order, weights=None)
+        idx_ini_ref, idx_ini_starlist, briteN_ini = starlists.restrict_by_name(ref, starlist)
+
+        # Perform a blind trangle-matching of the brightest briteN stars
+        # and calculate initial transform
+        ref_ini = ref[idx_ini_ref]
+        starlist_ini = starlist[idx_ini_starlist]
+        trans = transModel(starlist_ini['x'], starlist_ini['y'], ref_ini['x'], ref_ini['y'],order=order, weights=None)
+    else:
+        trans = align.initial_align(starlist, ref, briteN=briteN, transformModel=transModel, order=order)
 
     # apply the initial transform to label.dat
     # this is used for future weights calculation
