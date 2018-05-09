@@ -143,11 +143,11 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
         ### If it is matching the reference frame to itself, do not improve the transformation
         if ii != ref_index:
             
-            ### Get the updated reference list and trim it based on magnitude.
+            ### Get the updated reference list (optional) and trim it based on magnitude.
             if update_ref_per_iter:
                 ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
             else:
-                ref_list = star_lists[ref_index]['x', 'y', 'm', 'xe', 'ye', 'me']
+                ref_list = copy.deepcopy(star_lists[ref_index]['x', 'y', 'm', 'xe', 'ye', 'me'])
                 ref_list.rename_column('x', 'x_avg')
                 ref_list.rename_column('y', 'y_avg')
                 ref_list.rename_column('m', 'm_avg')
