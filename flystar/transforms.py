@@ -507,7 +507,7 @@ class PolyTransform(Transform2D):
         return vxe_new, vye_new
     
     @classmethod
-    def derive_transform(cls, x, y, m, xref, yref, mref, order,
+    def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
                          init_gx=None, init_gy=None, weights=None):
         
         # now, if the initial guesses are not none, fill in terms until 
@@ -531,11 +531,14 @@ class PolyTransform(Transform2D):
                 Xcoeff.append( px.parameters[coeff_idx] )
                 Ycoeff.append( py.parameters[coeff_idx] )
         
-        # Calculate the magnitude offset using a 3-sigma clipped mean
-        m_resid = mref - m
-        threshold = 3 * m_resid.std()
-        keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-        mag_offset = np.mean((mref - m)[keepers])
+        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
+        if (m != None) and (mref != None):
+            m_resid = mref - m
+            threshold = 3 * m_resid.std()
+            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+            mag_offset = np.mean((mref - m)[keepers])
+        else:
+            mag_offset =  0
         
         trans = cls(order, Xcoeff, Ycoeff, mag_offset=mag_offset)
 

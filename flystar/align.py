@@ -147,7 +147,14 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
             if update_ref_per_iter:
                 ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
             else:
-                ref_list = starlists[ref_index]['x', 'y', 'm', 'xe', 'ye', 'me']
+                ref_list = star_lists[ref_index]['x', 'y', 'm', 'xe', 'ye', 'me']
+                ref_list.rename_column('x', 'x_avg')
+                ref_list.rename_column('y', 'y_avg')
+                ref_list.rename_column('m', 'm_avg')
+                ref_list.rename_column('xe', 'xe_avg')
+                ref_list.rename_column('ye', 'ye_avg')
+                ref_list.rename_column('me', 'me_avg')
+                
             ref_list_T = copy.deepcopy(ref_list)
             
             if (mag_lim != None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
@@ -210,9 +217,11 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 else:
                     weight = None
                 
-                trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], star_list['m'][idx1],
-                                                    ref_list['x_avg'][idx2], ref_list['y_avg'][idx2], ref_list['m_avg'][idx2],
-                                                    **(trans_args[nn]), weights=weight)
+                trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
+                                                    ref_list['x_avg'][idx2], ref_list['y_avg'][idx2], 
+                                                    **(trans_args[nn]),
+                                                    m=star_list['m'][idx1], mref=ref_list['m_avg'][idx2],
+                                                    weights=weight)
                 
                 if ~update_mag_offset:
                     trans.mag_offset = mag_offset
@@ -1032,7 +1041,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
         weight = None
 
     # Calculate transform based on the matched stars
-    t = transModel.derive_transform(x1, y1, m1, x2, y2, m2, order, weights=weight)
+    t = transModel.derive_transform(x1, y1, x2, y2, order, m=m1, mref=m2, weights=weight)
 
     N_trans = len(x1)
     if verbose:
