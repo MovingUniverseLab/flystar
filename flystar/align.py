@@ -223,6 +223,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                                                     m=star_list['m'][idx1], mref=ref_list['m_avg'][idx2],
                                                     weights=weight)
                 
+
                 if ~update_mag_offset:
                     trans.mag_offset = mag_offset
 
