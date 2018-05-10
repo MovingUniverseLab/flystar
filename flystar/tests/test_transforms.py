@@ -86,6 +86,25 @@ def test_evaluate_velocities():
 
     assert np.abs(vxe[2] - vxe_new[2]) < 0.05
     assert np.abs(vye[2] - vye_new[2]) < 0.05
+
+def test_0th_order_poly():
+    # Test out a 0th order polynomial implementation.
+    # Note that this isn't a true 0th order; but rather a 1st order
+    # with the c1_* coefficieints fixed. But this is the way we
+    # ALWAYS need it.
+
+    px_init = [0.1]
+    py_init = [25.0]
+    
+    trans = transforms.PolyTransform(0, px_init, py_init)
+
+    assert len(trans.px) == 3
+    assert len(trans.p1) == 3
+
+    print(trans.px)
+
+    return
+    
     
 def try_out_equation(order):
     x = 1

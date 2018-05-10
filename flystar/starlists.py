@@ -581,10 +581,10 @@ class StarList(Table):
         self['x'] = x_T
         self['y'] = y_T
 
-        ### TO DO: Add check for no errors. 
-        xe_T, ye_T = trans.evaluate_error(self['x'], self['y'], self['xe'], self['ye'])
-        self['xe'] = xe_T
-        self['ye'] = ye_T
+        if 'xe' in self.colnames:
+            xe_T, ye_T = trans.evaluate_error(self['x'], self['y'], self['xe'], self['ye'])
+            self['xe'] = xe_T
+            self['ye'] = ye_T
 
         return
 
@@ -601,7 +601,8 @@ class StarList(Table):
         m_T = trans.evaluate_mag(self['m'])
         self['m'] = m_T
 
-        me_T = trans.evaluate_magerror(self['m'], self['me'])
-        self['me'] = me_T
+        if 'me' in self.colnames:
+            me_T = trans.evaluate_magerror(self['m'], self['me'])
+            self['me'] = me_T
     
         return

@@ -238,11 +238,25 @@ class PolyTransform(Transform2D):
             magnitude difference with the reference catalog (mag_ref - mag_cat)
             
         """
-        px_dict = PolyTransform.make_param_dict(px, order, isY=False)
-        py_dict = PolyTransform.make_param_dict(py, order, isY=True)
-        
-        self.px = models.Polynomial2D(order, **px_dict)
-        self.py = models.Polynomial2D(order, **py_dict)
+
+        if order == 0:
+            poly_order = 1
+            px = np.append(px, [1.0, 0.0])
+            py = np.append(py, [0.0, 1.0])
+            
+            px_dict = PolyTransform.make_param_dict(px, poly_order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, poly_order, isY=True)
+            
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
+            self.px = models.Polynomial2D(poly_order, **px_dict, fixed=fixed_params)
+            self.py = models.Polynomial2D(poly_order, **py_dict, fixed=fixed_params)
+        else:
+            px_dict = PolyTransform.make_param_dict(px, order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, order, isY=True)
+            
+            self.px = models.Polynomial2D(order, **px_dict)
+            self.py = models.Polynomial2D(order, **py_dict)
+            
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.order = order
@@ -510,12 +524,24 @@ class PolyTransform(Transform2D):
     def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
                          init_gx=None, init_gy=None, weights=None):
         
-        # now, if the initial guesses are not none, fill in terms until 
-        init_gx = PolyTransform.make_param_dict(init_gx, order, isY=False)
-        init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
+        # now, if the initial guesses are not none, fill in terms until
+        if order == 0:
+            poly_order = 1
+            init_gx = np.append(init_gx, [1.0, 0.0])
+            init_gy = np.append(init_gy, [0.0, 1.0])
         
-        p_init_x = models.Polynomial2D(order, **init_gx)
-        p_init_y = models.Polynomial2D(order, **init_gy)
+            init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
+            init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
+
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
+            p_init_x = models.Polynomial2D(poly_order, **init_gx, fixed=fixed_params)
+            p_init_y = models.Polynomial2D(poly_order, **init_gy, fixed=fixed_params)
+        else:
+            init_gx = PolyTransform.make_param_dict(init_gx, order, isY=False)
+            init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
+        
+            p_init_x = models.Polynomial2D(order, **init_gx)
+            p_init_y = models.Polynomial2D(order, **init_gy)
         
         fit_p  = fitting.LinearLSQFitter()
 
@@ -532,7 +558,7 @@ class PolyTransform(Transform2D):
                 Ycoeff.append( py.parameters[coeff_idx] )
         
         # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
-        if (m != None) and (mref != None):
+        if (m is not None) and (mref is not None):
             m_resid = mref - m
             threshold = 3 * m_resid.std()
             keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
@@ -642,25 +668,26 @@ class Shift(PolyTransform):
     '''
 
     def __init__(self, xshift, yshift, xshift_err=None, yshift_err=None):
-        px = [xshift]
-        py = [yshift]
-        pxerr = [xshift_err]
-        pyerr = [yshift_err]
-        order = 0
+        px = [xshift, 1.0, 0.0]
+        py = [yshift, 0.0, 1.0]
+        pxerr = [xshift_err, 0.0, 0.0]
+        pyerr = [yshift_err, 0.0, 0.0]
         
-        px_dict = make_param_dict(px, 0, isY=False)
-        py_dict = make_param_dict(py, 0, isY=True)
+        order = 1  # Need this to add to x; but then c1* params are fixed.
         
-        self.px = models.Polynomial2D(order, **px_dict)
-        self.py = models.Polynomial2D(order, **py_dict)
+        px_dict = Shift.make_param_dict(px, 1, isY=False)
+        py_dict = Shift.make_param_dict(py, 1, isY=True)
+        
+        self.px = models.Polynomial2D(order, **px_dict, fixed={'c1_0', 'c1_1'})
+        self.py = models.Polynomial2D(order, **py_dict, fixed={'c1_0', 'c1_1'})
         self.pxerr = pxerr
         self.pyerr = pyerr
-        self.order = order
+        self.order = 0
 
         return
 
     @classmethod
-    def derive_transform(cls, x, y, xref, yref, weights=None):
+    def derive_transform(cls, x, y, xref, yref, m=None, mref=None, weights=None, **kwargs):
         dx = xref - x
         dy = yref - y
         

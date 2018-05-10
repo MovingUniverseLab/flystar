@@ -33,10 +33,12 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     and brightness uncertainties, the more bigger the bin sizes should really
     be. But this isn't well tested.
     """
-    print( '')
-    print( '  miracle_match_briteN: use brightest {0}'.format(Nbrite))
-    print( '  miracle_match_briteN:  ')
-    print( '  miracle_match_briteN:  ')
+    
+    if verbose:
+        print( '')
+        print( '  miracle_match_briteN: use brightest {0}'.format(Nbrite))
+        print( '  miracle_match_briteN:  ')
+        print( '  miracle_match_briteN:  ')
 
     # Get/check the lengths of the two starlists
     nin1 = len(xin1)
@@ -50,9 +52,10 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
         return (0, None, None, None, None, None, None)
 
     # Take the Nbrite brightest stars from each list and order by brightness.
-    print( '  miracle_match_briteN: ')
-    print( '  miracle_match_briteN: ORD_BRITE: ')
-    print( '  miracle_match_briteN: ')
+    if verbose:
+        print( '  miracle_match_briteN: ')
+        print( '  miracle_match_briteN: ORD_BRITE: ')
+        print( '  miracle_match_briteN: ')
     x1, y1, m1 = order_by_brite(xin1, yin1, min1, Nbrite, verbose=verbose)
     x2, y2, m2 = order_by_brite(xin2, yin2, min2, Nbrite, verbose=verbose)
     
@@ -61,9 +64,10 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     # Triangle Matching
     #
     ####################
-    print( '  miracle_match_briteN: ')
-    print( '  miracle_match_briteN: DO Matching Triangles search...')
-    print( '  miracle_match_briteN: ')
+    if verbose:
+        print( '  miracle_match_briteN: ')
+        print( '  miracle_match_briteN: DO Matching Triangles search...')
+        print( '  miracle_match_briteN: ')
 
     # These are the bins for the 2D (vmax, angle) array we will be making later.
     bins_vmax = np.arange(-1.0, 1.01, 2.0 / Nbins_vmax)
@@ -154,9 +158,10 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     ##########
     # Return the good matches
     ##########
-    print( '  miracle_match_briteN: ')
-    print(( '  miracle_match_briteN: found {0} matches '.format(len(good))))
-    print( '  miracle_match_briteN: ')
+    if verbose:
+        print( '  miracle_match_briteN: ')
+        print( '  miracle_match_briteN: found {0} matches '.format(len(good)))
+        print( '  miracle_match_briteN: ')
 
     x2_mat = x2[good]
     y2_mat = y2[good]
@@ -165,8 +170,8 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     y1_mat = y1[votes_sdx[0, good]]
     m1_mat = m1[votes_sdx[0, good]]
 
-
     return len(x1_mat), x1_mat, y1_mat, m1_mat, x2_mat, y2_mat, m2_mat
+
 
 def order_by_brite(xi, yi, mi, Nout, verbose=True):
     # Length of the input starlists.

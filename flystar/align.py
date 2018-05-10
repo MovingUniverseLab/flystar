@@ -151,15 +151,18 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 ref_list.rename_column('x', 'x_avg')
                 ref_list.rename_column('y', 'y_avg')
                 ref_list.rename_column('m', 'm_avg')
-                ref_list.rename_column('xe', 'xe_avg')
-                ref_list.rename_column('ye', 'ye_avg')
-                ref_list.rename_column('me', 'me_avg')
+
+                if 'xe' in ref_list.colnames:
+                    ref_list.rename_column('xe', 'xe_avg')
+                    ref_list.rename_column('ye', 'ye_avg')
+                if 'me' in ref_list.colname:
+                    ref_list.rename_column('me', 'me_avg')
                 
             ref_list_T = copy.deepcopy(ref_list)
             
             if (mag_lim != None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
-                idx2_in_mag_range = np.where((ref_list_T['m_avg'] > mag_lim[ref_index][0])
-                                   & (ref_list_T['m_avg'] < mag_lim[ref_index][1]))[0]
+                idx2_in_mag_range = np.where((ref_list_T['m_avg'] > mag_lim[ref_index][0]) &
+                                             (ref_list_T['m_avg'] < mag_lim[ref_index][1]))[0]
                 ref_list_T = ref_list_T[idx2_in_mag_range]
 
             ### Initial match and transform: 1st order (if we haven't already).
@@ -222,7 +225,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                                                     **(trans_args[nn]),
                                                     m=star_list['m'][idx1], mref=ref_list['m_avg'][idx2],
                                                     weights=weight)
-                
+                pdb.set_trace()
 
                 if ~update_mag_offset:
                     trans.mag_offset = mag_offset
@@ -2095,7 +2098,7 @@ def trans_initial_guess(ref_list, star_list):
     err_msg = 'Failed to find at least '+str(req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
     assert len(x1m) > req_match, err_msg
-    print('{0:d} stars matched between starlist and reference list'.format(N))
+    print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
     # Calculate position transformation based on matches
     trans = transforms.PolyTransform.derive_transform(x1m, y1m ,x2m, y2m, order=1, weights=None)
