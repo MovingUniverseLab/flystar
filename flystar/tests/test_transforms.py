@@ -108,6 +108,7 @@ def test_0th_order_poly():
     x_in = np.array([5.0, 10.0, 100.0])
     y_in = np.array([50.0, 100.0, 1000.0])
 
+    # Test evaluation
     x_out, y_out = trans.evaluate(x_in, y_in)
     
     np.testing.assert_almost_equal(x_in + px_init[0], x_out, 4)
@@ -116,15 +117,54 @@ def test_0th_order_poly():
     xe_in = np.array([0.1, 0.2, 0.1])
     ye_in = np.array([0.05, 0.1, 0.3])
 
+    # Test errors
     xe_out, ye_out = trans.evaluate_error(x_in, y_in, xe_in, ye_in)
     
     np.testing.assert_almost_equal(xe_in, xe_out, 4)
     np.testing.assert_almost_equal(ye_in, ye_out, 4)
+
+    # Test velocities. (almost the same code as errors
+    vx_in = xe_in
+    vy_in = ye_in
+    vx_out, vy_out = trans.evaluate_vel(x_in, y_in, vx_in, vy_in)
+    
+    np.testing.assert_almost_equal(vx_in, vx_out, 4)
+    np.testing.assert_almost_equal(vy_in, vy_out, 4)
+
+    # Test velocity errors. 
+    vxe_in = xe_in
+    vye_in = ye_in
+    vxe_out, vye_out = trans.evaluate_vel_err(x_in, y_in, vx_in, vy_in,
+                                              xe_in, ye_in, vxe_in, vye_in)
+    
+    np.testing.assert_almost_equal(vx_in, vx_out, 4)
+    np.testing.assert_almost_equal(vy_in, vy_out, 4)
     
 
     ##########
     # Check derive transform
     ##########
+    x1 = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
+    y1 = np.array([5.0, 4.0, 3.0, 2.0, 1.0])
+
+    x2 = x1 + 0.1
+    y2 = y1 - 0.3
+
+    x2[3] += 0.005
+    x2[4] -= 0.004
+    y2[3] += 0.006
+    y2[4] -= 0.007
+
+    trans = transforms.PolyTransform.derive_transform(x2, y2, x1, y1, 0)
+
+    assert trans.order == 0
+    assert len(trans.px.parameters) == 3
+    assert len(trans.py.parameters) == 3
+
+    x2_new, y2_new = trans.evaluate(x2, y2)
+
+    np.testing.assert_almost_equal(x1, x2_new, 2)
+    np.testing.assert_almost_equal(y1, y2_new, 2)
     
     return
     
