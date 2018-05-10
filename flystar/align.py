@@ -155,7 +155,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 if 'xe' in ref_list.colnames:
                     ref_list.rename_column('xe', 'xe_avg')
                     ref_list.rename_column('ye', 'ye_avg')
-                if 'me' in ref_list.colname:
+                if 'me' in ref_list.colnames:
                     ref_list.rename_column('me', 'me_avg')
                 
             ref_list_T = copy.deepcopy(ref_list)

@@ -95,14 +95,37 @@ def test_0th_order_poly():
 
     px_init = [0.1]
     py_init = [25.0]
-    
+
+    ##########
+    # Check PolyTransform initialization
+    ##########
     trans = transforms.PolyTransform(0, px_init, py_init)
 
-    assert len(trans.px) == 3
-    assert len(trans.p1) == 3
+    assert len(trans.px.parameters) == 3
+    assert len(trans.py.parameters) == 3
+    assert trans.order == 0
 
-    print(trans.px)
+    x_in = np.array([5.0, 10.0, 100.0])
+    y_in = np.array([50.0, 100.0, 1000.0])
 
+    x_out, y_out = trans.evaluate(x_in, y_in)
+    
+    np.testing.assert_almost_equal(x_in + px_init[0], x_out, 4)
+    np.testing.assert_almost_equal(y_in + py_init[0], y_out, 4)
+
+    xe_in = np.array([0.1, 0.2, 0.1])
+    ye_in = np.array([0.05, 0.1, 0.3])
+
+    xe_out, ye_out = trans.evaluate_error(x_in, y_in, xe_in, ye_in)
+    
+    np.testing.assert_almost_equal(xe_in, xe_out, 4)
+    np.testing.assert_almost_equal(ye_in, ye_out, 4)
+    
+
+    ##########
+    # Check derive transform
+    ##########
+    
     return
     
     

@@ -243,6 +243,8 @@ class PolyTransform(Transform2D):
             poly_order = 1
             px = np.append(px, [1.0, 0.0])
             py = np.append(py, [0.0, 1.0])
+            pxerr = np.append(pxerr, [0.0, 0.0])
+            pyerr = np.append(pyerr, [0.0, 0.0])
             
             px_dict = PolyTransform.make_param_dict(px, poly_order, isY=False)
             py_dict = PolyTransform.make_param_dict(py, poly_order, isY=True)
@@ -372,7 +374,10 @@ class PolyTransform(Transform2D):
         dynew_dx = 0.0
         dynew_dy = 0.0
 
-        for i in range(self.order + 1):
+        if (self.order == 0):
+            poly_order = 1
+
+        for i in range(poly_order + 1):
             for j in range(i + 1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
                 Xcoeff = self.px.parameters[coeff_idx]
@@ -421,7 +426,10 @@ class PolyTransform(Transform2D):
         vx_new = 0.0
         vy_new = 0.0
 
-        for i in range(self.order + 1):
+        if (self.order == 0):
+            poly_order = 1
+
+        for i in range(poly_order + 1):
             for j in range(i + 1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
                 Xcoeff = self.px.parameters[coeff_idx]
@@ -481,7 +489,10 @@ class PolyTransform(Transform2D):
         dvynew_dvx = 0.0
         dvynew_dvy = 0.0
         
-        for i in range(self.order+1):
+        if (self.order == 0):
+            poly_order = 1
+
+        for i in range(poly_order + 1):
             for j in range(i+1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
                 Xcoeff = self.px.parameters[coeff_idx]
