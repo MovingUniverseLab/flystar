@@ -147,16 +147,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
             if update_ref_per_iter:
                 ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
             else:
-                ref_list = copy.deepcopy(star_lists[ref_index]['x', 'y', 'm', 'xe', 'ye', 'me'])
-                ref_list.rename_column('x', 'x_avg')
-                ref_list.rename_column('y', 'y_avg')
-                ref_list.rename_column('m', 'm_avg')
-
-                if 'xe' in ref_list.colnames:
-                    ref_list.rename_column('xe', 'xe_avg')
-                    ref_list.rename_column('ye', 'ye_avg')
-                if 'me' in ref_list.colnames:
-                    ref_list.rename_column('me', 'me_avg')
+                ref_list = copy_and_rename_for_ref(star_lists[ref_index])
                 
             ref_list_T = copy.deepcopy(ref_list)
             
@@ -176,10 +167,12 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 star_list_T = copy.deepcopy(star_list)
                 star_list_T.transform_xym(trans)
 
-                # Trim down to just those stars in the specified magnitude range. Only on the T=transformed version.
+                # Trim down to just those stars in the specified magnitude range.
+                # Only on the T=transformed version.
                 # Note ref_list_T has already been trimmed. 
                 if (mag_lim != None) and (mag_lim[ii][0] or mag_lim[ii][1]):
-                    idx1_in_mag_range = np.where((star_list_T['m'] > mag_lim[ii][0]) & (star_list_T['m'] < mag_lim[ii][1]))[0]
+                    idx1_in_mag_range = np.where((star_list_T['m'] > mag_lim[ii][0]) &
+                                                 (star_list_T['m'] < mag_lim[ii][1]))[0]
                     star_list_T = star_list_T[idx1_in_mag_range]
 
                 # Match stars between the lists.
@@ -2132,3 +2125,34 @@ def update_old_and_new_names(ref_table, list_index, idx_ref_new):
     all_names[idx_ref_new] = new_names
     
     return all_names
+
+def copy_and_rename_for_ref(star_list):
+    """
+    Make a deep copy of the starlist and rename the columns to include
+    "_avg". This only applies to x, y, m and xe, ye, me (if they exist) 
+    columns.
+
+    Input
+    ----------
+    star_list : StarList
+        The starlist to copy.
+    """
+    old_cols = ['x', 'y', 'm']
+    new_cols = ['x_avg', 'y_avg', 'm_avg']
+
+    if 'xe' in star_list.colnames:
+        old_cols += ['xe']
+        new_cols += ['xe_avg']
+    if 'ye' in star_list.colnames:
+        old_cols += ['ye']
+        new_cols += ['ye_avg']
+    if 'me' in star_list.colnames:
+        old_cols += ['me']
+        new_cols += ['me_avg']
+
+    ref_list = copy.deepcopy(old_cols)
+
+    for ii in range(len(old_cols)):
+        ref_list.rename_column(old_cols[ii], new_cols[ii])
+
+    return ref_list
