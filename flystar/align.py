@@ -1,5 +1,5 @@
 import numpy as np
-from flystar import align, match
+from flystar import match
 from flystar import transforms
 from astropy.table import Table, Column
 import datetime
