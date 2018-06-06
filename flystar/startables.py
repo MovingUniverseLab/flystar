@@ -141,6 +141,7 @@ class StarTable(Table):
             #####
             Table.__init__(self, (kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
                            names=('name', 'x', 'y', 'm'))
+            self['name'] = self['name'].astype('U20')
             self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
 
             for meta_arg in meta_tab:
@@ -152,6 +153,8 @@ class StarTable(Table):
                     continue
                 else:
                     self.add_column(Column(data=kwargs[arg], name=arg))
+                    if arg == 'name_in_list':
+                        self['name_in_list'] = self['name_in_list'].astype('U20')
 
         return
     
@@ -381,7 +384,7 @@ class StarTable(Table):
     def combine_lists_xym(self, weighted_xy=True, weighted_m=True, mask_lists=False, sigma=3):
         """
         For x, y and m columns in the table, collapse along the lists
-        direction. For 'x', 'y' this means calculating the median position with
+        direction. For 'x', 'y' this means calculating the average position with
         outlier rejection. Optionally, weight by the 'xe' and 'ye' individual
         uncertainties. Optionally, use sigma clipping.
         "mask_lists" is an array with the indeces of lists that excluded from
@@ -412,7 +415,7 @@ class StarTable(Table):
                       mask_lists=False, meta_add=True, ismag=False, sigma=3):
         """
         For the specified column (col_name_in), collapse along the starlists
-        direction and calculated the median value, with outlier rejection.
+        direction and calculated the average value, with outlier rejection.
         Optionally, weight by a specified column (weights_col). Optionally,
         use sigma clipping. The final values are stored in a new column named
         <col_name_in>_avg -- the mean (with outlier rejection)

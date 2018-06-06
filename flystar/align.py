@@ -134,9 +134,10 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     ##########
     
     for ii in range(len(star_lists)):
-        print("   **********")
-        print("   Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)))
-        print("   **********")
+        if verbose:
+            print("   **********")
+            print("   Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)))
+            print("   **********")
         star_list = star_lists[ii]
         trans = trans_list[ii]
 
@@ -158,7 +159,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
-                trans = trans_initial_guess(ref_list, star_list)
+                trans = trans_initial_guess(ref_list, star_list, verbose=verbose)
             mag_offset = trans.mag_offset
 
             ### Repeat transform + match several times.
@@ -218,7 +219,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                                                     **(trans_args[nn]),
                                                     m=star_list['m'][idx1], mref=ref_list['m_avg'][idx2],
                                                     weights=weight)
-                pdb.set_trace()
+                #pdb.set_trace()
 
                 if ~update_mag_offset:
                     trans.mag_offset = mag_offset
@@ -262,8 +263,9 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
         ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
     
     ### Find where stars are detected
-    print('')
-    print('   Preparing the reference table...')
+    if verbose:
+        print('')
+        print('   Preparing the reference table...')
     ref_table.detections()
     
     ### Remove the reference epoch from the mean
@@ -2070,7 +2072,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
                 
     return
 
-def trans_initial_guess(ref_list, star_list):
+def trans_initial_guess(ref_list, star_list, verbose=True):
     """
     Take two starlists and perform an initial matching and transformation.
 
@@ -2091,7 +2093,8 @@ def trans_initial_guess(ref_list, star_list):
     err_msg = 'Failed to find at least '+str(req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
     assert len(x1m) > req_match, err_msg
-    print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
+    if verbose:
+        print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
     # Calculate position transformation based on matches
     trans = transforms.PolyTransform.derive_transform(x1m, y1m ,x2m, y2m, order=1, weights=None)
@@ -2150,7 +2153,7 @@ def copy_and_rename_for_ref(star_list):
         old_cols += ['me']
         new_cols += ['me_avg']
 
-    ref_list = copy.deepcopy(old_cols)
+    ref_list = copy.deepcopy(star_list)
 
     for ii in range(len(old_cols)):
         ref_list.rename_column(old_cols[ii], new_cols[ii])
