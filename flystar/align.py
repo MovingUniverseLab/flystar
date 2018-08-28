@@ -8,6 +8,8 @@ import datetime
 import copy
 import os
 import pdb
+import warnings
+from astropy.utils.exceptions import AstropyUserWarning
 
 def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1],
                  outlier_tol=[None, None], mag_trans=True, mag_lim=None, weights=None,
@@ -213,12 +215,14 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                         weight = 1.0 / np.sqrt(star_list_T['xe'][idx1]**2 + star_list_T['ye'][idx1]**2)
                 else:
                     weight = None
-                
+
+                warnings.filterwarnings('ignore', category=AstropyUserWarning)
                 trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
                                                     ref_list['x_avg'][idx2], ref_list['y_avg'][idx2], 
                                                     **(trans_args[nn]),
                                                     m=star_list['m'][idx1], mref=ref_list['m_avg'][idx2],
                                                     weights=weight)
+                warnings.filterwarnings('default', category=AstropyUserWarning)
                 #pdb.set_trace()
 
                 if ~update_mag_offset:
