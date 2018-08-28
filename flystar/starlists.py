@@ -537,7 +537,12 @@ class StarList(Table):
         return
     
     def restrict_by_value(self, **kwargs):
-        
+        """
+        Restrict a table to any min/max range of column values. For instance, 
+        to restrict to only stars between 10 <= m <= 15, use:
+
+        starlist.restrict_by_value(m_min=10, m_max=15)
+        """
         import copy
         aaa = copy.deepcopy(self)
         

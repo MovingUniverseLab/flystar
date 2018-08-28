@@ -1,4 +1,3 @@
-
 import numpy as np
 from flystar import align, match
 from flystar import transforms
@@ -134,32 +133,35 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     ##########
     
     for ii in range(len(star_lists)):
-        print("   **********")
-        print("   Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)))
-        print("   **********")
+        print("**********")
+        print("Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)))
+        print("**********")
         star_list = star_lists[ii]
         trans = trans_list[ii]
 
         ### If it is matching the reference frame to itself, do not improve the transformation
         if ii != ref_index:
             
-            ### Get the updated reference list (optional) and trim it based on magnitude.
+            ### Get the updated reference list (optional)
+            #       ref_list - not trimmed (only used for final matching)
             if update_ref_per_iter:
                 ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
             else:
                 ref_list = copy_and_rename_for_ref(star_lists[ref_index])
-                
-            ref_list_T = copy.deepcopy(ref_list)
-            
+
+            # Trim the a copy of the reference list based on magnitude.
+            #       ref_list_T - trimmed (used for all matching/transformation derivations)
+            ref_lis_T = copy.deepcopy(ref_list)
             if (mag_lim != None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
-                idx2_in_mag_range = np.where((ref_list_T['m_avg'] > mag_lim[ref_index][0]) &
-                                             (ref_list_T['m_avg'] < mag_lim[ref_index][1]))[0]
-                ref_list_T = ref_list_T[idx2_in_mag_range]
+                ref_list_T.restrict_by_value(m_min = mag_lim[ref_index][0],
+                                             m_max = mag_lim[ref_index][1])
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
-                trans = trans_initial_guess(ref_list, star_list)
+                trans = trans_initial_guess(ref_list_T, star_list, trans_args[0])
             mag_offset = trans.mag_offset
+            print('init guess: ', trans.px.parameters, trans.py.parameters)
+            print('ref_list_T: ', ref_list_T['x_avg', 'y_avg'][0:3])
 
             ### Repeat transform + match several times.
             for nn in range(iters):
@@ -171,11 +173,9 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 # Only on the T=transformed version.
                 # Note ref_list_T has already been trimmed. 
                 if (mag_lim != None) and (mag_lim[ii][0] or mag_lim[ii][1]):
-                    idx1_in_mag_range = np.where((star_list_T['m'] > mag_lim[ii][0]) &
-                                                 (star_list_T['m'] < mag_lim[ii][1]))[0]
-                    star_list_T = star_list_T[idx1_in_mag_range]
+                    star_list_T.restrict_by_value(m_min = mag_lim[ii][0], m_max = mag_lim[ii][1])
 
-                # Match stars between the lists.
+                # Match stars between the transformed, trimmed lists.
                 idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                  ref_list_T['x_avg'], ref_list_T['y_avg'], ref_list_T['m_avg'],
                                                  dr_tol=dr_tol[nn], dm_tol=dm_tol[nn], verbose=verbose)
@@ -185,22 +185,10 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 
                 # TO DO: Outlier rejection in the last iterations??
                 if outlier_tol[nn] != None:
-                    if verbose:
-                        print('Rejecting outliers')
-                    x_resid_on_old_trans = star_list_T['x'][idx1] - ref_list_T['x_avg'][idx2]
-                    y_resid_on_old_trans = star_list_T['y'][idx1] - ref_list_T['y_avg'][idx2]
-                    resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
-
-                    threshold = outlier_tol[nn] * resid_on_old_trans.std()
-                    keepers = np.where(resid_on_old_trans < threshold)[0]
-
+                    keepers = outlier_rejection_indices(star_list_T[idx1], ref_list_T[idx2],
+                                                            outlier_tol[nn])
                     idx1 = idx1[keepers]
                     idx2 = idx2[keepers]
-
-                # Modify the indices in the
-                if (mag_lim != None) and (mag_lim[ii][0] or mag_lim[ii][1]):
-                    idx1 = idx1_in_mag_range[idx1]
-                    idx2 = idx2_in_mag_range[idx2]
 
                 if weights != None:
                     if weights == 'both':
@@ -213,12 +201,11 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 else:
                     weight = None
                 
-                trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
-                                                    ref_list['x_avg'][idx2], ref_list['y_avg'][idx2], 
+                trans = trans_class.derive_transform(star_list_T['x'][idx1], star_list_T['y'][idx1], 
+                                                    ref_list_T['x_avg'][idx2], ref_list_T['y_avg'][idx2], 
                                                     **(trans_args[nn]),
-                                                    m=star_list['m'][idx1], mref=ref_list['m_avg'][idx2],
+                                                    m=star_list_T['m'][idx1], mref=ref_list_T['m_avg'][idx2],
                                                     weights=weight)
-                pdb.set_trace()
 
                 if ~update_mag_offset:
                     trans.mag_offset = mag_offset
@@ -2070,7 +2057,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
                 
     return
 
-def trans_initial_guess(ref_list, star_list):
+def trans_initial_guess(ref_list, star_list, trans_args):
     """
     Take two starlists and perform an initial matching and transformation.
 
@@ -2094,7 +2081,11 @@ def trans_initial_guess(ref_list, star_list):
     print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
     # Calculate position transformation based on matches
-    trans = transforms.PolyTransform.derive_transform(x1m, y1m ,x2m, y2m, order=1, weights=None)
+    if ('order' in trans_args) and (trans_args['order'] == 0):
+        order = 0
+    else:
+        order = 1
+    trans = transforms.PolyTransform.derive_transform(x1m, y1m ,x2m, y2m, order=order, weights=None)
 
     # Calculate flux transformation based on matches. Should be applied as
     #     m' = m + mag_offset
@@ -2156,3 +2147,46 @@ def copy_and_rename_for_ref(star_list):
         ref_list.rename_column(old_cols[ii], new_cols[ii])
 
     return ref_list
+
+def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
+    """
+    Determine the outliers based on the residual positions between two different
+    starlists and some threshold (in sigma). Return the indices of the stars 
+    to keep (that shouldn't be rejected as outliers). 
+
+    Note that we assume that the star_list and ref_list are already transformed and
+    matched. 
+
+    Parameters
+    ----------
+    star_list : StarList
+        starlist with 'x', 'y'
+
+    ref_list : StarList
+        starlist with 'x_avg', 'y_avg'
+
+    outlier_tol : float
+        Number of sigma inside which we keep stars and outside of which we 
+        reject stars as outliers. 
+
+    Optional Parameters
+    --------------------
+    verbose : boolean
+
+    Returns
+    ----------
+    keepers : nd.array
+        The indicies of the stars to keep. 
+    """
+    if verbose:
+        print('Rejecting outliers')
+
+    # Residuals
+    x_resid_on_old_trans = star_list['x'] - ref_list['x_avg']
+    y_resid_on_old_trans = star_list['y'] - ref_list['y_avg']
+    resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
+
+    threshold = outlier_tol * resid_on_old_trans.std()
+    keepers = np.where(resid_on_old_trans < threshold)[0]
+
+    return keepers
