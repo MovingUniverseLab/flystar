@@ -151,7 +151,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
 
             # Trim the a copy of the reference list based on magnitude.
             #       ref_list_T - trimmed (used for all matching/transformation derivations)
-            ref_lis_T = copy.deepcopy(ref_list)
+            ref_list_T = copy.deepcopy(ref_list)
             if (mag_lim != None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
                 ref_list_T.restrict_by_value(m_min = mag_lim[ref_index][0],
                                              m_max = mag_lim[ref_index][1])
