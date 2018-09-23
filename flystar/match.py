@@ -1,6 +1,6 @@
 
 import numpy as np
-from flystar import starlists, align, transforms, startables
+from flystar import starlists, transforms, startables
 from collections import Counter
 from scipy.spatial import cKDTree as KDT
 from astropy.table import Column, Table

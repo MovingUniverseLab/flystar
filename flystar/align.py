@@ -1,5 +1,5 @@
 import numpy as np
-from flystar import align, match
+from flystar import match
 from flystar import transforms
 from flystar.startables import StarTable
 from astropy.table import Table, Column, vstack
@@ -873,7 +873,7 @@ def initial_align(table1, table2, briteN=100,
     print( 'Begin initial match')
 
     N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(x1, y1, m1, x2, y2, m2, briteN)
-    assert len(x1m) > req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
+    #assert len(x1m) > req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
     print(( '{0} stars matched between starlist1 and starlist2'.format(N)))
 
     # Calculate transformation based on matches
@@ -1006,7 +1006,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
 
     # calculate weights from *transformed* coords. This is where we use the
     # transformation object
-    if ('xe' in table1_trans.colnames):
+    if (table1_trans != None) and ('xe' in table1_trans.colnames):
         x1e = table1_trans['xe']
         y1e = table1_trans['ye']
 
