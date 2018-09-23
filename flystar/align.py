@@ -7,6 +7,8 @@ import datetime
 import copy
 import os
 import pdb
+import warnings
+from astropy.utils.exceptions import AstropyUserWarning
 
 def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1],
                  outlier_tol=[None, None], mag_trans=True, mag_lim=None, weights=None,
@@ -133,9 +135,11 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     ##########
     
     for ii in range(len(star_lists)):
-        print("**********")
-        print("Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)))
-        print("**********")
+        if verbose:
+            print("   **********")
+            print("   Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)))
+            print("   **********")
+
         star_list = star_lists[ii]
         trans = trans_list[ii]
 
@@ -158,7 +162,8 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
-                trans = trans_initial_guess(ref_list_T, star_list, trans_args[0])
+                trans = trans_initial_guess(ref_list_T, star_list, verbose=verbose)
+
             mag_offset = trans.mag_offset
             print('init guess: ', trans.px.parameters, trans.py.parameters)
             print('ref_list_T: ', ref_list_T['x_avg', 'y_avg'][0:3])
@@ -200,12 +205,16 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                         weight = 1.0 / np.sqrt(star_list_T['xe'][idx1]**2 + star_list_T['ye'][idx1]**2)
                 else:
                     weight = None
-                
-                trans = trans_class.derive_transform(star_list_T['x'][idx1], star_list_T['y'][idx1], 
+
+                warnings.filterwarnings('ignore', category=AstropyUserWarning)
+                trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
                                                     ref_list_T['x_avg'][idx2], ref_list_T['y_avg'][idx2], 
                                                     **(trans_args[nn]),
                                                     m=star_list_T['m'][idx1], mref=ref_list_T['m_avg'][idx2],
                                                     weights=weight)
+                warnings.filterwarnings('default', category=AstropyUserWarning)
+                #pdb.set_trace()
+
 
                 if ~update_mag_offset:
                     trans.mag_offset = mag_offset
@@ -249,8 +258,9 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
         ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
     
     ### Find where stars are detected
-    print('')
-    print('   Preparing the reference table...')
+    if verbose:
+        print('')
+        print('   Preparing the reference table...')
     ref_table.detections()
     
     ### Remove the reference epoch from the mean
@@ -2057,7 +2067,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
                 
     return
 
-def trans_initial_guess(ref_list, star_list, trans_args):
+def trans_initial_guess(ref_list, star_list, verbose=True):
     """
     Take two starlists and perform an initial matching and transformation.
 
@@ -2078,7 +2088,8 @@ def trans_initial_guess(ref_list, star_list, trans_args):
     err_msg = 'Failed to find at least '+str(req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
     assert len(x1m) > req_match, err_msg
-    print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
+    if verbose:
+        print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
     # Calculate position transformation based on matches
     if ('order' in trans_args) and (trans_args['order'] == 0):
@@ -2141,7 +2152,7 @@ def copy_and_rename_for_ref(star_list):
         old_cols += ['me']
         new_cols += ['me_avg']
 
-    ref_list = copy.deepcopy(old_cols)
+    ref_list = copy.deepcopy(star_list)
 
     for ii in range(len(old_cols)):
         ref_list.rename_column(old_cols[ii], new_cols[ii])

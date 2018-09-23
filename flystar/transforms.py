@@ -374,10 +374,11 @@ class PolyTransform(Transform2D):
         dynew_dx = 0.0
         dynew_dy = 0.0
 
-        if (self.order == 0):
-            poly_order = 1
-
-        for i in range(poly_order + 1):
+        # if (self.order == 0):
+        #     poly_order = 1
+        # 
+        # for i in range(poly_order + 1):
+        for i in range(self.order + 1):
             for j in range(i + 1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
                 Xcoeff = self.px.parameters[coeff_idx]
