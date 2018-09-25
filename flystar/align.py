@@ -1,6 +1,7 @@
 import numpy as np
 from flystar import match
 from flystar import transforms
+from flystar.starlists import StarList
 from flystar.startables import StarTable
 from astropy.table import Table, Column, vstack
 import datetime
@@ -10,11 +11,14 @@ import pdb
 import warnings
 from astropy.utils.exceptions import AstropyUserWarning
 
-def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=[2, 1],
-                 outlier_tol=[None, None], mag_trans=True, mag_lim=None, weights=None,
-                 trans_input=None, trans_class=transforms.PolyTransform,
+def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
+                 dr_tol=[1, 1], dm_tol=[2, 1],
+                 outlier_tol=[None, None],
                  trans_args=[{'order': 2}, {'order': 2}],
+                 mag_trans=True, mag_lim=None, weights=None,
+                 trans_input=None, trans_class=transforms.PolyTransform,
                  update_mag_offset=True, update_ref_per_iter=True,
+                 init_guess_mode='miracle',
                  ref_epoch_mean=True, verbose=True):
     """
     Required Parameters
@@ -136,8 +140,10 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
     
     for ii in range(len(star_lists)):
         if verbose:
+            msg = '   Matching catalog {0} / {1} at time {2:.3f} with {3:d} stars'
             print("   **********")
-            print("   Matching catalog {0} / {1}...".format((ii + 1), len(star_lists)))
+            print(msg.format((ii + 1), len(star_lists),
+                             star_lists[ii]['t'][0], len(star_lists[ii])))
             print("   **********")
 
         star_list = star_lists[ii]
@@ -149,24 +155,28 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
             ### Get the updated reference list (optional)
             #       ref_list - not trimmed (only used for final matching)
             if update_ref_per_iter:
-                ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
+                ref_list = ref_table['name', 'x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
             else:
                 ref_list = copy_and_rename_for_ref(star_lists[ref_index])
 
             # Trim the a copy of the reference list based on magnitude.
             #       ref_list_T - trimmed (used for all matching/transformation derivations)
             ref_list_T = copy.deepcopy(ref_list)
-            if (mag_lim != None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
-                ref_list_T.restrict_by_value(m_min = mag_lim[ref_index][0],
-                                             m_max = mag_lim[ref_index][1])
+            if (mag_lim is not None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
+                idx = np.where((ref_list_T['m_avg'] > mag_lim[ref_index][0]) &
+                               (ref_list_T['m_avg'] < mag_lim[ref_index][1]))[0]
+                ref_list_T = ref_list_T[idx]
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
-                trans = trans_initial_guess(ref_list_T, star_list, verbose=verbose)
+                trans = trans_initial_guess(ref_list_T, star_list, trans_args[0],
+                                            mode=init_guess_mode,
+                                            verbose=verbose)
 
             mag_offset = trans.mag_offset
-            print('init guess: ', trans.px.parameters, trans.py.parameters)
-            print('ref_list_T: ', ref_list_T['x_avg', 'y_avg'][0:3])
+            if verbose:
+                print('init guess: ', trans.px.parameters, trans.py.parameters)
+                print('ref_list_T:\n', ref_list_T['x_avg', 'y_avg'][0:3])
 
             ### Repeat transform + match several times.
             for nn in range(iters):
@@ -177,7 +187,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2, dr_tol=[1, 1], dm_tol=
                 # Trim down to just those stars in the specified magnitude range.
                 # Only on the T=transformed version.
                 # Note ref_list_T has already been trimmed. 
-                if (mag_lim != None) and (mag_lim[ii][0] or mag_lim[ii][1]):
+                if (mag_lim is not None) and (mag_lim[ii][0] or mag_lim[ii][1]):
                     star_list_T.restrict_by_value(m_min = mag_lim[ii][0], m_max = mag_lim[ii][1])
 
                 # Match stars between the transformed, trimmed lists.
@@ -412,6 +422,7 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis):
         ref_table_nstars = ref_table.meta['n_stars'] + ref_table_new.meta['n_stars']
         ref_table.meta['n_stars'] = ref_table_nstars
         ref_table_new.meta['n_stars'] = ref_table_nstars
+        ref_table_new.meta['ref_list'] = ref_table.meta['ref_list']
         ref_table = vstack([ref_table, ref_table_new])
 
     idx_ref_new = np.arange(last_star_idx, len(ref_table))
@@ -2067,7 +2078,8 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
                 
     return
 
-def trans_initial_guess(ref_list, star_list, verbose=True):
+def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
+                        ignore_contains='star', verbose=True):
     """
     Take two starlists and perform an initial matching and transformation.
 
@@ -2075,16 +2087,41 @@ def trans_initial_guess(ref_list, star_list, verbose=True):
     guess transformations (triangle matching, match by name, etc.). For now it
     is just blind triangle matching on the brightest 50 stars. 
     """
-    briteN = min(50, len(star_list))
     req_match = 5
     
-    N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(star_list['x'],
-                                                                 star_list['y'],
-                                                                 star_list['m'],
-                                                                 ref_list['x_avg'],
-                                                                 ref_list['y_avg'],
-                                                                 ref_list['m_avg'],
-                                                                 briteN)
+    if mode == 'name':
+        # First trim the two lists down to only those that don't contain
+        # the "ignore_contains" string.
+        idx_r = np.flatnonzero(np.char.find(ref_list['name'], ignore_contains) == -1)
+        idx_s = np.flatnonzero(np.char.find(star_list['name'], ignore_contains) == -1)
+        
+        # Match the star names
+        name_matches, ndx_r, ndx_s = np.intersect1d(ref_list['name'][idx_r],
+                                                    star_list['name'][idx_s],
+                                                    assume_unique=True,
+                                                    return_indices=True)
+        
+        x1m = star_list['x'][idx_s][ndx_s]
+        y1m = star_list['y'][idx_s][ndx_s]
+        m1m = star_list['m'][idx_s][ndx_s]
+        x2m = ref_list['x_avg'][idx_r][ndx_r]
+        y2m = ref_list['y_avg'][idx_r][ndx_r]
+        m2m = ref_list['m_avg'][idx_r][ndx_r]
+        N = len(x1m)
+        
+    else:
+        # Default is miracle match.
+        briteN = min(50, len(star_list))
+    
+        N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(star_list['x'],
+                                                                    star_list['y'],
+                                                                    star_list['m'],
+                                                                    ref_list['x_avg'],
+                                                                    ref_list['y_avg'],
+                                                                    ref_list['m_avg'],
+                                                                    briteN)
+
+        
     err_msg = 'Failed to find at least '+str(req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
     assert len(x1m) > req_match, err_msg
@@ -2104,6 +2141,7 @@ def trans_initial_guess(ref_list, star_list, verbose=True):
     trans.mag_offset = np.mean(m2m - m1m)
 
     return trans
+
 
 def update_old_and_new_names(ref_table, list_index, idx_ref_new):
     # Make new ref_list names for the new stars.
@@ -2189,8 +2227,6 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
     keepers : nd.array
         The indicies of the stars to keep. 
     """
-    if verbose:
-        print('Rejecting outliers')
 
     # Residuals
     x_resid_on_old_trans = star_list['x'] - ref_list['x_avg']
@@ -2200,4 +2236,8 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
     threshold = outlier_tol * resid_on_old_trans.std()
     keepers = np.where(resid_on_old_trans < threshold)[0]
 
+    if verbose:
+        msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
+        print(msg.format(len(keepers), len(resid_on_old_trans)))
+        
     return keepers
