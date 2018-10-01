@@ -169,9 +169,11 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
+                warnings.filterwarnings('ignore', category=AstropyUserWarning)
                 trans = trans_initial_guess(ref_list_T, star_list, trans_args[0],
                                             mode=init_guess_mode,
                                             verbose=verbose)
+                warnings.filterwarnings('default', category=AstropyUserWarning)
 
             mag_offset = trans.mag_offset
             if verbose:
@@ -2122,7 +2124,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
                                                                     briteN)
 
         
-    err_msg = 'Failed to find at least '+str(req_match)
+    err_msg = 'Failed to find more than '+str(req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
     assert len(x1m) > req_match, err_msg
     if verbose:
