@@ -1,5 +1,6 @@
 import numpy as np
 from astropy.table import Table, Column
+import astropy.table
 import warnings
 import pdb
 
@@ -449,7 +450,7 @@ class StarList(Table):
         return
 
     @classmethod
-    def from_lis_file(cls, filename, error=True):
+    def from_lis_file(cls, filename, error=True, fvu_file=None):
         """
         Read in a starlist file, rename columns with standard names.
         Assumes the starlist is the reference, so we have time as
@@ -486,6 +487,7 @@ class StarList(Table):
         """
         t_ref = Table.read(filename, format='ascii', delimiter='\s')
 
+
         # Check if this already has column names:
         cols = t_ref.colnames
 
@@ -512,6 +514,19 @@ class StarList(Table):
             t_ref.rename_column(cols[6], 'corr')
             t_ref.rename_column(cols[7], 'N_frames')
             t_ref.rename_column(cols[8], 'flux')
+
+        if fvu_file is not None:
+            t_fvu = Table.read(fvu_file, format='ascii.no_header')
+            t_fvu.rename_column('col1', 'fvu')
+
+            if len(t_fvu) != len(t_ref):
+                msg = 'Star list and metric list have different lengths.\n'
+                msg += '\t len(stars) = {0:d}\n'
+                msg += '\t len(fvu) = {1:d}\n'
+                
+                raise RuntimeError(msg.format(len(t_ref), len(t_fvu)))
+            
+            t_ref = astropy.table.hstack([t_ref, t_fvu])        
 
         return cls.from_table(t_ref)
 
