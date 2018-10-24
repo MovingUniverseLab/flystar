@@ -766,8 +766,8 @@ class LegTransform(Transform2D):
             array or list of errors of the coefficients to transform input y coordinates 
             into output y' coordinates.
         """
-        px_dict = make_param_dict(px)
-        py_dict = make_param_dict(py)
+        px_dict = LegTransform.make_param_dict(px, order, isY=False)
+        py_dict = LegTransform.make_param_dict(py, order, isY=True)
         
         self.px = models.Legendre2D(order, order, **px_dict)
         self.py = models.Legendre2D(order, order, **py_dict)
@@ -800,7 +800,75 @@ class LegTransform(Transform2D):
         py = fit_p(p_init_y, x, y, y_ref, weights=weights)
 
         trans = cls(order, px.parameters, py.parameters)
-        
+
+    @staticmethod
+    def make_param_dict(initial_param, order, isY=False):
+        """
+        Convert initial parameter arrays into a format that astropy model Legendre2D
+        can understand. We expect input arrays in the form:
+
+        x' = c0_0 + c1_0 * L_1(x) + c0_1*L_1(y) + c1_1*L_1(x)*L_1(y) + ....
+        y' = d0_0 + d1_0 * L_1(x) + d0_1*L_1(y) + d1_1*L_1(x)*L_1(y) +....
+
+        and convert this into a dictionary where:
+
+        0th order:
+        c0_0 = a0
+
+        1st order:
+        c0_1 = a1
+        c1_0 = a2
+        c1_1 = a3
+
+        2nd order:
+        c0_2 = a4
+        c1_2 = a5
+        c2_0 = a6
+        c2_1 = a7
+        c2_2 = a8
+
+        3rd order:
+        c0_3 = a9
+        c1_3 = a10
+        c2_3 = a11
+        c3_0 = a12
+        c3_1 = a13
+        c3_2 = a14
+        c3_3 = a15
+
+        Astropy models Polynomial2D has its own special order... we try to 
+        hide this entirely inside our object. 
+        """
+        idx = 0
+
+        param_dict = {}
+
+        idx = 0
+
+        # The i loop designates all the terms where
+        # either n = i or m = i. In other words, all terms up to this
+        # order value are included.  So for i=0, there is only 1 term.
+        # For i = 1, there are three terms. See help above. 
+        for i in range(order+1):
+            for xi in range(i+1):
+                for yi in range(i+1):
+                    if (xi == i) or (yi == i):
+                        coeff_key = 'c{0}_{1}'.format(xi, yi)
+
+                        if isinstance(initial_param, (list, tuple, np.ndarray)):
+                            coeff = initial_param[idx]
+                        else:
+                            # Handle case of no initial guess
+                            coeff = 0.0
+                            if isY == False and xi == 1 and yi == 0:
+                                coeff = 1.0
+                            if isY == True and xi == 0 and yi == 1:
+                                coeff = 1.0
+
+                        param_dict[coeff_key] = coeff
+                        idx += 1
+
+        return param_dict
 
     def evaluate(self, x, y):
         """

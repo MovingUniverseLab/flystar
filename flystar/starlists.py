@@ -517,7 +517,8 @@ class StarList(Table):
 
         if fvu_file is not None:
             t_fvu = Table.read(fvu_file, format='ascii.no_header')
-            t_fvu.rename_column('col1', 'fvu')
+            t_fvu.rename_column('col1', 'sqrt_fvu')
+            t_fvu.add_column(t_fvu['sqrt_fvu']**2, name='fvu')
 
             if len(t_fvu) != len(t_ref):
                 msg = 'Star list and metric list have different lengths.\n'

@@ -511,8 +511,9 @@ class StarTable(Table):
         """
         Find where stars are detected.
         """
-        
         where_detect = np.transpose(np.ma.nonzero(~np.isnan(self['x'])))
+
+        # PROBLEM WITH DETECT!!!
         detect = [where_detect[np.where(where_detect[:, 0] == i)[0], 1] for i
                   in np.unique(where_detect[:, 0])]
         
