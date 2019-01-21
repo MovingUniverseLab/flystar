@@ -23,7 +23,7 @@ class StarTable(Table):
 
     m : 2D numpy.array with shape = (N_stars, N_lists)
         Magnitudes of N_stars in each of N_lists.
-    
+
     Optional table columns (input as keywords):
     -------------------------
     xe : 2D numpy.array with shape = (N_stars, N_lists)
@@ -510,18 +510,7 @@ class StarTable(Table):
     def detections(self):
         """
         Find where stars are detected.
-        """
-        where_detect = np.transpose(np.ma.nonzero(~np.isnan(self['x'])))
-
-        # PROBLEM WITH DETECT!!!
-        detect = [where_detect[np.where(where_detect[:, 0] == i)[0], 1] for i
-                  in np.unique(where_detect[:, 0])]
-        
-        if 'detect' in self.colnames:
-            self['detect'] = detect
-        else:
-            self.add_column(Column(detect), name='detect')
-        
+        # """
         n_detect = np.sum(~np.isnan(self['x']), axis=1)
         
         if 'n_detect' in self.colnames:

@@ -140,10 +140,9 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
     
     for ii in range(len(star_lists)):
         if verbose:
-            msg = '   Matching catalog {0} / {1} at time {2:.3f} with {3:d} stars'
+            msg = '   Matching catalog {0} / {1} with {2:d} stars'
             print("   **********")
-            print(msg.format((ii + 1), len(star_lists),
-                             star_lists[ii]['t'][0], len(star_lists[ii])))
+            print(msg.format((ii + 1), len(star_lists), len(star_lists[ii])))
             print("   **********")
 
         star_list = star_lists[ii]
@@ -187,7 +186,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
                 star_list_T.transform_xym(trans)
 
                 # Trim down to just those stars in the specified magnitude range.
-                # Only on the T=transformed version.
+               # Only on the T=transformed version.
                 # Note ref_list_T has already been trimmed. 
                 if (mag_lim is not None) and (mag_lim[ii][0] or mag_lim[ii][1]):
                     star_list_T.restrict_by_value(m_min = mag_lim[ii][0], m_max = mag_lim[ii][1])

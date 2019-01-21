@@ -4,8 +4,9 @@ from scipy.interpolate import LSQBivariateSpline as spline
 from scipy import stats
 from astropy.table import Table
 import collections
-import re
+import re, os
 import pdb
+import datetime
 
 class Transform2D(object):
     '''
@@ -614,7 +615,7 @@ class PolyTransform(Transform2D):
         
         return trans_obj
 
-    def to_file(self, trans_file):
+    def to_file(self, trans_file, extra_info_dict=None):
         """
         Given a transformation object, write out the coefficients in a text file
         (readable by java align). Outfile name is specified by user.
@@ -633,28 +634,28 @@ class PolyTransform(Transform2D):
 
         """
         # Extract info about transformation
-        trans_name = transform.__class__.__name__
-        trans_order = transform.order
+        trans_name = self.__class__.__name__
+        trans_order = self.order
         
         # Extract X, Y coefficients from transform
-        Xcoeff = transform.px.parameters
-        Ycoeff = transform.py.parameters
-        coeff_names = transform.px.param_names  # same for both.
+        Xcoeff = self.px.parameters
+        Ycoeff = self.py.parameters
+        coeff_names = self.px.param_names  # same for both.
             
         # Write output
-        _out = open(outFile, 'w')
+        _out = open(trans_file, 'w')
         
         # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
         _out.write('## Date: {0}\n'.format(datetime.date.today()) )
-        _out.write('## File: {0}, Reference: {1}\n'.format(starlist, reference) )
         _out.write('## Directory: {0}\n'.format(os.getcwd()) )
-        _out.write('## Transform Class: {0}\n'.format(transform.__class__.__name__))
-        _out.write('## Order: {0}\n'.format(transform.order))
-        _out.write('## Restrict: {0}\n'.format(restrict))
-        _out.write('## Weights: {0}\n'.format(weights))
+        _out.write('## Transform Class: {0}\n'.format(self.__class__.__name__))
+        _out.write('## Order: {0}\n'.format(self.order))
+        if extra_info_dict != None:
+            for ekey in extra_info_dict:
+                _out.write('## {0:s}: {1:s}\n'.format(ekey, str(extra_info_dict[ekey])))
+                               
+        _out.write('## Delta Mag: {0}\n'.format(self.mag_offset))
         _out.write('## N_coeff: {0}\n'.format(len(Xcoeff)))
-        _out.write('## N_trans: {0}\n'.format(N_trans))
-        _out.write('## Delta Mag: {0}\n'.format(deltaMag))
         _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
         
         # Write the coefficients such that the orders are together as defined in

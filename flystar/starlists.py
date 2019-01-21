@@ -460,14 +460,14 @@ class StarList(Table):
         ---------
         starlistFile: text file, containing:
             col1: name
-            col2: mag
+            col2: mag (name=m)
             col3: t
             col4: x (pix)
             col5: y (pix)
             if error==True:
-                col6: xerr
-                col7: yerr
-                col8: SNR
+                col6: xerr (name=xe)
+                col7: yerr (name=ye)
+                col8: SNR (name=snr)
                 col9: corr
                 col10: N_frames
                 col11: flux
