@@ -27,6 +27,19 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
         An array or list of flystar.starlists.StarList objects (which are Astropy Tables).
         There should be one for each starlist and they must contain 'x', 'y', and 'm' columns.
 
+        Note that there is an optional weights column called 'w'. If this column exists
+        in any of the lists, it will be queried to determine if an individual star can be
+        used to derive the transformations between starlists. This is the most flexible way
+        to allow you to determine, as a function of time and star, which ones are good enough 
+        in the transformation. Note that just because it can be used (i.e. w_in=1), 
+        doesn't meant that it will be used. The mag limits and outliers still take precedence. 
+        Note also that the weights that go into the transformation are 
+        
+            star_list['w'] * ref_list['w'] * weight_from_keyword (see the weights parameter)
+
+        for those stars not trimmed out by the other criteria. 
+
+
     Optional Parameters
     ----------
     ref_index : int
@@ -111,12 +124,10 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
     #    x_avg, y_avg, m_avg -- the running average of positions: 1D
     #    x, y, m, (opt. errors) -- the transformed positions for the lists: 2D
     #    x_orig, y_orig, m_orig, (opt. errors) -- the transformed errors for the lists: 2D
+    #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
     ##########
     ref_table = setup_ref_table_from_starlist(star_lists[ref_index])
     
-    # Prepare the reference starlist
-    ref_list = ref_table['x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
-
     # Save the reference index to the meta data on the reference list.
     ref_table.meta['ref_list'] = ref_index
 
@@ -137,26 +148,42 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
     # Loop through starlists and align them to the reference list, one at a time.
     #
     ##########
-    
-    for ii in range(len(star_lists)):
-        if verbose:
-            msg = '   Matching catalog {0} / {1} with {2:d} stars'
-            print("   **********")
-            print(msg.format((ii + 1), len(star_lists), len(star_lists[ii])))
-            print("   **********")
 
-        star_list = star_lists[ii]
-        trans = trans_list[ii]
+    ### Repeat transform + match several times.
+    for nn in range(iters):
 
-        ### If it is matching the reference frame to itself, do not improve the transformation
-        if ii != ref_index:
+        # If we are on subsequent iterations, remove matching
+        # results from the prior iteration. 
+        if nn > 0:
+            reset_ref_values(ref_table)
             
-            ### Get the updated reference list (optional)
-            #       ref_list - not trimmed (only used for final matching)
-            if update_ref_per_iter:
-                ref_list = ref_table['name', 'x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
-            else:
-                ref_list = copy_and_rename_for_ref(star_lists[ref_index])
+        ### Get the (updated) reference list
+        #       ref_list - not trimmed (only used for final matching).
+        if update_ref_per_iter:
+            ref_list = ref_table['name', 'x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
+        else:
+            ref_list = copy_and_rename_for_ref(star_lists[ref_index])
+
+        if verbose:
+            print(" ")
+            print("**********")
+            print("**********")
+            print('Starting iter {0:d} with ref_table shape:'.format(nn), ref_table['x'].shape)
+            print("**********")
+            print("**********")
+
+        ## In this iteration, loop through the starlists.
+        for ii in range(len(star_lists)):
+            if verbose:
+                msg = '   Matching catalog {0} / {1} in iteration {2} with {3:d} stars'
+                print(" ")
+                print("   **********")
+                print(msg.format((ii + 1), len(star_lists), nn, len(star_lists[ii])))
+                print("   **********")
+
+            star_list = star_lists[ii]
+            trans = trans_list[ii]
+
 
             # Trim the a copy of the reference list based on magnitude.
             #       ref_list_T - trimmed (used for all matching/transformation derivations)
@@ -179,106 +206,129 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
                 print('init guess: ', trans.px.parameters, trans.py.parameters)
                 print('ref_list_T:\n', ref_list_T['x_avg', 'y_avg'][0:3])
 
-            ### Repeat transform + match several times.
-            for nn in range(iters):
-                # Apply the XY transformation to a new copy of the starlist.
-                star_list_T = copy.deepcopy(star_list)
-                star_list_T.transform_xym(trans)
+            # Apply the XY transformation to a new copy of the starlist.
+            star_list_T = copy.deepcopy(star_list)
+            star_list_T.transform_xym(trans)
 
-                # Trim down to just those stars in the specified magnitude range.
-               # Only on the T=transformed version.
-                # Note ref_list_T has already been trimmed. 
-                if (mag_lim is not None) and (mag_lim[ii][0] or mag_lim[ii][1]):
-                    star_list_T.restrict_by_value(m_min = mag_lim[ii][0], m_max = mag_lim[ii][1])
+            # Trim down to just those stars in the specified magnitude range.
+            # Only on the T=transformed version.
+            # Note ref_list_T has already been trimmed. 
+            if (mag_lim is not None) and (mag_lim[ii][0] or mag_lim[ii][1]):
+                star_list_T.restrict_by_value(m_min = mag_lim[ii][0], m_max = mag_lim[ii][1])
 
-                # Match stars between the transformed, trimmed lists.
-                idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                                 ref_list_T['x_avg'], ref_list_T['y_avg'], ref_list_T['m_avg'],
-                                                 dr_tol=dr_tol[nn], dm_tol=dm_tol[nn], verbose=verbose)
+            # Match stars between the transformed, trimmed lists.
+            idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                                             ref_list_T['x_avg'], ref_list_T['y_avg'], ref_list_T['m_avg'],
+                                             dr_tol=dr_tol[nn], dm_tol=dm_tol[nn], verbose=verbose)
 
-                if verbose:
-                    print( 'In Loop ', nn, ' found ', len(idx1), ' matches' )
-                
-                # TO DO: Outlier rejection in the last iterations??
-                if outlier_tol[nn] != None:
-                    keepers = outlier_rejection_indices(star_list_T[idx1], ref_list_T[idx2],
-                                                            outlier_tol[nn])
-                    idx1 = idx1[keepers]
-                    idx2 = idx2[keepers]
+            if verbose:
+                print( 'In Loop ', nn, ' found ', len(idx1), ' matches' )
 
-                if weights != None:
-                    if weights == 'both':
-                        weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + star_list_T['xe'][idx1]**2 +
-                                               ref_list_T['y_std'][idx2]**2 + star_list_T['ye'][idx1]**2)
-                    if weights == 'reference':
-                        weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + ref_list_T['y_std'][idx2]**2)
-                    if weights == 'starlist':
-                        weight = 1.0 / np.sqrt(star_list_T['xe'][idx1]**2 + star_list_T['ye'][idx1]**2)
-                else:
-                    weight = None
-
-                warnings.filterwarnings('ignore', category=AstropyUserWarning)
-                trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
-                                                    ref_list_T['x_avg'][idx2], ref_list_T['y_avg'][idx2], 
-                                                    **(trans_args[nn]),
-                                                    m=star_list_T['m'][idx1], mref=ref_list_T['m_avg'][idx2],
-                                                    weights=weight)
-                warnings.filterwarnings('default', category=AstropyUserWarning)
-                #pdb.set_trace()
+            # Outlier rejection
+            if outlier_tol[nn] != None:
+                keepers = outlier_rejection_indices(star_list_T[idx1], ref_list_T[idx2],
+                                                        outlier_tol[nn])
+                idx1 = idx1[keepers]
+                idx2 = idx2[keepers]
 
 
-                if ~update_mag_offset:
-                    trans.mag_offset = mag_offset
+            if weights != None:
+                if weights == 'both':
+                    weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + star_list_T['xe'][idx1]**2 +
+                                           ref_list_T['y_std'][idx2]**2 + star_list_T['ye'][idx1]**2)
+                if weights == 'reference':
+                    weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + ref_list_T['y_std'][idx2]**2)
+                if weights == 'starlist':
+                    weight = 1.0 / np.sqrt(star_list_T['xe'][idx1]**2 + star_list_T['ye'][idx1]**2)
+            else:
+                weight = None
 
-                # Save the final transformation.
-                trans_list[ii] = trans
-        
-        ### Final Match:  The point is matching... lets do one final match.
-        star_list_T = copy.deepcopy(star_list)
-        star_list_T.transform_xym(trans)
-        star_list_T.rename_column('name', 'name_in_list')
+            # Derive the transformation parameters for this list. 
+            warnings.filterwarnings('ignore', category=AstropyUserWarning)
+            trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
+                                                ref_list_T['x_avg'][idx2], ref_list_T['y_avg'][idx2], 
+                                                **(trans_args[nn]),
+                                                m=star_list_T['m'][idx1], mref=ref_list_T['m_avg'][idx2],
+                                                weights=weight)
+            warnings.filterwarnings('default', category=AstropyUserWarning)
+            #pdb.set_trace()
 
-        if ii == ref_index:
-            # If this is the reference epoch, then we just copy over what we already have. 
-            idx_lis = np.arange(len(star_list_T), dtype=int)
-            idx_ref = np.arange(len(star_list_T), dtype=int)
-        else:
-            # If not the reference epoch, do one final match between the two (now transformed) lists.
+
+            if ~update_mag_offset:
+                trans.mag_offset = mag_offset
+
+            # Save the final transformation.
+            trans_list[ii] = trans
+
+            # Apply the XY transformation to a new copy of the starlist and
+            # do one final match between the two (now transformed) lists.
+            star_list_T = copy.deepcopy(star_list)
+            star_list_T.transform_xym(trans)
             idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                                   ref_list['x_avg'], ref_list['y_avg'], ref_list['m_avg'],
-                                                   dr_tol=dr_tol[-1], dm_tol=dm_tol[-1], verbose=verbose)
+                                                   ref_table['x_avg'], ref_table['y_avg'], ref_table['m_avg'],
+                                                   dr_tol=dr_tol[nn], dm_tol=dm_tol[nn], verbose=verbose)
 
-        ### Update the reference table for matched stars.
-        # Add the matched stars to the reference table.
-        # For every epoch except the first, we need to add a starlist.
-        if ii != ref_index:
-            ref_table.add_starlist()
-        copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref, idx_lis)
+            ### Update the reference table for matched stars.
+            # Add the matched stars to the reference table.
+            # For every epoch except the reference, we need to add a starlist.
+            if (nn == 0) and (ii != ref_index):
+                ref_table.add_starlist()
+            copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref, idx_lis)
         
-        ### Add the unmatched stars and grow the size of the reference table.
-        if ii != ref_index:
+            ### Add the unmatched stars and grow the size of the reference table.
             ref_table, idx_lis_new, idx_ref_new = add_rows_for_new_stars(ref_table, star_list, idx_lis)
 
             if len(idx_ref_new) > 0:
                 copy_over_values(ref_table, star_list, star_list_T, ii, idx_ref_new, idx_lis_new)
                 ref_table['name'] = update_old_and_new_names(ref_table, ii, idx_ref_new)
         
-        ### Update the "average" values to be used as the reference frame for the next list.
-        weighted_xy = ('xe' in ref_table.colnames) and ('ye' in ref_table.colnames)
-        weighted_m = ('me' in ref_table.colnames)
-        ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
+            ### Update the "average" values to be used as the reference frame for the next list.
+            weighted_xy = ('xe' in ref_table.colnames) and ('ye' in ref_table.colnames)
+            weighted_m = ('me' in ref_table.colnames)
+            
+            ### Remove the reference epoch from the mean
+            if not ref_epoch_mean:
+                ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m,
+                                    mask_lists=[ref_index])
+            else:
+                ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
+
+            
+    ### Re-do all matching given final transformations.
+    #        No trimming this time.
+    #        First rest the reference table 2D values. 
+    reset_ref_values(ref_table)
+
+    if verbose:
+        print("**********")
+        print("Final Matching")
+        print("**********")
+        
+    for ii in range(len(star_lists)):
+        # Apply the XY transformation to a new copy of the starlist and
+        # do one final match between the two (now transformed) lists.
+        star_list_T = copy.deepcopy(star_lists[ii])
+        star_list_T.transform_xym(trans_list[ii])
+        
+        idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                                               ref_table['x_avg'], ref_table['y_avg'], ref_table['m_avg'],
+                                               dr_tol=dr_tol[-1], dm_tol=dm_tol[-1], verbose=verbose)
+        if verbose:
+            print('Matched {0:d} out of {1:d} stars in list {2:d}'.format(len(idx_lis), len(star_list_T), ii))
+            
+        copy_over_values(ref_table, star_lists[ii], star_list_T, ii, idx_ref, idx_lis)
+
     
     ### Find where stars are detected
     if verbose:
         print('')
         print('   Preparing the reference table...')
     ref_table.detections()
-    
-    ### Remove the reference epoch from the mean
-    if not ref_epoch_mean:
-        ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m,
-                                    mask_lists=[ref_index])
 
+    ### Drop all stars that have 0 detections.
+    idx = np.where(ref_table['n_detect'] != 0)[0]
+    ref_table = ref_table[idx]
+    
     return ref_table, trans_list
 
 def setup_ref_table_from_starlist(star_list):
@@ -307,7 +357,7 @@ def setup_ref_table_from_starlist(star_list):
     # Make new columns to hold original values. These will be copies
     # of the old columns and will only include x, y, m, xe, ye, me.
     # The columns we have already created will hold transformed values. 
-    trans_col_names = ['x', 'y', 'm', 'xe', 'ye', 'me']
+    trans_col_names = ['x', 'y', 'm', 'xe', 'ye', 'me', 'w']
     for tt in range(len(trans_col_names)):
         old_name = trans_col_names[tt]
 
@@ -339,7 +389,7 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
     Copy only those values for stars that match.
 
     Copy all columns that are in both ref_table and star_list_T. 
-    Copy all columsn that are also in star_list but copy them into <col>_orig.
+    Copy all columns that are also in star_list but copy them into <col>_orig.
 
     Parameters
     ----------
@@ -357,12 +407,30 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
     """
     for col_name in ref_table.colnames:
         if col_name in star_list_T.colnames:
-            ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]
+            if col_name == 'name':
+                ref_table['name_in_list'][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]
+            else:
+                ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]
 
             orig_col_name = col_name + '_orig'
             if orig_col_name in ref_table.colnames:
                 ref_table[orig_col_name][idx_ref, idx_epoch] = star_list[col_name][list(idx_lis)]
 
+    return
+
+def reset_ref_values(ref_table):
+    """
+    Reset all the 2D arrays in the reference table. This is the action
+    we take at the beginning of each new iteration. We don't preserve matching
+    results from the prior iterations. 
+    """
+    # All 2D columns should be reset.
+    for col_name in ref_table.colnames:
+        if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
+            # Loop through epochs for this array.
+            for cc in range(ref_table[col_name].shape[1]):
+                ref_table._set_invalid_list_values(col_name, cc)
+                
     return
 
 def add_rows_for_new_stars(ref_table, star_list, idx_lis):
@@ -2190,7 +2258,10 @@ def copy_and_rename_for_ref(star_list):
     if 'me' in star_list.colnames:
         old_cols += ['me']
         new_cols += ['me_avg']
-
+    if 'w' in star_list.colnames:
+        old_cols += ['w']
+        new_cols += ['w']
+        
     ref_list = copy.deepcopy(star_list)
 
     for ii in range(len(old_cols)):

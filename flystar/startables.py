@@ -423,7 +423,7 @@ class StarTable(Table):
 
         Masking of NaN values is also performed.
         
-        "mask_lists" is an array with the indeces of lists that excluded from
+        "mask_lists" is an array with the indices of lists that excluded from
         the combination.
         
         A flag can be stored in the metadata to record if the average was
