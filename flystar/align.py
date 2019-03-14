@@ -131,18 +131,17 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
     # Save the reference index to the meta data on the reference list.
     ref_table.meta['ref_list'] = ref_index
 
-    # Keep a list of the transformation objects for each epochs.
-    # Load up previous transformations, if they exist.
-    trans_list = [None for ii in range(N_lists)]
-    if trans_input != None:
-        trans_list = [trans_input[ii] for ii in range(N_lists)]
+    
+    ##########
+    # Setup transformation lists and arguments.
+    #     - Keep a list of the transformation objects for each epochs.
+    #     - Load up previous transformations, if they exist.
+    #     - Keep a list of trans_args, one for each starlist. If only a single
+    #       is passed in, replicate for all star lists, all loop iterations.
+    ##########
+    trans_list, trans_args = setup_trans_info(trans_input, trans_args, N_lists, iters)
 
-    # Keep a list of trans_args, one for each starlist. If only
-    # a single is passed in, replicate for all star lists, all loop iterations.
-    if type(trans_args) == dict:
-        tmp = trans_args
-        trans_args = [tmp for ii in range(iters)]
-
+    
     ##########
     #
     # Loop through starlists and align them to the reference list, one at a time.
@@ -187,24 +186,15 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
 
             # Trim the a copy of the reference list based on magnitude.
             #       ref_list_T - trimmed (used for all matching/transformation derivations)
-            ref_list_T = copy.deepcopy(ref_list)
-            if (mag_lim is not None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
-                idx = np.where((ref_list_T['m_avg'] > mag_lim[ref_index][0]) &
-                               (ref_list_T['m_avg'] < mag_lim[ref_index][1]))[0]
-                ref_list_T = ref_list_T[idx]
+            ref_list_T = apply_mag_lim(ref_list, ref_index, mag_lim)
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
-                warnings.filterwarnings('ignore', category=AstropyUserWarning)
                 trans = trans_initial_guess(ref_list_T, star_list, trans_args[0],
                                             mode=init_guess_mode,
                                             verbose=verbose)
-                warnings.filterwarnings('default', category=AstropyUserWarning)
 
             mag_offset = trans.mag_offset
-            if verbose:
-                print('init guess: ', trans.px.parameters, trans.py.parameters)
-                print('ref_list_T:\n', ref_list_T['x_avg', 'y_avg'][0:3])
 
             # Apply the XY transformation to a new copy of the starlist.
             star_list_T = copy.deepcopy(star_list)
@@ -232,16 +222,8 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
                 idx2 = idx2[keepers]
 
 
-            if weights != None:
-                if weights == 'both':
-                    weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + star_list_T['xe'][idx1]**2 +
-                                           ref_list_T['y_std'][idx2]**2 + star_list_T['ye'][idx1]**2)
-                if weights == 'reference':
-                    weight = 1.0 / np.sqrt(ref_list_T['x_std'][idx2]**2 + ref_list_T['y_std'][idx2]**2)
-                if weights == 'starlist':
-                    weight = 1.0 / np.sqrt(star_list_T['xe'][idx1]**2 + star_list_T['ye'][idx1]**2)
-            else:
-                weight = None
+            # Determine weights in the fit.
+            weight = get_weighting_scheme(weights, ref_list_T, star_list_T, idx1, idx2)
 
             # Derive the transformation parameters for this list. 
             warnings.filterwarnings('ignore', category=AstropyUserWarning)
@@ -251,7 +233,6 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
                                                 m=star_list_T['m'][idx1], mref=ref_list_T['m_avg'][idx2],
                                                 weights=weight)
             warnings.filterwarnings('default', category=AstropyUserWarning)
-            #pdb.set_trace()
 
 
             if ~update_mag_offset:
@@ -2156,6 +2137,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     guess transformations (triangle matching, match by name, etc.). For now it
     is just blind triangle matching on the brightest 50 stars. 
     """
+    warnings.filterwarnings('ignore', category=AstropyUserWarning)
     req_match = 5
     
     if mode == 'name':
@@ -2209,6 +2191,12 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     # where m is the original magnitude and m' is in the reference frame mag system.
     trans.mag_offset = np.mean(m2m - m1m)
 
+    if verbose:
+        print('init guess: ', trans.px.parameters, trans.py.parameters)
+        print('ref_list_T:\n', ref_list['x_avg', 'y_avg'][0:3])
+
+    warnings.filterwarnings('default', category=AstropyUserWarning)
+        
     return trans
 
 
@@ -2313,3 +2301,56 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
         print(msg.format(len(keepers), len(resid_on_old_trans)))
         
     return keepers
+
+def setup_trans_info(trans_input, trans_args, N_lists, iters):
+    """ Setup transformation info into a usable format.
+
+    trans_input : list or None
+    trans_args : dict or None
+    N_lists : int
+    iters : int
+    """
+    trans_list = [None for ii in range(N_lists)]
+    if trans_input != None:
+        trans_list = [trans_input[ii] for ii in range(N_lists)]
+
+    # Keep a list of trans_args, one for each starlist. If only
+    # a single is passed in, replicate for all star lists, all loop iterations.
+    if type(trans_args) == dict:
+        tmp = trans_args
+        trans_args = [tmp for ii in range(iters)]
+        
+    return trans_list, trans_args
+
+def apply_mag_lim(ref_list, ref_index, mag_lim):
+    """ Apply a magnitude limit to the list. If no magnitude limit is 
+    specified, then return a copy of the list. 
+
+    ref_list : reference star list with column 'm_avg'
+    mag_lim : N_list x 2 array
+        Contains the minimum and maximum magnitude cut to apply. If none,
+        no magnitude cut is applied.
+
+    """
+    ref_list_T = copy.deepcopy(ref_list)
+            
+    if (mag_lim is not None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
+        idx = np.where((ref_list_T['m_avg'] > mag_lim[ref_index][0]) &
+                           (ref_list_T['m_avg'] < mag_lim[ref_index][1]))[0]
+        ref_list_T = ref_list_T[idx]
+
+    return ref_list_T
+    
+def get_weighting_scheme(weights, ref_list, star_list, idx1, idx2):
+    if weights != None:
+        if weights == 'both':
+            weight = 1.0 / np.sqrt(ref_list['x_std'][idx2]**2 + star_list['xe'][idx1]**2 +
+                                   ref_list['y_std'][idx2]**2 + star_list['ye'][idx1]**2)
+        if weights == 'reference':
+            weight = 1.0 / np.sqrt(ref_list['x_std'][idx2]**2 + ref_list['y_std'][idx2]**2)
+        if weights == 'starlist':
+            weight = 1.0 / np.sqrt(star_list['xe'][idx1]**2 + star_list['ye'][idx1]**2)
+    else:
+        weight = None
+        
+    return weight

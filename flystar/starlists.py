@@ -531,6 +531,33 @@ class StarList(Table):
 
         return cls.from_table(t_ref)
 
+    def to_lis_file(self, filename):
+        _out = open(filename, 'w')
+        
+        hdr = '{name:13s}  {mag:>6s}  {year:>8s}  '
+        hdr += '{x:>9s}  {y:>9s}  {xe:>9s}  {ye:>9s}  '
+        hdr += '{snr:>20s}  {corr:>6s}  {nimg:>8s}  {flux:>20s}\n'
+
+        _out.write(hdr.format(name='# name', mag='m', year='t',
+                              x='x', y='y', xe='xe', ye='ye',
+                              snr='snr', corr='corr', nimg='N_frames', flux='flux'))
+    
+
+        fmt = '{name:13s}  {mag:6.3f}  {year:8.3f}  '
+        fmt += '{x:9.3f}  {y:9.3f}  {xe:9.3f}  {ye:9.3f}  '
+        fmt += '{snr:20.4f}  {corr:6.2f}  {nimg:8d}  {flux:20.0f}\n'
+
+        for ss in range(len(self)):
+            _out.write(fmt.format(name=self['name'][ss], mag=self['m'][ss], year=self['t'][ss],
+                                  x=self['x'][ss], y=self['y'][ss], xe=self['xe'][ss], ye=self['ye'][ss],
+                                  snr=self['snr'][ss], corr=self['corr'][ss], nimg=self['N_frames'][ss],
+                                  flux=self['flux'][ss]))
+
+        _out.close()
+        
+        return
+    
+    
     @classmethod
     def from_table(cls, table):
         """

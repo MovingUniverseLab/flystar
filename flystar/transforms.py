@@ -743,7 +743,7 @@ class Shift(PolyTransform):
     
     
 class LegTransform(Transform2D):
-    def __init__(self, order, px, py):
+    def __init__(self, order, px, py, pxerr=None, pyerr=None, mag_offset=0.0):
         """
         Specify the order of the Legendre transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
@@ -766,6 +766,10 @@ class LegTransform(Transform2D):
         pyerr : array or list
             array or list of errors of the coefficients to transform input y coordinates 
             into output y' coordinates.
+
+        mag_offset : float
+            magnitude difference with the reference catalog (mag_ref - mag_cat)
+
         """
         px_dict = LegTransform.make_param_dict(px, order, isY=False)
         py_dict = LegTransform.make_param_dict(py, order, isY=True)
@@ -774,11 +778,15 @@ class LegTransform(Transform2D):
         self.py = models.Legendre2D(order, order, **py_dict)
         self.order = order
 
+        self.pxerr = pxerr
+        self.pyerr = pyerr
+        self.mag_offset = mag_offset
+
         return
 
 
     @classmethod
-    def derive_transform(cls, x, y, xref, yref, order,
+    def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
                  init_gx=None, init_gy=None, weights=None):
         """
         Defines a bivariate legendre tranformation from x,y -> xref,yref using Legnedre polynomials as the basis.
@@ -800,7 +808,16 @@ class LegTransform(Transform2D):
         px = fit_p(p_init_x, x, y, x_ref, weights=weights)
         py = fit_p(p_init_y, x, y, y_ref, weights=weights)
 
-        trans = cls(order, px.parameters, py.parameters)
+        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
+        if (m is not None) and (mref is not None):
+            m_resid = mref - m
+            threshold = 3 * m_resid.std()
+            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+            mag_offset = np.mean((mref - m)[keepers])
+        else:
+            mag_offset =  0
+        
+        trans = cls(order, px.parameters, py.parameters, mag_offset=mag_offset)
 
     @staticmethod
     def make_param_dict(initial_param, order, isY=False):
@@ -843,8 +860,6 @@ class LegTransform(Transform2D):
         idx = 0
 
         param_dict = {}
-
-        idx = 0
 
         # The i loop designates all the terms where
         # either n = i or m = i. In other words, all terms up to this
