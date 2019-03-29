@@ -2129,7 +2129,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
     return
 
 def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
-                        ignore_contains='star', verbose=True):
+                        ignore_contains='star', verbose=True, n_req_match=2):
     """
     Take two starlists and perform an initial matching and transformation.
 
@@ -2138,7 +2138,6 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     is just blind triangle matching on the brightest 50 stars. 
     """
     warnings.filterwarnings('ignore', category=AstropyUserWarning)
-    req_match = 5
     
     if mode == 'name':
         # First trim the two lists down to only those that don't contain
@@ -2173,9 +2172,9 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
                                                                     briteN)
 
         
-    err_msg = 'Failed to find more than '+str(req_match)
+    err_msg = 'Failed to find more than '+str(n_req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
-    assert len(x1m) > req_match, err_msg
+    assert len(x1m) > n_req_match, err_msg
     if verbose:
         print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
