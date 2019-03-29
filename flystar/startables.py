@@ -1,9 +1,11 @@
 from astropy.table import Table, Column
 from astropy.stats import sigma_clipping
+from scipy.optimize import curve_fit
 import numpy as np
 import warnings
 import collections
 import pdb
+import time
 
 
 class StarTable(Table):
@@ -147,6 +149,7 @@ class StarTable(Table):
             for meta_arg in meta_tab:
                 if meta_arg in kwargs:
                     self.meta[meta_arg] = kwargs[meta_arg]
+                    del kwargs[meta_arg]
 
             for arg in kwargs:
                 if arg in ['name', 'x', 'y', 'm']:
@@ -278,9 +281,7 @@ class StarTable(Table):
         for key in self.meta.keys():
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if (isinstance(self.meta[key], list) and
-                  (len(self.meta[key]) == self.meta['n_lists'])):
-
+            if isinstance(self.meta[key], collections.Iterable) and (len(self.meta[key]) == self.meta['n_lists']):
                 # If we find the key is the passed in meta argument, then add the new values.
                 # Otherwise, add "None".
                 if 'meta' in kwargs:
@@ -418,8 +419,8 @@ class StarTable(Table):
         direction and calculated the average value, with outlier rejection.
         Optionally, weight by a specified column (weights_col). Optionally,
         use sigma clipping. The final values are stored in a new column named
-        <col_name_in>_avg -- the mean (with outlier rejection)
-        <col_name_in>_std -- the std (with outlier rejection)
+        <col_name_in>0 -- the mean (with outlier rejection)
+        <col_name_in>0e -- the std (with outlier rejection)
 
         Masking of NaN values is also performed.
         
@@ -461,16 +462,16 @@ class StarTable(Table):
             np.seterr(divide='warn')
                 
             if meta_add:
-                self.meta[col_name_in + '_avg'] = 'weighted'
+                self.meta[col_name_in + '0'] = 'weighted'
         else:
             wgt_2d = None
             if meta_add:
-                self.meta[col_name_in + '_avg'] = 'not_weighted'
+                self.meta[col_name_in + '0'] = 'not_weighted'
 
         # Figure out which ones are outliers. Returns a masked array.
         if sigma:
             warnings.filterwarnings('ignore', category=RuntimeWarning)
-            val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=sigma, iters=5, axis=1)
+            val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=sigma, maxiters=5, axis=1)
             warnings.filterwarnings('default', category=RuntimeWarning)
         else:
             val_2d_clip = val_2d
@@ -491,8 +492,8 @@ class StarTable(Table):
             std[mask_for_singles]=np.nanmean(err_2d[mask_for_singles], axis=1)
 
         # Save off our new AVG and STD into new columns with shape (N_stars).
-        col_name_avg = col_name_in + '_avg'
-        col_name_std = col_name_in + '_std'
+        col_name_avg = col_name_in + '0'
+        col_name_std = col_name_in + '0e'
 
         if ismag:
             std = (2.5 / np.log(10)) * std / avg
@@ -519,3 +520,146 @@ class StarTable(Table):
             self.add_column(Column(n_detect), name='n_detect')
         
         return
+
+    
+    def fit_velocities(self, bootstrap=0, verbose=False):
+        """
+        Fit velocities for all stars in the table. 
+        """
+        if ('t' not in self.colnames) and ('list_times' not in self.meta):
+            raise RuntimeError('fit_velocities: Failed to time values.')
+
+        N_stars, N_epochs = self['x'].shape
+
+        if verbose:
+            start_time = time.time()
+            msg = 'Starting startable.fit_velocities for {0:d} stars with n={1:d} bootstrap'
+            print(msg.format(N_stars, bootstrap))
+
+        def poly_model(time, *params):
+            pos = np.polyval(params, time)
+            return pos
+
+        # Define output arrays for the best-fit parameters.
+        try:
+            self.remove_column('x0')
+            self.remove_column('vx')
+            self.remove_column('y0')
+            self.remove_column('vy')
+            self.remove_column('n_vfit')
+            self.remove_column('x0e')
+            self.remove_column('vxe')
+            self.remove_column('y0e')
+            self.remove_column('vye')
+        except KeyError:
+            # We don't care if the key didn't exist before. 
+            pass
+        
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'x0'))
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vx'))
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'y0'))
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vy'))
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'n_vfit'))
+
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'x0e'))
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vxe'))
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'y0e'))
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vye'))
+
+        self.meta['n_vfit_bootstrap'] = bootstrap
+
+        # STARS LOOP through the stars and work on them 1 at a time.
+        # This is slow; but robust.
+        for ss in range(N_stars):
+            x = self['x'][ss, :]
+            y = self['y'][ss, :]
+
+            if 'xe' in self.colnames:
+                xe = self['xe'][ss, :]
+                ye = self['ye'][ss, :]
+            else:
+                xe = np.ones(N_epochs, dtype=float)
+                ye = np.ones(N_epochs, dtype=float)
+
+            if 't' in self.colnames:
+                t = self['t'][ss, :]
+            else:
+                t = self.meta['list_times']
+
+            # Figure out where we have detections (as indicated by error columns 
+            good = np.where((xe != 0) & (ye != 0) &
+                            np.isfinite(xe) & np.isfinite(ye) &
+                            np.isfinite(x) & np.isfinite(y))[0]
+
+            x = x[good]
+            y = y[good]
+            t = t[good]
+            xe = xe[good]
+            ye = ye[good]
+            N_good = len(good)
+
+            self['n_vfit'] = N_good
+
+            p0x = np.array([0.0, x.mean()])
+            p0y = np.array([0.0, y.mean()])
+            
+            # Calculate the t0 for all the stars.
+            t_weight = 1.0 / np.hypot(xe, ye)
+            t0 = np.average(t, weights=t_weight)
+            dt = t - t0
+
+            if N_good > 2:
+                vx_opt, vx_cov = curve_fit(poly_model, dt, x, p0=p0x, sigma=xe)
+                vy_opt, vy_cov = curve_fit(poly_model, dt, y, p0=p0y, sigma=ye)
+
+                self['x0'][ss] = vx_opt[1]
+                self['vx'][ss] = vx_opt[0]
+                self['y0'][ss] = vy_opt[1]
+                self['vy'][ss] = vy_opt[0]
+
+                # Run the bootstrap
+                if bootstrap > 0:
+                    edx = np.arange(N_good, dtype=int)
+
+                    fit_x0_b = np.zeros(bootstrap, dtype=float)
+                    fit_vx_b = np.zeros(bootstrap, dtype=float)
+                    fit_y0_b = np.zeros(bootstrap, dtype=float)
+                    fit_vy_b = np.zeros(bootstrap, dtype=float)
+                
+                    for bb in range(bootstrap):
+                        bdx = np.random.choice(edx, N_good)
+
+                        vx_opt_b, vx_cov_b = curve_fit(poly_model, dt[bdx], x[bdx], p0=vx_opt, sigma=xe[bdx])
+                        vy_opt_b, vy_cov_b = curve_fit(poly_model, dt[bdx], y[bdx], p0=vy_opt, sigma=ye[bdx])
+
+                        fit_x0_b[bb] = vx_opt_b[1]
+                        fit_vx_b[bb] = vx_opt_b[0]
+                        fit_y0_b[bb] = vy_opt_b[1]
+                        fit_vy_b[bb] = vy_opt_b[0]
+
+                    # Save the errors from the bootstrap
+                    self['x0e'][ss] = fit_x0_b.std()
+                    self['vxe'][ss] = fit_vx_b.std()
+                    self['y0e'][ss] = fit_y0_b.std()
+                    self['vye'][ss] = fit_vy_b.std()
+                else:
+                    vx_err = np.sqrt(vx_cov.diagonal())
+                    vy_err = np.sqrt(vy_cov.diagonal())
+
+                    self['x0e'][ss] = vx_err[1]
+                    self['vxe'][ss] = vx_err[0]
+                    self['y0e'][ss] = vy_err[1]
+                    self['vye'][ss] = vy_err[0]
+
+        if verbose:
+            stop_time = time.time()
+            print('startable.fit_velocities runtime = {0:.0f} s for {1:d} stars'.format(stop_time - start_time, N_stars))
+        
+        return
+
+        
+        
+
+        
+        
+        

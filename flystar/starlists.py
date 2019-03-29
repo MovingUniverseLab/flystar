@@ -585,22 +585,36 @@ class StarList(Table):
         to restrict to only stars between 10 <= m <= 15, use:
 
         starlist.restrict_by_value(m_min=10, m_max=15)
+
+        where 'm' was the column name.
+
+        This function acts on self, so the rows are removed
+        forever. 
         """
-        import copy
-        aaa = copy.deepcopy(self)
+        # Loop through all conditions and build up
+        # an array of indicies of rows to remove. 
+        remove_flag = np.zeros(len(self), dtype=bool)
         
         for kwarg in kwargs:
-            
             if kwargs[kwarg] is not None:
+                # Get the name of the column to act on and
+                # whether the condition is min or max.
                 kwarg_split = kwarg.split('_')
-            
-                if kwarg_split[1] == 'min':
-                    aaa = aaa[aaa[kwarg_split[0]] >= kwargs[kwarg]]
+
+                # Support column names such as x_0. 
+                col = '_'.join(kwarg_split[:-1])
+
+                if kwarg_split[-1] == 'min':
+                    remove_flag = np.logical_or(remove_flag, self[col] <= kwargs[kwarg])
                 
-                if kwarg_split[1] == 'max':
-                    aaa = aaa[aaa[kwarg_split[0]] <= kwargs[kwarg]]
+                if kwarg_split[-1] == 'max':
+                    remove_flag = np.logical_or(remove_flag, self[col] >= kwargs[kwarg])
+
+        rem_idx = np.where(remove_flag == True)[0]
         
-        return aaa
+        self.remove_rows(rem_idx)
+        
+        return
 
     def transform_xym(self, trans):
         """

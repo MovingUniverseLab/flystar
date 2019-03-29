@@ -63,7 +63,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
         magnitudes in each list to bring them into a common magnitude system. This is 
         essential for matching (with finite dm_tol) starlists of different filters or 
         starlists that are not photometrically calibrated. Note that the final_table columns 
-        of 'm', 'm_avg', and 'm_std' will contain the transformed magnitudes while the 
+        of 'm', 'm0', and 'm0e' will contain the transformed magnitudes while the 
         final_table column 'm_orig' will contain the original un-transformed magnitudes. 
         If mag_trans = False, then no such zeropoint offset it applied at any point. 
     
@@ -72,10 +72,10 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
         on the catalogs for finding the transformations
 
     weights : str
-        Either None (def), 'both', 'starlist', or 'reference' depending on whether you want
-        to weight by the positional uncertainties in the individual starlists, or also with
+        Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
+        to weight by the positional uncertainties (variances) in the individual starlists, or also with
         the uncertainties in the reference frame itself.  Note weighting only works when there
-        are positional uncertainties availabe. 
+        are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
     
     trans_input : array or list of transform objects
         def = None. If not None, then this should contain an array or list of transform
@@ -121,7 +121,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
 
     ##########
     # Setup a reference table to store data. It will contain:
-    #    x_avg, y_avg, m_avg -- the running average of positions: 1D
+    #    x0, y0, m0 -- the running average of positions: 1D
     #    x, y, m, (opt. errors) -- the transformed positions for the lists: 2D
     #    x_orig, y_orig, m_orig, (opt. errors) -- the transformed errors for the lists: 2D
     #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
@@ -159,7 +159,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
         ### Get the (updated) reference list
         #       ref_list - not trimmed (only used for final matching).
         if update_ref_per_iter:
-            ref_list = ref_table['name', 'x_avg', 'y_avg', 'm_avg', 'x_std', 'y_std', 'm_std']
+            ref_list = ref_table['name', 'x0', 'y0', 'm0', 'x0e', 'y0e', 'm0e']
         else:
             ref_list = copy_and_rename_for_ref(star_lists[ref_index])
 
@@ -184,31 +184,29 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
             trans = trans_list[ii]
 
 
-            # Trim the a copy of the reference list based on magnitude.
-            #       ref_list_T - trimmed (used for all matching/transformation derivations)
-            ref_list_T = apply_mag_lim(ref_list, ref_index, mag_lim)
+            # Trim a COPY of the reference and star lists based on magnitude.
+            #       ref_list_T  - trimmed (used for all matching/transformation derivations)
+            #       star_list_T - trimmed but not yet transformed.
+            ref_list_T  = apply_mag_lim(ref_list, mag_lim, ref_index)
+            star_list_T = apply_mag_lim(star_list, mag_lim, ii)       
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
-                trans = trans_initial_guess(ref_list_T, star_list, trans_args[0],
+                trans = trans_initial_guess(ref_list_T, star_list_T, trans_args[0],
                                             mode=init_guess_mode,
                                             verbose=verbose)
 
             mag_offset = trans.mag_offset
 
             # Apply the XY transformation to a new copy of the starlist.
-            star_list_T = copy.deepcopy(star_list)
             star_list_T.transform_xym(trans)
 
-            # Trim down to just those stars in the specified magnitude range.
-            # Only on the T=transformed version.
-            # Note ref_list_T has already been trimmed. 
-            if (mag_lim is not None) and (mag_lim[ii][0] or mag_lim[ii][1]):
-                star_list_T.restrict_by_value(m_min = mag_lim[ii][0], m_max = mag_lim[ii][1])
-
             # Match stars between the transformed, trimmed lists.
+            xref, yref = get_pos_at_time(star_list_T['t'][0], ref_list_T)  # optional velocity propogation.
+            mref = ref_list_T['m0']
+                                             
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                             ref_list_T['x_avg'], ref_list_T['y_avg'], ref_list_T['m_avg'],
+                                             xref, yref, mref,
                                              dr_tol=dr_tol[nn], dm_tol=dm_tol[nn], verbose=verbose)
 
             if verbose:
@@ -223,16 +221,17 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
 
 
             # Determine weights in the fit.
-            weight = get_weighting_scheme(weights, ref_list_T, star_list_T, idx1, idx2)
+            weight = get_weighting_scheme(weights, ref_list_T[idx2], star_list_T[idx1])
 
             # Derive the transformation parameters for this list. 
-            warnings.filterwarnings('ignore', category=AstropyUserWarning)
+            xref, yref = get_pos_at_time(star_list_T['t'][0], ref_list_T[idx2])  # optional velocity propogation.
+            mref = ref_list_T['m0'][idx2]
+            
             trans = trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
-                                                ref_list_T['x_avg'][idx2], ref_list_T['y_avg'][idx2], 
+                                                 xref, yref, 
                                                 **(trans_args[nn]),
-                                                m=star_list_T['m'][idx1], mref=ref_list_T['m_avg'][idx2],
+                                                m=star_list_T['m'][idx1], mref=mref,
                                                 weights=weight)
-            warnings.filterwarnings('default', category=AstropyUserWarning)
 
 
             if ~update_mag_offset:
@@ -245,8 +244,12 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(star_list)
             star_list_T.transform_xym(trans)
+            
+            xref, yref = get_pos_at_time(star_list_T['t'][0], ref_list)  # optional velocity propogation.
+            mref = ref_list_T['m0']
+            
             idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                                   ref_table['x_avg'], ref_table['y_avg'], ref_table['m_avg'],
+                                                   xref, yref, mref,
                                                    dr_tol=dr_tol[nn], dm_tol=dm_tol[nn], verbose=verbose)
 
             ### Update the reference table for matched stars.
@@ -292,7 +295,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
         star_list_T.transform_xym(trans_list[ii])
         
         idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                               ref_table['x_avg'], ref_table['y_avg'], ref_table['m_avg'],
+                                               ref_table['x0'], ref_table['y0'], ref_table['m0'],
                                                dr_tol=dr_tol[-1], dm_tol=dm_tol[-1], verbose=verbose)
         if verbose:
             print('Matched {0:d} out of {1:d} stars in list {2:d}'.format(len(idx_lis), len(star_list_T), ii))
@@ -348,14 +351,14 @@ def setup_ref_table_from_starlist(star_list):
             ref_table.add_column(new_col)
 
     # Average the x, y, and m columns (althought this is just a copy) and store in
-    # x_avg, y_avg, m_avg. This will be what we use to align with. We will keep
+    # x0, y0, m0. This will be what we use to align with. We will keep
     # updating the average with every new starlist.
     ref_table.combine_lists('x')
     ref_table.combine_lists('y')
     ref_table.combine_lists('m', ismag=True)
 
     # Now reset the original values to invalids... they will be filled in
-    # at later times. Preserve content only in the columns: name, x_avg, y_avg, m_avg (and _std).
+    # at later times. Preserve content only in the columns: name, x0, y0, m0 (and 0e).
     # Note that these are all the 1D columsn.
     for col_name in ref_table.colnames:
         if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
@@ -2129,7 +2132,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
     return
 
 def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
-                        ignore_contains='star', verbose=True):
+                        ignore_contains='star', verbose=True, n_req_match=2):
     """
     Take two starlists and perform an initial matching and transformation.
 
@@ -2138,7 +2141,6 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     is just blind triangle matching on the brightest 50 stars. 
     """
     warnings.filterwarnings('ignore', category=AstropyUserWarning)
-    req_match = 5
     
     if mode == 'name':
         # First trim the two lists down to only those that don't contain
@@ -2155,27 +2157,38 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         x1m = star_list['x'][idx_s][ndx_s]
         y1m = star_list['y'][idx_s][ndx_s]
         m1m = star_list['m'][idx_s][ndx_s]
-        x2m = ref_list['x_avg'][idx_r][ndx_r]
-        y2m = ref_list['y_avg'][idx_r][ndx_r]
-        m2m = ref_list['m_avg'][idx_r][ndx_r]
+        x2m = ref_list['x0'][idx_r][ndx_r]
+        y2m = ref_list['y0'][idx_r][ndx_r]
+        m2m = ref_list['m0'][idx_r][ndx_r]
         N = len(x1m)
+
+        # If there are velocities in the reference list, use them.
+        # We assume velocities are in the same units as the positions.
+        # We also assume that all stars in the star_list have a fixed t.
+        x2m, y2m = get_pos_at_time(star_list['t'][0], ref_list[idx_r])
         
     else:
         # Default is miracle match.
-        briteN = min(50, len(star_list))
-    
+        briteN = np.min([50, len(star_list), len(ref_list)])
+
+        # If there are velocities in the reference list, use them.
+        # We assume velocities are in the same units as the positions.
+        xref, yref = get_pos_at_time(star_list['t'][0], ref_list)
+        mref = ref_list['m0']
+            
+
         N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(star_list['x'],
-                                                                    star_list['y'],
-                                                                    star_list['m'],
-                                                                    ref_list['x_avg'],
-                                                                    ref_list['y_avg'],
-                                                                    ref_list['m_avg'],
-                                                                    briteN)
+                                                                     star_list['y'],
+                                                                     star_list['m'],
+                                                                     xref,
+                                                                     yref,
+                                                                     mref,
+                                                                     briteN)
 
         
-    err_msg = 'Failed to find more than '+str(req_match)
+    err_msg = 'Failed to find more than '+str(n_req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
-    assert len(x1m) > req_match, err_msg
+    assert len(x1m) > n_req_match, err_msg
     if verbose:
         print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
@@ -2192,8 +2205,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     trans.mag_offset = np.mean(m2m - m1m)
 
     if verbose:
-        print('init guess: ', trans.px.parameters, trans.py.parameters)
-        print('ref_list_T:\n', ref_list['x_avg', 'y_avg'][0:3])
+        print('initial_guess: ', trans.px.parameters, trans.py.parameters)
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
         
@@ -2226,7 +2238,7 @@ def update_old_and_new_names(ref_table, list_index, idx_ref_new):
 def copy_and_rename_for_ref(star_list):
     """
     Make a deep copy of the starlist and rename the columns to include
-    "_avg". This only applies to x, y, m and xe, ye, me (if they exist) 
+    "0". This only applies to x, y, m and xe, ye, me (if they exist) 
     columns.
 
     Input
@@ -2235,17 +2247,17 @@ def copy_and_rename_for_ref(star_list):
         The starlist to copy.
     """
     old_cols = ['x', 'y', 'm']
-    new_cols = ['x_avg', 'y_avg', 'm_avg']
+    new_cols = ['x0', 'y0', 'm0']
 
     if 'xe' in star_list.colnames:
         old_cols += ['xe']
-        new_cols += ['xe_avg']
+        new_cols += ['x0e']
     if 'ye' in star_list.colnames:
         old_cols += ['ye']
-        new_cols += ['ye_avg']
+        new_cols += ['y0e']
     if 'me' in star_list.colnames:
         old_cols += ['me']
-        new_cols += ['me_avg']
+        new_cols += ['m0e']
     if 'w' in star_list.colnames:
         old_cols += ['w']
         new_cols += ['w']
@@ -2272,7 +2284,7 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
         starlist with 'x', 'y'
 
     ref_list : StarList
-        starlist with 'x_avg', 'y_avg'
+        starlist with 'x0', 'y0'
 
     outlier_tol : float
         Number of sigma inside which we keep stars and outside of which we 
@@ -2287,10 +2299,12 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
     keepers : nd.array
         The indicies of the stars to keep. 
     """
-
+    # Optionally propogate the reference positions forward in time.
+    xref, yref = get_pos_in_time(star_list['t'][0], ref_list)
+    
     # Residuals
-    x_resid_on_old_trans = star_list['x'] - ref_list['x_avg']
-    y_resid_on_old_trans = star_list['y'] - ref_list['y_avg']
+    x_resid_on_old_trans = star_list['x'] - xref
+    y_resid_on_old_trans = star_list['y'] - yref
     resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
 
     threshold = outlier_tol * resid_on_old_trans.std()
@@ -2322,35 +2336,100 @@ def setup_trans_info(trans_input, trans_args, N_lists, iters):
         
     return trans_list, trans_args
 
-def apply_mag_lim(ref_list, ref_index, mag_lim):
+def apply_mag_lim(star_list, mag_lim_all, mag_lim_idx):
     """ Apply a magnitude limit to the list. If no magnitude limit is 
-    specified, then return a copy of the list. 
+    specified, then return a copy of the list.  This works on a 
+    reference list (with 'm0') or a star_list ('m') with 'm0' taking
+    priority.
 
-    ref_list : reference star list with column 'm_avg'
-    mag_lim : N_list x 2 array
+    mag_lim_all : N_list x 2 array
         Contains the minimum and maximum magnitude cut to apply. If none,
         no magnitude cut is applied.
 
-    """
-    ref_list_T = copy.deepcopy(ref_list)
-            
-    if (mag_lim is not None) and (mag_lim[ref_index][0] or mag_lim[ref_index][1]):
-        idx = np.where((ref_list_T['m_avg'] > mag_lim[ref_index][0]) &
-                           (ref_list_T['m_avg'] < mag_lim[ref_index][1]))[0]
-        ref_list_T = ref_list_T[idx]
+    mag_lim_idx : index of the star list passed in used to get the
+        correct magnitude limit.
 
-    return ref_list_T
+    """
+    star_list_T = copy.deepcopy(star_list)
+
+    if (mag_lim_all is not None):
+        # Support 'm0' (primary) or 'm' column name.
+        if 'm0' in star_list_T.colnames:
+            mcol = 'm0'
+        else:
+            mcol = 'm'
+
+        conditions = {}
     
-def get_weighting_scheme(weights, ref_list, star_list, idx1, idx2):
+        cond_key = '{0:s}_min'.format(mcol)
+        conditions[cond_key] = mag_lim_all[mag_lim_idx][0]
+
+        cond_key = '{0:s}_max'.format(mcol)
+        conditions[cond_key] = mag_lim_all[mag_lim_idx][1]
+
+        star_list_T.restrict_by_value(**conditions)
+
+    return star_list_T
+    
+    
+def get_weighting_scheme(weights, ref_list, star_list):
+    if (('vx'  in ref_list.colnames) and ('vy'  in ref_list.colnames) and 
+        ('vxe' in ref_list.colnames) and ('vye' in ref_list.colnames)):
+
+        dt = star_list['t'][0] - ref_list['t0']
+
+        var_xref = ref_list['x0e']**2 + (ref_list['vxe'] * dt)**2
+        var_yref = ref_list['y0e']**2 + (ref_list['vye'] * dt)**2
+    else:
+        var_xref = ref_list['x0e']**2
+        var_yref = ref_list['y0e']**2
+
+    var_xlis = star_list['xe']**2
+    var_ylis = star_list['ye']**2
+    
     if weights != None:
-        if weights == 'both':
-            weight = 1.0 / np.sqrt(ref_list['x_std'][idx2]**2 + star_list['xe'][idx1]**2 +
-                                   ref_list['y_std'][idx2]**2 + star_list['ye'][idx1]**2)
-        if weights == 'reference':
-            weight = 1.0 / np.sqrt(ref_list['x_std'][idx2]**2 + ref_list['y_std'][idx2]**2)
-        if weights == 'starlist':
-            weight = 1.0 / np.sqrt(star_list['xe'][idx1]**2 + star_list['ye'][idx1]**2)
+        if weights == 'both,var':
+            weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
+        if weights == 'both,std':
+            weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
+        if weights == 'ref,var':
+            weight = 1.0 / (var_xref + var_yref)
+        if weights == 'ref,std':
+            weight = 1.0 / np.sqrt(var_xref + var_yref)
+        if weights == 'list,var':
+            weight = 1.0 / (var_xlis, var_ylis)
+        if weights == 'list,std':
+            weight = 1.0 / np.sqrt(var_xlis, var_ylis)
     else:
         weight = None
         
     return weight
+
+def get_pos_at_time(t, starlist):
+    """
+    Take a starlist, check to see if it has velocity columns.
+    If it does, then propogate the positions forward in time 
+    to the desired epoch. If no velocities exist, then just 
+    use ['x0', 'y0'] or ['x', 'y']
+
+    Inputs
+    ----------
+    t_array : float
+        The time to propogate to. Usually in decimal years; 
+        but it should be in the same units
+        as the 't0' column in starlist.
+    """
+    if ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
+        dt = t - starlist['t0']
+        x = starlist['x0'] + (starlist['vx'] * dt)
+        y = starlist['y0'] + (starlist['vy'] * dt)
+    else:
+        if ('x0' in starlist.colnames) and ('y0' in starlist.colnames):
+            x = starlist['x0']
+            y = starlist['y0']
+        else:
+            x = starlist['x']
+            y = starlist['y']
+        
+    return (x, y)
+
