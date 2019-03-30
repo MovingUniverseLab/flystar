@@ -537,7 +537,7 @@ class StarTable(Table):
             print(msg.format(N_stars, bootstrap))
 
         def poly_model(time, *params):
-            pos = np.polyval(params, time)
+            pos = np.polynomial, polyval(params, time)
             return pos
 
         # Define output arrays for the best-fit parameters.
