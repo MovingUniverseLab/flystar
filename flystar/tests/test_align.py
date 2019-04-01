@@ -73,6 +73,22 @@ def test_mosaic_lists_vel():
     return
     
 
+def test_MosaicSelfRef():
+    """
+    Cross-match and align 4 starlists using the OO version of mosaic lists.
+    """
+    list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
+    lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
+
+    msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
+                              dr_tol=[3, 3], dm_tol=[1, 1],
+                              trans_class=transforms.PolyTransform,
+                              trans_args={'order': 2})
+
+    msc.fit()
+
+    return
+
 
 def make_fake_starlists_shifts():
     N_stars = 200
