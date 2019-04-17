@@ -2,7 +2,9 @@ from flystar import align
 from flystar import starlists
 from flystar import startables
 from flystar import transforms
+from astropy.table import Table
 import numpy as np
+import pylab as plt
 import pdb
 
 def test_mosaic_lists_shifts():
@@ -80,15 +82,257 @@ def test_MosaicSelfRef():
     list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
     lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
 
+    ##########
+    # Test instantiation and basic fitting.
+    ##########
     msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
                               dr_tol=[3, 3], dm_tol=[1, 1],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2})
 
     msc.fit()
+    
+    # Check some of the output quantities on the final table.
+    assert 'x0' in msc.ref_table.colnames
+    assert 'x0e' in msc.ref_table.colnames
+    assert 'y0' in msc.ref_table.colnames
+    assert 'y0e' in msc.ref_table.colnames
+    assert 'm0' in msc.ref_table.colnames
+    assert 'm0e' in msc.ref_table.colnames
+    assert 'use_in_trans' in msc.ref_table.colnames
+    assert 'used_in_trans' in msc.ref_table.colnames
+    assert 'ref_orig' in msc.ref_table.colnames
+
+    assert msc.ref_table['use_in_trans'].shape == msc.ref_table['x0'].shape
+    assert msc.ref_table['used_in_trans'].shape == msc.ref_table['x'].shape
+    
+
+    # Check that we have some matched stars... should be at least 35 stars
+    # that are detected in all 4 starlists.
+    idx = np.where(msc.ref_table['n_detect'] == 4)[0]
+    assert len(idx) > 35 
+
+    # Check that the transformation error isn't too big
+    assert (msc.ref_table['x0e'] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0e'] < 3.0).all()
+    assert (msc.ref_table['m0e'] < 1.0).all() # less than 0.5 mag
+    
+    # Check that the transformation lists aren't too wacky
+    for ii in range(4):
+        np.testing.assert_almost_equal(msc.trans_list[ii].px.c1_0, 1.0, 2)
+        np.testing.assert_almost_equal(msc.trans_list[ii].py.c0_1, 1.0, 2)
+    
+    # We didn't do any velocity fitting, so make sure nothing got created.
+    assert 'vx' not in msc.ref_table.colnames
+    assert 'vy' not in msc.ref_table.colnames
+    assert 'vxe' not in msc.ref_table.colnames
+    assert 'vye' not in msc.ref_table.colnames
+
+    plt.clf()
+    plt.plot(msc.ref_table['x'][:, 0],
+             msc.ref_table['y'][:, 0],
+             'k+', color='red', mec='red', mfc='none')
+    plt.plot(msc.ref_table['x'][:, 1],
+             msc.ref_table['y'][:, 1],
+             'kx', color='blue', mec='blue', mfc='none')
+    plt.plot(msc.ref_table['x'][:, 2],
+             msc.ref_table['y'][:, 2],
+             'ko', color='cyan', mec='cyan', mfc='none')
+    plt.plot(msc.ref_table['x'][:, 3],
+             msc.ref_table['y'][:, 3],
+             'k^', color='green', mec='green', mfc='none')
+    plt.plot(msc.ref_table['x0'],
+             msc.ref_table['y0'],
+             'k.', color='black', alpha=0.2)
 
     return
 
+def test_MosaicSelfRef_vel_tconst():
+    """
+    Cross-match and align 4 starlists using the OO version of mosaic lists.
+    The 4 lists are all taken at teh same time (so 0 velocities shoudl result).
+    
+    """
+    list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
+    lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
+
+    ##########
+    # Test instantiation and basic fitting.
+    # Note these star lists are ALL at the same date.
+    ##########
+    msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
+                              dr_tol=[3, 3], dm_tol=[1, 1],
+                              trans_class=transforms.PolyTransform,
+                              trans_args={'order': 2}, use_vel=True)
+
+    msc.fit()
+    
+    # Check some of the output quantities on the final table.
+    assert 'x0' in msc.ref_table.colnames
+    assert 'x0e' in msc.ref_table.colnames
+    assert 'y0' in msc.ref_table.colnames
+    assert 'y0e' in msc.ref_table.colnames
+    assert 'm0' in msc.ref_table.colnames
+    assert 'm0e' in msc.ref_table.colnames
+    assert 'vx' in msc.ref_table.colnames
+    assert 'vxe' in msc.ref_table.colnames
+    assert 'vy' in msc.ref_table.colnames
+    assert 'vye' in msc.ref_table.colnames
+    assert 't0' in msc.ref_table.colnames
+
+    # Check that we have some matched stars... should be at least 35 stars
+    # that are detected in all 4 starlists.
+    idx = np.where(msc.ref_table['n_detect'] == 4)[0]
+    assert len(idx) > 35 
+
+    # Check that the transformation error isn't too big
+    assert (msc.ref_table['x0e'] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0e'] < 3.0).all()
+    assert (msc.ref_table['m0e'] < 1.0).all() # less than 0.5 mag
+    
+    # Check that the transformation lists aren't too wacky
+    for ii in range(4):
+        np.testing.assert_almost_equal(msc.trans_list[ii].px.c1_0, 1.0, 2)
+        np.testing.assert_almost_equal(msc.trans_list[ii].py.c0_1, 1.0, 2)
+
+    # Check that the velocities aren't crazy...
+    # they should be zero (since there is no time difference)
+    np.testing.assert_almost_equal(msc.ref_table['vx'], 0, 1)
+    np.testing.assert_almost_equal(msc.ref_table['vy'], 0, 1)
+
+    assert (msc.ref_table['vx'] == 0).all()
+    assert (msc.ref_table['vy'] == 0).all()
+    assert (msc.ref_table['vxe'] == 0).all()
+    assert (msc.ref_table['vye'] == 0).all()
+
+    return
+
+def test_MosaicSelfRef_vel():
+    """
+    Cross-match and align 4 starlists using the OO version of mosaic lists.
+    
+    """
+    list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
+    lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
+
+    # Modify the times so that we get velocities out.
+    lists[0].meta['list_time'] = 2001.4
+    lists[0]['t'] = 2001.4
+    
+    lists[1].meta['list_time'] = 2002.4
+    lists[1]['t'] = 2002.4
+    
+    lists[2].meta['list_time'] = 2003.4
+    lists[2]['t'] = 2003.4
+    
+    lists[3].meta['list_time'] = 2004.4
+    lists[3]['t'] = 2004.4
+
+
+    ##########
+    # Test instantiation and basic fitting.
+    ##########
+    msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
+                              dr_tol=[3, 3], dm_tol=[1, 1],
+                              trans_class=transforms.PolyTransform,
+                              trans_args={'order': 2}, use_vel=True)
+
+    msc.fit()
+    
+    # Check some of the output quantities on the final table.
+    assert 'x0' in msc.ref_table.colnames
+    assert 'x0e' in msc.ref_table.colnames
+    assert 'y0' in msc.ref_table.colnames
+    assert 'y0e' in msc.ref_table.colnames
+    assert 'm0' in msc.ref_table.colnames
+    assert 'm0e' in msc.ref_table.colnames
+    assert 'vx' in msc.ref_table.colnames
+    assert 'vxe' in msc.ref_table.colnames
+    assert 'vy' in msc.ref_table.colnames
+    assert 'vye' in msc.ref_table.colnames
+    assert 't0' in msc.ref_table.colnames
+
+    # Check that we have some matched stars... should be at least 35 stars
+    # that are detected in all 4 starlists.
+    idx = np.where(msc.ref_table['n_detect'] == 4)[0]
+    assert len(idx) > 35 
+
+    # Check that the transformation error isn't too big
+    assert (msc.ref_table['x0e'] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0e'] < 3.0).all()
+    assert (msc.ref_table['m0e'] < 1.0).all() # less than 0.5 mag
+    
+    # Check that the transformation lists aren't too wacky
+    for ii in range(4):
+        np.testing.assert_almost_equal(msc.trans_list[ii].px.c1_0, 1.0, 2)
+        np.testing.assert_almost_equal(msc.trans_list[ii].py.c0_1, 1.0, 2)
+
+    
+    plt.clf()
+    plt.plot(msc.ref_table['vx'],
+             msc.ref_table['vy'],
+             'k.', color='black', alpha=0.2)
+
+    return
+
+def test_MosaicToRef():
+    ref_file = 'random_vel_ref.fits'
+    list_files = ['random_vel_0.fits',
+                  'random_vel_1.fits',
+                  'random_vel_2.fits',
+                  'random_vel_3.fits']
+
+    ref_list = Table.read(ref_file)
+
+    # Convert velocities to arcsec/yr
+    ref_list['vx'] *= 1e-3
+    ref_list['vy'] *= 1e-3
+    ref_list['vxe'] *= 1e-3
+    ref_list['vye'] *= 1e-3
+
+    # Switch our list to a "increasing to the West" list.
+    ref_list['x0'] *= -1.0
+    ref_list['vx'] *= -1.0
+        
+    lists = [starlists.StarList.read(lf) for lf in list_files]
+
+    msc = align.MosaicToRef(ref_list, lists, iters=2,
+                              dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
+                              trans_class=transforms.PolyTransform,
+                              trans_args={'order': 2}, use_vel=True,
+                              update_ref_orig=False)
+
+    msc.fit()
+
+    # Check our status columsn
+    assert 'use_in_trans' in msc.ref_table.colnames
+    assert 'used_in_trans' in msc.ref_table.colnames
+    assert 'ref_orig' in msc.ref_table.colnames
+    assert msc.ref_table['use_in_trans'].shape == msc.ref_table['x0'].shape
+    assert msc.ref_table['used_in_trans'].shape == msc.ref_table['x'].shape
+    
+    # The velocities should be almost the same as the input 
+    # velocities since update_ref_orig == False.
+    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 5)
+    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 5)
+
+
+    ##########
+    # Align and let velocities be free. 
+    ##########
+    msc.update_ref_orig = True
+    msc.fit()
+    
+    # The velocities should be almost the same (but not as close as before)
+    # as the input velocities since update_ref == False.
+    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 1)
+    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 1)
+
+    # Also double check that they aren't exactly the same for the reference stars.
+    assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
+    
+    return msc
+    
 
 def make_fake_starlists_shifts():
     N_stars = 200

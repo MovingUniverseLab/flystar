@@ -369,7 +369,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     # Deal with duplicates
     duplicates = [item for item, count in list(Counter(idxs2).items()) if count > 1]
     if verbose:
-        print(( 'Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
+        print(( '    Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
     keep = np.ones(len(idxs1), dtype=bool)
     for dd in range(len(duplicates)):
         # Index into the idxs1, idxs2 array of this duplicate.

@@ -338,6 +338,88 @@ def test_fit_velocities():
     assert (tab['vye'][0:100] > 0).all()
     assert (tab['y0e'][0:100] > 0).all()
 
+    return
+
+def test_fit_velocities_1epoch():
+    ##########
+    # Test: only 1 epoch
+    ##########
+    tab = make_star_table_1epoch()
+    
+    # We don't need the entire table... lets just
+    # pull a small subset for faster testing.
+    tab1 = tab[0:100]
+    tab2 = tab[10000:10100]
+    tab3 = tab[-100:]
+    tab_1 = table.vstack((tab1, tab2, tab3))
+    
+    tab_1.fit_velocities(verbose=False)
+
+    assert 'n_vfit' in tab_1.colnames
+    assert 't0' in tab_1.colnames
+    assert 'x0' in tab_1.colnames
+    assert 'y0' in tab_1.colnames
+    assert 'vx' in tab_1.colnames
+    assert 'vy' in tab_1.colnames
+    assert 'x0e' in tab_1.colnames
+    assert 'y0e' in tab_1.colnames
+    assert 'vxe' in tab_1.colnames
+    assert 'vye' in tab_1.colnames
+
+    
+    assert (tab_1['x0'] == tab_1['x'][:,0]).all()
+    assert (tab_1['y0'] == tab_1['y'][:,0]).all()
+    assert (tab_1['x0e'] == tab_1['xe'][:,0]).all()
+    assert (tab_1['y0e'] == tab_1['ye'][:,0]).all()
+
+    assert(tab_1['vx'] == 0).all()
+    assert(tab_1['vy'] == 0).all()
+    assert(tab_1['vxe'] == 0).all()
+    assert(tab_1['vye'] == 0).all()
+    
+    assert(tab_1['t0'] == 2001.0).all()
+    assert(tab_1['n_vfit'] == 0).all()
+    
+    return
+
+def test_fit_velocities_2epoch():
+    
+    ##########
+    # Test: only 2 epoch2
+    ##########
+    tab = make_star_table_2epoch()
+
+    # We don't need the entire table... lets just
+    # pull a small subset for faster testing.
+    tab1 = tab[0:100]
+    tab2 = tab[10000:10100]
+    tab3 = tab[-100:]
+    tab_2 = table.vstack((tab1, tab2, tab3))
+
+    tab_2.fit_velocities(verbose=False)
+
+    assert 'n_vfit' in tab_2.colnames
+    assert 't0' in tab_2.colnames
+    assert 'x0' in tab_2.colnames
+    assert 'y0' in tab_2.colnames
+    assert 'vx' in tab_2.colnames
+    assert 'vy' in tab_2.colnames
+    assert 'x0e' in tab_2.colnames
+    assert 'y0e' in tab_2.colnames
+    assert 'vxe' in tab_2.colnames
+    assert 'vye' in tab_2.colnames
+
+    # 2 detections
+    np.testing.assert_almost_equal(tab_2['x0'][0], tab_2['x'][0,0], 1)
+    assert tab_2['n_vfit'][0] == 2
+    
+    # 1 detection
+    assert tab_2['x0'][100] == tab_2['x'][100, 0]
+    assert tab_2['n_vfit'][100] == 1
+    
+    # 0 detections
+    assert tab_2['x0'][-1] == 0
+    assert tab_2['n_vfit'][-1] == 0
     
     return
 
@@ -369,5 +451,64 @@ def make_star_table():
                               list_times=starlist_times, list_names=starlist_names)
 
     return startable
+
+def make_star_table_1epoch():
+    # User inputp
+    cat_file = test_dir + '/test_catalog.fits'
+
+    # Read and arrange the test input
+    cat_tab = Table.read(cat_file)
+    
+    # Make a fake 2D array of names per epoch. We will call them "id".
+    # Note that all of these inputs will be numpy arrays.
+    x_in = cat_tab['x'].data[:, [0]]
+    y_in = cat_tab['y'].data[:, [0]]
+    m_in = cat_tab['m'].data[:, [0]]
+    xe_in = cat_tab['xe'].data[:, [0]]
+    ye_in = cat_tab['ye'].data[:, [0]]
+    me_in = cat_tab['me'].data[:, [0]]
+    n_in = cat_tab['n'].data[:, [0]]
+
+    # Name is a unique name for each star and is a 1D array.
+    name_in = cat_tab['name'].data
+    starlist_times = np.array([2001.0])
+    starlist_names = np.array(['file1'])
+
+    # Generate the startable
+    startable = StarTable(name=name_in, x=x_in, y=y_in, m=m_in, xe=xe_in, ye=ye_in, me=me_in, n=n_in,
+                              ref_list=0,
+                              list_times=starlist_times, list_names=starlist_names)
+
+    return startable
+
+def make_star_table_2epoch():
+    # User inputp
+    cat_file = test_dir + '/test_catalog.fits'
+
+    # Read and arrange the test input
+    cat_tab = Table.read(cat_file)
+    
+    # Make a fake 2D array of names per epoch. We will call them "id".
+    # Note that all of these inputs will be numpy arrays.
+    x_in = cat_tab['x'].data[:, 0:2]
+    y_in = cat_tab['y'].data[:, 0:2]
+    m_in = cat_tab['m'].data[:, 0:2]
+    xe_in = cat_tab['xe'].data[:, 0:2]
+    ye_in = cat_tab['ye'].data[:, 0:2]
+    me_in = cat_tab['me'].data[:, 0:2]
+    n_in = cat_tab['n'].data[:, 0:2]
+
+    # Name is a unique name for each star and is a 1D array.
+    name_in = cat_tab['name'].data
+    starlist_times = np.array([2001.0, 2002.1])
+    starlist_names = np.array(['file1', 'file2'])
+
+    # Generate the startable
+    startable = StarTable(name=name_in, x=x_in, y=y_in, m=m_in, xe=xe_in, ye=ye_in, me=me_in, n=n_in,
+                              ref_list=0,
+                              list_times=starlist_times, list_names=starlist_names)
+
+    return startable
+
 
     
