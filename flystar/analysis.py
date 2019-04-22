@@ -1,5 +1,315 @@
 import numpy as np
+import pylab as plt
+from flystar import starlists
+from flystar import startables
+from flystar import align
+from flystar import match
+from flystar import transforms
+from astropy import table
+from astropy.table import Table, Column
+from astropy.coordinates import SkyCoord
+from astropy import units as u
+from astropy.wcs import WCS
+from astroquery.mast import Observations, Catalogs
+import pdb, copy
+import math
 from scipy.stats import f
+
+##################################################
+# New codes for velocity support in FlyStar and using
+# the new StarTable and StarList format. 
+##################################################
+
+def query_gaia(ra, dec, search_radius=30.0):
+    """
+    Query the Gaia database at the specified location
+    and with the specified search radius
+
+    Input
+    ----------
+    ra : string
+        R.A. in hours in the format such as '17:45:40.3'
+
+    dec : string
+        Dec. in degrees in the format such as '-29:00:28.0'
+
+    search_radius : float
+        The search radius in arcseconds. 
+
+    """
+    target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
+    ra = target_coords.ra.degree
+    dec = target_coords.dec.degree
+
+    search_radius /= 3600.0 # degrees
+
+    query_str = '{0:f} {1:f}'.format(ra, dec)
+    gaia = Catalogs.query_region(query_str, radius=search_radius, catalog="Gaia", version=2)
+
+    return gaia
+
+
+def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None):
+    """
+    Take a Gaia table (from astroquery) and produce a new table with a tangential projection
+    and shift such that the origin is centered on the target of interest. 
+    Convert everything into arcseconds and name columns such that they are 
+    ready for FlyStar input.
+    """
+    target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
+    ra = target_coords.ra.degree     # in decimal degrees
+    dec = target_coords.dec.degree   # in decimal degrees
+    
+    cos_dec = np.cos(np.radians(dec))
+
+    x = (gaia['ra'] - ra) * cos_dec * 3600.0   # arcsec
+    y = (gaia['dec'] - dec) * 3600.0           # arcsec
+    xe = gaia['ra_error'] * cos_dec / 1e3      # arcsec
+    ye = gaia['dec_error'] / 1e3               # arcsec
+
+    gaia_new = table.Table([gaia['source_id'].data], names=['name'], masked=False)
+
+    gaia_new['x0'] = x * -1.0
+    gaia_new['y0'] = y
+    gaia_new['x0e'] = xe
+    gaia_new['y0e'] = ye
+
+    # Also convert the velocities. Note that Gaia PM are already * cos(dec)
+    gaia_new['vx'] = gaia['pmra'].data * -1.0 / 1e3 # asec/yr
+    gaia_new['vy'] = gaia['pmdec'].data / 1e3
+    gaia_new['vxe'] = gaia['pmra_error'].data / 1e3
+    gaia_new['vye'] = gaia['pmdec_error'].data / 1e3
+    
+    gaia_new['t0'] = gaia['ref_epoch'].data
+    gaia_new['source_id'] = gaia['source_id']
+
+    # Find sources without velociteis and fix them up.
+    idx = np.where(gaia['pmdec'].mask == True)[0]
+    gaia_new['vx'][idx] = 0.0
+    gaia_new['vy'][idx] = 0.0
+    gaia_new['vxe'][idx] = 0.0
+    gaia_new['vye'][idx] = 0.0
+    
+    gaia_new['m'] = gaia['phot_g_mean_mag']
+
+    if targets_dict != None:
+        for targ_name, targ_coo in targets_dict.items():
+            dx = gaia_new['x0'] - (targ_coo[0] * -1.0)
+            dy = gaia_new['y0'] - targ_coo[1]
+            dr = np.hypot(dx, dy)
+
+            idx = dr.argmin()
+
+            if dr[idx] < 0.2:
+                gaia_new['name'][idx] = targ_name
+                print('Found match for: ', targ_name)
+
+    return gaia_new
+    
+
+def run_flystar():
+    
+    test_file = '/u/jlu/work/microlens/OB150211/a_2018_10_19/a_ob150211_2018_10_19/lis/stars_matched2.fits'
+
+    t = Table.read(test_file)
+    print(t.colnames)
+    print(t['x_orig'].shape)
+
+    # Model parameters: N_stars
+    x0 = np.zeros(t['x_orig'].shape[0], dtype=float)
+    y0 = np.zeros(t['x_orig'].shape[0], dtype=float)
+    vx = np.zeros(t['x_orig'].shape[0], dtype=float)
+    vy = np.zeros(t['x_orig'].shape[0], dtype=float)
+
+    # Order of the transformation  STOPPED HERE
+    t_order = 'junk'
+    t_nparams = 'junk'
+
+    # N_epochs by N_params
+    px = np.zeros((t['x_orig'].shape[1], t_nparams), dtype=float)
+    py = np.zeros((t['x_orig'].shape[1], t_nparams), dtype=float)
+
+    # N_stars by N_epochs
+    weights = np.zeros(t['x_orig'].shape)
+
+    # Adopt a single t0 for all of the stars.
+    t0 = t['t'][np.isfinite(t['t'])].mean()
+
+    # Model undistorted positions
+    xm_t = x0 + vx * (t - t0)
+    ym_t = y0 + vy * (t - t0)
+
+    # Model distorted positions
+    
+    
+    return
+
+
+def project_gaia(gaia, epoch, ra, dec):
+    """
+    Take the Gaia measurements, forward them in time, and then convert them into a tangential projection.
+    
+    Inputs
+    ----------
+    epoch : float (year)
+        The decimal year to project the measurement to. Note that we use 365.25 days per year.
+        
+    ra : float (deg)
+        The right ascension (J2000) in decimal degrees of the center of the field.
+        
+    dec : float (deg)
+        The declination (J2000) in decimal degrees of the center of the field.
+        
+    """
+    t0 = gaia['ref_epoch']
+    x0 = (gaia['ra'] - ra) * np.cos(np.radians(dec)) * 3600.0   # Arcsec
+    y0 = (gaia['dec'] - dec) * 3600.0
+    x0e = gaia['ra_error']  / 1.0e3       # arcsec, already in alpha* (multiplied by cos(delta))
+    y0e = gaia['dec_error'] / 1.0e3       # arcsec
+    
+    
+    vx = gaia['pmra'] / 1.0e3            # arcsec / yr
+    vy = gaia['pmdec'] / 1.0e3       
+    vxe = gaia['pmra_error'] / 1.0e3     # arcsec / yr
+    vye = gaia['pmdec_error'] / 1.0e3
+    
+    # Modify any vx/vy, etc. that are zero and make a regular (unmasked) numpy array.
+    vx[vx.mask] = 0.0
+    vy[vy.mask] = 0.0
+    vxe[vxe.mask] = 0.0
+    vye[vye.mask] = 0.0
+    vx = np.array(vx)
+    vy = np.array(vy)
+    vxe = np.array(vxe)
+    vye = np.array(vye)
+    
+    dt = epoch - t0
+    x_now = (x0 + (vx * dt)) * -1.0  # Switch to a left-handed coordinate system, like detector pixels.
+    y_now = (y0 + (vy * dt))
+    xe_now = np.hypot(x0e, vxe*dt)
+    ye_now = np.hypot(y0e, vye*dt)
+    
+    # Format as a starlist
+    gaia_lis = starlists.StarList(name=gaia['source_id'], 
+                                  x=x_now, y=y_now, m=gaia['phot_g_mean_mag'],
+                                  xe=xe_now, ye=ye_now, me=1.0/gaia['phot_g_mean_flux_over_error'])
+    
+    # Duplicate columns to 'x_avg', etc. Needed for initial guessing.
+    gaia_lis['x_avg'] = gaia_lis['x']
+    gaia_lis['y_avg'] = gaia_lis['y']
+    gaia_lis['m_avg'] = gaia_lis['m']    
+    
+    return gaia_lis
+
+
+def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, dm_tol=0.3):
+    """
+    Take a StarTable output from FlyStar MosaicToRef that has been 
+    aligned into R.A. and Dec. (usually by way of Gaia). Align
+    the output to a label.dat file for this source and rename
+    everything.
+    """
+    label_tab = starlists.read_label(label_dat_file)
+
+    # Propogate the label.dat into the epoch of the star table.
+    dt = label_tab['t0'] - star_tab['t0'][0]
+    x_lab = label_tab['x0'] + (label_tab['vx'] * 1e-3 * dt)
+    y_lab = label_tab['y0'] + (label_tab['vy'] * 1e-3 * dt)
+    m_lab = label_tab['m']
+
+    # Convert label.dat from +x to the East to +x to the West.
+    #x_lab *= -1.0
+
+    # Find the sets of named stars that are in common for
+    # zeropoint correction and shift transformations.
+    ndx_lab, ndx_star, n_matched = starlists.restrict_by_name(label_tab, star_tab)
+
+    dm = star_tab['m0'][ndx_star] - m_lab[ndx_lab]
+    dx = star_tab['x0'][ndx_star] - x_lab[ndx_lab]
+    dy = star_tab['y0'][ndx_star] - y_lab[ndx_lab]
+
+    fmt = '{0:20s} {1:20s} {2:8.4f} {3:8.4f} {4:8.4f} {5:8.4f} {6:8.4f} {7:8.4f}'
+    for ii in range(n_matched):
+        print(fmt.format(label_tab['name'][ndx_lab[ii]], star_tab['name'][ndx_star[ii]],
+              x_lab[ndx_lab[ii]], star_tab['x0'][ndx_star[ii]],
+              y_lab[ndx_lab[ii]], star_tab['y0'][ndx_star[ii]],
+              m_lab[ndx_lab[ii]], star_tab['m0'][ndx_star[ii]]))
+        
+
+    print('Temporary shift transformations: ')
+    print('    dm = {0:8.4f} +/- {1:8.4f}'.format(dm.mean(), dm.std()))
+    print('    dx = {0:8.4f} +/- {1:8.4f}'.format(dx.mean(), dx.std()))
+    print('    dy = {0:8.4f} +/- {1:8.4f}'.format(dy.mean(), dy.std()))
+    
+    m_lab = label_tab['m'] + dm.mean()
+    x_lab += dx.mean()
+    y_lab += dy.mean()
+    
+    # Now that we are in a common coordinate and magnitude
+    # system, lets match the whole lists by coordinates.
+    idx_lab, idx_star, dr, dm = match.match(x_lab, y_lab, m_lab, 
+                                            star_tab['x0'], star_tab['y0'], star_tab['m0'],
+                                            dr_tol=dr_tol, dm_tol=dm_tol, verbose=True)
+
+    print('Renaming {0:d} out of {1:d} stars'.format(len(idx_lab), len(star_tab)))
+    
+    # Make a copy of the table, UNLESS, the user specifies.
+    if new_copy:
+        new_tab = copy.deepcopy(star_tab)
+    else:
+        new_tab = star_tab
+
+    # copy over the original names... don't overwrite (this could mean data loss)
+    if 'name_orig' not in new_tab.colnames:
+        new_tab.add_column(Column(star_tab['name'].data, name='name_orig'))
+        
+    new_tab['name'][idx_star] = label_tab[idx_lab]['name']
+    
+    return new_tab
+
+def pick_good_ref_stars(star_tab, r_cut=None, m_cut=None, p_err_cut=None, pm_err_cut=None, name_cut=None, reset=True):
+    """
+    Set the 'use_in_trans' flag according to a set of cuts.
+    """
+    # Start off assuming we will use all of them (or use what was previously specified).
+    if reset:
+        use = np.ones(len(star_tab), dtype=bool)
+    else:
+        use = star_tab['use_in_trans']
+    print('pick_good_ref_stars: Starting with {0:d} stars.'.format(use.sum()))
+
+    if r_cut is not None:
+        r = np.hypot(star_tab['x0'], star_tab['y0'])
+        use = use & (r < r_cut)
+        print('pick_good_ref_stars: Use {0:d} stars after r<{1:.2f}.'.format(use.sum(), r_cut))
+
+    if m_cut is not None:
+        use = use & (star_tab['m0'] < m_cut)
+        print('pick_good_ref_stars: Use {0:d} stars after m<{1:.2f}.'.format(use.sum(), m_cut))
+
+    if p_err_cut is not None:
+        p_err = np.mean((star_tab['x0e'], star_tab['y0e']), axis=0)
+        use = use & (p_err < p_err_cut)
+        print('pick_good_ref_stars: Use {0:d} stars after p_err<{1:.5f}.'.format(use.sum(), p_err_cut))
+
+    if pm_err_cut is not None:
+        pm_err = np.mean((star_tab['vxe'], star_tab['vye']), axis=0)
+        use = use & (pm_err < pm_err_cut)
+        print('pick_good_ref_stars: Use {0:d} stars after pm_err<{1:.5f}.'.format(use.sum(), pm_err_cut))
+
+    if name_cut is not None:
+        for ii in range(len(name_cut)):
+            use = use & (star_tab['name'] != name_cut[ii])
+        print('pick_good_ref_stars: Use {0:d} stars after name cut.'.format(use.sum()))
+
+    idx = np.where(use == True)[0]
+
+    return idx
+
+
+##################################################
+# Old codes.
+##################################################
 
 def calc_chi2(ref_mat, starlist_mat, transform, errs='both'):
     """
