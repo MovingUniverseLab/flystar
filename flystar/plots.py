@@ -3,6 +3,7 @@ import pylab as py
 import pylab as plt
 import numpy as np
 import matplotlib.mlab as mlab
+from matplotlib import colors
 from scipy.stats import chi2
 import pdb
 import math
@@ -1144,13 +1145,15 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
         ii = np.where(tab['name'] == starName)[0][0]
         print(ii, tab[ii]['name'])
 
-        time = tab['t'][ii, :]
-        x = tab['x'][ii, :]
-        y = tab['y'][ii, :]
-        xerr = tab['xe'][ii, :]
-        yerr = tab['ye'][ii, :]
+        fnd = np.where(tab['xe'][ii, :] > 0)[0]
 
-        dt = tab['t'][ii, :] - tab['t0'][ii]
+        time = tab['t'][ii, fnd]
+        x = tab['x'][ii, fnd]
+        y = tab['y'][ii, fnd]
+        xerr = tab['xe'][ii, fnd]
+        yerr = tab['ye'][ii, fnd]
+
+        dt = tab['t'][ii, fnd] - tab['t0'][ii]
         fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
         fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
 
@@ -1193,7 +1196,6 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
         dateTicRng = [np.floor(tmin), np.ceil(tmax)]
         dateTics = np.arange(np.floor(tmin), np.ceil(tmax)+0.1)
         DateTicsLabel = dateTics
-        print(dateTics, dateTicRng)
 
         # See if we are using MJD instead.
         if time[0] > 50000:
@@ -1209,7 +1211,6 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
         maxErr = np.array([(diffX-xerr)*1e3, (diffX+xerr)*1e3,
                            (diffY-yerr)*1e3, (diffY+yerr)*1e3]).max()
         resTicRng = [-1.1*maxErr, 1.1*maxErr]
-        print(resTicRng)
 
         from matplotlib.ticker import FormatStrFormatter
         fmtX = FormatStrFormatter('%5i')
@@ -1231,7 +1232,7 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
         plt.plot(time, fitLineX - fitSigX, 'b--')
         plt.errorbar(time, x, yerr=xerr, fmt='k.')
         rng = plt.axis()
-        plt.ylim(np.min(x-xerr)*0.99, np.max(x+xerr)*1.01) 
+        #plt.ylim(np.min(x-xerr)*0.99, np.max(x+xerr)*1.01) 
         plt.xlabel('Date (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
             plt.xlabel('Date (MJD)', fontsize=fontsize1)
@@ -1330,7 +1331,6 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
         plt.show()
 
     plt.show()
-    print('Fubar')
 
     return
 
@@ -1364,3 +1364,238 @@ def plot_errors_vs_r_m(star_tab):
     return
  
        
+def plot_sky(stars_tab,
+            plot_errors=False, center_star=None, range=0.4,
+            xcenter=0, ycenter=0, show_names=False, saveplot=False,
+            mag_range=None, with_orbits=True,
+            orbits_file=None, manual_print=False):
+    """
+    Plot all the stars at their positions over time with each star having a different
+    symbol and each epoch having a different color.
+    """
+    """
+    Parameters
+    ----------
+    stars_tab : flystar.startables.StarTable
+        The StarTable containining 'x', 'y', 't', 'xe', 'ye', columns etc. 
+        for plotting, where each of these columns is a 2D array of 
+        [star_index, epoch_index].
+
+
+    Optional Keywords
+    -----------------
+    plot_errors : bool
+        (def=False) Plot error bars on all the points (quad sum of positional
+        and alignment errors).
+    center_star : str
+        (def=None) Named star to center initial plot on.
+    show_names : bool
+        (def=False) label the name of the star in the first epoch
+    range : float
+        (def=0.4) Sets the half width of the X and Y axis in
+        arcseconds from xcenter and ycenter.
+    xcenter : float
+        (def=0.0) The X center point of the plot in arcseconds
+        offset from Sgr A*.
+    ycenter : float
+        (def=0.0) The Y center point of the plot in arcseconds
+        offset from Sgr A*.
+    saveplot : bool
+        (def=False) Save plot as .png and .pdf.
+    mag_range: intervals
+        (def=None) Magnitude cuts performed using the given interval
+    """
+
+    nEpochs = stars_tab['x'].shape[1]
+    nStars = stars_tab['x'].shape[0]
+
+    if (center_star != None):
+        idx = np.where(stars_tab['name'] == center_star)[0]
+
+        if (len(idx) > 0):
+            xcenter = stars_tab['x0'][idx[0]]
+            ycenter = stars_tab['y0'][idx[0]]
+        else:
+            print('Could not find star to center, %s. Reverting to default.' % \
+                  (center_star))
+
+    # Determine the range of years in integer units.
+    good_t = np.isfinite(stars_tab['t'])
+    epochs = np.unique(stars_tab['t'][good_t])
+    assert len(epochs) == stars_tab['t'].shape[1]
+    
+    yearsInt = np.floor(epochs).astype('int')
+
+    # Set up a color scheme
+    cnorm = colors.Normalize(stars_tab['t'][0, :].min(), stars_tab['t'][0, :].max() + 1)
+    cmap = plt.cm.gist_ncar
+
+    colorList = []
+    for ee in np.arange(nEpochs):
+        foo = cnorm(yearsInt[ee])
+        colorList.append( cmap(cnorm(yearsInt[ee])) )
+
+    py.close(2)
+    fig = py.figure(2, figsize=(13,10))
+
+    previousYear = 0.0
+
+    point_labels = {}
+    epochs_legend=[]
+
+    for ee in np.arange(nEpochs):
+        x = stars_tab['x'][:, ee]
+        y = stars_tab['y'][:, ee]
+
+        xe = stars_tab['xe'][:, ee]
+        ye = stars_tab['ye'][:, ee]
+
+        mag = stars_tab['m'][:, ee]
+        name_epoch  = stars_tab['name_in_list'][:, ee]
+
+        if mag_range is None:
+            idx = np.where((x > -1000) & (y > -1000))[0]
+        else:
+            idx = np.where((x > -1000) & (y > -1000) & (mag <= np.max(mag_range)) & (mag >= np.min(mag_range)))[0]
+
+        x = x[idx]
+        y = y[idx]
+        xe = xe[idx]
+        ye = ye[idx]
+        mag = mag[idx]
+        name_epoch = name_epoch[idx]
+
+        tmpNames = stars_tab['name'][idx]
+
+        if yearsInt[ee] != previousYear:
+            previousYear = yearsInt[ee]
+            label = '%d' % yearsInt[ee]
+        else:
+            label = '_nolegend_'
+
+        if plot_errors:
+            (line, foo1, foo2) = py.errorbar(x, y, xerr=xe, yerr=ye,
+                                            color=colorList[ee], fmt='k^',
+                                            markeredgecolor=colorList[ee],
+                                            markerfacecolor=colorList[ee],
+                                            label=label, picker=4)
+        else:
+            (line, foo1, foo2) = py.errorbar(x, y, xerr=None, yerr=None,
+                                            color=colorList[ee], fmt='k^',
+                                            markeredgecolor=colorList[ee],
+                                            markerfacecolor=colorList[ee],
+                                            label=label, picker=4)
+
+        #for legend
+        if label is not '_nolegend_':
+            line.set_label(str(label))
+            epochs_legend.append(line)
+
+
+        points_info = {'year': stars_tab['t'][0, ee],
+                       'name': tmpNames, 'x': x, 'y': y, 'xe': xe, 'ye': ye, 'mag': mag,'name_epoch':name_epoch}
+
+        point_labels[line] = points_info
+
+    foo = PrintSelected(point_labels, fig, stars_tab, mag_range, manual_print=manual_print)
+    py.connect('pick_event', foo)
+
+    xlo = xcenter + (range)
+    xhi = xcenter - (range)
+    ylo = ycenter - (range)
+    yhi = ycenter + (range)
+
+    py.axis('equal')
+    py.axis([xlo, xhi, ylo, yhi])
+    py.xlabel('R.A. Offset from Sgr A* (arcsec)')
+    py.ylabel('Dec. Offset from Sgr A* (arcsec)')
+
+    py.legend(handles=epochs_legend, numpoints=1, loc='lower left', fontsize=12)
+
+    if show_names:
+        xpos = stars_tab['x0']
+        ypos = stars_tab['y0']
+        goodind = np.where((xpos <= xlo) & (xpos >= xhi) &
+                           (ypos >= ylo) & (ypos <= yhi))[0]
+        for ind in goodind:
+            py.text(xpos[ind], ypos[ind], stars_tab['name'][ind], size=10)
+
+    if saveplot:
+        py.show(block=0)
+        if (center_star != None):
+            py.savefig('plot_sky_' + center_star + '.png')
+        else:
+            py.savefig('plot_sky.png')
+    else:
+        py.show()
+
+    return
+    
+    
+class PrintSelected(object):
+    def __init__(self, points_info, fig, tab, mag_range, manual_print=False):
+        self.points_info = points_info
+        self.selected, = fig.gca().plot([0.],[0.], 'o', ms=12,
+                                 markerfacecolor='none', markeredgecolor='red', visible=False)
+        self.selected_same_year, = fig.gca().plot([0.],[0.], '*', ms=15,
+                                markerfacecolor='red', markeredgecolor='red', visible=False)
+        self.fig = fig
+        self.tab = tab
+        self.manual_print=manual_print
+        self.mag_range=mag_range
+        return
+
+    def __call__(self, event):
+        if event.mouseevent.button == 1:
+            indices = event.ind
+
+            data = self.points_info[event.artist]
+
+            if self.manual_print:
+                fmt = 'align_name="{:s}",epoch={:f},align_mag={:4.2f},align_x={:10.4f},align_xerr={:7.4f},align_y={:10.4f},align_yerr={:7.4f},name_epoch="{:s}"'
+            else:
+                fmt = '{:15s}  t={:10.6f}  m={:5.2f}  x={:10.4f} +/- {:7.4f}  y={:10.4f} +/- {:7.4f}  Epoch name: {:15s}'
+
+            for ii in indices:
+                print(fmt.format(data['name'][ii], data['year'], data['mag'][ii],
+                            data['x'][ii], data['xe'][ii],
+                            data['y'][ii], data['ye'][ii],data['name_epoch'][ii]))
+
+            idx = self.tab['name'].index(data['name'][indices[0]])
+            xs = self.tab['x'][idx, :]
+            ys = self.tab['y'][idx, :]
+            self.selected.set_visible(True)
+            self.selected.set_data(xs, ys)
+            self.fig.canvas.draw()
+        elif event.mouseevent.button == 3:
+            indices = event.ind
+            data = self.points_info[event.artist]
+
+            if self.manual_print:
+                fmt = 'align_name="{:s}",epoch={:f},align_mag={:4.2f},align_x={:10.4f},align_xerr={:7.4f},align_y={:10.4f},align_yerr={:7.4f},name_epoch="{:s}"'
+            else:
+                fmt = '{:15s}  t={:10.6f}  m={:5.2f}  x={:10.4f} +/- {:7.4f}  y={:10.4f} +/- {:7.4f}  Epoch name: {:15s}'
+
+            ii =indices[0]
+            print(fmt.format(data['name'][ii], data['year'], data['mag'][ii],
+                             data['x'][ii], data['xe'][ii],
+                             data['y'][ii], data['ye'][ii],data['name_epoch'][ii]))
+
+            idxEpoch = np.where(self.tab['t'][0, :] == data['year'])[0][0]
+            x = self.tab['x'][:, idxEpoch]
+            y = self.tab['y'][:, idxEpoch]
+            mag = self.tab['m'][:, idxEpoch]
+            if self.mag_range is None:
+                idx = np.where((x > -1000) & (y > -1000))[0]
+            else:
+                idx = np.where((x > -1000) & (y > -1000) &
+                               (mag <= np.max(self.mag_range)) &
+                               (mag >= np.min(self.mag_range)))[0]
+
+            x = x[idx]
+            y = y[idx]
+            self.selected_same_year.set_visible(True)
+            self.selected_same_year.set_data(x, y)
+            self.fig.canvas.draw()
+
+        return

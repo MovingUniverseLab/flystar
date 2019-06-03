@@ -49,7 +49,7 @@ def query_gaia(ra, dec, search_radius=30.0):
     return gaia
 
 
-def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None):
+def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2):
     """
     Take a Gaia table (from astroquery) and produce a new table with a tangential projection
     and shift such that the origin is centered on the target of interest. 
@@ -100,7 +100,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None):
 
             idx = dr.argmin()
 
-            if dr[idx] < 0.2:
+            if dr[idx] < match_dr_max:
                 gaia_new['name'][idx] = targ_name
                 print('Found match for: ', targ_name)
 

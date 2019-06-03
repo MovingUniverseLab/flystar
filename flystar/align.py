@@ -1066,7 +1066,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
                  trans_input=None, trans_class=transforms.PolyTransform,
                  update_mag_offset=True, update_ref_per_iter=True,
                  use_vel=False, update_vel=True,
-                 init_guess_mode='miracle',
+                 init_guess_mode='miracle', init_guess_n_req=2,
                  ref_epoch_mean=True, verbose=True):
     """
     Required Parameters
@@ -1259,7 +1259,7 @@ def mosaic_lists(list_of_starlists, ref_index=0, iters=2,
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
                 trans = trans_initial_guess(ref_list_T, star_list_T, trans_args[0],
-                                            mode=init_guess_mode,
+                                            mode=init_guess_mode, n_req_match=init_guess_n_req,
                                             verbose=verbose)
 
             mag_offset = trans.mag_offset
