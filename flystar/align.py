@@ -810,6 +810,7 @@ class MosaicToRef(MosaicSelfRef):
                  use_ref_new=False,
                  use_vel=False, update_ref_orig=False,
                  init_guess_mode='miracle',
+                 iter_callback=None,
                  verbose=True):
 
         """
@@ -906,6 +907,10 @@ class MosaicToRef(MosaicSelfRef):
             using the velocity information. So all transformations will be derived w.r.t. 
             the propogated positions. See also update_vel.
 
+        iter_callback : None or function
+            A function to call (that accepts a StarTable object and an iteration number)
+            at the end of every iteration. This can be used for plotting or printing state. 
+
         """
 
         super().__init__(list_of_starlists, ref_index=-1, iters=iters,
@@ -920,6 +925,7 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_mag_lim = ref_mag_lim
         self.update_ref_orig = update_ref_orig
         self.use_ref_new = use_ref_new
+        self.iter_callback = iter_callback
 
         # Do some temporary clean up of the reference list.
         if ('x' not in self.ref_list.colnames) and ('x0' in self.ref_list.colnames):
@@ -1015,6 +1021,9 @@ class MosaicToRef(MosaicSelfRef):
             idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
             print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
+
+            if self.iter_callback != None:
+                self.iter_callback(self.ref_table, nn)
             
 
         ##########
@@ -1030,8 +1039,8 @@ class MosaicToRef(MosaicSelfRef):
             print("Final Matching")
             print("**********")
 
-            self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
-            self.update_ref_table_aggregates()
+        self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
+        self.update_ref_table_aggregates()
                 
 
         ##########
@@ -1042,12 +1051,16 @@ class MosaicToRef(MosaicSelfRef):
         if self.verbose:
             print('')
             print('   Preparing the reference table...')
+            
         self.ref_table.detections()
 
         ### Drop all stars that have 0 detections.
         idx = np.where(self.ref_table['n_detect'] == 0)[0]
         print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
+
+        if self.iter_callback != None:
+            self.iter_callback(self.ref_table, nn)
 
         return
 
@@ -3280,7 +3293,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     trans.mag_offset = np.mean(m2m - m1m)
 
     if verbose:
-        print('initial_guess: ', trans.px.parameters, trans.py.parameters)
+        print('initial_guess: ', trans.px.parameters, trans.py.parameters, trans.mag_offset)
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
         
@@ -3353,7 +3366,7 @@ def trans_initial_guess_new(ref_list, star_list, trans_args, mode='miracle',
     trans.mag_offset = np.mean(m2m - m1m)
 
     if verbose:
-        print('initial_guess: ', trans.px.parameters, trans.py.parameters)
+        print('initial_guess: ', trans.px.parameters, trans.py.parameters, trans.mag_offset)
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
         
