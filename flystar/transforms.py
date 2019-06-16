@@ -803,7 +803,7 @@ class LegTransform(Transform2D):
         p_init_x = models.Legendre2D(order, order, **init_gx)
         p_init_y = models.Legendre2D(order, order, **init_gy)
         
-        fit_p  = fitting.LinearLSQFitter()
+        fit_p  = fitting.LSQFitter()
 
         px = fit_p(p_init_x, x, y, x_ref, weights=weights)
         py = fit_p(p_init_y, x, y, y_ref, weights=weights)
