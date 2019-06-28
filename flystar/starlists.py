@@ -179,7 +179,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
         col10: vyerr
         col11: t0
         col12: use
-        col13: r2d (arcsec)
+        col13: r0 (arcsec)
 
     prop_to_time: None or float (default = None)
         If float, use velocities to propogate positions to defined time.
@@ -194,7 +194,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     Output:
     ------
     labelFile: astropy.table.
-    containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r2d,
+    containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r0,
     (if prop_to_time: x, y, xe, ye, t)
     
     x and y is in arcsec,

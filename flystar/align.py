@@ -374,6 +374,20 @@ class MosaicSelfRef(object):
             star_list_T = copy.deepcopy(star_list)
             star_list_T.transform_xym(trans)
 
+#            fmt = '{0:13s} {1:9.5f} {2:9.5f} {3:9.5f} {4:9.5f} {5:5.2f} {6:5.2f} {7:9.5f} {8:9.5f}'
+#            for foo in range(len(idx1)):
+#                star_s = star_list[idx1[foo]]
+#                star_r = ref_list[idx2[foo]]
+#                star_t = star_list_T[idx1[foo]]
+#                print(fmt.format(star_s['name'], star_s['x'], star_r['x'], star_s['y'], star_r['y'],
+#                                 (star_s['x'] - star_r['x']) * 1e3, 
+#                                 (star_s['y'] - star_r['y']) * 1e3,
+#                                 star_t['x'], star_t['y']))
+#            fmt = '{0:2d} {1:5.2f} mas  {2:5.2f} mas'
+#            print(fmt.format(ii, 
+#                             trans.px.parameters[0]*1e3, 
+#                             trans.py.parameters[0]*1e3))
+
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
@@ -622,6 +636,7 @@ class MosaicSelfRef(object):
                 vy_orig = self.ref_table['vy'][ref_orig_idx]
                 vxe_orig = self.ref_table['vxe'][ref_orig_idx]
                 vye_orig = self.ref_table['vye'][ref_orig_idx]
+                t0_orig = self.ref_table['t0'][ref_orig_idx]
                 
         
         if self.use_vel:
@@ -655,6 +670,7 @@ class MosaicSelfRef(object):
                 self.ref_table['vy'][ref_orig_idx] = vy_orig
                 self.ref_table['vxe'][ref_orig_idx] = vxe_orig
                 self.ref_table['vye'][ref_orig_idx] = vye_orig
+                self.ref_table['t0'][ref_orig_idx] = t0_orig
                 
         return
 
