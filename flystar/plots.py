@@ -869,11 +869,12 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
         paxes = py.subplot(Nrows, Ncols, ind)
         id = np.where(diffY < 0)[0]
         sig[id] = -1.*sig[id] 
-        (n, b, p) = py.hist(sigX, bins, histtype='stepfilled', color='b')
+        (n, b, p) = py.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
         py.setp(p, 'facecolor', 'b')
-        (n, b, p) = py.hist(sigY, bins, histtype='step', color='r')
+        (n, b, p) = py.hist(sigY, bins, histtype='step', color='r', label='Y')
         py.axis([-7, 7, 0, 8], fontsize=10)
-        py.xlabel('X Residuals (sigma)', fontsize=fontsize1)
+        py.legend()
+        py.xlabel('Residuals (sigma)', fontsize=fontsize1)
         py.ylabel('Number of Epochs', fontsize=fontsize1)
 
         ##########
@@ -1142,8 +1143,11 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
     for i in range(Nstars):
         starName = star_names[i]
         
-        ii = np.where(tab['name'] == starName)[0][0]
-        print(ii, tab[ii]['name'])
+        try:
+            ii = np.where(tab['name'] == starName)[0][0]
+            print(ii, tab[ii]['name'])
+        except IndexError:
+            print("!! %s is not in this list"%starName)
 
         fnd = np.where(tab['xe'][ii, :] > 0)[0]
 
@@ -1315,11 +1319,12 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
         paxes = plt.subplot(Nrows, Ncols, ind)
         id = np.where(diffY < 0)[0]
         sig[id] = -1.*sig[id] 
-        (n, b, p) = plt.hist(sigX, bins, histtype='stepfilled', color='b')
+        (n, b, p) = plt.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
         plt.setp(p, 'facecolor', 'b')
-        (n, b, p) = plt.hist(sigY, bins, histtype='step', color='r')
+        (n, b, p) = plt.hist(sigY, bins, histtype='step', color='r', label='Y')
         plt.axis([-7, 7, 0, 8], fontsize=10)
-        plt.xlabel('X Residuals (sigma)', fontsize=fontsize1)
+        plt.legend(fontsize=10)
+        plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
         plt.ylabel('Number of Epochs', fontsize=fontsize1)
 
     if Nstars == 1:
