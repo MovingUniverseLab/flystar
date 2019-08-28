@@ -244,6 +244,9 @@ class MosaicSelfRef(object):
             print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
+            # Fit velocities again
+            self.update_ref_table_aggregates()
+
             if self.iter_callback != None:
                 self.iter_callback(self.ref_table, nn)
             
@@ -361,7 +364,7 @@ class MosaicSelfRef(object):
                 print( '  Using ', len(idx1), ' stars in transformation.' )
             trans = self.trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
-                                                      **trans_args,
+                                                      trans_args,
                                                       m=star_list['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight)
 
@@ -374,19 +377,19 @@ class MosaicSelfRef(object):
             star_list_T = copy.deepcopy(star_list)
             star_list_T.transform_xym(trans)
 
-#            fmt = '{0:13s} {1:9.5f} {2:9.5f} {3:9.5f} {4:9.5f} {5:5.2f} {6:5.2f} {7:9.5f} {8:9.5f}'
-#            for foo in range(len(idx1)):
-#                star_s = star_list[idx1[foo]]
-#                star_r = ref_list[idx2[foo]]
-#                star_t = star_list_T[idx1[foo]]
-#                print(fmt.format(star_s['name'], star_s['x'], star_r['x'], star_s['y'], star_r['y'],
-#                                 (star_s['x'] - star_r['x']) * 1e3, 
-#                                 (star_s['y'] - star_r['y']) * 1e3,
-#                                 star_t['x'], star_t['y']))
-#            fmt = '{0:2d} {1:5.2f} mas  {2:5.2f} mas'
-#            print(fmt.format(ii, 
-#                             trans.px.parameters[0]*1e3, 
-#                             trans.py.parameters[0]*1e3))
+            fmt = '{0:13s} {1:9.5f} {2:9.5f} {3:9.5f} {4:9.5f} {5:5.2f} {6:5.2f} {7:9.5f} {8:9.5f}'
+            for foo in range(len(idx1)):
+                star_s = star_list[idx1[foo]]
+                star_r = ref_list[idx2[foo]]
+                star_t = star_list_T[idx1[foo]]
+                print(fmt.format(star_s['name'], star_t['x'], star_r['x'], star_t['y'], star_r['y'],
+                                 (star_t['x'] - star_r['x']) * 1e3, 
+                                 (star_t['y'] - star_r['y']) * 1e3,
+                                 star_s['x'], star_s['y']))
+            fmt = '{0:2d} {1:5.2f} mas  {2:5.2f} mas'
+            print(fmt.format(ii, 
+                             trans.px.parameters[0]*1e3, 
+                             trans.py.parameters[0]*1e3))
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
@@ -400,7 +403,8 @@ class MosaicSelfRef(object):
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
             
             ### Update the "average" values to be used as the reference frame for the next list.
-            self.update_ref_table_aggregates()
+            if self.update_ref_orig != 'periter':
+                self.update_ref_table_aggregates()
 
             # Print out some metrics
             if self.verbose:
@@ -914,10 +918,14 @@ class MosaicToRef(MosaicSelfRef):
             then the transformation argument (i.e. order) will be changed for every iteration in
             iters.
 
-        update_ref_orig : boolean
-            Should we update the reference values (position, velocity, t0) after each iteration? 
-            Set to false if you want to get into an absolute reference frame and are using Gaia
-            data. Set to true if you want to use the reference list as more of an initial guess.
+        update_ref_orig : boolean or str
+            Should we update the reference values (position, velocity, t0) after each starlist
+            is transformed in each iteration? 
+
+                False if you want to get into an absolute reference frame and are using Gaia data. 
+                True if you want to use the reference list as more of an initial guess.
+                'periter' if you want to align all the starlists, then calculate the velocity.
+
             Note that this only impacts the stars that are in the original reference list... the
             newly identified stars that end up in ref_table will always be updated; but not always
             used for transformation fitting.
@@ -3394,8 +3402,20 @@ def trans_initial_guess_new(ref_list, star_list, trans_args, mode='miracle',
     trans.mag_offset = np.mean(m2m - m1m)
 
     if verbose:
-        print('initial_guess: ', trans.px.parameters, trans.py.parameters, trans.mag_offset)
+        x1m_t, y1m_t = trans.evaluate(x1m, y1m)
+        m1m_t = trans.evaluate_mag(m1m)
+        
+        hdr = '{0:>7s} {1:>7s} {2:>7s}   {3:>7s} {4:>7s} {5:>7s}   {6:>7s} {7:>7s} {8:>7s}'
+        print(hdr.format('lis_x_t', 'ref_x', 'dx', 'lis_y_t', 'ref_y', 'dy', 'lis_m_t', 'ref_m', 'dm'))
+        for ii in range(len(x1m)):
+            fmt = '{0:7.3f} {1:7.3f} {2:7.3f}   {3:7.3f} {4:7.3f} {5:7.3f}   {6:7.2f} {7:7.2f} {8:7.2f}'
+            print(fmt.format(x1m_t[ii], x2m[ii], x1m_t[ii] - x2m[ii],
+                             y1m_t[ii], y2m[ii], y1m_t[ii] - y2m[ii],
+                             m1m_t[ii], m2m[ii], m1m_t[ii] - m2m[ii]))
 
+        print('initial_guess: ', trans.px.parameters, trans.py.parameters, trans.mag_offset)
+        
+        
     warnings.filterwarnings('default', category=AstropyUserWarning)
         
     return trans

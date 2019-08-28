@@ -94,6 +94,13 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['parallax'] = gaia['parallax']
     gaia_new['parallax_error'] = gaia['parallax_error']
 
+    # Set the velocities (and uncertainties) to zero if they aren't measured.
+    idx = np.where(np.isnan(gaia_new['vx']) == True)[0]
+    gaia_new['vx'][idx] = 0.0
+    gaia_new['vxe'][idx] = 0.0
+    gaia_new['vy'][idx] = 0.0
+    gaia_new['vye'][idx] = 0.0
+
     if targets_dict != None:
         for targ_name, targ_coo in targets_dict.items():
             dx = gaia_new['x0'] - (targ_coo[0] * -1.0)

@@ -865,7 +865,7 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
         col = col + 1
         ind = (row-1)*Ncols + col
 
-        bins = np.arange(-7, 7, 1)
+        bins = np.arange(-7.5, 7.5, 1)
         paxes = py.subplot(Nrows, Ncols, ind)
         id = np.where(diffY < 0)[0]
         sig[id] = -1.*sig[id] 
@@ -1074,6 +1074,7 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None):
     idx = np.where(n_ref > 0)[0]
     dr_ref_avg[idx] = dr_ref[idx] / n_ref[idx]
 
+    hdr = '{name:>16s} {mag:>5s} {dr:>6s} {x:>6s} {y:>6s} {r:>6s}'
     fmt = '{name:16s} {mag:5.2f} {dr:6.4f} {x:6.3f} {y:6.3f} {r:6.3f}'
 
     # print()
@@ -1089,6 +1090,7 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None):
     print('##########')
     print('# REF stars')
     print('##########')
+    print(hdr.format(name='Name', mag='Mag', dr='dr', x='x', y='y', r='r'))
     for rr in range(len(tab)):
         if (dr_ref_avg[rr] > 0):
             print(fmt.format(name=tab['name'][rr], mag=tab['m0'][rr], dr=dr_ref_avg[rr],
@@ -1357,7 +1359,7 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
         col = col + 1
         ind = (row-1)*Ncols + col
 
-        bins = np.arange(-7, 7, 1)
+        bins = np.arange(-7.5, 7.5, 1)
         paxes = plt.subplot(Nrows, Ncols, ind)
         id = np.where(diffY < 0)[0]
         sig[id] = -1.*sig[id] 
