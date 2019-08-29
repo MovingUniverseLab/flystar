@@ -166,8 +166,10 @@ class MosaicSelfRef(object):
 
         if self.mag_lim == None:
             self.mag_lim = np.repeat([[None, None]], len(self.star_lists), axis=0)
-        if (len(self.mag_lim) == 2):
-            self.mag_lim = np.repeat([self.mag_lim], len(self.star_lists), axis=0)
+        else:
+            if (len(self.mag_lim) == 2):
+                self.mag_lim = np.repeat([self.mag_lim], len(self.star_lists), axis=0)
+                
         assert len(self.mag_lim) == len(self.star_lists)
 
         return
