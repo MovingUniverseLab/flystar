@@ -366,7 +366,7 @@ class MosaicSelfRef(object):
                 print( '  Using ', len(idx1), ' stars in transformation.' )
             trans = self.trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
-                                                      trans_args,
+                                                      **trans_args,
                                                       m=star_list['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight)
 
@@ -1046,7 +1046,7 @@ class MosaicToRef(MosaicSelfRef):
                 print("**********")
                 
             # ALL the action is in here. Match and transform the stack of starlists.
-            # This updates trans objects and the ref_table. 
+            # This updates trans objects and the ref_table.
             self.match_and_transform(self.ref_mag_lim,
                                      self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
                                      self.trans_args[nn])
@@ -3418,8 +3418,7 @@ def trans_initial_guess_new(ref_list, star_list, trans_args, mode='miracle',
         print('initial_guess: ', trans.px.parameters, trans.py.parameters, trans.mag_offset)
         
         
-    warnings.filterwarnings('default', category=AstropyUserWarning)
-        
+    warnings.filterwarnings('default', category=AstropyUserWarning)   
     return trans
 
 
