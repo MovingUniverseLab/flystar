@@ -254,15 +254,15 @@ class PolyTransform(Transform2D):
             py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
             
             fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
-            self.px = models.Polynomial2D(self.poly_order, px_dict, fixed=fixed_params)
-            self.py = models.Polynomial2D(self.poly_order, py_dict, fixed=fixed_params)
+            self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
+            self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
         else:
             px_dict = PolyTransform.make_param_dict(px, order, isY=False)
             py_dict = PolyTransform.make_param_dict(py, order, isY=True)
             
-            self.px = models.Polynomial2D(order, px_dict)
-            self.py = models.Polynomial2D(order, py_dict)
-            
+            self.px = models.Polynomial2D(order, **px_dict)
+            self.py = models.Polynomial2D(order, **py_dict)
+
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.mag_offset = mag_offset
