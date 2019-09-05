@@ -366,7 +366,7 @@ class MosaicSelfRef(object):
                 print( '  Using ', len(idx1), ' stars in transformation.' )
             trans = self.trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
-                                                      trans_args,
+                                                      trans_args['order'],
                                                       m=star_list['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight)
 
