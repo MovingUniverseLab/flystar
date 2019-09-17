@@ -58,10 +58,11 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
     if xlim != None:
         py.axis([xlim[0], xlim[1], ylim[0], ylim[1]])
     if fileName!=None:
-        py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
+        #py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
+        py.savefig(root + 'Transformed_positions_{0}'.format(fileName) + '.png')
     else:
         py.savefig(root + 'Transformed_positions.png')
-    py.close()
+    #py.close()
     return
 
 
