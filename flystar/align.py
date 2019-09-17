@@ -340,6 +340,7 @@ class MosaicSelfRef(object):
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
 
+
             # Outlier rejection
             if outlier_tol != None:
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
@@ -381,19 +382,19 @@ class MosaicSelfRef(object):
             star_list_T = copy.deepcopy(star_list)
             star_list_T.transform_xym(trans)
 
-            fmt = '{0:13s} {1:9.5f} {2:9.5f} {3:9.5f} {4:9.5f} {5:5.2f} {6:5.2f} {7:9.5f} {8:9.5f}'
+            fmt = '{n:13s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
+            fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
             for foo in range(len(idx1)):
                 star_s = star_list[idx1[foo]]
                 star_r = ref_list[idx2[foo]]
                 star_t = star_list_T[idx1[foo]]
-                print(fmt.format(star_s['name'], star_t['x'], star_r['x'], star_t['y'], star_r['y'],
-                                 (star_t['x'] - star_r['x']) * 1e3, 
-                                 (star_t['y'] - star_r['y']) * 1e3,
-                                 star_s['x'], star_s['y']))
-            fmt = '{0:2d} {1:5.2f} mas  {2:5.2f} mas'
-            print(fmt.format(ii, 
-                             trans.px.parameters[0]*1e3, 
-                             trans.py.parameters[0]*1e3))
+                print(fmt.format(n=star_s['name'], xl=star_t['x'], xr=star_r['x'],
+                                     yl=star_t['y'], yr=star_r['y'],
+                                     ml=star_t['m'], mr=star_r['m'],
+                                     dx=(star_t['x'] - star_r['x']) * 1e3, 
+                                     dy=(star_t['y'] - star_r['y']) * 1e3,
+                                     dm=(star_t['m'] - star_r['m']),
+                                     xo=star_s['x'], yo=star_s['y'], mo=star_s['m']))
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
@@ -417,18 +418,24 @@ class MosaicSelfRef(object):
             # Print out some metrics
             if self.verbose:
                 msg1 = '    {0:2s} (mean and std) for {1:10s}: {2:8.5f} +/- {3:8.5f}'
-                print('  Residuals: ')
+                print('    Residuals: ')
                 print(msg1.format('dr', 'all stars', dr.mean(), dr.std()))
                 print(msg1.format('dm', 'all stars', dm.mean(), dm.std()))
 
                 # Calculate the residuals just for those used in the transformation
                 used = np.where(self.ref_table['used_in_trans'][:, ii] == True)[0]
-                dr_u = np.hypot(self.ref_table['x'][used, ii] - ref_list['x'][used],
-                                self.ref_table['y'][used, ii] - ref_list['y'][used])
-                dm_u = np.abs(self.ref_table['m'][used, ii] - ref_list['m'][used])
+                used_good = used[ np.where(np.isin(used, idx_ref) == True)[0] ]
+                dr_u = np.hypot(self.ref_table['x'][used_good, ii] - ref_list['x'][used_good],
+                                self.ref_table['y'][used_good, ii] - ref_list['y'][used_good])
+                dm_u = np.abs(self.ref_table['m'][used_good, ii] - ref_list['m'][used_good])
                 print(msg1.format('dr', 'trans stars', dr_u.mean(), dr_u.std()))
                 print(msg1.format('dm', 'trans stars', dm_u.mean(), dm_u.std()))
+                print('    Dropped {0:d} matches after transform.'.format(len(used) - len(used_good)))
 
+            print(self.ref_table[61]['x'])
+            print(self.ref_table[61]['y'])
+            print(self.ref_table[61]['m'])
+                
         return
     
     def setup_trans_info(self):
@@ -599,10 +606,34 @@ class MosaicSelfRef(object):
         return keepers
 
     def update_ref_table_from_list(self, star_list, star_list_T, ii, idx_ref, idx_lis, idx_ref_in_trans):
+        """
+        Inputs
+        ----------
+        star_list : StarList
+            The original star list. 
+
+        star_list_T : StarList
+            The original star list now transformed into the reference coordinate system.
+
+        ii : int
+            The index of this epoch/starlist in the final table.
+
+        idx_ref : np.array dtype=int
+            The indices of the matched targets in the reference list/table.
+
+        idx_lis : np.array dtype=int
+            The indices of the matched targets in the origin starlist (epoch).
+
+        idx_ref_in_trans : np.array dtype=int
+            The indices in the reference table (self.ref_table). 
+        """
         ### Update the reference table for matched stars.
         #   Add the matched stars to the reference table.
         #   For every epoch except the reference, we need to add a starlist.
-        if (self.ref_table['x'].shape[1] != len(self.star_lists)) and (ii != self.ref_index):
+        if ((self.ref_table['x'].shape[1] != len(self.star_lists)) and
+            (ii != self.ref_index) and
+            (ii >= self.ref_table['x'].shape[1])):
+            
             self.ref_table.add_starlist()
                 
         copy_over_values(self.ref_table, star_list, star_list_T, ii, idx_ref, idx_lis)
@@ -611,7 +642,13 @@ class MosaicSelfRef(object):
         ### Add the unmatched stars and grow the size of the reference table.
         self.ref_table, idx_lis_new, idx_ref_new = add_rows_for_new_stars(self.ref_table, star_list, idx_lis)
         if len(idx_ref_new) > 0:
+            print('    Adding {0:d} new stars to the reference table.'.format(len(idx_ref_new)))
             copy_over_values(self.ref_table, star_list, star_list_T, ii, idx_ref_new, idx_lis_new)
+
+            # Copy the single-epoch values to the aggregate (only for new stars).
+            self.ref_table['x0'][idx_ref_new] = star_list_T['x'][idx_lis_new]
+            self.ref_table['y0'][idx_ref_new] = star_list_T['y'][idx_lis_new]
+            self.ref_table['m0'][idx_ref_new] = star_list_T['m'][idx_lis_new]
             
             self.ref_table['name'] = update_old_and_new_names(self.ref_table, ii, idx_ref_new)
 
@@ -1521,7 +1558,7 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
     idx_ref : list or array
         The indices into the ref_table where values are copied to.
     idx_lis : list or array
-        The indices into the star_list or star_lsit_T where values are copied from.
+        The indices into the star_list or star_list_T where values are copied from.
     """
     for col_name in ref_table.colnames:
         if col_name in star_list_T.colnames:

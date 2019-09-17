@@ -599,22 +599,38 @@ class StarTable(Table):
             pos = np.polynomial.polynomial.polyval(time, params)
             return pos
         
-        x = self['x'][ss, :].data
-        y = self['y'][ss, :].data
+        x = self['x'][ss, :].copy().data
+        y = self['y'][ss, :].copy().data
 
         if 'xe' in self.colnames:
-            xe = self['xe'][ss, :].data
-            ye = self['ye'][ss, :].data
+            xe = self['xe'][ss, :].copy().data
+            ye = self['ye'][ss, :].copy().data
+
+            # Catch the case where we have positions but no errors for
+            # some of the entries... we need to "fill in" reasonable
+            # weights for these... just use the average weights over
+            # all the other epochs.
+            pos_no_err = np.where((np.isfinite(x) & np.isfinite(y)) &
+                                  (np.isfinite(xe) == False) & (np.isfinite(ye) == False))[0]
+            pos_with_err = np.where((np.isfinite(x) & np.isfinite(y)) &
+                                  (np.isfinite(xe) & np.isfinite(ye)))[0]
+
+            if len(pos_with_err) > 0:
+                xe[pos_no_err] = xe[pos_with_err].mean()
+                ye[pos_no_err] = ye[pos_with_err].mean()
+            else:
+                xe[pos_no_err] = 1.0
+                ye[pos_no_err] = 1.0
         else:
             xe = np.ones(N_epochs, dtype=float)
             ye = np.ones(N_epochs, dtype=float)
 
         if 't' in self.colnames:
-            t = self['t'][ss, :].data
+            t = self['t'][ss, :].copy().data
         else:
             t = self.meta['list_times']
 
-        # Figure out where we have detections (as indicated by error columns 
+        # Figure out where we have detections (as indicated by error columns)
         good = np.where((xe != 0) & (ye != 0) &
                         np.isfinite(xe) & np.isfinite(ye) &
                         np.isfinite(x) & np.isfinite(y))[0]
@@ -726,12 +742,12 @@ class StarTable(Table):
         else:
             # N_good == 1 case
             self['n_vfit'][ss] = 1
-            self['x0'][ss] = x[0]
-            self['y0'][ss] = y[0]
+            self['x0'][ss] = x[good[0]]
+            self['y0'][ss] = y[good[0]]
             
             if 'xe' in self.colnames:
-                self['x0e'] = xe[0]
-                self['y0e'] = ye[0]
+                self['x0e'] = xe[good[0]]
+                self['y0e'] = ye[good[0]]
 
         return
 

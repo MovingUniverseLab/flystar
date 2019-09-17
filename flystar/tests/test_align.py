@@ -515,7 +515,119 @@ def make_fake_starlists_poly1_vel():
 
     return (xy_trans, mag_trans)
 
-        
+def test_mosaic_lists_keck_hst():
+    from microlens.jlu import pm_tools as p
+    
+    ##############################
+    # Prepare starlists
+    ##############################
+    
+    ############### GAIA ###############
+    gaia_file = "/u/fatima/Desktop/Haynes/astrometry/MB98_36as_box.csv"
+    gaia_data = Table.read(gaia_file, format='csv')
+    gaia_list = p.gaia_starlist(gaia_file, 'mb980006')  # Make starlist from gaia
+
+    # Name two stars for matching purposes 
+    gaia_list, Target_G   = p.rename_star(gaia_list,  0.0,  0.0, 'MB980006', gaia=True)
+    gaia_list, RefStar1_G = p.rename_star(gaia_list,  0.1,  4.4, 'RefStar1', gaia=True)
+    gaia_list, RefStar2_G = p.rename_star(gaia_list, -3.5,  2.4, 'RefStar2', gaia=True)
+    gaia_list, RefStar3_G = p.rename_star(gaia_list, -3.6, -2.3, 'RefStar3', gaia=True)
+    gaia_list, RefStar3_G = p.rename_star(gaia_list,  7.0,  1.5, 'RefStar4', gaia=True)
+    gaia_list, RefStar3_G = p.rename_star(gaia_list, -4.3, -9.4, 'RefStar5', gaia=True)
+
+
+    gaia_list = Table(gaia_list, masked=False)
+    gaia_list = starlists.StarList.from_table(gaia_list)
+    gaia_list.rename_column('t', 't0')
+
+    gaia_list = gaia_list.filled() #all stars
+    match_list = gaia_list[p.match_star_ind(gaia_list)] #4 named stars
+
+    ############### KECK ###############
+    keck_file_1 = '/u/fatima/Desktop/Haynes/astrometry/mag16jul14_mb980006_kp_rms_named.lis'
+    keck_file_2 = '/u/fatima/Desktop/Haynes/astrometry/mag17jun08_mb980006_kp_rms_named.lis'
+    kLis1 = p.starlists.StarList.from_lis_file(keck_file_1, error=True)
+    kLis2 = p.starlists.StarList.from_lis_file(keck_file_2, error=True)
+
+    # Name a few stars for matching purposes
+    kLis1 = p.rename_star(kLis1, 558, 930, 'RefStar1')
+    kLis1 = p.rename_star(kLis1, 196, 729, 'RefStar2')
+    kLis1 = p.rename_star(kLis1, 194, 268, 'RefStar3')
+    kLis1 = p.rename_star(kLis1, 553, 486, 'MB980006')
+
+    kLis2 = p.rename_star(kLis2, 537, 930, 'RefStar1')
+    kLis2 = p.rename_star(kLis2, 179, 727, 'RefStar2')
+    kLis2 = p.rename_star(kLis2, 171, 262, 'RefStar3')
+    kLis2 = p.rename_star(kLis2, 532, 488, 'MB980006')
+    
+    keck_lists = [kLis1, kLis2]
+
+    ############### HST ###############
+    hst_F439W_file = '/u/fatima/Desktop/Haynes/hst_data/MB980006/F439W/01.XYM/u65c030dr_c0f.xym' #not using for now
+    hst_F555W_file = '/u/fatima/Desktop/Haynes/hst_data/MB980006/F555W/01.XYM/u65c0308m_c0f.xym'
+    hst_F675W_file = '/u/fatima/Desktop/Haynes/hst_data/MB980006/F675W/01.XYM/u65c0306r_c0f.xym'
+    hst_F814W_file = '/u/fatima/Desktop/Haynes/hst_data/MB980006/F814W/01.XYM/u65c0302r_c0f.xym'
+
+    hst_files = [hst_F439W_file, hst_F555W_file, hst_F675W_file, hst_F814W_file]
+    hst_lists = []
+
+    for file in hst_files:
+        tab = Table.read(file, format='ascii')
+        chip_ind = np.where((tab['col1']<800)&(tab['col2']<800))
+        x = tab['col1'][chip_ind]
+        y = tab['col2'][chip_ind]
+        m = tab['col3'][chip_ind]
+        name = ['s1_{0:04d}'.format(ii) for ii in range(len(x))]
+        t = [2000+(174/365.25)]*len(x)
+        new_tab = Table([name, t, x, y, m], names=['name', 't', 'x', 'y', 'm'])
+        starlist = starlists.StarList.from_table(new_tab)
+        hst_lists.append(starlist)
+
+    # Reference stars for 555, 675, and 814 (439 is so different that it needs unique matches to gaia)
+    x1_guesses = [661, 666, 661]
+    y1_guesses = [433, 444, 433]
+    x2_guesses = [597, 602, 597]
+    y2_guesses = [496, 508, 496]
+    x3_guesses = [500, 505, 501]
+    y3_guesses = [472, 484, 472]
+    xt_guesses = [566, 571, 566]
+    yt_guesses = [407, 419, 407]
+
+    for ii in range(len(hst_lists)):
+        if ii==0:
+            pass
+        else:
+            hst_lists[ii] = p.rename_star(hst_lists[ii], x1_guesses[ii-1], y1_guesses[ii-1], 'RefStar1')
+            hst_lists[ii] = p.rename_star(hst_lists[ii], x2_guesses[ii-1], y2_guesses[ii-1], 'RefStar2')
+            hst_lists[ii] = p.rename_star(hst_lists[ii], x3_guesses[ii-1], y3_guesses[ii-1], 'RefStar3')
+            hst_lists[ii] = p.rename_star(hst_lists[ii], xt_guesses[ii-1], yt_guesses[ii-1], 'MB980006')
+
+    hst_lists[0] = p.rename_star(hst_lists[0], 566, 407, 'MB980006')
+    hst_lists[0] = p.rename_star(hst_lists[0], 643, 266, 'RefStar4')
+    hst_lists[0] = p.rename_star(hst_lists[0], 346, 443, 'RefStar5')
+
+    ##############################
+    # Alignment
+    ##############################
+    iters = 2
+    dr_tol = [0.3, 0.2]
+    dm_tol = [3.0, 3.0]
+    msc = align.MosaicToRef(gaia_list, keck_lists + hst_lists, iters=iters,
+                                 dr_tol=dr_tol, dm_tol=[40]*iters,
+                                 outlier_tol=[None]*iters, mag_lim=None,
+                                 trans_class=transforms.PolyTransform,
+                                 trans_input=None,
+                                 trans_args=[{'order': 1}]*iters, 
+                                 use_vel=True, weights=None,
+                                 update_ref_orig=False, use_ref_new=False, mag_trans=True,
+                                 init_guess_mode='name', verbose=True)
+
+    msc.fit()
+    tab = msc.ref_table
+
+    pdb.set_trace()
+
+    return tab    
               
 
         
