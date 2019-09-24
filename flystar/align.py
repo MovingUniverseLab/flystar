@@ -3394,7 +3394,7 @@ def trans_initial_guess_new(ref_list, star_list, trans_args, mode='miracle',
         # Match the star names
         name_matches, ndx_r, ndx_s = np.intersect1d(ref_list['name'][idx_r],
                                                     star_list['name'][idx_s],
-                                                    assume_unique=True,
+                                                    assume_unique=False,
                                                     return_indices=True)
         
         x1m = star_list['x'][idx_s][ndx_s]
