@@ -1,6 +1,7 @@
 import numpy as np
 from flystar import match
 from flystar import transforms
+from flystar import plots
 from flystar.starlists import StarList
 from flystar.startables import StarTable
 from astropy.table import Table, Column, vstack
@@ -312,11 +313,13 @@ class MosaicSelfRef(object):
             star_list = self.star_lists[ii]
             ref_list = self.get_ref_list_from_table(star_list['t'][0])
             trans = self.trans_list[ii]
-
+            
             # Trim a COPY of the reference and star lists based on magnitude.
             #       ref_list gets marked via the "use_in_trans" flag.
-            #       star_list_T is actually trimmed but not yet transformed.
+            #       star_list_T and star_list_orig_trim is actually trimmed but
+            #       not yet transformed.
             self.apply_mag_lim_via_use_in_trans(ref_list, ref_mag_lim)
+            star_list_orig_trim = apply_mag_lim(star_list, self.mag_lim[ii])
             star_list_T = apply_mag_lim(star_list, self.mag_lim[ii])
 
             ### Initial match and transform: 1st order (if we haven't already).
@@ -327,7 +330,7 @@ class MosaicSelfRef(object):
 
             # Apply the XY transformation to a new copy of the starlist.
             star_list_T.transform_xym(trans)
-
+            
             # Match stars between the transformed, trimmed lists.
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                              ref_list['x'], ref_list['y'], ref_list['m'],
@@ -365,16 +368,15 @@ class MosaicSelfRef(object):
             # Derive the best-fit transformation parameters. 
             if self.verbose:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
-            trans = self.trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
+            trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
                                                       trans_args['order'],
-                                                      m=star_list['m'][idx1], mref=ref_list['m'][idx2],
+                                                      m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight)
-
 
             # Save the final transformation.
             self.trans_list[ii] = trans
-
+            
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(star_list)
@@ -401,6 +403,10 @@ class MosaicSelfRef(object):
             if self.verbose:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
+
+            ## Make plot, if desired
+            #plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
+            #                            fileName='{0}'.format(star_list_T['t'][0]))
 
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
@@ -691,8 +697,9 @@ class MosaicSelfRef(object):
                 weights_col = None
             else:
                 weights_col = 'me'
-                
+
             self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
+
         else:
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
@@ -770,8 +777,11 @@ class MosaicSelfRef(object):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(self.star_lists[ii])
-            star_list_T.transform_xym(self.trans_list[ii])
-            
+            if self.mag_trans:
+                star_list_T.transform_xym(self.trans_list[ii])
+            else:
+                star_list_T.transform_xy(self.trans_list[ii])
+                
             xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table)  # optional velocity propogation.
             mref = self.ref_table['m0']
 
@@ -782,7 +792,7 @@ class MosaicSelfRef(object):
                 print('Matched {0:d} out of {1:d} stars in list {2:d}'.format(len(idx_lis), len(star_list_T), ii))
 
             copy_over_values(self.ref_table, self.star_lists[ii], star_list_T, ii, idx_ref, idx_lis)
-
+            
         return
 
     def get_ref_list_from_table(self, epoch):
@@ -835,11 +845,10 @@ class MosaicSelfRef(object):
         use_in_trans = np.ones(len(x), dtype=bool)
         if 'use_in_trans' in self.ref_table.colnames:
             use_in_trans = self.ref_table['use_in_trans']
-
         # Make starlist
         ref_list = StarList(name=name, x=x, y=y, m=m)
         ref_list.add_column(use_in_trans, name='use_in_trans')
-
+        
         # Check if we should add errors.
         if (xe is not None) and (ye is not None):
             ref_list['xe'] = xe
@@ -1051,7 +1060,7 @@ class MosaicToRef(MosaicSelfRef):
         #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
         ##########
         self.ref_table = self.setup_ref_table_from_starlist(self.ref_list)
-        
+
         # copy over velocities if they exist in the reference list
         if 'vx' in self.ref_list.colnames:
             self.ref_table['vx'] = self.ref_list['vx']
@@ -1081,7 +1090,7 @@ class MosaicToRef(MosaicSelfRef):
                 print('Starting iter {0:d} with ref_table shape:'.format(nn), self.ref_table['x'].shape)
                 print("**********")
                 print("**********")
-                
+
             # ALL the action is in here. Match and transform the stack of starlists.
             # This updates trans objects and the ref_table.
             self.match_and_transform(self.ref_mag_lim,
@@ -3610,9 +3619,9 @@ def apply_mag_lim(star_list, mag_lim):
 
         cond_key = '{0:s}_max'.format(mcol)
         conditions[cond_key] = mag_lim[1]
-
+        
         star_list_T.restrict_by_value(**conditions)
-
+        
     return star_list_T
     
     
