@@ -203,12 +203,13 @@ class StarTable(Table):
                 new_data[:, :-1] = old_data
                 
                 # Save the new data array (with both old and new data in it) to the table.
-                self[col_name] = new_data
+                self[col_name] = new_data 
                 
                 if (col_name in starlist.colnames):            # Add data if it was input
-                    new_data[:, -1] = starlist[col_name]
+                    self[col_name][:, -1] = starlist[col_name]
                 else:                               # Add junk data it if wasn't input
                     self._set_invalid_list_values(col_name, -1)
+                
                         
         ##########
         # Update the table meta-data. Remember that entries are lists not numpy arrays.
@@ -722,7 +723,7 @@ class StarTable(Table):
                 self['vxe'][ss] = vx_err[1]
                 self['y0e'][ss] = vy_err[0]
                 self['vye'][ss] = vy_err[1]
-                
+
         elif N_good == 2:
             # Note nough epochs to fit a velocity.
             self['x0'][ss] = np.average(x, weights=1.0/xe**2)
