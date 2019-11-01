@@ -270,7 +270,7 @@ class MosaicSelfRef(object):
             print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
-            # Fit velocities again
+            # Fit velocities after all the starlists are aligned.
             self.update_ref_table_aggregates()
 
             if self.iter_callback != None:
@@ -1388,6 +1388,9 @@ class MosaicToRef(MosaicSelfRef):
             idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
             print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
+
+            # Fit velocities after all the starlists are aligned.
+            self.update_ref_table_aggregates()
 
             if self.iter_callback != None:
                 self.iter_callback(self.ref_table, nn)
