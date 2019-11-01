@@ -62,7 +62,7 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
         py.savefig(root + 'Transformed_positions_{0}'.format(fileName) + '.png')
     else:
         py.savefig(root + 'Transformed_positions.png')
-    #py.close()
+    py.close()
     return
 
 
