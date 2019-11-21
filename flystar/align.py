@@ -346,7 +346,9 @@ class MosaicSelfRef(object):
             #       ref_list gets marked via the "use_in_trans" flag.
             #       star_list_T is actually trimmed but not yet transformed.
             self.apply_mag_lim_via_use_in_trans(ref_list, ref_mag_lim)
+            star_list_orig_trim = apply_mag_lim(star_list, self.mag_lim[ii])
             star_list_T = apply_mag_lim(star_list, self.mag_lim[ii])
+            
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
@@ -394,7 +396,7 @@ class MosaicSelfRef(object):
             # Derive the best-fit transformation parameters. 
             if self.verbose:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
-            trans = self.trans_class.derive_transform(star_list['x'][idx1], star_list['y'][idx1], 
+            trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
                                                       trans_args['order'],
                                                       m=star_list['m'][idx1], mref=ref_list['m'][idx2],
@@ -417,7 +419,10 @@ class MosaicSelfRef(object):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(star_list)
-            star_list_T.transform_xym(trans)
+-            if self.mag_trans:
+-                star_list_T.transform_xym(self.trans_list[ii])
+-            else:
+-                star_list_T.transform_xy(self.trans_list[ii])
 
             fmt = '{n:13s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
             fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
