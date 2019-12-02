@@ -419,10 +419,10 @@ class MosaicSelfRef(object):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(star_list)
--            if self.mag_trans:
--                star_list_T.transform_xym(self.trans_list[ii])
--            else:
--                star_list_T.transform_xy(self.trans_list[ii])
+            if self.mag_trans:
+                star_list_T.transform_xym(self.trans_list[ii])
+            else:
+                star_list_T.transform_xy(self.trans_list[ii])
 
             fmt = '{n:13s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
             fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
