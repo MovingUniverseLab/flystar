@@ -32,6 +32,8 @@ class MosaicSelfRef(object):
                  verbose=True):
 
         """
+        Make a mosaic object by passing in a list of starlists and then running fit(). 
+
         Required Parameters
         ----------
         list_of_starlists : array of StarList objects
@@ -68,6 +70,10 @@ class MosaicSelfRef(object):
         dm_tol : list or array
             The delta-magnitude (dm) tolerance for matching in units of the reference coordinate system.
             This is a list of dm values, one for each iteration of matching/transformation. 
+
+        outlier_tol : list or array
+            The outlier tolerance (in units of sigma) for rejecting outlier stars. 
+            This is a list of tol values, one for each iteration of matching/transformation.
 
         mag_trans : boolean
             If true, this will also calculate and (temporarily) apply a zeropoint offset to 
@@ -125,6 +131,11 @@ class MosaicSelfRef(object):
             The inverse transformations are saved in self.trans_list_inverse.
 
             self.trans_list_inverse doesn't exist if calc_trans_inverse == False
+
+        init_guess_mode : string
+            If no initial transformations are passed in via the trans_input keyword, then we have
+            to make the initial transformation and matching blindly. We can do this in a couple of 
+            different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
 
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
@@ -419,13 +430,13 @@ class MosaicSelfRef(object):
             star_list_T = copy.deepcopy(star_list)
             star_list_T.transform_xym(trans)
 
-            fmt = '{n:13s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
+            fmt = '{nr:13s} {n:13s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
             fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
             for foo in range(len(idx1)):
                 star_s = star_list[idx1[foo]]
                 star_r = ref_list[idx2[foo]]
                 star_t = star_list_T[idx1[foo]]
-                print(fmt.format(n=star_s['name'], xl=star_t['x'], xr=star_r['x'],
+                print(fmt.format(nr=star_r['name'], n=star_s['name'], xl=star_t['x'], xr=star_r['x'],
                                      yl=star_t['y'], yr=star_r['y'],
                                      ml=star_t['m'], mr=star_r['m'],
                                      dx=(star_t['x'] - star_r['x']) * 1e3, 
@@ -815,8 +826,9 @@ class MosaicSelfRef(object):
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(self.star_lists[ii])
             star_list_T.transform_xym(self.trans_list[ii])
-            
-            xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table)  # optional velocity propogation.
+
+            xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table, use_vel=self.use_vel)  # optional velocity propogation.
+                
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -1193,6 +1205,10 @@ class MosaicToRef(MosaicSelfRef):
             The delta-magnitude (dm) tolerance for matching in units of the reference coordinate system.
             This is a list of dm values, one for each iteration of matching/transformation. 
 
+        outlier_tol : list or array
+            The outlier tolerance (in units of sigma) for rejecting outlier stars. 
+            This is a list of tol values, one for each iteration of matching/transformation.
+
         mag_trans : boolean
             If true, this will also calculate and (temporarily) apply a zeropoint offset to 
             magnitudes in each list to bring them into a common magnitude system. This is 
@@ -1272,6 +1288,11 @@ class MosaicToRef(MosaicSelfRef):
             each iteration of the alignment, the reference list will be propogated in time
             using the velocity information. So all transformations will be derived w.r.t. 
             the propogated positions. See also update_vel.
+
+        init_guess_mode : string
+            If no initial transformations are passed in via the trans_input keyword, then we have
+            to make the initial transformation and matching blindly. We can do this in a couple of 
+            different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
 
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
@@ -1408,7 +1429,7 @@ class MosaicToRef(MosaicSelfRef):
             print("**********")
             print("Final Matching")
             print("**********")
-        
+
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
         
         #self.update_ref_table_aggregates(n_boot=self.n_boot)
@@ -3955,7 +3976,7 @@ def get_weighting_scheme(weights, ref_list, star_list):
 
     return weight
 
-def get_pos_at_time(t, starlist):
+def get_pos_at_time(t, starlist, use_vel=True):
     """
     Take a starlist, check to see if it has velocity columns.
     If it does, then propogate the positions forward in time 
@@ -3969,7 +3990,7 @@ def get_pos_at_time(t, starlist):
         but it should be in the same units
         as the 't0' column in starlist.
     """
-    if ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
+    if use_vel and ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
         dt = t - starlist['t0']
         x = starlist['x0'] + (starlist['vx'] * dt)
         y = starlist['y0'] + (starlist['vy'] * dt)
