@@ -6,9 +6,7 @@ from scipy.spatial import cKDTree as KDT
 from astropy.table import Column, Table
 import itertools
 import copy
-import pylab as py
 import scipy.signal
-from skimage import transform
 from scipy.spatial import distance
 import math
 import pdb
