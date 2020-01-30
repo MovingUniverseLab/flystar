@@ -594,7 +594,7 @@ class StarTable(Table):
         
         return
 
-    def fit_velocity_for_star(self, ss, bootstrap=False):
+    def fit_velocity_for_star(self, ss, bootstrap=False, dontweight=True):
         def poly_model(time, *params):
             pos = np.polynomial.polynomial.polyval(time, params)
             return pos

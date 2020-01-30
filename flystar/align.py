@@ -10,7 +10,7 @@ import os
 import pdb
 import warnings
 from astropy.utils.exceptions import AstropyUserWarning
-
+import time
 # Keep a list of columns that are "aggregated" motion model terms.
 motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
                           'vx', 'vxe', 'vy', 'vye',
@@ -215,7 +215,8 @@ class MosaicSelfRef(object):
         #
         ##########
         for nn in range(self.iters):
-            
+            if nn > 0:
+                import pdb;pdb.set_trace()
             # If we are on subsequent iterations, remove matching results from the 
             # prior iteration. This leaves aggregated (1D) columns alone.
             if nn > 0:
@@ -307,13 +308,12 @@ class MosaicSelfRef(object):
             star_list = self.star_lists[ii]
             ref_list = self.get_ref_list_from_table(star_list['t'][0])
             trans = self.trans_list[ii]
-
+            
             # Trim a COPY of the reference and star lists based on magnitude.
             #       ref_list gets marked via the "use_in_trans" flag.
             #       star_list_T is actually trimmed but not yet transformed.
             self.apply_mag_lim_via_use_in_trans(ref_list, ref_mag_lim)
             star_list_T = apply_mag_lim(star_list, self.mag_lim[ii])
-
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
                 trans = trans_initial_guess_new(ref_list, star_list_T, self.trans_args[0],
@@ -327,7 +327,7 @@ class MosaicSelfRef(object):
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                              ref_list['x'], ref_list['y'], ref_list['m'],
                                              dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-
+            
             if self.verbose:
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
@@ -366,14 +366,16 @@ class MosaicSelfRef(object):
                                                       weights=weight)
 
 
+            
             # Save the final transformation.
             self.trans_list[ii] = trans
 
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(star_list)
+            
             star_list_T.transform_xym(trans)
-
+            
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
@@ -381,11 +383,11 @@ class MosaicSelfRef(object):
             if self.verbose:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
-
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
             
             ### Update the "average" values to be used as the reference frame for the next list.
+            
             self.update_ref_table_aggregates()
 
             # Print out some metrics
@@ -402,7 +404,7 @@ class MosaicSelfRef(object):
                 dm_u = np.abs(self.ref_table['m'][used, ii] - ref_list['m'][used])
                 print(msg1.format('dr', 'trans stars', dr_u.mean(), dr_u.std()))
                 print(msg1.format('dm', 'trans stars', dm_u.mean(), dm_u.std()))
-
+            
         return
     
     def setup_trans_info(self):
@@ -688,7 +690,7 @@ class MosaicSelfRef(object):
                 weight = 1.0 / np.sqrt(var_xlis, var_ylis)
         else:
             weight = None
-
+        assert np.all(np.isfinite(weight))
         # One last check to make sure we had weights at all.
         # Technically, this is mis-use; but lets handle it anyhow.
         if ('xe' not in ref_list.colnames) and ('ye' not in star_list.colnames):
@@ -1020,7 +1022,8 @@ class MosaicToRef(MosaicSelfRef):
                 print("**********")
                 
             # ALL the action is in here. Match and transform the stack of starlists.
-            # This updates trans objects and the ref_table. 
+            # This updates trans objects and the ref_table.
+            
             self.match_and_transform(self.ref_mag_lim,
                                      self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
                                      self.trans_args[nn])
