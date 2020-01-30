@@ -4,9 +4,8 @@ from scipy.interpolate import LSQBivariateSpline as spline
 from scipy import stats
 from astropy.table import Table
 import collections
-import re, os
+import re
 import pdb
-import datetime
 
 class Transform2D(object):
     '''
@@ -240,31 +239,29 @@ class PolyTransform(Transform2D):
             
         """
 
-        self.poly_order = order
-        self.order = order
-        
         if order == 0:
-            self.poly_order = 1
+            poly_order = 1
             px = np.append(px, [1.0, 0.0])
             py = np.append(py, [0.0, 1.0])
             pxerr = np.append(pxerr, [0.0, 0.0])
             pyerr = np.append(pyerr, [0.0, 0.0])
             
-            px_dict = PolyTransform.make_param_dict(px, self.poly_order, isY=False)
-            py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
+            px_dict = PolyTransform.make_param_dict(px, poly_order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, poly_order, isY=True)
             
             fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
-            self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
-            self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
+            self.px = models.Polynomial2D(poly_order, **px_dict, fixed=fixed_params)
+            self.py = models.Polynomial2D(poly_order, **py_dict, fixed=fixed_params)
         else:
             px_dict = PolyTransform.make_param_dict(px, order, isY=False)
             py_dict = PolyTransform.make_param_dict(py, order, isY=True)
             
             self.px = models.Polynomial2D(order, **px_dict)
             self.py = models.Polynomial2D(order, **py_dict)
-
+            
         self.pxerr = pxerr
         self.pyerr = pyerr
+        self.order = order
         self.mag_offset = mag_offset
 
         return
@@ -377,11 +374,11 @@ class PolyTransform(Transform2D):
         dynew_dx = 0.0
         dynew_dy = 0.0
 
-        poly_order = self.order
-        if self.order == 0:
-            poly_order = 1
-            
-        for i in range(poly_order + 1):
+        # if (self.order == 0):
+        #     poly_order = 1
+        # 
+        # for i in range(poly_order + 1):
+        for i in range(self.order + 1):
             for j in range(i + 1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
                 Xcoeff = self.px.parameters[coeff_idx]
@@ -430,10 +427,9 @@ class PolyTransform(Transform2D):
         vx_new = 0.0
         vy_new = 0.0
 
-        poly_order = self.order
-        if self.order == 0:
+        if (self.order == 0):
             poly_order = 1
-            
+
         for i in range(poly_order + 1):
             for j in range(i + 1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
@@ -494,10 +490,9 @@ class PolyTransform(Transform2D):
         dvynew_dvx = 0.0
         dvynew_dvy = 0.0
         
-        poly_order = self.order
-        if self.order == 0:
+        if (self.order == 0):
             poly_order = 1
-            
+
         for i in range(poly_order + 1):
             for j in range(i+1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
@@ -550,7 +545,7 @@ class PolyTransform(Transform2D):
             init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
             init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
 
-            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True, 'c0_1': True}
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
             p_init_x = models.Polynomial2D(poly_order, **init_gx, fixed=fixed_params)
             p_init_y = models.Polynomial2D(poly_order, **init_gy, fixed=fixed_params)
         else:
@@ -619,7 +614,7 @@ class PolyTransform(Transform2D):
         
         return trans_obj
 
-    def to_file(self, trans_file, extra_info_dict=None):
+    def to_file(self, trans_file):
         """
         Given a transformation object, write out the coefficients in a text file
         (readable by java align). Outfile name is specified by user.
@@ -638,28 +633,28 @@ class PolyTransform(Transform2D):
 
         """
         # Extract info about transformation
-        trans_name = self.__class__.__name__
-        trans_order = self.order
+        trans_name = transform.__class__.__name__
+        trans_order = transform.order
         
         # Extract X, Y coefficients from transform
-        Xcoeff = self.px.parameters
-        Ycoeff = self.py.parameters
-        coeff_names = self.px.param_names  # same for both.
+        Xcoeff = transform.px.parameters
+        Ycoeff = transform.py.parameters
+        coeff_names = transform.px.param_names  # same for both.
             
         # Write output
-        _out = open(trans_file, 'w')
+        _out = open(outFile, 'w')
         
         # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
         _out.write('## Date: {0}\n'.format(datetime.date.today()) )
+        _out.write('## File: {0}, Reference: {1}\n'.format(starlist, reference) )
         _out.write('## Directory: {0}\n'.format(os.getcwd()) )
-        _out.write('## Transform Class: {0}\n'.format(self.__class__.__name__))
-        _out.write('## Order: {0}\n'.format(self.order))
-        if extra_info_dict != None:
-            for ekey in extra_info_dict:
-                _out.write('## {0:s}: {1:s}\n'.format(ekey, str(extra_info_dict[ekey])))
-                               
-        _out.write('## Delta Mag: {0}\n'.format(self.mag_offset))
+        _out.write('## Transform Class: {0}\n'.format(transform.__class__.__name__))
+        _out.write('## Order: {0}\n'.format(transform.order))
+        _out.write('## Restrict: {0}\n'.format(restrict))
+        _out.write('## Weights: {0}\n'.format(weights))
         _out.write('## N_coeff: {0}\n'.format(len(Xcoeff)))
+        _out.write('## N_trans: {0}\n'.format(N_trans))
+        _out.write('## Delta Mag: {0}\n'.format(deltaMag))
         _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
         
         # Write the coefficients such that the orders are together as defined in
@@ -747,7 +742,7 @@ class Shift(PolyTransform):
     
     
 class LegTransform(Transform2D):
-    def __init__(self, order, px, py, pxerr=None, pyerr=None, mag_offset=0.0):
+    def __init__(self, order, px, py,x_norm, y_norm, astropy_order=False):
         """
         Specify the order of the Legendre transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
@@ -760,6 +755,17 @@ class LegTransform(Transform2D):
         py : list or array [b0, b1, b2, ...] 
             coefficients to transform input y coordinates into output y' coordinates.
         
+        x_norm: list or array [xzp, xscale]
+            factors to remap the input coordnates to the domain [-1:1]
+            These factors must be saved from the initial derivation to properly evaluate for new catalogs
+            x' = (xinput -xzp) * xscale - 1
+
+        y_norm: list or array [yxp, yscale]
+           factors to remap the input coorinates to the domain [-1:1]
+           These factors must be saved from the intitial mapping (created when the model is fit) to properly evaluate new catalogs
+           y' = (yinput -yzp) * yscale - 1
+           
+           
         order : int
             The order of the transformation.
 
@@ -770,35 +776,35 @@ class LegTransform(Transform2D):
         pyerr : array or list
             array or list of errors of the coefficients to transform input y coordinates 
             into output y' coordinates.
-
-        mag_offset : float
-            magnitude difference with the reference catalog (mag_ref - mag_cat)
-
         """
-        px_dict = LegTransform.make_param_dict(px, order, isY=False)
-        py_dict = LegTransform.make_param_dict(py, order, isY=True)
-        
+        if not astropy_order:
+            px_dict = LegTransform.make_param_dict(px, order, isY=False)
+            py_dict = LegTransform.make_param_dict(py, order, isY=True)
+        else:
+            pname = models.Legendre2D(order, order).param_names
+            px_dict = {}
+            py_dict = {}
+            for i in range(len(pname)):
+                px_dict[pname[i]] = px[i]
+                py_dict[pname[i]] = py[i]
         self.px = models.Legendre2D(order, order, **px_dict)
         self.py = models.Legendre2D(order, order, **py_dict)
         self.order = order
-
-        self.pxerr = pxerr
-        self.pyerr = pyerr
-        self.mag_offset = mag_offset
-
+        self.x_norm = x_norm
+        self.y_norm = y_norm
         return
 
 
     @classmethod
-    def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
+    def derive_transform(cls, x, y, xref, yref, order,
                  init_gx=None, init_gy=None, weights=None):
         """
         Defines a bivariate legendre tranformation from x,y -> xref,yref using Legnedre polynomials as the basis.
         Transforms are independent for x and y and of the form:
             x' = c0_0 + c1_0 * L_1(x) + c0_1*L_1(y) + ....
             y' = d0_0 + d1_0 * L_1(x) + d0_1*L_1(y) + ....
-        Note that all input coorindates will be renomalized to be on the interval of [-1:1] before fitting.
-        The evaulate function will use the same renomralization procedure.
+        Note that all input coordinates will be renomalized to be on the interval of [-1:1] before fitting.
+        The evaulate function must use the same renormalization procedure.
         """
         # Initialize transformation object.
         init_gx = LegTransform.make_param_dict(init_gx, order)
@@ -812,17 +818,14 @@ class LegTransform(Transform2D):
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
 
-        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
-        if (m is not None) and (mref is not None):
-            m_resid = mref - m
-            threshold = 3 * m_resid.std()
-            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            mag_offset = np.mean((mref - m)[keepers])
-        else:
-            mag_offset =  0
+        _xzp = -1.0 * np.min(x)
+        _yzp = -1.0 * np.min(y)
+        _xscale = (1.0 / np.max(x + _xzp)) * 2.0
+        _yscale = (1.0 / np.max(y + _yzp)) * 2.0
         
-        trans = cls(order, px.parameters, py.parameters, mag_offset=mag_offset)
-
+        trans = cls(order, px.parameters, py.parameters,[_xzp,_xscale], [_yzp, _yscale], astropy_order=True)
+        return trans
+        
     @staticmethod
     def make_param_dict(initial_param, order, isY=False):
         """
@@ -864,6 +867,8 @@ class LegTransform(Transform2D):
         idx = 0
 
         param_dict = {}
+
+        idx = 0
 
         # The i loop designates all the terms where
         # either n = i or m = i. In other words, all terms up to this
@@ -908,7 +913,9 @@ class LegTransform(Transform2D):
         y' : array
             The transformed y coordinates. 
         """
-        return self.px(x, y), self.py(x, y)
+        xnorm = (x + self.x_norm[0]) * self.x_norm[1] - 1.0
+        ynorm = (y + self.y_norm[0]) * self.y_norm[1] - 1.0
+        return self.px(xnorm, ynorm), self.py(xnorm, ynorm)
 
     
     def evaluate_error(self, x, y, xe, ye):
@@ -1335,17 +1342,26 @@ def test_PolyTransform():
     # test the transformation
     x = np.random.uniform(low=0,high=1000,size=1000)
     y = np.random.uniform(low=0,high=1000,size=1000)
-    x_err = np.zeros(len(x))+0.1
-    y_err = np.zeros(len(x))+0.1
-    
+    x_err = 0.1*np.random.normal(size=1000)
+    y_err = 0.1*np.random.normal(size=1000)
+
     xref = (x + 100.0)*.5
     yref = (y + 100.0)*.5
 
-    t = PolyTransform(x,y,xref,yref,2)
-    x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
+    x+= x_err
+    y+= y_err
+    
+    t = PolyTransform.derive_transform(x,y,xref,yref,2)
+    x_trans_err,y_trans_err = t.evaluate_error(x,x_err,y,y_err)
+    x_trans, y_trans = t.evaluate(x,y)
 
+    np.testing.assert_allclose(xref,x_trans,atol=0.1,rtol=1e-3)
+    np.testing.assert_allclose(yref,y_trans,atol=0.1,rtol=1e-3)
+    
+    
     for i in np.arange(len(x_trans)):
         print(( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (x[i],x_trans[i],x_trans_err[i],y[i],y_trans[i],y_trans_err[i])))
+    print('passed')
     return t
 
 def test_LegTransform():
@@ -1357,12 +1373,24 @@ def test_LegTransform():
     
     xref = (x + 100.0)*.5
     yref = (y + 100.0)*.5
-
+    
     x = x+x_err
     y = y+y_err
     
-    t = LegTransform(x,y,xref,yref,3)
-    x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
+    t = LegTransform.derive_transform(x,y,xref,yref,3)
+
+    
+    #add test that confirms astropy model gets the same object 
+    p_init_x = models.Legendre2D(3, 3, c1_0=0.5)
+    
+    fit_p  = fitting.LinearLSQFitter()
+
+    px = fit_p(p_init_x, x, y, xref)
+    np.testing.assert_allclose(px.parameters,t.px.parameters) 
+
+
+    x_trans_err, y_trans_err = t.evaluate_error(x,x_err,y,y_err)
+    x_trans, y_trans = t.evaluate(x,y)
 
     
     for i in np.arange(len(x_trans)):
