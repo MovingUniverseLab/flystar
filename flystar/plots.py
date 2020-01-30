@@ -58,7 +58,8 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
     if xlim != None:
         py.axis([xlim[0], xlim[1], ylim[0], ylim[1]])
     if fileName!=None:
-        py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
+        #py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
+        py.savefig(root + 'Transformed_positions_{0}'.format(fileName) + '.png')
     else:
         py.savefig(root + 'Transformed_positions.png')
     py.close()
@@ -865,15 +866,16 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
         col = col + 1
         ind = (row-1)*Ncols + col
 
-        bins = np.arange(-7, 7, 1)
+        bins = np.arange(-7.5, 7.5, 1)
         paxes = py.subplot(Nrows, Ncols, ind)
         id = np.where(diffY < 0)[0]
         sig[id] = -1.*sig[id] 
-        (n, b, p) = py.hist(sigX, bins, histtype='stepfilled', color='b')
+        (n, b, p) = py.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
         py.setp(p, 'facecolor', 'b')
-        (n, b, p) = py.hist(sigY, bins, histtype='step', color='r')
+        (n, b, p) = py.hist(sigY, bins, histtype='step', color='r', label='Y')
         py.axis([-7, 7, 0, 8], fontsize=10)
-        py.xlabel('X Residuals (sigma)', fontsize=fontsize1)
+        py.legend()
+        py.xlabel('Residuals (sigma)', fontsize=fontsize1)
         py.ylabel('Number of Epochs', fontsize=fontsize1)
 
         ##########
@@ -1031,26 +1033,71 @@ def plot_pm_error(tab):
     plt.semilogy(tab['m0'], tab['vxe']*1e3, 'r.', label=r'$\sigma_{\mu_{\alpha *}}$', alpha=0.4)
     plt.semilogy(tab['m0'], tab['vye']*1e3, 'b.', label=r'$\sigma_{\mu_{\delta}}$', alpha=0.4)
     plt.legend()
-    plt.xlabel('Gaia Mag')
+    plt.xlabel('Mag')
     plt.ylabel('PM Error (mas/yr)')
 
     return
 
 def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None):
 
+    # Keep track of the residuals for averaging.
+    dr_good = np.zeros(len(tab), dtype=float)
+    n_good = np.zeros(len(tab), dtype=int)
+    dr_ref = np.zeros(len(tab), dtype=float)
+    n_ref = np.zeros(len(tab), dtype=int)
+    
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
         xt_mod = tab['x0'] + tab['vx'] * dt
         yt_mod = tab['y0'] + tab['vy'] * dt
         
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
-        ref_idx = np.where(tab[good_idx]['used_in_trans'] == True)[0]
+        ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
 
-        plot_quiver_residuals(tab['x'][:, ee], tab['y'][:, ee], 
-                              xt_mod, yt_mod, 
-                              good_idx, ref_idx,
-                              'Epoch {0:d}'.format(ee), unit=unit, scale=scale)
+        dx, dy = plot_quiver_residuals(tab['x'][:, ee], tab['y'][:, ee], 
+                                       xt_mod, yt_mod, 
+                                       good_idx, ref_idx,
+                                       'Epoch {0:d}'.format(ee), unit=unit, scale=scale)
 
+        # Building up average dr for a set of stars.
+        dr = np.hypot(dx, dy)
+
+        dr_good[good_idx] += dr[good_idx]
+        dr_ref[good_idx[ref_idx]] += dr[good_idx[ref_idx]]
+
+        n_good[good_idx] += 1
+        n_ref[good_idx[ref_idx]] += 1
+
+    dr_good_avg = np.zeros(len(tab), dtype=float)
+    idx = np.where(n_good > 0)[0]
+    dr_good_avg[idx] = dr_good[idx] / n_good[idx]
+    
+    dr_ref_avg = np.zeros(len(tab), dtype=float)
+    idx = np.where(n_ref > 0)[0]
+    dr_ref_avg[idx] = dr_ref[idx] / n_ref[idx]
+
+    hdr = '{name:>16s} {mag:>5s} {dr:>6s} {x:>6s} {y:>6s} {r:>6s}'
+    fmt = '{name:16s} {mag:5.2f} {dr:6.4f} {x:6.3f} {y:6.3f} {r:6.3f}'
+
+    # print()
+    # print('##########')
+    # print('# GOOD stars')
+    # print('##########')
+    # for rr in range(len(tab)):
+    #     if dr_good_avg[rr] > 0:
+    #         print(fmt.format(name=tab['name'][rr], mag=tab['m0'][rr], dr=dr_good_avg[rr],
+    #                          x=tab['x0'][rr], y=tab['y0'][rr], r=np.hypot(tab['x0'][rr], tab['y0'][rr])))
+
+    print()
+    print('##########')
+    print('# REF stars')
+    print('##########')
+    print(hdr.format(name='Name', mag='Mag', dr='dr', x='x', y='y', r='r'))
+    for rr in range(len(tab)):
+        if (dr_ref_avg[rr] > 0):
+            print(fmt.format(name=tab['name'][rr], mag=tab['m0'][rr], dr=dr_ref_avg[rr],
+                             x=tab['x0'][rr], y=tab['y0'][rr], r=np.hypot(tab['x0'][rr], tab['y0'][rr])))
+            
     return
 
 def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, unit='pixel', scale=None):
@@ -1090,7 +1137,7 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, unit
     plt.figure(figsize=(6,6))
     plt.clf()
     q = plt.quiver(x_ref[good_idx], y_ref[good_idx], dx[good_idx], dy[good_idx],
-                   color='black', scale=quiv_scale, angles='xy')
+                   color='black', scale=quiv_scale, angles='xy', alpha=0.5)
     plt.quiver(x_ref[good_idx][ref_idx], y_ref[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
                    color='red', scale=quiv_scale, angles='xy')
     plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
@@ -1114,7 +1161,7 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, unit
                          dy[good_idx].mean(), dy[good_idx].std(), 'GOOD', unit2))
 
 
-    return
+    return (dx, dy)
 
 
 def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
@@ -1142,8 +1189,11 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
     for i in range(Nstars):
         starName = star_names[i]
         
-        ii = np.where(tab['name'] == starName)[0][0]
-        print(ii, tab[ii]['name'])
+        try:
+            ii = np.where(tab['name'] == starName)[0][0]
+            print(ii, tab[ii]['name'])
+        except IndexError:
+            print("!! %s is not in this list"%starName)
 
         fnd = np.where(tab['xe'][ii, :] > 0)[0]
 
@@ -1210,6 +1260,9 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
 
         maxErr = np.array([(diffX-xerr)*1e3, (diffX+xerr)*1e3,
                            (diffY-yerr)*1e3, (diffY+yerr)*1e3]).max()
+
+        if maxErr > 2:
+            maxErr = 2.0
         resTicRng = [-1.1*maxErr, 1.1*maxErr]
 
         from matplotlib.ticker import FormatStrFormatter
@@ -1311,15 +1364,16 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
         col = col + 1
         ind = (row-1)*Ncols + col
 
-        bins = np.arange(-7, 7, 1)
+        bins = np.arange(-7.5, 7.5, 1)
         paxes = plt.subplot(Nrows, Ncols, ind)
         id = np.where(diffY < 0)[0]
         sig[id] = -1.*sig[id] 
-        (n, b, p) = plt.hist(sigX, bins, histtype='stepfilled', color='b')
+        (n, b, p) = plt.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
         plt.setp(p, 'facecolor', 'b')
-        (n, b, p) = plt.hist(sigY, bins, histtype='step', color='r')
+        (n, b, p) = plt.hist(sigY, bins, histtype='step', color='r', label='Y')
         plt.axis([-7, 7, 0, 8], fontsize=10)
-        plt.xlabel('X Residuals (sigma)', fontsize=fontsize1)
+        plt.legend(fontsize=10)
+        plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
         plt.ylabel('Number of Epochs', fontsize=fontsize1)
 
     if Nstars == 1:
@@ -1352,13 +1406,13 @@ def plot_errors_vs_r_m(star_tab):
     plt.subplot(1, 2, 1)
     plt.scatter(star_tab['m0'], r, c=p_err, s=8, vmin=0, vmax=0.75)
     plt.colorbar(label='Pos Err (mas)')
-    plt.xlabel('Gaia Mag')
+    plt.xlabel('Mag')
     plt.ylabel('Radius (")')
 
     plt.subplot(1, 2, 2)
     plt.scatter(star_tab['m0'], r, c=pm_err, s=8, vmin=0, vmax=0.75)
     plt.colorbar(label='PM Err (mas/yr)')
-    plt.xlabel('Gaia Mag')
+    plt.xlabel('Mag')
     plt.ylabel('Radius (")')
 
     return

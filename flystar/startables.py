@@ -203,12 +203,13 @@ class StarTable(Table):
                 new_data[:, :-1] = old_data
                 
                 # Save the new data array (with both old and new data in it) to the table.
-                self[col_name] = new_data
+                self[col_name] = new_data 
                 
                 if (col_name in starlist.colnames):            # Add data if it was input
-                    new_data[:, -1] = starlist[col_name]
+                    self[col_name][:, -1] = starlist[col_name]
                 else:                               # Add junk data it if wasn't input
                     self._set_invalid_list_values(col_name, -1)
+                
                         
         ##########
         # Update the table meta-data. Remember that entries are lists not numpy arrays.
@@ -599,22 +600,38 @@ class StarTable(Table):
             pos = np.polynomial.polynomial.polyval(time, params)
             return pos
         
-        x = self['x'][ss, :].data
-        y = self['y'][ss, :].data
+        x = self['x'][ss, :].copy().data
+        y = self['y'][ss, :].copy().data
 
         if 'xe' in self.colnames:
-            xe = self['xe'][ss, :].data
-            ye = self['ye'][ss, :].data
+            xe = self['xe'][ss, :].copy().data
+            ye = self['ye'][ss, :].copy().data
+
+            # Catch the case where we have positions but no errors for
+            # some of the entries... we need to "fill in" reasonable
+            # weights for these... just use the average weights over
+            # all the other epochs.
+            pos_no_err = np.where((np.isfinite(x) & np.isfinite(y)) &
+                                  (np.isfinite(xe) == False) & (np.isfinite(ye) == False))[0]
+            pos_with_err = np.where((np.isfinite(x) & np.isfinite(y)) &
+                                  (np.isfinite(xe) & np.isfinite(ye)))[0]
+
+            if len(pos_with_err) > 0:
+                xe[pos_no_err] = xe[pos_with_err].mean()
+                ye[pos_no_err] = ye[pos_with_err].mean()
+            else:
+                xe[pos_no_err] = 1.0
+                ye[pos_no_err] = 1.0
         else:
             xe = np.ones(N_epochs, dtype=float)
             ye = np.ones(N_epochs, dtype=float)
 
         if 't' in self.colnames:
-            t = self['t'][ss, :].data
+            t = self['t'][ss, :].copy().data
         else:
             t = self.meta['list_times']
 
-        # Figure out where we have detections (as indicated by error columns 
+        # Figure out where we have detections (as indicated by error columns)
         good = np.where((xe != 0) & (ye != 0) &
                         np.isfinite(xe) & np.isfinite(ye) &
                         np.isfinite(x) & np.isfinite(y))[0]
@@ -706,7 +723,7 @@ class StarTable(Table):
                 self['vxe'][ss] = vx_err[1]
                 self['y0e'][ss] = vy_err[0]
                 self['vye'][ss] = vy_err[1]
-                
+
         elif N_good == 2:
             # Note nough epochs to fit a velocity.
             self['x0'][ss] = np.average(x, weights=1.0/xe**2)
@@ -726,12 +743,12 @@ class StarTable(Table):
         else:
             # N_good == 1 case
             self['n_vfit'][ss] = 1
-            self['x0'][ss] = x[0]
-            self['y0'][ss] = y[0]
+            self['x0'][ss] = x[good[0]]
+            self['y0'][ss] = y[good[0]]
             
             if 'xe' in self.colnames:
-                self['x0e'] = xe[0]
-                self['y0e'] = ye[0]
+                self['x0e'] = xe[good[0]]
+                self['y0e'] = ye[good[0]]
 
         return
 

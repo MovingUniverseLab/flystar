@@ -91,6 +91,15 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['vye'][idx] = 0.0
     
     gaia_new['m'] = gaia['phot_g_mean_mag']
+    gaia_new['parallax'] = gaia['parallax']
+    gaia_new['parallax_error'] = gaia['parallax_error']
+
+    # Set the velocities (and uncertainties) to zero if they aren't measured.
+    idx = np.where(np.isnan(gaia_new['vx']) == True)[0]
+    gaia_new['vx'][idx] = 0.0
+    gaia_new['vxe'][idx] = 0.0
+    gaia_new['vy'][idx] = 0.0
+    gaia_new['vye'][idx] = 0.0
 
     if targets_dict != None:
         for targ_name, targ_coo in targets_dict.items():
@@ -202,23 +211,20 @@ def project_gaia(gaia, epoch, ra, dec):
     return gaia_lis
 
 
-def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, dm_tol=0.3):
+def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, dm_tol=0.3, verbose=False):
     """
     Take a StarTable output from FlyStar MosaicToRef that has been 
     aligned into R.A. and Dec. (usually by way of Gaia). Align
     the output to a label.dat file for this source and rename
     everything.
     """
-    label_tab = starlists.read_label(label_dat_file)
+    label_tab = starlists.read_label(label_dat_file, flipX=True)
 
     # Propogate the label.dat into the epoch of the star table.
     dt = label_tab['t0'] - star_tab['t0'][0]
     x_lab = label_tab['x0'] + (label_tab['vx'] * 1e-3 * dt)
     y_lab = label_tab['y0'] + (label_tab['vy'] * 1e-3 * dt)
     m_lab = label_tab['m']
-
-    # Convert label.dat from +x to the East to +x to the West.
-    #x_lab *= -1.0
 
     # Find the sets of named stars that are in common for
     # zeropoint correction and shift transformations.
@@ -228,18 +234,19 @@ def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, d
     dx = star_tab['x0'][ndx_star] - x_lab[ndx_lab]
     dy = star_tab['y0'][ndx_star] - y_lab[ndx_lab]
 
-    fmt = '{0:20s} {1:20s} {2:8.4f} {3:8.4f} {4:8.4f} {5:8.4f} {6:8.4f} {7:8.4f}'
-    for ii in range(n_matched):
-        print(fmt.format(label_tab['name'][ndx_lab[ii]], star_tab['name'][ndx_star[ii]],
-              x_lab[ndx_lab[ii]], star_tab['x0'][ndx_star[ii]],
-              y_lab[ndx_lab[ii]], star_tab['y0'][ndx_star[ii]],
-              m_lab[ndx_lab[ii]], star_tab['m0'][ndx_star[ii]]))
+    if verbose:
+        fmt = '{0:20s} {1:20s} {2:8.4f} {3:8.4f} {4:8.4f} {5:8.4f} {6:8.4f} {7:8.4f}'
+        for ii in range(n_matched):
+            print(fmt.format(label_tab['name'][ndx_lab[ii]], star_tab['name'][ndx_star[ii]],
+                             x_lab[ndx_lab[ii]], star_tab['x0'][ndx_star[ii]],
+                             y_lab[ndx_lab[ii]], star_tab['y0'][ndx_star[ii]],
+                             m_lab[ndx_lab[ii]], star_tab['m0'][ndx_star[ii]]))
         
 
-    print('Temporary shift transformations: ')
-    print('    dm = {0:8.4f} +/- {1:8.4f}'.format(dm.mean(), dm.std()))
-    print('    dx = {0:8.4f} +/- {1:8.4f}'.format(dx.mean(), dx.std()))
-    print('    dy = {0:8.4f} +/- {1:8.4f}'.format(dy.mean(), dy.std()))
+        print('Temporary shift transformations: ')
+        print('    dm = {0:8.4f} +/- {1:8.4f}'.format(dm.mean(), dm.std()))
+        print('    dx = {0:8.4f} +/- {1:8.4f}'.format(dx.mean(), dx.std()))
+        print('    dy = {0:8.4f} +/- {1:8.4f}'.format(dy.mean(), dy.std()))
     
     m_lab = label_tab['m'] + dm.mean()
     x_lab += dx.mean()
@@ -249,7 +256,7 @@ def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, d
     # system, lets match the whole lists by coordinates.
     idx_lab, idx_star, dr, dm = match.match(x_lab, y_lab, m_lab, 
                                             star_tab['x0'], star_tab['y0'], star_tab['m0'],
-                                            dr_tol=dr_tol, dm_tol=dm_tol, verbose=True)
+                                            dr_tol=dr_tol, dm_tol=dm_tol, verbose=verbose)
 
     print('Renaming {0:d} out of {1:d} stars'.format(len(idx_lab), len(star_tab)))
     

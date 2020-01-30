@@ -240,29 +240,31 @@ class PolyTransform(Transform2D):
             
         """
 
+        self.poly_order = order
+        self.order = order
+        
         if order == 0:
-            poly_order = 1
+            self.poly_order = 1
             px = np.append(px, [1.0, 0.0])
             py = np.append(py, [0.0, 1.0])
             pxerr = np.append(pxerr, [0.0, 0.0])
             pyerr = np.append(pyerr, [0.0, 0.0])
             
-            px_dict = PolyTransform.make_param_dict(px, poly_order, isY=False)
-            py_dict = PolyTransform.make_param_dict(py, poly_order, isY=True)
+            px_dict = PolyTransform.make_param_dict(px, self.poly_order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
             
             fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
-            self.px = models.Polynomial2D(poly_order, **px_dict, fixed=fixed_params)
-            self.py = models.Polynomial2D(poly_order, **py_dict, fixed=fixed_params)
+            self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
+            self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
         else:
             px_dict = PolyTransform.make_param_dict(px, order, isY=False)
             py_dict = PolyTransform.make_param_dict(py, order, isY=True)
             
             self.px = models.Polynomial2D(order, **px_dict)
             self.py = models.Polynomial2D(order, **py_dict)
-            
+
         self.pxerr = pxerr
         self.pyerr = pyerr
-        self.order = order
         self.mag_offset = mag_offset
 
         return
@@ -375,11 +377,11 @@ class PolyTransform(Transform2D):
         dynew_dx = 0.0
         dynew_dy = 0.0
 
-        # if (self.order == 0):
-        #     poly_order = 1
-        # 
-        # for i in range(poly_order + 1):
-        for i in range(self.order + 1):
+        poly_order = self.order
+        if self.order == 0:
+            poly_order = 1
+            
+        for i in range(poly_order + 1):
             for j in range(i + 1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
                 Xcoeff = self.px.parameters[coeff_idx]
@@ -428,9 +430,10 @@ class PolyTransform(Transform2D):
         vx_new = 0.0
         vy_new = 0.0
 
-        if (self.order == 0):
+        poly_order = self.order
+        if self.order == 0:
             poly_order = 1
-
+            
         for i in range(poly_order + 1):
             for j in range(i + 1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
@@ -491,9 +494,10 @@ class PolyTransform(Transform2D):
         dvynew_dvx = 0.0
         dvynew_dvy = 0.0
         
-        if (self.order == 0):
+        poly_order = self.order
+        if self.order == 0:
             poly_order = 1
-
+            
         for i in range(poly_order + 1):
             for j in range(i+1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
@@ -546,7 +550,7 @@ class PolyTransform(Transform2D):
             init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
             init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
 
-            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True, 'c0_1': True}
             p_init_x = models.Polynomial2D(poly_order, **init_gx, fixed=fixed_params)
             p_init_y = models.Polynomial2D(poly_order, **init_gy, fixed=fixed_params)
         else:
