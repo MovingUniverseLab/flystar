@@ -803,10 +803,10 @@ class LegTransform(Transform2D):
         p_init_x = models.Legendre2D(order, order, **init_gx)
         p_init_y = models.Legendre2D(order, order, **init_gy)
         
-        fit_p  = fitting.LSQFitter()
+        fit_p  = fitting.LinearLSQFitter()
 
-        px = fit_p(p_init_x, x, y, x_ref, weights=weights)
-        py = fit_p(p_init_y, x, y, y_ref, weights=weights)
+        px = fit_p(p_init_x, x, y, xref, weights=weights)
+        py = fit_p(p_init_y, x, y, yref, weights=weights)
 
         # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
         if (m is not None) and (mref is not None):
