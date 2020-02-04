@@ -238,30 +238,31 @@ class PolyTransform(Transform2D):
             magnitude difference with the reference catalog (mag_ref - mag_cat)
             
         """
-
-        if order == 0:
-            poly_order = 1
+        self.order = order
+        self.poly_order = order
+        
+        if self.order == 0:
+            self.poly_order = 1
             px = np.append(px, [1.0, 0.0])
             py = np.append(py, [0.0, 1.0])
             pxerr = np.append(pxerr, [0.0, 0.0])
             pyerr = np.append(pyerr, [0.0, 0.0])
             
-            px_dict = PolyTransform.make_param_dict(px, poly_order, isY=False)
-            py_dict = PolyTransform.make_param_dict(py, poly_order, isY=True)
+            px_dict = PolyTransform.make_param_dict(px, self.poly_order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
             
             fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
-            self.px = models.Polynomial2D(poly_order, **px_dict, fixed=fixed_params)
-            self.py = models.Polynomial2D(poly_order, **py_dict, fixed=fixed_params)
+            self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
+            self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
         else:
-            px_dict = PolyTransform.make_param_dict(px, order, isY=False)
-            py_dict = PolyTransform.make_param_dict(py, order, isY=True)
+            px_dict = PolyTransform.make_param_dict(px, self.order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.order, isY=True)
             
-            self.px = models.Polynomial2D(order, **px_dict)
-            self.py = models.Polynomial2D(order, **py_dict)
+            self.px = models.Polynomial2D(self.order, **px_dict)
+            self.py = models.Polynomial2D(self.order, **py_dict)
             
         self.pxerr = pxerr
         self.pyerr = pyerr
-        self.order = order
         self.mag_offset = mag_offset
 
         return
