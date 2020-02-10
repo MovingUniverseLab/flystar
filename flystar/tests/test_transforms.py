@@ -1,9 +1,13 @@
 from flystar import transforms
 import numpy as np
 import pdb
+from astropy.modeling import models, fitting
 
 def test_PolyTransform_init_no_guess():
-    t = transforms.PolyTransform(order=2)
+    px_init = [ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    py_init = [ 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+    
+    t = transforms.PolyTransform(2, px_init, py_init)
 
     return
 
@@ -20,8 +24,6 @@ def compare_evaluate_errors():
 
     xe_new1 = foo._evaluate_error2(x, y, xe, ye, foo.px.parameters)
 
-    print()
-    print()
     xe_new2, ye_new2 = foo._evaluate_error(x, y, xe, ye)
 
     # BROKEN
@@ -49,6 +51,8 @@ def test_evaluate_errors():
 
     assert np.abs(xe[2] - xe_new[2]) < 0.01
     assert np.abs(ye[2] - ye_new[2]) < 0.01
+
+    return
 
 def test_evaluate_velocities():
     px_init = [ 0.0, 0.99, 1e-6]
@@ -86,6 +90,8 @@ def test_evaluate_velocities():
 
     assert np.abs(vxe[2] - vxe_new[2]) < 0.05
     assert np.abs(vye[2] - vye_new[2]) < 0.05
+
+    return
 
 def test_0th_order_poly():
     # Test out a 0th order polynomial implementation.
@@ -168,7 +174,117 @@ def test_0th_order_poly():
     
     return
     
+def test_legendre_conditioning():
+    x_old = np.arange(0, 900, 50)
+    y_old = np.arange(1, 901, 50)
+    domain = [0, 1000]
+
+    # 0.1 translation, 1.0 x-scale, 0.0 y-scale, no cross term (x*y)
+    px_init_d = {'c0_0':0.1, 'c1_0':1.0, 'c0_1':0.0, 'c1_1':0.0}
+    py_init_d = {'c0_0':0.5, 'c1_0':0.0, 'c0_1':1.0, 'c1_1':0.0}
+    px_init = list(px_init_d.values())
+    py_init = list(py_init_d.values())
+
+    # Make the model and setup the domain of the input data.
+    # This should be mapped onto a window of [-1, 1]; but I would expect
+    # this mapping to only be internal to the model.
+    foo = transforms.LegTransform(1, px_init, py_init, domain, domain, astropy_order=True)
+
+    # Test #1: Check evaluation 
+    x_new, y_new = foo.evaluate(x_old, y_old)
     
+    x_off, x_scl, y_off, y_scl = foo.convert_domain_to_scale_offset()
+    x_new_exp = x_old + (px_init_d['c0_0'] / x_scl)
+    y_new_exp = y_old + (py_init_d['c0_0'] / y_scl)
+    
+    np.testing.assert_almost_equal(x_new, x_new_exp, 4)
+    np.testing.assert_almost_equal(y_new, y_new_exp, 4)
+    
+    return
+
+def test_legendre_errors():
+    
+    # Test #2: Check evaluate errors. They shouldn't change at all.
+    # xe_old = np.abs( np.random.randn(len(x_old)) * 0.1 )
+    # ye_old = np.abs( np.random.randn(len(x_old)) * 0.1 )
+
+    # xe_new, ye_new = foo.evaluate_error(x_old, y_old, xe_old, ye_old)
+
+    # np.testing.assert_almost_equal(xe_old, xe_new, 5)
+    # np.testing.assert_almost_equal(ye_old, ye_new, 5)
+    # pdb.set_trace()
+    
+    return
+
+
+def test_PolyTransform():
+    # test the transformation
+    x = np.random.uniform(low=0,high=1000,size=1000)
+    y = np.random.uniform(low=0,high=1000,size=1000)
+    x_err = 0.1*np.random.normal(size=1000)
+    y_err = 0.1*np.random.normal(size=1000)
+
+    xref = (x + 100.0)*.5
+    yref = (y + 100.0)*.5
+
+    x+= x_err
+    y+= y_err
+    
+    t = transforms.PolyTransform.derive_transform(x,y,xref,yref,2)
+    x_trans_err,y_trans_err = t.evaluate_error(x,x_err,y,y_err)
+    x_trans, y_trans = t.evaluate(x,y)
+
+    np.testing.assert_allclose(xref,x_trans,atol=0.1,rtol=1e-3)
+    np.testing.assert_allclose(yref,y_trans,atol=0.1,rtol=1e-3)
+    
+    for i in np.arange(len(x_trans)):
+        print(( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' %
+                    (x[i],x_trans[i],x_trans_err[i],y[i],y_trans[i],y_trans_err[i])))
+        
+    return
+
+def test_LegTransform():
+    # test the transformation
+    # x = np.random.uniform(low=0, high=1000, size=1000)
+    # y = np.random.uniform(low=0, high=1000, size=1000)
+    x = np.arange(1, 1000, 1)
+    y = np.arange(1000, 1, -1)
+    x_err = np.random.normal(loc=0.0, scale=0.1, size=len(x))
+    y_err = np.random.normal(loc=0.0, scale=0.1, size=len(x))
+    xin = x + x_err
+    yin = y + y_err
+
+    # Test #1, simple 0th order shift
+    xref = 100.0 + x
+    yref = 100.0 + y
+    
+    t = transforms.LegTransform.derive_transform(xin, yin, xref, yref, 1)
+    x_trans, y_trans = t.evaluate(xin, yin)
+
+    np.testing.assert_allclose(xref, x_trans, atol=0.1, rtol=1e-2)
+    np.testing.assert_allclose(yref, y_trans, atol=0.1, rtol=1e-2)
+    
+    # Test #2, 1st order 
+    xref = 100.0 + x*0.92 + y*0.001
+    yref = 100.0 + y*0.87 + x*0.023
+    
+    t = transforms.LegTransform.derive_transform(xin, yin, xref, yref, 1)
+    x_trans, y_trans = t.evaluate(xin, yin)
+
+    np.testing.assert_allclose(xref, x_trans, atol=0.1, rtol=1e-2)
+    np.testing.assert_allclose(yref, y_trans, atol=0.1, rtol=1e-2)
+
+    # Test #3, 1st order but fit with 2nd order
+    t = transforms.LegTransform.derive_transform(xin, yin, xref, yref, 2)
+    x_trans, y_trans = t.evaluate(xin, yin)
+
+    np.testing.assert_allclose(xref, x_trans, atol=0.1, rtol=1e-2)
+    np.testing.assert_allclose(yref, y_trans, atol=0.1, rtol=1e-2)
+    
+    return
+
+    
+
 def try_out_equation(order):
     x = 1
     y = 1
@@ -185,6 +301,4 @@ def try_out_equation(order):
             fmt = '{0:1d}  {1:1d}  {2:3d} {3:5d} {4:5d} {5:3d} {6:3d} {7:5.1f} {8:5.1f}'
             print(fmt.format(i, j, i-j, i-j-1, i-j-2, j-1, j-2, term1, term2))
 
-            
-            
     return
