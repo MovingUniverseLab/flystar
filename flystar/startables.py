@@ -623,6 +623,7 @@ class StarTable(Table):
                 xe[pos_no_err] = 1.0
                 ye[pos_no_err] = 1.0
         else:
+            N_epochs = len(x)
             xe = np.ones(N_epochs, dtype=float)
             ye = np.ones(N_epochs, dtype=float)
 

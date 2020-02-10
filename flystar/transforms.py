@@ -837,6 +837,8 @@ class LegTransform(Transform2D):
         # Figure out the data conditioning domain.
         # x_domain = [np.min(x), np.max(x)]
         # y_domain = [np.min(y), np.max(y)]
+        x_domain = [-1, 1]
+        y_domain = [-1, 1]
         
         # Initialize transformation object.
         # init_gx = LegTransform.make_param_dict(init_gx, order)

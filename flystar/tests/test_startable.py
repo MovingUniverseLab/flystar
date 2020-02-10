@@ -277,7 +277,7 @@ def test_fit_velocities():
 
     # Test no-fit for stars with N<2 epochs.
     n_epochs = (tab['x'] >= 0).sum(axis=1)
-    idx = np.where(n_epochs <= 2)[0]
+    idx = np.where(n_epochs < 2)[0]
     assert (tab['vx'][idx] == 0).all()
     assert (tab['vxe'][idx] == 0).all()
     assert (tab['n_vfit'][idx] == 2).all()
@@ -378,7 +378,7 @@ def test_fit_velocities_1epoch():
     assert(tab_1['vye'] == 0).all()
     
     assert(tab_1['t0'] == 2001.0).all()
-    assert(tab_1['n_vfit'] == 0).all()
+    assert(tab_1['n_vfit'] == 1).all()
     
     return
 
