@@ -1,6 +1,7 @@
 import numpy as np
 from flystar import match
 from flystar import transforms
+from flystar import plots
 from flystar.starlists import StarList
 from flystar.startables import StarTable
 from astropy.table import Table, Column, vstack
@@ -8,6 +9,7 @@ import datetime
 import copy
 import os
 import pdb
+import time
 import warnings
 from astropy.utils.exceptions import AstropyUserWarning
 
@@ -15,7 +17,7 @@ from astropy.utils.exceptions import AstropyUserWarning
 motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
                           'vx', 'vxe', 'vy', 'vye',
                           'ax', 'axe', 'ay', 'aye',
-                          't0', 'use_in_trans']
+                          't0', 'm0', 'm0e', 'use_in_trans']
 
 class MosaicSelfRef(object):
     def __init__(self, list_of_starlists, ref_index=0, iters=2,
@@ -300,8 +302,9 @@ class MosaicSelfRef(object):
         # Calculate bootstrap transformation errors and proper motion
         # errors, if desired. 
         if self.n_boot >= 0:
-            self.calc_bootstrap_errors(boot_epochs_min=self.boot_epochs_min)
+            self.calc_bootstrap_errors()
 
+            
         ##########
         # Clean up output table.
         # 
@@ -352,7 +355,6 @@ class MosaicSelfRef(object):
             self.apply_mag_lim_via_use_in_trans(ref_list, ref_mag_lim)
             star_list_orig_trim = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, untransformed copy
             star_list_T = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, will be transformed copy
-            star_list_T.transform_xym(trans) # trimmed, transformed
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
@@ -360,12 +362,12 @@ class MosaicSelfRef(object):
                                             mode=self.init_guess_mode,
                                             verbose=self.verbose)
 
+            star_list_T.transform_xym(trans) # trimmed, transformed
 
             # Match stars between the transformed, trimmed lists.
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                              ref_list['x'], ref_list['y'], ref_list['m'],
                                              dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-
             if self.verbose:
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
@@ -426,10 +428,19 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xy(self.trans_list[ii])
 
             if self.verbose:
+                hdr = '{nr:13s} {n:13s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
+                hdr += '{dx:7s} {dy:7s} {dm:6s} {xo:9s} {yo:9s} {mo:6s}'
+                print(hdr.format(nr='name_ref', n='name_lis',
+                                     xl='x_lis_T', xr='x_ref',
+                                     yl='y_lis_T', yr='y_ref',
+                                     ml='m_lis_T', mr='m_ref',
+                                     dx='dx_mpix', dy='dy_mpix', dm='dm',
+                                     xo='x_orig', yo='y_orig', mo='m_orig'))
+                
                 fmt = '{nr:13s} {n:13s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
                 fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
                 for foo in range(len(idx1)):
-                    star_s = star_list[idx1[foo]]
+                    star_s = star_list_orig_trim[idx1[foo]]
                     star_r = ref_list[idx2[foo]]
                     star_t = star_list_T[idx1[foo]]
                     print(fmt.format(nr=star_r['name'], n=star_s['name'], xl=star_t['x'], xr=star_r['x'],
@@ -469,9 +480,11 @@ class MosaicSelfRef(object):
 
                 # Calculate the residuals just for those used in the transformation
                 used = np.where(self.ref_table['used_in_trans'][:, ii] == True)[0]
-                dr_u = np.hypot(self.ref_table['x'][used, ii] - ref_list['x'][used],
-                                self.ref_table['y'][used, ii] - ref_list['y'][used])
-                dm_u = np.abs(self.ref_table['m'][used, ii] - ref_list['m'][used])
+                used_good = used[ np.where(np.isin(used, idx_ref) == True)[0] ]
+                
+                dr_u = np.hypot(self.ref_table['x'][used_good, ii] - ref_list['x'][used_good],
+                                self.ref_table['y'][used_good, ii] - ref_list['y'][used_good])
+                dm_u = np.abs(self.ref_table['m'][used_good, ii] - ref_list['m'][used_good])
                 print(msg1.format('dr', 'trans stars', dr_u.mean(), dr_u.std()))
                 print(msg1.format('dm', 'trans stars', dm_u.mean(), dm_u.std()))
                 print('    Dropped {0:d} matches after transform.'.format(len(used) - len(used_good)))
@@ -650,7 +663,7 @@ class MosaicSelfRef(object):
 
         return keepers
 
-   def update_ref_table_from_list(self, star_list, star_list_T, ii, idx_ref, idx_lis, idx_ref_in_trans):
+    def update_ref_table_from_list(self, star_list, star_list_T, ii, idx_ref, idx_lis, idx_ref_in_trans):
         """
         Inputs
         ----------
@@ -704,7 +717,7 @@ class MosaicSelfRef(object):
                 
         return
     
- def update_ref_table_aggregates(self, n_boot=0):
+    def update_ref_table_aggregates(self, n_boot=0):
         """
         Average positions or fit velocities.
         Average magnitudes.
@@ -863,10 +876,10 @@ class MosaicSelfRef(object):
             ye = np.hypot(self.ref_table['y0e'], self.ref_table['vye']*dt)
 
             idx = np.where(np.isfinite(self.ref_table['vx']) == False)[0]
-            x[idx] = self.ref_table['x0']
-            y[idx] = self.ref_table['y0']
-            xe[idx] = self.ref_table['x0e']
-            ye[idx] = self.ref_table['y0e']
+            x[idx] = self.ref_table['x0'][idx]
+            y[idx] = self.ref_table['y0'][idx]
+            xe[idx] = self.ref_table['x0e'][idx]
+            ye[idx] = self.ref_table['y0e'][idx]
         else:
             # No velocities... just used average positions.
             x = self.ref_table['x0']
@@ -1147,7 +1160,7 @@ class MosaicSelfRef(object):
     
 
 class MosaicToRef(MosaicSelfRef):
-        def __init__(self, ref_list, list_of_starlists, iters=2,
+    def __init__(self, ref_list, list_of_starlists, iters=2,
                  dr_tol=[1, 1], dm_tol=[2, 1],
                  outlier_tol=[None, None],
                  trans_args=[{'order': 2}, {'order': 2}],
@@ -1934,7 +1947,7 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis):
                 new_col_empty = -1
             elif ref_table[col_name].dtype == np.dtype('bool'):
                 new_col_empty = False
-             else:
+            else:
                 new_col_empty = None
             
             if len(ref_table[col_name].shape) == 1:
@@ -3633,9 +3646,9 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         x1m = star_list['x'][idx_s][ndx_s]
         y1m = star_list['y'][idx_s][ndx_s]
         m1m = star_list['m'][idx_s][ndx_s]
-        x2m = ref_list['x0'][idx_r][ndx_r]
-        y2m = ref_list['y0'][idx_r][ndx_r]
-        m2m = ref_list['m0'][idx_r][ndx_r]
+        x2m = ref_list['x'][idx_r][ndx_r]
+        y2m = ref_list['y'][idx_r][ndx_r]
+        m2m = ref_list['m'][idx_r][ndx_r]
         N = len(x1m)
         
     else:
@@ -3645,7 +3658,10 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         # If there are velocities in the reference list, use them.
         # We assume velocities are in the same units as the positions.
         xref, yref = get_pos_at_time(star_list['t'][0], ref_list)
-        mref = ref_list['m0']
+        if 'm' in ref_list.colnames:
+            mref = ref_list['m']
+        else:
+            mref = ref_list['m0']
             
         N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(star_list['x'],
                                                                      star_list['y'],
@@ -3675,7 +3691,6 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
 
     if verbose:
         print('init guess: ', trans.px.parameters, trans.py.parameters)
-        print('ref_list_T:\n', ref_list['x_avg', 'y_avg'][0:3])
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
         

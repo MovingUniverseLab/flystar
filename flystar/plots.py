@@ -49,8 +49,10 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
     py.clf()
     py.plot(ref['x'], ref['y'], 'g+', ms=5, label='Reference')
     py.plot(starlist['x'], starlist['y'], 'rx', ms=5, label='starlist')
-    py.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, linestyle='None', label='Matched Reference')
-    py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, linestyle='None', label='Matched starlist')
+    py.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, alpha=0.3,
+                linestyle='None', label='Matched Reference')
+    py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, alpha=0.3,
+                linestyle='None', label='Matched starlist')
     py.xlabel('X position (Reference Coords)')
     py.ylabel('Y position (Reference Coords)')
     py.legend(numpoints=1)

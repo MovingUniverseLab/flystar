@@ -88,6 +88,7 @@ def test_MosaicSelfRef():
     msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
                               dr_tol=[3, 3], dm_tol=[1, 1],
                               trans_class=transforms.PolyTransform,
+                              verbose=False,
                               trans_args={'order': 2})
 
     msc.fit()
@@ -150,7 +151,7 @@ def test_MosaicSelfRef():
 def test_MosaicSelfRef_vel_tconst():
     """
     Cross-match and align 4 starlists using the OO version of mosaic lists.
-    The 4 lists are all taken at teh same time (so 0 velocities shoudl result).
+    The 4 lists are all taken at the same time (so 0 velocities should result).
     
     """
     list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
@@ -163,7 +164,8 @@ def test_MosaicSelfRef_vel_tconst():
     msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
                               dr_tol=[3, 3], dm_tol=[1, 1],
                               trans_class=transforms.PolyTransform,
-                              trans_args={'order': 2}, use_vel=True)
+                              trans_args={'order': 2}, use_vel=True,
+                              verbose=False)
 
     msc.fit()
     
@@ -232,10 +234,11 @@ def test_MosaicSelfRef_vel():
     ##########
     # Test instantiation and basic fitting.
     ##########
-    msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
-                              dr_tol=[3, 3], dm_tol=[1, 1],
+    msc = align.MosaicSelfRef(lists, ref_index=0, iters=3,
+                              dr_tol=[5, 3, 3], dm_tol=[1, 1, 0.5], outlier_tol=None,
                               trans_class=transforms.PolyTransform,
-                              trans_args={'order': 2}, use_vel=True)
+                              trans_args={'order': 2}, use_vel=True,
+                              verbose=False)
 
     msc.fit()
     
@@ -300,7 +303,7 @@ def test_MosaicToRef():
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2}, use_vel=True,
-                              update_ref_orig=False)
+                              update_ref_orig=False, verbose=False)
 
     msc.fit()
 
@@ -609,25 +612,25 @@ def test_mosaic_lists_keck_hst():
     ##############################
     # Alignment
     ##############################
-    iters = 2
-    dr_tol = [0.3, 0.2]
-    dm_tol = [3.0, 3.0]
+    iters = 3
+    dr_tol = [1.0, 0.5, 0.2]
+    dm_tol = [3.0, 3.0, 3.0]
     msc = align.MosaicToRef(gaia_list, keck_lists + hst_lists, iters=iters,
-                                 dr_tol=dr_tol, dm_tol=[40]*iters,
-                                 outlier_tol=[None]*iters, mag_lim=None,
+                                 dr_tol=dr_tol, dm_tol=40,
+                                 outlier_tol=None, mag_lim=None,
                                  trans_class=transforms.PolyTransform,
                                  trans_input=None,
                                  trans_args=[{'order': 1}]*iters, 
                                  use_vel=True, weights=None,
                                  update_ref_orig=False, use_ref_new=False, mag_trans=True,
-                                 init_guess_mode='name', verbose=True)
+                                 init_guess_mode='name', verbose=False)
 
     msc.fit()
     tab = msc.ref_table
 
-    pdb.set_trace()
+    assert len(tab) > 1000
 
-    return tab    
+    return tab
               
 
         
