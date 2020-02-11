@@ -1,6 +1,6 @@
 from astropy.table import Table
 from flystar.starlists import StarList
-import os
+import os,  pdb
 
 test_dir = os.path.dirname(__file__)
 
@@ -41,5 +41,26 @@ def test_copy():
     lis2 = StarList(lis)
 
     assert len(lis) == len(lis2)
+
+    return
+
+def test_restrict_by_value():
+    liso = make_star_list()
+    
+    # Test 1
+    lis = make_star_list()
+    lis.restrict_by_value(m_min=10, m_max=13)
+
+    assert lis['m'].min() > 10
+    assert lis['m'].max() < 13
+    assert len(lis) < len(liso)
+
+    # Test 2
+    lis = make_star_list()
+    lis.restrict_by_value(m_min=10, x_max=500)
+
+    assert lis['m'].min() > 10
+    assert lis['x'].max() < 500
+    assert len(lis) < len(liso)
 
     return

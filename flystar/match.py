@@ -6,9 +6,7 @@ from scipy.spatial import cKDTree as KDT
 from astropy.table import Column, Table
 import itertools
 import copy
-import pylab as py
 import scipy.signal
-from skimage import transform
 from scipy.spatial import distance
 import math
 import pdb
@@ -281,7 +279,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     idxs2 = np.ones(x1.size, dtype=int) * -1
 
     # The matching will be done using a KDTree.
-    kdt = KDT(coords2)
+    kdt = KDT(coords2, balanced_tree=False)
 
     # This returns the number of neighbors within the specified
     # radius. We will use this to find those stars that have no or one
@@ -369,7 +367,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     # Deal with duplicates
     duplicates = [item for item, count in list(Counter(idxs2).items()) if count > 1]
     if verbose:
-        print(( 'Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
+        print(( '    Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
     keep = np.ones(len(idxs1), dtype=bool)
     for dd in range(len(duplicates)):
         # Index into the idxs1, idxs2 array of this duplicate.

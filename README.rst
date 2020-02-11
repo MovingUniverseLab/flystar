@@ -1,34 +1,49 @@
 FlyStar
-===================================
+-------
 
 .. image:: http://img.shields.io/badge/powered%20by-AstroPy-orange.svg?style=flat
     :target: http://www.astropy.org
     :alt: Powered by Astropy Badge
 
-This is an AstroPy affiliated package to work with starlists to
-perform matching and relative astrometric transformations.
-
-For more information, see:
-
-* `Detailed documentation is available `_
-* `This pacakge's Bitbucket code repository <https://bitbucket.org/mwhosek/flystar>`_
 
 License
 -------
-FlyStar is free software licensed under a BSD license. For details,
-see the licenses/LICENSE.rst file. Please cite the DOI ####
-on ASCL or Zenodo in publications. 
 
-Contributors
+This project is Copyright (c) Jessica Lu and licensed under
+the terms of the BSD 3-Clause license. This package is based upon
+the `Astropy package template <https://github.com/astropy/package-template>`_
+which is licensed under the BSD 3-clause licence. See the licenses folder for
+more information.
+
+
+Contributing
 ------------
-Major contributors to this code include:
 
-* Matthew Hosek Jr. - 2016
-* Siyao Jia - 2016
-* Max Service - 2016
-* Jessica R. Lu - 2016
+We love contributions! FlyStar is open source,
+built on open source, and we'd love to have you hang out in our community.
 
-This project was supported by funds from the National Science Foundation grant
-AST-#####, the University of Hawaii, and the University of California, Berkeley.
+**Imposter syndrome disclaimer**: We want your help. No, really.
 
+There may be a little voice inside your head that is telling you that you're not
+ready to be an open source contributor; that your skills aren't nearly good
+enough to contribute. What could you possibly offer a project like this one?
 
+We assure you - the little voice in your head is wrong. If you can write code at
+all, you can contribute code to open source. Contributing to open source
+projects is a fantastic way to advance one's coding skills. Writing perfect code
+isn't the measure of a good developer (that would disqualify all of us!); it's
+trying to create something, making mistakes, and learning from those
+mistakes. That's how we all improve, and we are happy to help others learn.
+
+Being an open source contributor doesn't just mean writing code, either. You can
+help out by writing documentation, tests, or even giving feedback about the
+project (and yes - that includes giving feedback about the contribution
+process). Some of these contributions may be the most valuable to the project as
+a whole, because you're coming to the project with fresh eyes, so you can see
+the errors and assumptions that seasoned contributors have glossed over.
+
+Note: This disclaimer was originally written by
+`Adrienne Lowe <https://github.com/adriennefriend>`_ for a
+`PyCon talk <https://www.youtube.com/watch?v=6Uj746j9Heo>`_, and was adapted by
+FlyStar based on its use in the README file for the
+`MetPy project <https://github.com/Unidata/MetPy>`_.

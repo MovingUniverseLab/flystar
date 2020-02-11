@@ -1,9 +1,12 @@
 from . import analysis
 import pylab as py
+import pylab as plt
 import numpy as np
 import matplotlib.mlab as mlab
+from matplotlib import colors
 from scipy.stats import chi2
 import pdb
+import math
 
 ####################################################
 # Code for making diagnostic plots for astrometry
@@ -46,8 +49,10 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
     py.clf()
     py.plot(ref['x'], ref['y'], 'g+', ms=5, label='Reference')
     py.plot(starlist['x'], starlist['y'], 'rx', ms=5, label='starlist')
-    py.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, linestyle='None', label='Matched Reference')
-    py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, linestyle='None', label='Matched starlist')
+    py.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, alpha=0.3,
+                linestyle='None', label='Matched Reference')
+    py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, alpha=0.3,
+                linestyle='None', label='Matched starlist')
     py.xlabel('X position (Reference Coords)')
     py.ylabel('Y position (Reference Coords)')
     py.legend(numpoints=1)
@@ -55,7 +60,8 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
     if xlim != None:
         py.axis([xlim[0], xlim[1], ylim[0], ylim[1]])
     if fileName!=None:
-        py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
+        #py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
+        py.savefig(root + 'Transformed_positions_{0}'.format(fileName) + '.png')
     else:
         py.savefig(root + 'Transformed_positions.png')
     py.close()
@@ -600,6 +606,1052 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
     return
 
 
+def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
+             poly='polyfit_d/fit', points='points_d/', radial=False, NcolMax=3, figsize=(15,15)):
 
+    print( 'Creating residuals plots for star(s):' )
+    print( starNames )
+    
+    s = starset.StarSet(rootDir + align)
+    s.loadPolyfit(rootDir + poly, accel=0, arcsec=0)
+    Nstars = len(starNames)
+    Ncols = 2 * np.min([Nstars, NcolMax])
+    if Nstars <= Ncols/2:
+        Nrows = 3
+    else:
+        Nrows = math.ceil(Nstars / (Ncols / 2)) * 3
 
+    py.close('all')
+    py.figure(2, figsize=figsize)
+    names = s.getArray('name')
+    mag = s.getArray('mag')
+    x = s.getArray('x')
+    y = s.getArray('y')
+    r = np.hypot(x,y)
+    
+    for i in range(Nstars):
+    
+        starName = starNames[i]
         
+        ii = names.index(starName)
+        star = s.stars[ii]
+
+        pointsTab = Table.read(rootDir + points + starName + '.points', format='ascii')
+
+        time = pointsTab[pointsTab.colnames[0]]
+        x = pointsTab[pointsTab.colnames[1]]
+        y = pointsTab[pointsTab.colnames[2]]
+        xerr = pointsTab[pointsTab.colnames[3]]
+        yerr = pointsTab[pointsTab.colnames[4]]
+
+        fitx = star.fitXv
+        fity = star.fitYv
+        dt = time - fitx.t0
+        fitLineX = fitx.p + (fitx.v * dt)
+        fitSigX = np.sqrt( fitx.perr**2 + (dt * fitx.verr)**2 )
+
+        fitLineY = fity.p + (fity.v * dt)
+        fitSigY = np.sqrt( fity.perr**2 + (dt * fity.verr)**2 )
+
+        if (radial == True):
+            # Lets also do radial/tangential
+            x0 = fitx.p
+            y0 = fity.p
+            vx = fitx.v
+            vy = fity.v
+            x0e = fitx.perr
+            y0e = fity.perr
+            vxe = fitx.verr
+            vye = fity.verr
+
+            r0 = np.sqrt(x0**2 + y0**2)
+
+            vr = ((vx*x0) + (vy*y0)) / r0
+            vt = ((vx*y0) - (vy*x0)) / r0
+            vre =  (vxe*x0/r0)**2 + (vye*y0/r0)**2
+            vre += (y0*x0e*vt/r0**2)**2 + (x0*y0e*vt/r0**2)**2
+            vre =  np.sqrt(vre)
+            vte =  (vxe*y0/r0)**2 + (vye*x0/r0)**2
+            vte += (y0*x0e*vr/r0**2)**2 + (x0*y0e*vr/r0**2)**2
+            vte =  np.sqrt(vte)
+
+            r = ((x*x0) + (y*y0)) / r0
+            t = ((x*y0) - (y*x0)) / r0
+            rerr = (xerr*x0/r0)**2 + (yerr*y0/r0)**2
+            rerr += (y0*x0e*t/r0**2)**2 + (x0*y0e*t/r0**2)**2
+            rerr =  np.sqrt(rerr)
+            terr =  (xerr*y0/r0)**2 + (yerr*x0/r0)**2
+            terr += (y0*x0e*r/r0**2)**2 + (x0*y0e*r/r0**2)**2
+            terr =  np.sqrt(terr)
+
+            fitLineR = ((fitLineX*x0) + (fitLineY*y0)) / r0
+            fitLineT = ((fitLineX*y0) - (fitLineY*x0)) / r0
+            fitSigR = ((fitSigX*x0) + (fitSigY*y0)) / r0
+            fitSigT = ((fitSigX*y0) - (fitSigY*x0)) / r0
+
+            diffR = r - fitLineR
+            diffT = t - fitLineT
+            sigR = diffR / rerr
+            sigT = diffT / terr
+
+            idxR = np.where(abs(sigR) > 4)
+            idxT = np.where(abs(sigT) > 4)
+
+
+        diffX = x - fitLineX
+        diffY = y - fitLineY
+        diff = np.hypot(diffX, diffY)
+        rerr = np.sqrt((diffX*xerr)**2 + (diffY*yerr)**2) / diff
+        sigX = diffX / xerr
+        sigY = diffY / yerr
+        sig = diff / rerr
+
+
+        # Determine if there are points that are more than 5 sigma off
+        idxX = np.where(abs(sigX) > 4)
+        idxY = np.where(abs(sigY) > 4)
+        idx = np.where(abs(sig) > 4)
+
+        print( 'Star:        ', starName )
+        print( '\tX Chi^2 = %5.2f (%6.2f for %2d dof)' % 
+              (fitx.chi2red, fitx.chi2, fitx.dof))
+        print( '\tY Chi^2 = %5.2f (%6.2f for %2d dof)' % 
+              (fity.chi2red, fity.chi2, fity.dof))
+        # print( 'X  Outliers: ', time[idxX] )
+        # print( 'Y  Outliers: ', time[idxY] )
+        # if (radial):
+        #     print( 'R  Outliers: ', time[idxX] )
+        #     print( 'T  Outliers: ', time[idxY] )
+        # print( 'XY Outliers: ', time[idx] )
+
+        # close(2)
+        #             figure(2, figsize=(7, 8))
+        #             clf()
+
+        t0 = int(np.floor(np.min(time)))
+        tO = int(np.ceil(np.max(time)))
+        
+        dateTicLoc = py.MultipleLocator(3)
+        dateTicRng = [t0-1, tO+1]
+        dateTics = np.arange(t0, tO+1)
+        DateTicsLabel = dateTics-2000
+
+        # See if we are using MJD instead.
+        if time[0] > 50000:
+            print('MJD')
+            dateTicLoc = py.MultipleLocator(1000)
+            t0 = int(np.round(np.min(time), 50))
+            tO = int(np.round(np.max(time), 50))
+            dateTicRng = [t0-200, tO+200]
+            dateTics = np.arange(dateTicRng[0], dateTicRng[-1]+500, 1000)
+            DateTicsLabel = dateTics
+
+
+        maxErr = np.array([xerr, yerr]).max()
+        resTicRng = [-1.1*maxErr, 1.1*maxErr]
+
+        from matplotlib.ticker import FormatStrFormatter
+        fmtX = FormatStrFormatter('%5i')
+        fmtY = FormatStrFormatter('%6.2f')
+        fontsize1 = 10
+
+        if i < (Ncols/2):
+            col = (2*i)+1
+            row = 1
+        else:
+            col = 1 + 2*(i % (Ncols/2))
+            row = 1 + 3*(i//(Ncols/2)) 
+            
+        ind = (row-1)*Ncols + col
+
+        paxes = py.subplot(Nrows, Ncols, ind)
+        py.plot(time, fitLineX, 'b-')
+        py.plot(time, fitLineX + fitSigX, 'b--')
+        py.plot(time, fitLineX - fitSigX, 'b--')
+        py.errorbar(time, x, yerr=xerr, fmt='k.')
+        rng = py.axis()
+        py.ylim(np.min(x-xerr-0.1),np.max(x+xerr+0.1)) 
+        py.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            py.xlabel('Date (MJD)', fontsize=fontsize1)
+        py.ylabel('X (pix)', fontsize=fontsize1)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.get_xaxis().set_major_locator(dateTicLoc)
+        paxes.yaxis.set_major_formatter(fmtY)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+        py.yticks(np.arange(np.min(x-xerr-0.1), np.max(x+xerr+0.1), 0.2))
+        py.xticks(dateTics, DateTicsLabel)
+        py.xlim(np.min(dateTics), np.max(dateTics))
+        py.annotate(starName,xy=(1.0,1.1), xycoords='axes fraction', fontsize=12, color='red')
+
+
+        col = col + 1
+        ind = (row-1)*Ncols + col
+
+        paxes = py.subplot(Nrows, Ncols, ind)
+        py.plot(time, fitLineY, 'b-')
+        py.plot(time, fitLineY + fitSigY, 'b--')
+        py.plot(time, fitLineY - fitSigY, 'b--')
+        py.errorbar(time, y, yerr=yerr, fmt='k.')
+        rng = py.axis()
+        py.axis(dateTicRng + [rng[2], rng[3]], fontsize=fontsize1)
+        py.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            py.xlabel('Date (MJD)', fontsize=fontsize1)
+        py.ylabel('Y (pix)', fontsize=fontsize1)
+        #paxes.get_xaxis().set_major_locator(dateTicLoc)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.get_xaxis().set_major_locator(dateTicLoc)
+        paxes.yaxis.set_major_formatter(fmtY)
+        paxes.tick_params(axis='both', which='major', labelsize=12)
+        py.ylim(np.min(y-yerr-0.1),np.max(y+yerr+0.1))
+        py.yticks(np.arange(np.min(y-yerr-0.1), np.max(y+yerr+0.1), 0.2))
+        py.xticks(dateTics, DateTicsLabel)
+        py.xlim(np.min(dateTics), np.max(dateTics))
+
+        row = row + 1
+        col = col - 1
+        ind = (row-1)*Ncols + col
+
+        paxes = py.subplot(Nrows, Ncols, ind)
+        py.plot(time, np.zeros(len(time)), 'b-')
+        py.plot(time, fitSigX, 'b--')
+        py.plot(time, -fitSigX, 'b--')
+        py.errorbar(time, x - fitLineX, yerr=xerr, fmt='k.')
+        py.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        py.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            py.xlabel('Date (MJD)', fontsize=fontsize1)
+        py.ylabel('X Residuals (pix)', fontsize=fontsize1)
+        paxes.get_xaxis().set_major_locator(dateTicLoc)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+        py.xticks(dateTics, DateTicsLabel)
+        py.xlim(np.min(dateTics), np.max(dateTics))
+
+        col = col + 1
+        ind = (row-1)*Ncols + col
+
+        paxes = py.subplot(Nrows, Ncols, ind)
+        py.plot(time, np.zeros(len(time)), 'b-')
+        py.plot(time, fitSigY, 'b--')
+        py.plot(time, -fitSigY, 'b--')
+        py.errorbar(time, y - fitLineY, yerr=yerr, fmt='k.')
+        py.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        py.xlabel('Date -2000 (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            py.xlabel('Date (MJD)', fontsize=fontsize1)
+        py.ylabel('Y Residuals (pix)', fontsize=fontsize1)
+        paxes.get_xaxis().set_major_locator(dateTicLoc)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+        py.xticks(dateTics, DateTicsLabel)
+        py.xlim(np.min(dateTics), np.max(dateTics))
+
+        row = row + 1
+        col = col - 1
+        ind = (row-1)*Ncols + col
+
+
+        paxes = py.subplot(Nrows, Ncols, ind)
+        py.errorbar(x,y, xerr=xerr, yerr=yerr, fmt='k.')
+        py.yticks(np.arange(np.min(y-yerr-0.1), np.max(y+yerr+0.1), 0.2))
+        py.xticks(np.arange(np.min(x-xerr-0.1), np.max(x+xerr+0.1), 0.2), rotation = 270)
+        py.axis('equal')
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+        paxes.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+        paxes.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+        py.xlabel('X (pix)', fontsize=fontsize1)
+        py.ylabel('Y (pix)', fontsize=fontsize1)
+        py.plot(fitLineX, fitLineY, 'b-')    
+
+        col = col + 1
+        ind = (row-1)*Ncols + col
+
+        bins = np.arange(-7.5, 7.5, 1)
+        paxes = py.subplot(Nrows, Ncols, ind)
+        id = np.where(diffY < 0)[0]
+        sig[id] = -1.*sig[id] 
+        (n, b, p) = py.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
+        py.setp(p, 'facecolor', 'b')
+        (n, b, p) = py.hist(sigY, bins, histtype='step', color='r', label='Y')
+        py.axis([-7, 7, 0, 8], fontsize=10)
+        py.legend()
+        py.xlabel('Residuals (sigma)', fontsize=fontsize1)
+        py.ylabel('Number of Epochs', fontsize=fontsize1)
+
+        ##########
+        #
+        # Also plot radial/tangential
+        #
+        ##########
+        if (radial == True):
+            py.clf()
+
+            dateTicLoc = py.MultipleLocator(3)
+
+            maxErr = np.array([rerr, terr]).max()
+            resTicRng = [-3*maxErr, 3*maxErr]
+
+            from matplotlib.ticker import FormatStrFormatter
+            fmtX = FormatStrFormatter('%5i')
+            fmtY = FormatStrFormatter('%6.2f')
+
+            paxes = py.subplot(3,2,1)
+            py.plot(time, fitLineR, 'b-')
+            py.plot(time, fitLineR + fitSigR, 'b--')
+            py.plot(time, fitLineR - fitSigR, 'b--')
+            py.errorbar(time, r, yerr=rerr, fmt='k.')
+            rng = py.axis()
+            py.axis(dateTicRng + [rng[2], rng[3]])
+            py.xlabel('Date (yrs)')
+            py.ylabel('R (pix)')
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.get_xaxis().set_major_locator(dateTicLoc)
+            paxes.yaxis.set_major_formatter(fmtY)
+
+            paxes = py.subplot(3, 2, 2)
+            py.plot(time, fitLineT, 'b-')
+            py.plot(time, fitLineT + fitSigT, 'b--')
+            py.plot(time, fitLineT - fitSigT, 'b--')
+            py.errorbar(time, t, yerr=terr, fmt='k.')
+            rng = py.axis()
+            py.axis(dateTicRng + [rng[2], rng[3]])
+            py.xlabel('Date (yrs)')
+            py.ylabel('T (pix)')
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.get_xaxis().set_major_locator(dateTicLoc)
+            paxes.yaxis.set_major_formatter(fmtY)
+
+            paxes = py.subplot(3, 2, 3)
+            py.plot(time, np.zeros(len(time)), 'b-')
+            py.plot(time, fitSigR, 'b--')
+            py.plot(time, -fitSigR, 'b--')
+            py.errorbar(time, r - fitLineR, yerr=rerr, fmt='k.')
+            py.axis(dateTicRng + resTicRng)
+            py.xlabel('Date (yrs)')
+            py.ylabel('R Residuals (pix)')
+            paxes.get_xaxis().set_major_locator(dateTicLoc)
+
+            paxes = py.subplot(3, 2, 4)
+            py.plot(time, np.zeros(len(time)), 'b-')
+            py.plot(time, fitSigT, 'b--')
+            py.plot(time, -fitSigT, 'b--')
+            py.errorbar(time, t - fitLineT, yerr=terr, fmt='k.')
+            py.axis(dateTicRng + resTicRng)
+            py.xlabel('Date (yrs)')
+            py.ylabel('T Residuals (pix)')
+            paxes.get_xaxis().set_major_locator(dateTicLoc)
+
+            bins = np.arange(-7, 7, 1)
+            py.subplot(3, 2, 5)
+            (n, b, p) = py.hist(sigR, bins)
+            py.setp(p, 'facecolor', 'k')
+            py.axis([-5, 5, 0, 20])
+            py.xlabel('T Residuals (sigma)')
+            py.ylabel('Number of Epochs')
+
+            py.subplot(3, 2, 6)
+            (n, b, p) = py.hist(sigT, bins)
+            py.axis([-5, 5, 0, 20])
+            py.setp(p, 'facecolor', 'k')
+            py.xlabel('Y Residuals (sigma)')
+            py.ylabel('Number of Epochs')
+
+            py.subplots_adjust(wspace=0.4, hspace=0.4, right=0.95, top=0.95)
+            py.savefig(rootDir+'plots/plotStarRadial_' + starName + '.png')
+            py.show()
+
+    title = rootDir.split('/')[-2]
+    py.suptitle(title, x=0.5, y=0.97)
+
+    if Nstars == 1:
+        py.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
+        py.savefig(rootDir+'plots/plotStar_' + starName + '.png')
+    else:
+        py.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
+        py.savefig(rootDir+'plots/plotStar_all.png')
+        py.show()
+
+    py.show()
+    print('Fubar')
+        
+
+
+##################################################
+# New codes for velocity support in FlyStar and using
+# the new StarTable and StarList format. 
+##################################################
+
+def plot_pm(tab):
+    plt.figure(figsize=(6,6))
+    plt.clf()
+    plt.subplots_adjust(top=0.85)
+    q = plt.quiver(tab['x0'], tab['y0'],
+                   tab['vx']*1e3, tab['vy']*1e3,
+                   scale=1e2, angles='xy')
+    plt.quiverkey(q, 0.5, 0.8, 10, '10 mas/yr', color='red', 
+                    coordinates='figure', labelpos='E')
+    plt.xlabel(r'$\Delta \alpha$ (")')
+    plt.ylabel(r'$\Delta \delta$ (")')
+
+    return
+
+
+def plot_gaia(gaia):
+    ra_tan = gaia['ra']
+    de_tan = gaia['dec']
+    ra_tan_mean = ra_tan.mean()
+    de_tan_mean = de_tan.mean()
+    cos_dec = np.cos(np.radians(de_tan_mean))
+
+    d_ra_tan = (ra_tan - ra_tan_mean) * cos_dec * 3600.0
+    d_de_tan = (de_tan - de_tan_mean) * 3600.0
+    
+    pmra = gaia['pmra']
+    pmdec = gaia['pmdec']
+    
+    plt.figure(figsize=(6,6))
+    plt.clf()
+    plt.subplots_adjust(top=0.85)
+    q = plt.quiver(d_ra_tan, d_de_tan,
+                   pmra, pmdec,
+                   scale=1e2, angles='xy')
+    plt.quiverkey(q, 0.5, 0.8, 10, '10 mas/yr', color='red', 
+                    coordinates='figure', labelpos='E')
+    plt.xlabel(r'$\Delta \alpha \cos \delta$ ('')')
+    plt.ylabel(r'$\Delta \delta$ ('')')
+
+    fmt = r'[$\alpha$, $\delta$] = [{0:8.3f}$^\circ$, {1:8.3f}$^\circ$]'
+    plt.title(fmt.format(ra_tan_mean, de_tan_mean))
+    plt.gca().invert_xaxis()
+    
+
+    return
+
+def plot_pm_error(tab):
+    plt.figure(1, figsize=(6,6))
+    plt.clf()
+    plt.semilogy(tab['m0'], tab['vxe']*1e3, 'r.', label=r'$\sigma_{\mu_{\alpha *}}$', alpha=0.4)
+    plt.semilogy(tab['m0'], tab['vye']*1e3, 'b.', label=r'$\sigma_{\mu_{\delta}}$', alpha=0.4)
+    plt.legend()
+    plt.xlabel('Mag')
+    plt.ylabel('PM Error (mas/yr)')
+
+    return
+
+def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None):
+
+    # Keep track of the residuals for averaging.
+    dr_good = np.zeros(len(tab), dtype=float)
+    n_good = np.zeros(len(tab), dtype=int)
+    dr_ref = np.zeros(len(tab), dtype=float)
+    n_ref = np.zeros(len(tab), dtype=int)
+    
+    for ee in range(tab['x'].shape[1]):
+        dt = tab['t'][:, ee] - tab['t0']
+        xt_mod = tab['x0'] + tab['vx'] * dt
+        yt_mod = tab['y0'] + tab['vy'] * dt
+        
+        good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
+        ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+
+        dx, dy = plot_quiver_residuals(tab['x'][:, ee], tab['y'][:, ee], 
+                                       xt_mod, yt_mod, 
+                                       good_idx, ref_idx,
+                                       'Epoch {0:d}'.format(ee), unit=unit, scale=scale)
+
+        # Building up average dr for a set of stars.
+        dr = np.hypot(dx, dy)
+
+        dr_good[good_idx] += dr[good_idx]
+        dr_ref[good_idx[ref_idx]] += dr[good_idx[ref_idx]]
+
+        n_good[good_idx] += 1
+        n_ref[good_idx[ref_idx]] += 1
+
+    dr_good_avg = np.zeros(len(tab), dtype=float)
+    idx = np.where(n_good > 0)[0]
+    dr_good_avg[idx] = dr_good[idx] / n_good[idx]
+    
+    dr_ref_avg = np.zeros(len(tab), dtype=float)
+    idx = np.where(n_ref > 0)[0]
+    dr_ref_avg[idx] = dr_ref[idx] / n_ref[idx]
+
+    hdr = '{name:>16s} {mag:>5s} {dr:>6s} {x:>6s} {y:>6s} {r:>6s}'
+    fmt = '{name:16s} {mag:5.2f} {dr:6.4f} {x:6.3f} {y:6.3f} {r:6.3f}'
+
+    # print()
+    # print('##########')
+    # print('# GOOD stars')
+    # print('##########')
+    # for rr in range(len(tab)):
+    #     if dr_good_avg[rr] > 0:
+    #         print(fmt.format(name=tab['name'][rr], mag=tab['m0'][rr], dr=dr_good_avg[rr],
+    #                          x=tab['x0'][rr], y=tab['y0'][rr], r=np.hypot(tab['x0'][rr], tab['y0'][rr])))
+
+    print()
+    print('##########')
+    print('# REF stars')
+    print('##########')
+    print(hdr.format(name='Name', mag='Mag', dr='dr', x='x', y='y', r='r'))
+    for rr in range(len(tab)):
+        if (dr_ref_avg[rr] > 0):
+            print(fmt.format(name=tab['name'][rr], mag=tab['m0'][rr], dr=dr_ref_avg[rr],
+                             x=tab['x0'][rr], y=tab['y0'][rr], r=np.hypot(tab['x0'][rr], tab['y0'][rr])))
+            
+    return
+
+def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, unit='pixel', scale=None):
+    """
+    unit : str
+        'pixel' or 'arcsec'
+        The pixel units of the input values. Note, if arcsec, then the values will be
+        converted to milli-arcsec for plotting when appropriate. 
+
+    scale : float
+        The quiver scale. If none, then default units will be used appropriate to the unit. 
+
+    """
+    dx = (x_t - x_ref)
+    dy = (y_t - y_ref)
+
+    if unit == 'pixel':
+        if scale == None:
+            quiv_scale = 5
+        else:
+            quiv_scale = scale
+        quiv_label = '0.3 pix'
+        quiv_label_val = 0.3
+        unit2 = 'pix'
+    else:
+        dx *= 1e3
+        dy *= 1e3
+        if scale == None:
+            quiv_scale = 50
+        else:
+            quiv_scale = scale
+        quiv_label = '1 mas'
+        quiv_label_val = 1.0
+        unit2 = 'mas'
+
+
+    plt.figure(figsize=(6,6))
+    plt.clf()
+    q = plt.quiver(x_ref[good_idx], y_ref[good_idx], dx[good_idx], dy[good_idx],
+                   color='black', scale=quiv_scale, angles='xy', alpha=0.5)
+    plt.quiver(x_ref[good_idx][ref_idx], y_ref[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
+                   color='red', scale=quiv_scale, angles='xy')
+    plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
+                      coordinates='figure', labelpos='E', color='green')
+    plt.xlabel('X (ref ' + unit + ')')
+    plt.ylabel('Y (ref ' + unit + ')')
+    plt.title(title)
+    plt.axis('equal')
+    plt.show()
+    plt.pause(1)
+
+    str_fmt = 'Residuals (mean, std): dx = {0:7.3f} +/- {1:7.3f} {5:s}  dy = {2:7.3f} +/- {3:7.3f} {5:s} for {4:s} stars'
+    if len(ref_idx) > 1:
+        print(str_fmt.format(dx[good_idx][ref_idx].mean(), dx[good_idx][ref_idx].std(),
+                             dy[good_idx][ref_idx].mean(), dy[good_idx][ref_idx].std(), 'REF', unit2))
+    else:
+        print(str_fmt.format(dx[good_idx][ref_idx].mean(), 0.0,
+                             dy[good_idx][ref_idx].mean(), 0.0, 'REF', unit2))
+        
+    print(str_fmt.format(dx[good_idx].mean(), dx[good_idx].std(),
+                         dy[good_idx].mean(), dy[good_idx].std(), 'GOOD', unit2))
+
+
+    return (dx, dy)
+
+
+def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
+    """
+    Plot a set of stars positions and residuals over time. 
+    """
+    print( 'Creating residuals plots for star(s):' )
+    print( star_names )
+    
+    Nstars = len(star_names)
+    Ncols = 2 * np.min([Nstars, NcolMax])
+    if Nstars <= Ncols/2:
+        Nrows = 3
+    else:
+        Nrows = math.ceil(Nstars / (Ncols / 2)) * 3
+
+    plt.close('all')
+    plt.figure(2, figsize=figsize)
+    names = tab['name']
+    mag = tab['m0']
+    x = tab['x0']
+    y = tab['y0']
+    r = np.hypot(x, y)
+    
+    for i in range(Nstars):
+        starName = star_names[i]
+        
+        try:
+            ii = np.where(tab['name'] == starName)[0][0]
+            print(ii, tab[ii]['name'])
+        except IndexError:
+            print("!! %s is not in this list"%starName)
+
+        fnd = np.where(tab['xe'][ii, :] > 0)[0]
+
+        time = tab['t'][ii, fnd]
+        x = tab['x'][ii, fnd]
+        y = tab['y'][ii, fnd]
+        xerr = tab['xe'][ii, fnd]
+        yerr = tab['ye'][ii, fnd]
+
+        dt = tab['t'][ii, fnd] - tab['t0'][ii]
+        fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
+        fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
+
+        fitSigX = np.hypot(tab['x0e'][ii], tab['vxe'][ii]*dt)
+        fitSigY = np.hypot(tab['y0e'][ii], tab['vye'][ii]*dt)
+        
+        diffX = x - fitLineX
+        diffY = y - fitLineY
+        diff = np.hypot(diffX, diffY)
+        rerr = np.sqrt((diffX*xerr)**2 + (diffY*yerr)**2) / diff
+        sigX = diffX / xerr
+        sigY = diffY / yerr
+        sig = diff / rerr
+
+        # Determine if there are points that are more than 5 sigma off
+        idxX = np.where(abs(sigX) > 4)
+        idxY = np.where(abs(sigY) > 4)
+        idx = np.where(abs(sig) > 4)
+
+        # Calculate chi^2 metrics
+        chi2_x = np.sum(sigX**2)
+        chi2_y = np.sum(sigY**2)
+
+        dof = len(x) - 2
+
+        chi2_red_x = chi2_x / dof
+        chi2_red_y = chi2_y / dof
+        
+
+        print( 'Star:        ', starName )
+        print( '\tX Chi^2 = %5.2f (%6.2f for %2d dof)' % 
+              (chi2_red_x, chi2_x, dof))
+        print( '\tY Chi^2 = %5.2f (%6.2f for %2d dof)' % 
+              (chi2_red_y, chi2_y, dof))
+
+        tmin = time.min()
+        tmax = time.max()
+
+        dateTicLoc = plt.MultipleLocator(3)
+        dateTicRng = [np.floor(tmin), np.ceil(tmax)]
+        dateTics = np.arange(np.floor(tmin), np.ceil(tmax)+0.1)
+        DateTicsLabel = dateTics
+
+        # See if we are using MJD instead.
+        if time[0] > 50000:
+            print('MJD')
+            dateTicLoc = plt.MultipleLocator(1000)
+            t0 = int(np.round(np.min(time), 50))
+            tO = int(np.round(np.max(time), 50))
+            dateTicRng = [tmin-200, tmax+200]
+            dateTics = np.arange(dateTicRng[0], dateTicRng[-1]+500, 1000)
+            DateTicsLabel = dateTics
+
+
+        maxErr = np.array([(diffX-xerr)*1e3, (diffX+xerr)*1e3,
+                           (diffY-yerr)*1e3, (diffY+yerr)*1e3]).max()
+
+        if maxErr > 2:
+            maxErr = 2.0
+        resTicRng = [-1.1*maxErr, 1.1*maxErr]
+
+        from matplotlib.ticker import FormatStrFormatter
+        fmtX = FormatStrFormatter('%5i')
+        fmtY = FormatStrFormatter('%6.3f')
+        fontsize1 = 10
+
+        if i < (Ncols/2):
+            col = (2*i)+1
+            row = 1
+        else:
+            col = 1 + 2*(i % (Ncols/2))
+            row = 1 + 3*(i//(Ncols/2)) 
+            
+        ind = (row-1)*Ncols + col
+
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, fitLineX, 'b-')
+        plt.plot(time, fitLineX + fitSigX, 'b--')
+        plt.plot(time, fitLineX - fitSigX, 'b--')
+        plt.errorbar(time, x, yerr=xerr, fmt='k.')
+        rng = plt.axis()
+        #plt.ylim(np.min(x-xerr)*0.99, np.max(x+xerr)*1.01) 
+        plt.xlabel('Date (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('X (asec)', fontsize=fontsize1)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.yaxis.set_major_formatter(fmtY)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+        plt.annotate(starName,xy=(1.0,1.1), xycoords='axes fraction', fontsize=12, color='red')
+
+
+        col = col + 1
+        ind = (row-1)*Ncols + col
+
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, fitLineY, 'b-')
+        plt.plot(time, fitLineY + fitSigY, 'b--')
+        plt.plot(time, fitLineY - fitSigY, 'b--')
+        plt.errorbar(time, y, yerr=yerr, fmt='k.')
+        rng = plt.axis()
+        plt.axis(dateTicRng + [rng[2], rng[3]], fontsize=fontsize1)
+        plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('Y (asec)', fontsize=fontsize1)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.yaxis.set_major_formatter(fmtY)
+        paxes.tick_params(axis='both', which='major', labelsize=12)
+
+        row = row + 1
+        col = col - 1
+        ind = (row-1)*Ncols + col
+
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, np.zeros(len(time)), 'b-')
+        plt.plot(time,  fitSigX*1e3, 'b--')
+        plt.plot(time, -fitSigX*1e3, 'b--')
+        plt.errorbar(time, (x - fitLineX)*1e3, yerr=xerr*1e3, fmt='k.')
+        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        plt.xlabel('Date (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('X Residuals (mas)', fontsize=fontsize1)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+
+        col = col + 1
+        ind = (row-1)*Ncols + col
+
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, np.zeros(len(time)), 'b-')
+        plt.plot(time,  fitSigY*1e3, 'b--')
+        plt.plot(time, -fitSigY*1e3, 'b--')
+        plt.errorbar(time, (y - fitLineY)*1e3, yerr=yerr*1e3, fmt='k.')
+        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        plt.xlabel('Date (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('Y Residuals (mas)', fontsize=fontsize1)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+
+        row = row + 1
+        col = col - 1
+        ind = (row-1)*Ncols + col
+
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.errorbar(x,y, xerr=xerr, yerr=yerr, fmt='k.')
+        plt.axis('equal')
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+        paxes.yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
+        paxes.xaxis.set_major_formatter(FormatStrFormatter('%.3f'))
+        plt.xlabel('X (asec)', fontsize=fontsize1)
+        plt.ylabel('Y (asec)', fontsize=fontsize1)
+        plt.plot(fitLineX, fitLineY, 'b-')    
+
+        col = col + 1
+        ind = (row-1)*Ncols + col
+
+        bins = np.arange(-7.5, 7.5, 1)
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        id = np.where(diffY < 0)[0]
+        sig[id] = -1.*sig[id] 
+        (n, b, p) = plt.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
+        plt.setp(p, 'facecolor', 'b')
+        (n, b, p) = plt.hist(sigY, bins, histtype='step', color='r', label='Y')
+        plt.axis([-7, 7, 0, 8], fontsize=10)
+        plt.legend(fontsize=10)
+        plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
+        plt.ylabel('Number of Epochs', fontsize=fontsize1)
+
+    if Nstars == 1:
+        plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
+        # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
+    else:
+        plt.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
+        # plt.savefig(rootDir+'plots/plotStar_all.png')
+        plt.show()
+
+    plt.show()
+
+    return
+
+
+def plot_errors_vs_r_m(star_tab):
+    """
+    Plot the positional errors and the proper motion errors as a function of radius 
+    and magnitude. The positional an proper motion errors will be the mean in the 
+    two axis (as is used in pick_good_ref_stars()). 
+    """
+    r = np.hypot(star_tab['x0'], star_tab['y0'])
+    p_err = np.mean((star_tab['x0e'], star_tab['y0e']), axis=0) * 1e3
+    pm_err = np.mean((star_tab['vxe'], star_tab['vye']), axis=0) * 1e3
+
+    plt.figure(figsize=(12, 6))
+    plt.clf()
+    plt.subplots_adjust(wspace=0.4)
+    
+    plt.subplot(1, 2, 1)
+    plt.scatter(star_tab['m0'], r, c=p_err, s=8, vmin=0, vmax=0.75)
+    plt.colorbar(label='Pos Err (mas)')
+    plt.xlabel('Mag')
+    plt.ylabel('Radius (")')
+
+    plt.subplot(1, 2, 2)
+    plt.scatter(star_tab['m0'], r, c=pm_err, s=8, vmin=0, vmax=0.75)
+    plt.colorbar(label='PM Err (mas/yr)')
+    plt.xlabel('Mag')
+    plt.ylabel('Radius (")')
+
+    return
+ 
+       
+def plot_sky(stars_tab,
+            plot_errors=False, center_star=None, range=0.4,
+            xcenter=0, ycenter=0, show_names=False, saveplot=False,
+            mag_range=None, with_orbits=True,
+            orbits_file=None, manual_print=False):
+    """
+    Plot all the stars at their positions over time with each star having a different
+    symbol and each epoch having a different color.
+    """
+    """
+    Parameters
+    ----------
+    stars_tab : flystar.startables.StarTable
+        The StarTable containining 'x', 'y', 't', 'xe', 'ye', columns etc. 
+        for plotting, where each of these columns is a 2D array of 
+        [star_index, epoch_index].
+
+
+    Optional Keywords
+    -----------------
+    plot_errors : bool
+        (def=False) Plot error bars on all the points (quad sum of positional
+        and alignment errors).
+    center_star : str
+        (def=None) Named star to center initial plot on.
+    show_names : bool
+        (def=False) label the name of the star in the first epoch
+    range : float
+        (def=0.4) Sets the half width of the X and Y axis in
+        arcseconds from xcenter and ycenter.
+    xcenter : float
+        (def=0.0) The X center point of the plot in arcseconds
+        offset from Sgr A*.
+    ycenter : float
+        (def=0.0) The Y center point of the plot in arcseconds
+        offset from Sgr A*.
+    saveplot : bool
+        (def=False) Save plot as .png and .pdf.
+    mag_range: intervals
+        (def=None) Magnitude cuts performed using the given interval
+    """
+
+    nEpochs = stars_tab['x'].shape[1]
+    nStars = stars_tab['x'].shape[0]
+
+    if (center_star != None):
+        idx = np.where(stars_tab['name'] == center_star)[0]
+
+        if (len(idx) > 0):
+            xcenter = stars_tab['x0'][idx[0]]
+            ycenter = stars_tab['y0'][idx[0]]
+        else:
+            print('Could not find star to center, %s. Reverting to default.' % \
+                  (center_star))
+
+    # Determine the range of years in integer units.
+    good_t = np.isfinite(stars_tab['t'])
+    epochs = np.unique(stars_tab['t'][good_t])
+    assert len(epochs) == stars_tab['t'].shape[1]
+    
+    yearsInt = np.floor(epochs).astype('int')
+
+    # Set up a color scheme
+    cnorm = colors.Normalize(stars_tab['t'][0, :].min(), stars_tab['t'][0, :].max() + 1)
+    cmap = plt.cm.gist_ncar
+
+    colorList = []
+    for ee in np.arange(nEpochs):
+        foo = cnorm(yearsInt[ee])
+        colorList.append( cmap(cnorm(yearsInt[ee])) )
+
+    py.close(2)
+    fig = py.figure(2, figsize=(13,10))
+
+    previousYear = 0.0
+
+    point_labels = {}
+    epochs_legend=[]
+
+    for ee in np.arange(nEpochs):
+        x = stars_tab['x'][:, ee]
+        y = stars_tab['y'][:, ee]
+
+        xe = stars_tab['xe'][:, ee]
+        ye = stars_tab['ye'][:, ee]
+
+        mag = stars_tab['m'][:, ee]
+        name_epoch  = stars_tab['name_in_list'][:, ee]
+
+        if mag_range is None:
+            idx = np.where((x > -1000) & (y > -1000))[0]
+        else:
+            idx = np.where((x > -1000) & (y > -1000) & (mag <= np.max(mag_range)) & (mag >= np.min(mag_range)))[0]
+
+        x = x[idx]
+        y = y[idx]
+        xe = xe[idx]
+        ye = ye[idx]
+        mag = mag[idx]
+        name_epoch = name_epoch[idx]
+
+        tmpNames = stars_tab['name'][idx]
+
+        if yearsInt[ee] != previousYear:
+            previousYear = yearsInt[ee]
+            label = '%d' % yearsInt[ee]
+        else:
+            label = '_nolegend_'
+
+        if plot_errors:
+            (line, foo1, foo2) = py.errorbar(x, y, xerr=xe, yerr=ye,
+                                            color=colorList[ee], fmt='k^',
+                                            markeredgecolor=colorList[ee],
+                                            markerfacecolor=colorList[ee],
+                                            label=label, picker=4)
+        else:
+            (line, foo1, foo2) = py.errorbar(x, y, xerr=None, yerr=None,
+                                            color=colorList[ee], fmt='k^',
+                                            markeredgecolor=colorList[ee],
+                                            markerfacecolor=colorList[ee],
+                                            label=label, picker=4)
+
+        #for legend
+        if label is not '_nolegend_':
+            line.set_label(str(label))
+            epochs_legend.append(line)
+
+
+        points_info = {'year': stars_tab['t'][0, ee],
+                       'name': tmpNames, 'x': x, 'y': y, 'xe': xe, 'ye': ye, 'mag': mag,'name_epoch':name_epoch}
+
+        point_labels[line] = points_info
+
+    foo = PrintSelected(point_labels, fig, stars_tab, mag_range, manual_print=manual_print)
+    py.connect('pick_event', foo)
+
+    xlo = xcenter + (range)
+    xhi = xcenter - (range)
+    ylo = ycenter - (range)
+    yhi = ycenter + (range)
+
+    py.axis('equal')
+    py.axis([xlo, xhi, ylo, yhi])
+    py.xlabel('R.A. Offset from Sgr A* (arcsec)')
+    py.ylabel('Dec. Offset from Sgr A* (arcsec)')
+
+    py.legend(handles=epochs_legend, numpoints=1, loc='lower left', fontsize=12)
+
+    if show_names:
+        xpos = stars_tab['x0']
+        ypos = stars_tab['y0']
+        goodind = np.where((xpos <= xlo) & (xpos >= xhi) &
+                           (ypos >= ylo) & (ypos <= yhi))[0]
+        for ind in goodind:
+            py.text(xpos[ind], ypos[ind], stars_tab['name'][ind], size=10)
+
+    if saveplot:
+        py.show(block=0)
+        if (center_star != None):
+            py.savefig('plot_sky_' + center_star + '.png')
+        else:
+            py.savefig('plot_sky.png')
+    else:
+        py.show()
+
+    return
+    
+    
+class PrintSelected(object):
+    def __init__(self, points_info, fig, tab, mag_range, manual_print=False):
+        self.points_info = points_info
+        self.selected, = fig.gca().plot([0.],[0.], 'o', ms=12,
+                                 markerfacecolor='none', markeredgecolor='red', visible=False)
+        self.selected_same_year, = fig.gca().plot([0.],[0.], '*', ms=15,
+                                markerfacecolor='red', markeredgecolor='red', visible=False)
+        self.fig = fig
+        self.tab = tab
+        self.manual_print=manual_print
+        self.mag_range=mag_range
+        return
+
+    def __call__(self, event):
+        if event.mouseevent.button == 1:
+            indices = event.ind
+
+            data = self.points_info[event.artist]
+
+            if self.manual_print:
+                fmt = 'align_name="{:s}",epoch={:f},align_mag={:4.2f},align_x={:10.4f},align_xerr={:7.4f},align_y={:10.4f},align_yerr={:7.4f},name_epoch="{:s}"'
+            else:
+                fmt = '{:15s}  t={:10.6f}  m={:5.2f}  x={:10.4f} +/- {:7.4f}  y={:10.4f} +/- {:7.4f}  Epoch name: {:15s}'
+
+            for ii in indices:
+                print(fmt.format(data['name'][ii], data['year'], data['mag'][ii],
+                            data['x'][ii], data['xe'][ii],
+                            data['y'][ii], data['ye'][ii],data['name_epoch'][ii]))
+
+            idx = self.tab['name'].index(data['name'][indices[0]])
+            xs = self.tab['x'][idx, :]
+            ys = self.tab['y'][idx, :]
+            self.selected.set_visible(True)
+            self.selected.set_data(xs, ys)
+            self.fig.canvas.draw()
+        elif event.mouseevent.button == 3:
+            indices = event.ind
+            data = self.points_info[event.artist]
+
+            if self.manual_print:
+                fmt = 'align_name="{:s}",epoch={:f},align_mag={:4.2f},align_x={:10.4f},align_xerr={:7.4f},align_y={:10.4f},align_yerr={:7.4f},name_epoch="{:s}"'
+            else:
+                fmt = '{:15s}  t={:10.6f}  m={:5.2f}  x={:10.4f} +/- {:7.4f}  y={:10.4f} +/- {:7.4f}  Epoch name: {:15s}'
+
+            ii =indices[0]
+            print(fmt.format(data['name'][ii], data['year'], data['mag'][ii],
+                             data['x'][ii], data['xe'][ii],
+                             data['y'][ii], data['ye'][ii],data['name_epoch'][ii]))
+
+            idxEpoch = np.where(self.tab['t'][0, :] == data['year'])[0][0]
+            x = self.tab['x'][:, idxEpoch]
+            y = self.tab['y'][:, idxEpoch]
+            mag = self.tab['m'][:, idxEpoch]
+            if self.mag_range is None:
+                idx = np.where((x > -1000) & (y > -1000))[0]
+            else:
+                idx = np.where((x > -1000) & (y > -1000) &
+                               (mag <= np.max(self.mag_range)) &
+                               (mag >= np.min(self.mag_range)))[0]
+
+            x = x[idx]
+            y = y[idx]
+            self.selected_same_year.set_visible(True)
+            self.selected_same_year.set_data(x, y)
+            self.fig.canvas.draw()
+
+        return

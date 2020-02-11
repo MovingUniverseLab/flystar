@@ -1,4 +1,5 @@
 from astropy.table import Table
+from astropy import table
 from flystar.startables import StarTable
 from flystar.starlists import StarList
 import numpy as np
@@ -90,24 +91,24 @@ def test_combine_lists():
     # Test 2: average x an check the first entry manually. Unweighted.
     x_avg_0 = t['x'][0, :].mean()
     t.combine_lists('x', mask_val=-100000)
-    assert t['x_avg'][0] == x_avg_0
-    assert t['x_avg'][-1] == pytest.approx(2108.855, 0.001)
+    assert t['x0'][0] == x_avg_0
+    assert t['x0'][-1] == pytest.approx(2108.855, 0.001)
 
     # Test 3: Trying calling the same thing a second time and make sure the
     # answers don't change and we didn't break anything.
     t.combine_lists('x', mask_val=-100000)
-    assert t['x_avg'][0] == x_avg_0
-    assert t['x_avg'][-1] == pytest.approx(2108.855, 0.001)
+    assert t['x0'][0] == x_avg_0
+    assert t['x0'][-1] == pytest.approx(2108.855, 0.001)
     
     # Test 4: weighted average of x.
     x_wgt_0 = 1.0 / t['xe'][0, :]**2
     x_avg_0 = np.average(t['x'][0, :], weights=x_wgt_0)
     t.combine_lists('x', mask_val=-100000, weights_col='xe')
-    assert t['x_avg'][0] == x_avg_0
+    assert t['x0'][0] == x_avg_0
     
     x_wgt_last = 1.0 / t['xe'][-1, :]**2
     x_avg_last = np.average(t['x'][-1, [2,7]], weights=x_wgt_last[[2,7]])
-    assert t['x_avg'][-1] == pytest.approx(x_avg_last)
+    assert t['x0'][-1] == pytest.approx(x_avg_last)
 
     return
 
@@ -250,10 +251,178 @@ def test_combine_1col():
 
     t.combine_lists('x', weights_col='xe')
 
-    assert t['x_avg'][0] == t['x'][0]
+    assert t['x0'][0] == t['x'][0]
 
     return
+
+def test_fit_velocities():
+    tab = make_star_table()
+
+    # We don't need the entire table... lets just
+    # pull a small subset for faster testing.
+    tab1 = tab[0:100]
+    tab2 = tab[10000:10100]
+    tab3 = tab[-100:]
+    tab = table.vstack((tab1, tab2, tab3))
+
+    tab.fit_velocities(verbose=True)
+
+    # Test creation of new variables
+    assert len(tab['vx']) == len(tab)
+    assert len(tab['vy']) == len(tab)
+    assert len(tab['vxe']) == len(tab)
+    assert len(tab['vye']) == len(tab)
+    assert len(tab['n_vfit']) == len(tab)
+    assert tab.meta['n_vfit_bootstrap'] == 0
+
+    # Test no-fit for stars with N<2 epochs.
+    n_epochs = (tab['x'] >= 0).sum(axis=1)
+    idx = np.where(n_epochs < 2)[0]
+    assert (tab['vx'][idx] == 0).all()
+    assert (tab['vxe'][idx] == 0).all()
+    assert (tab['n_vfit'][idx] == 2).all()
+
+    # Test that the velocity errors were calculated.
+    assert (tab['vxe'][0:100] > 0).all()
+    assert (tab['x0e'][0:100] > 0).all()
+    assert (tab['vye'][0:100] > 0).all()
+    assert (tab['y0e'][0:100] > 0).all()
+    assert np.isfinite(tab['x0']).all()
+    assert np.isfinite(tab['vx']).all()
+    assert np.isfinite(tab['y0']).all()
+    assert np.isfinite(tab['vy']).all()
+    assert np.isfinite(tab['x0e']).all()
+    assert np.isfinite(tab['vxe']).all()
+    assert np.isfinite(tab['y0e']).all()
+    assert np.isfinite(tab['vye']).all()
+
+    ##########
+    # Test running a second time. We should get the same results.
+    ##########
+    vx_orig = tab['vx']
+    x0_orig = tab['x0']
+    vxe_orig = tab['vxe']
+    x0e_orig = tab['x0e']
+    tab.fit_velocities(verbose=False)
+
+    assert (vx_orig == tab['vx']).all()
+    assert (x0_orig == tab['x0']).all()
+    assert (vxe_orig == tab['vxe']).all()
+    assert (x0e_orig == tab['x0e']).all()
     
+    ##########
+    # Test bootstrap
+    ##########
+    tab_b = table.vstack((tab1, tab2, tab3))
+    tab_b.fit_velocities(verbose=True, bootstrap=50)
+    
+    assert tab_b.meta['n_vfit_bootstrap'] == 50
+    assert tab_b['x0e'][0] > tab['x0e'][0]
+    assert tab_b['vxe'][0] > tab['vxe'][0]
+    assert tab_b['y0e'][0] > tab['y0e'][0]
+    assert tab_b['vye'][0] > tab['vye'][0]
+    
+    ##########
+    # Test what happens with no velocity errors
+    ##########
+    tab.remove_columns(['xe', 'ye', 'x0', 'y0', 'x0e', 'y0e', 'vx', 'vy', 'vxe', 'vye', 'n_vfit'])
+    tab.fit_velocities(verbose=False)
+
+    assert len(tab['vx']) == len(tab)
+    assert len(tab['vy']) == len(tab)
+    assert len(tab['vxe']) == len(tab)
+    assert len(tab['vye']) == len(tab)
+    assert len(tab['n_vfit']) == len(tab)
+    assert (tab['vxe'][0:100] > 0).all()
+    assert (tab['x0e'][0:100] > 0).all()
+    assert (tab['vye'][0:100] > 0).all()
+    assert (tab['y0e'][0:100] > 0).all()
+
+    return
+
+def test_fit_velocities_1epoch():
+    ##########
+    # Test: only 1 epoch
+    ##########
+    tab = make_star_table_1epoch()
+    
+    # We don't need the entire table... lets just
+    # pull a small subset for faster testing.
+    tab1 = tab[0:100]
+    tab2 = tab[10000:10100]
+    tab3 = tab[-100:]
+    tab_1 = table.vstack((tab1, tab2, tab3))
+    
+    tab_1.fit_velocities(verbose=False)
+
+    assert 'n_vfit' in tab_1.colnames
+    assert 't0' in tab_1.colnames
+    assert 'x0' in tab_1.colnames
+    assert 'y0' in tab_1.colnames
+    assert 'vx' in tab_1.colnames
+    assert 'vy' in tab_1.colnames
+    assert 'x0e' in tab_1.colnames
+    assert 'y0e' in tab_1.colnames
+    assert 'vxe' in tab_1.colnames
+    assert 'vye' in tab_1.colnames
+
+    
+    assert (tab_1['x0'] == tab_1['x'][:,0]).all()
+    assert (tab_1['y0'] == tab_1['y'][:,0]).all()
+    assert (tab_1['x0e'] == tab_1['xe'][:,0]).all()
+    assert (tab_1['y0e'] == tab_1['ye'][:,0]).all()
+
+    assert(tab_1['vx'] == 0).all()
+    assert(tab_1['vy'] == 0).all()
+    assert(tab_1['vxe'] == 0).all()
+    assert(tab_1['vye'] == 0).all()
+    
+    assert(tab_1['t0'] == 2001.0).all()
+    assert(tab_1['n_vfit'] == 1).all()
+    
+    return
+
+def test_fit_velocities_2epoch():
+    
+    ##########
+    # Test: only 2 epoch2
+    ##########
+    tab = make_star_table_2epoch()
+
+    # We don't need the entire table... lets just
+    # pull a small subset for faster testing.
+    tab1 = tab[0:100]
+    tab2 = tab[10000:10100]
+    tab3 = tab[-100:]
+    tab_2 = table.vstack((tab1, tab2, tab3))
+
+    tab_2.fit_velocities(verbose=False)
+
+    assert 'n_vfit' in tab_2.colnames
+    assert 't0' in tab_2.colnames
+    assert 'x0' in tab_2.colnames
+    assert 'y0' in tab_2.colnames
+    assert 'vx' in tab_2.colnames
+    assert 'vy' in tab_2.colnames
+    assert 'x0e' in tab_2.colnames
+    assert 'y0e' in tab_2.colnames
+    assert 'vxe' in tab_2.colnames
+    assert 'vye' in tab_2.colnames
+
+    # 2 detections
+    np.testing.assert_almost_equal(tab_2['x0'][0], tab_2['x'][0,0], 1)
+    assert tab_2['n_vfit'][0] == 2
+    
+    # 1 detection
+    assert tab_2['x0'][100] == tab_2['x'][100, 0]
+    assert tab_2['n_vfit'][100] == 1
+    
+    # 0 detections
+    assert tab_2['x0'][-1] == 0
+    assert tab_2['n_vfit'][-1] == 0
+    
+    return
+
 def make_star_table():
     # User input
     cat_file = test_dir + '/test_catalog.fits'
@@ -269,6 +438,7 @@ def make_star_table():
     xe_in = cat_tab['xe'].data
     ye_in = cat_tab['ye'].data
     me_in = cat_tab['me'].data
+    n_in = cat_tab['n'].data
 
     # Name is a unique name for each star and is a 1D array.
     name_in = cat_tab['name'].data
@@ -276,8 +446,69 @@ def make_star_table():
     starlist_names = np.array(['file1', 'file2', 'file3', 'file4', 'file5', 'file6', 'file7', 'file8'])
 
     # Generate the startable
-    startable = StarTable(name=name_in, x=x_in, y=y_in, m=m_in, xe=xe_in, ye=ye_in, me=me_in,
+    startable = StarTable(name=name_in, x=x_in, y=y_in, m=m_in, xe=xe_in, ye=ye_in, me=me_in, n=n_in,
                               ref_list=1,
                               list_times=starlist_times, list_names=starlist_names)
 
     return startable
+
+def make_star_table_1epoch():
+    # User inputp
+    cat_file = test_dir + '/test_catalog.fits'
+
+    # Read and arrange the test input
+    cat_tab = Table.read(cat_file)
+    
+    # Make a fake 2D array of names per epoch. We will call them "id".
+    # Note that all of these inputs will be numpy arrays.
+    x_in = cat_tab['x'].data[:, [0]]
+    y_in = cat_tab['y'].data[:, [0]]
+    m_in = cat_tab['m'].data[:, [0]]
+    xe_in = cat_tab['xe'].data[:, [0]]
+    ye_in = cat_tab['ye'].data[:, [0]]
+    me_in = cat_tab['me'].data[:, [0]]
+    n_in = cat_tab['n'].data[:, [0]]
+
+    # Name is a unique name for each star and is a 1D array.
+    name_in = cat_tab['name'].data
+    starlist_times = np.array([2001.0])
+    starlist_names = np.array(['file1'])
+
+    # Generate the startable
+    startable = StarTable(name=name_in, x=x_in, y=y_in, m=m_in, xe=xe_in, ye=ye_in, me=me_in, n=n_in,
+                              ref_list=0,
+                              list_times=starlist_times, list_names=starlist_names)
+
+    return startable
+
+def make_star_table_2epoch():
+    # User inputp
+    cat_file = test_dir + '/test_catalog.fits'
+
+    # Read and arrange the test input
+    cat_tab = Table.read(cat_file)
+    
+    # Make a fake 2D array of names per epoch. We will call them "id".
+    # Note that all of these inputs will be numpy arrays.
+    x_in = cat_tab['x'].data[:, 0:2]
+    y_in = cat_tab['y'].data[:, 0:2]
+    m_in = cat_tab['m'].data[:, 0:2]
+    xe_in = cat_tab['xe'].data[:, 0:2]
+    ye_in = cat_tab['ye'].data[:, 0:2]
+    me_in = cat_tab['me'].data[:, 0:2]
+    n_in = cat_tab['n'].data[:, 0:2]
+
+    # Name is a unique name for each star and is a 1D array.
+    name_in = cat_tab['name'].data
+    starlist_times = np.array([2001.0, 2002.1])
+    starlist_names = np.array(['file1', 'file2'])
+
+    # Generate the startable
+    startable = StarTable(name=name_in, x=x_in, y=y_in, m=m_in, xe=xe_in, ye=ye_in, me=me_in, n=n_in,
+                              ref_list=0,
+                              list_times=starlist_times, list_names=starlist_names)
+
+    return startable
+
+
+    

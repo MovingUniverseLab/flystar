@@ -4,9 +4,8 @@ from scipy.interpolate import LSQBivariateSpline as spline
 from scipy import stats
 from astropy.table import Table
 import collections
-import re, os
+import re
 import pdb
-import datetime
 
 class Transform2D(object):
     '''
@@ -210,11 +209,18 @@ class PolyTransform(Transform2D):
 
     x' = a0 + a1*x + a2*y. + a3*x**2 + a4*x*y. + a5*y**2
     y' = b0 + b1*x + b2*y. + b3*x**2 + b4*x*y. + b5*y**2
+
+    Note that a 0th order polynomial is 
+    x' = a0 + x
+    y' = b0 + y
     """
     def __init__(self, order, px, py, pxerr=None, pyerr=None, mag_offset=0.0):
         """
         Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
+        Note that a 0th order polynomial is 
+        x' = a0 + x
+        y' = b0 + y
         
         Parameters
         ----------
@@ -239,30 +245,31 @@ class PolyTransform(Transform2D):
             magnitude difference with the reference catalog (mag_ref - mag_cat)
             
         """
-
-        if order == 0:
-            poly_order = 1
+        self.order = order
+        self.poly_order = order
+        
+        if self.order == 0:
+            self.poly_order = 1
             px = np.append(px, [1.0, 0.0])
             py = np.append(py, [0.0, 1.0])
             pxerr = np.append(pxerr, [0.0, 0.0])
             pyerr = np.append(pyerr, [0.0, 0.0])
             
-            px_dict = PolyTransform.make_param_dict(px, poly_order, isY=False)
-            py_dict = PolyTransform.make_param_dict(py, poly_order, isY=True)
+            px_dict = PolyTransform.make_param_dict(px, self.poly_order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
             
             fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
-            self.px = models.Polynomial2D(poly_order, **px_dict, fixed=fixed_params)
-            self.py = models.Polynomial2D(poly_order, **py_dict, fixed=fixed_params)
+            self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
+            self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
         else:
-            px_dict = PolyTransform.make_param_dict(px, order, isY=False)
-            py_dict = PolyTransform.make_param_dict(py, order, isY=True)
+            px_dict = PolyTransform.make_param_dict(px, self.order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.order, isY=True)
             
-            self.px = models.Polynomial2D(order, **px_dict)
-            self.py = models.Polynomial2D(order, **py_dict)
+            self.px = models.Polynomial2D(self.order, **px_dict)
+            self.py = models.Polynomial2D(self.order, **py_dict)
             
         self.pxerr = pxerr
         self.pyerr = pyerr
-        self.order = order
         self.mag_offset = mag_offset
 
         return
@@ -301,7 +308,12 @@ class PolyTransform(Transform2D):
 
         param_dict = {}
 
-        for i in range(order + 1):
+        # Fix up for the 0th order special case.
+        poly_order = order
+        if order == 0:
+            poly_order = 1
+
+        for i in range(poly_order + 1):
             for j in range(i + 1):
                 xid = i - j
                 yid = j
@@ -375,11 +387,7 @@ class PolyTransform(Transform2D):
         dynew_dx = 0.0
         dynew_dy = 0.0
 
-        # if (self.order == 0):
-        #     poly_order = 1
-        # 
-        # for i in range(poly_order + 1):
-        for i in range(self.order + 1):
+        for i in range(self.poly_order + 1):
             for j in range(i + 1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
                 Xcoeff = self.px.parameters[coeff_idx]
@@ -428,10 +436,7 @@ class PolyTransform(Transform2D):
         vx_new = 0.0
         vy_new = 0.0
 
-        if (self.order == 0):
-            poly_order = 1
-
-        for i in range(poly_order + 1):
+        for i in range(self.poly_order + 1):
             for j in range(i + 1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
                 Xcoeff = self.px.parameters[coeff_idx]
@@ -491,10 +496,7 @@ class PolyTransform(Transform2D):
         dvynew_dvx = 0.0
         dvynew_dvy = 0.0
         
-        if (self.order == 0):
-            poly_order = 1
-
-        for i in range(poly_order + 1):
+        for i in range(self.poly_order + 1):
             for j in range(i+1):
                 coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
                 Xcoeff = self.px.parameters[coeff_idx]
@@ -528,8 +530,10 @@ class PolyTransform(Transform2D):
                     dvxnew_dvy += Xcoeff * (j) * x**(i-j) * y**(j-1)
                     dvynew_dvy += Ycoeff * (j) * x**(i-j) * y**(j-1)
     
-        vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 + (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
-        vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 + (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
+        vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 +
+                              (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
+        vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 +
+                              (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
 
         return vxe_new, vye_new
     
@@ -546,7 +550,7 @@ class PolyTransform(Transform2D):
             init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
             init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
 
-            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True, 'c0_1': True}
             p_init_x = models.Polynomial2D(poly_order, **init_gx, fixed=fixed_params)
             p_init_y = models.Polynomial2D(poly_order, **init_gy, fixed=fixed_params)
         else:
@@ -615,7 +619,7 @@ class PolyTransform(Transform2D):
         
         return trans_obj
 
-    def to_file(self, trans_file, extra_info_dict=None):
+    def to_file(self, trans_file):
         """
         Given a transformation object, write out the coefficients in a text file
         (readable by java align). Outfile name is specified by user.
@@ -634,28 +638,28 @@ class PolyTransform(Transform2D):
 
         """
         # Extract info about transformation
-        trans_name = self.__class__.__name__
-        trans_order = self.order
+        trans_name = transform.__class__.__name__
+        trans_order = transform.order
         
         # Extract X, Y coefficients from transform
-        Xcoeff = self.px.parameters
-        Ycoeff = self.py.parameters
-        coeff_names = self.px.param_names  # same for both.
+        Xcoeff = transform.px.parameters
+        Ycoeff = transform.py.parameters
+        coeff_names = transform.px.param_names  # same for both.
             
         # Write output
-        _out = open(trans_file, 'w')
+        _out = open(outFile, 'w')
         
         # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
         _out.write('## Date: {0}\n'.format(datetime.date.today()) )
+        _out.write('## File: {0}, Reference: {1}\n'.format(starlist, reference) )
         _out.write('## Directory: {0}\n'.format(os.getcwd()) )
-        _out.write('## Transform Class: {0}\n'.format(self.__class__.__name__))
-        _out.write('## Order: {0}\n'.format(self.order))
-        if extra_info_dict != None:
-            for ekey in extra_info_dict:
-                _out.write('## {0:s}: {1:s}\n'.format(ekey, str(extra_info_dict[ekey])))
-                               
-        _out.write('## Delta Mag: {0}\n'.format(self.mag_offset))
+        _out.write('## Transform Class: {0}\n'.format(transform.__class__.__name__))
+        _out.write('## Order: {0}\n'.format(transform.order))
+        _out.write('## Restrict: {0}\n'.format(restrict))
+        _out.write('## Weights: {0}\n'.format(weights))
         _out.write('## N_coeff: {0}\n'.format(len(Xcoeff)))
+        _out.write('## N_trans: {0}\n'.format(N_trans))
+        _out.write('## Delta Mag: {0}\n'.format(deltaMag))
         _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
         
         # Write the coefficients such that the orders are together as defined in
@@ -743,22 +747,34 @@ class Shift(PolyTransform):
     
     
 class LegTransform(Transform2D):
-    def __init__(self, order, px, py, pxerr=None, pyerr=None, mag_offset=0.0):
+    def __init__(self, order, px, py, x_domain, y_domain,
+                     pxerr=None, pyerr=None, mag_offset=0.0, astropy_order=False):
         """
         Specify the order of the Legendre transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
         
         Parameters
         ----------
+        order : int
+            The order of the transformation.
+
         px : list or array [a0, a1, a2, ...] 
             coefficients to transform input x coordinates into output x' coordinates.
 
         py : list or array [b0, b1, b2, ...] 
             coefficients to transform input y coordinates into output y' coordinates.
-        
-        order : int
-            The order of the transformation.
 
+        x_domain: list or array [xmin, xmax]
+        y_domain: list or array [ymin, ymax]
+            This is the allowable range of input values and it will be conditioned onto
+            a window of [-1, 1]. In other words, any input values into evaluate() will
+            be first scaled and shifted using the x_domain and window so that they fall 
+            within the [-1, 1] window range. This does mean that the transformation 
+            parameters are only applicable to the conditioned data. We take this approach
+            to match the astropy.models.Legendre2D conventions underneath.
+        
+        Optional Inputs
+        ---------------
         pxerr : array or list
             array or list of errors of the coefficients to transform input x coordinates 
             into output x' coordinates.
@@ -768,20 +784,37 @@ class LegTransform(Transform2D):
             into output y' coordinates.
 
         mag_offset : float
-            magnitude difference with the reference catalog (mag_ref - mag_cat)
+            Magnitude transformation term... only offset applied (offset = mag_out - mag_in)
 
+        astropy_order : boolean
+            Use our parameter ordering (if False) where going from order=0 --> 1 keeps
+            the lowest order terms in the same order (same for order=1 --> 2). If True,
+            then use the default astropy.models.Legendre2D paramter ordering scheme. 
         """
-        px_dict = LegTransform.make_param_dict(px, order, isY=False)
-        py_dict = LegTransform.make_param_dict(py, order, isY=True)
+        if not astropy_order:
+            px_dict = LegTransform.make_param_dict(px, order, isY=False)
+            py_dict = LegTransform.make_param_dict(py, order, isY=True)
+        else:
+            pname = models.Legendre2D(order, order).param_names
+            px_dict = {}
+            py_dict = {}
+            for i in range(len(pname)):
+                px_dict[pname[i]] = px[i]
+                py_dict[pname[i]] = py[i]
+
+        # Skip domain stuff... doesn't appear to be working well.
+        # self.px = models.Legendre2D(order, order, x_domain=x_domain, y_domain=y_domain, **px_dict)
+        # self.py = models.Legendre2D(order, order, x_domain=x_domain, y_domain=y_domain, **py_dict)
         
         self.px = models.Legendre2D(order, order, **px_dict)
         self.py = models.Legendre2D(order, order, **py_dict)
         self.order = order
-
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.mag_offset = mag_offset
-
+        self.x_domain = x_domain
+        self.y_domain = y_domain
+        
         return
 
 
@@ -789,24 +822,40 @@ class LegTransform(Transform2D):
     def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
                  init_gx=None, init_gy=None, weights=None):
         """
-        Defines a bivariate legendre tranformation from x,y -> xref,yref using Legnedre polynomials as the basis.
+        Defines a bivariate legendre tranformation from x,y -> xref,yref using 
+        Legnedre polynomials as the basis.
+
         Transforms are independent for x and y and of the form:
             x' = c0_0 + c1_0 * L_1(x) + c0_1*L_1(y) + ....
             y' = d0_0 + d1_0 * L_1(x) + d0_1*L_1(y) + ....
-        Note that all input coorindates will be renomalized to be on the interval of [-1:1] before fitting.
-        The evaulate function will use the same renomralization procedure.
+        Note that all input coordinates will be renomalized to be on the interval of [-1:1] before fitting.
+        The evaulate function must use the same renormalization procedure.
         """
-        # Initialize transformation object.
-        init_gx = LegTransform.make_param_dict(init_gx, order)
-        init_gy = LegTransform.make_param_dict(init_gy, order)
-
-        p_init_x = models.Legendre2D(order, order, **init_gx)
-        p_init_y = models.Legendre2D(order, order, **init_gy)
+        ## Skip domain stuff... doesn't appear to be working well.
+        ## Also skip initial guesses.
         
-        fit_p  = fitting.LinearLSQFitter()
+        # Figure out the data conditioning domain.
+        # x_domain = [np.min(x), np.max(x)]
+        # y_domain = [np.min(y), np.max(y)]
+        x_domain = [-1, 1]
+        y_domain = [-1, 1]
+        
+        # Initialize transformation object.
+        # init_gx = LegTransform.make_param_dict(init_gx, order)
+        # init_gy = LegTransform.make_param_dict(init_gy, order)
 
-        px = fit_p(p_init_x, x, y, x_ref, weights=weights)
-        py = fit_p(p_init_y, x, y, y_ref, weights=weights)
+        # p_init_x = models.Legendre2D(order, order, x_domain=x_domain, y_domain=y_domain, **init_gx)
+        # p_init_y = models.Legendre2D(order, order, x_domain=x_domain, y_domain=y_domain, **init_gy)
+        
+        p_init_x = models.Legendre2D(order, order)
+        p_init_y = models.Legendre2D(order, order)
+        
+        # fit_p  = fitting.LinearLSQFitter()
+        fit_p = fitting.LevMarLSQFitter()
+
+        # Our reference positions need to be 
+        px = fit_p(p_init_x, x, y, xref, weights=weights)
+        py = fit_p(p_init_y, x, y, yref, weights=weights)
 
         # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
         if (m is not None) and (mref is not None):
@@ -816,9 +865,14 @@ class LegTransform(Transform2D):
             mag_offset = np.mean((mref - m)[keepers])
         else:
             mag_offset =  0
-        
-        trans = cls(order, px.parameters, py.parameters, mag_offset=mag_offset)
 
+        print('derive: px.parameters = ', px.parameters)
+            
+        trans = cls(order, px.parameters, py.parameters,
+                        x_domain, y_domain, astropy_order=True)
+        
+        return trans
+        
     @staticmethod
     def make_param_dict(initial_param, order, isY=False):
         """
@@ -857,9 +911,9 @@ class LegTransform(Transform2D):
         Astropy models Polynomial2D has its own special order... we try to 
         hide this entirely inside our object. 
         """
-        idx = 0
-
         param_dict = {}
+
+        idx = 0
 
         # The i loop designates all the terms where
         # either n = i or m = i. In other words, all terms up to this
@@ -886,6 +940,84 @@ class LegTransform(Transform2D):
 
         return param_dict
 
+    def convert_domain_to_scale_offset(self):
+        x_domain = np.array(self.x_domain, dtype=np.float64)
+        y_domain = np.array(self.y_domain, dtype=np.float64)
+        
+        window = np.array([-1.0, 1.0], dtype=np.float64)
+        
+        x_scl = (window[1] - window[0]) / (x_domain[1] - x_domain[0])
+        y_scl = (window[1] - window[0]) / (y_domain[1] - y_domain[0])
+        x_off = (window[0] * x_domain[1] - window[1] * x_domain[0]) / (x_domain[1] - x_domain[0])
+        y_off = (window[0] * y_domain[1] - window[1] * y_domain[0]) / (y_domain[1] - y_domain[0])
+        
+        return (x_off, x_scl, y_off, y_scl)
+        
+    def poly_unmap_domain(self, x_cond, y_cond):
+        """
+        Take conditioned data and put it back into the original domain.
+        Recall that we always use a window of [-1, 1] so x_cond and y_cond
+        should typically be within these bounds. 
+
+        The returned values will be within the domain specified 
+        in x_domain and y_domain at the time of object creation. 
+        """
+        x_off, x_scl, y_off, y_scl = self.convert_domain_to_scale_offset()
+
+        x = (x_cond - x_off) / x_scl
+        y = (y_cond - y_off) / y_scl
+
+        return x, y
+
+    def poly_map_domain(self, x, y):
+        """
+        Map domain into window by shifting and scaling.
+        The input values should be within the domain specified 
+        in x_domain and y_domain at the time of object creation. 
+        Recall that we always use a window of [-1, 1] so the returned
+        x_cond and y_cond will typically be within these bounds. 
+        """
+        x_off, x_scl, y_off, y_scl = self.convert_domain_to_scale_offset()
+
+        x_cond = (x * x_scl) + x_off
+        y_cond = (y * y_scl) + y_off
+
+        return x_cond, y_cond
+
+    def poly_unmap_err_domain(self, xe_cond, ye_cond):
+        """
+        Take conditioned error or velocity data and put it back into the original domain.
+        Recall that we always use a window of [-1, 1] so x_cond and y_cond
+        should typically be within these bounds. 
+
+        The returned values will be within the domain specified 
+        in x_domain and y_domain at the time of object creation. 
+        """
+        x_off, x_scl, y_off, y_scl = self.convert_domain_to_scale_offset()
+
+        xe = xe_cond / x_scl
+        ye = ye_cond / y_scl
+
+        return xe, ye
+
+    def poly_map_err_domain(self, xe, ye):
+        """
+        Take conditioned error or velocity data in the original domain and map it 
+        onto a [-1, 1] fit window.
+        Map domain into window by shifting and scaling.
+        The input values should be within the domain specified 
+        in x_domain and y_domain at the time of object creation. 
+        Recall that we always use a window of [-1, 1] so the returned
+        x_cond and y_cond will typically be within these bounds. 
+        """
+        x_off, x_scl, y_off, y_scl = self.convert_domain_to_scale_offset()
+
+        xe_cond = xe * x_scl
+        ye_cond = ye * y_scl
+
+        return xe_cond, ye_cond
+    
+
     def evaluate(self, x, y):
         """
         Apply the transformation to a starlist.
@@ -904,7 +1036,18 @@ class LegTransform(Transform2D):
         y' : array
             The transformed y coordinates. 
         """
-        return self.px(x, y), self.py(x, y)
+        # Remember, data will be conditioned by astropy models.
+        x_new_cond = self.px(x, y)
+        y_new_cond = self.py(x, y)
+
+        ### Skip domain stuff... doesn't appear to be working well.
+        
+        # We have to "un-condition" the data.
+        # x_new, y_new = self.poly_unmap_domain(x_new_cond, y_new_cond)
+        
+        # return x_new, y_new
+
+        return x_new_cond, y_new_cond
 
     
     def evaluate_error(self, x, y, xe, ye):
@@ -930,35 +1073,50 @@ class LegTransform(Transform2D):
             The transformed y errors. 
 
         """
-        dxnew_dx = 0.0
-        dxnew_dy = 0.0
         
-        dynew_dx = 0.0
-        dynew_dy = 0.0
+        
+        # dxnew_dx = 0.0
+        # dxnew_dy = 0.0
+        
+        # dynew_dx = 0.0
+        # dynew_dy = 0.0
 
-        for i in range(self.order + 1):
-            for j in range(i + 1):
-                xid = i - j
-                yid = j
+        # # Condition the data first.
+        # x_cond, y_cond = self.poly_map_domain(x, y)
+        # xe_cond, ye_cond = self.poly_map_err_domain(xe, ye)
 
-                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
-                Xcoeff = self.px.parameters[coeff_idx]
-                Ycoeff = self.py.parameters[coeff_idx]
+        # for i in range(self.order + 1):
+        #     for j in range(i + 1):
+        #         xid = i - j
+        #         yid = j
+
+        #         coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
+        #         Xcoeff = self.px.parameters[coeff_idx]
+        #         Ycoeff = self.py.parameters[coeff_idx]
                 
-                # First loop: df'/dx
-                dxnew_dx += Xcoeff * (i - j) * x**(i-j-1) * y**j
-                dynew_dx += Ycoeff * (i - j) * x**(i-j-1) * y**j
+        #         # First loop: df'/dx
+        #         dxnew_dx += Xcoeff * (i - j) * x_cond**(i-j-1) * y_cond**j
+        #         dynew_dx += Ycoeff * (i - j) * x_cond**(i-j-1) * y_cond**j
 
-                # Second loop: df'/dy
-                dxnew_dy += Xcoeff * (j) * x**(i-j) * y**(j-1)
-                dynew_dy += Ycoeff * (j) * x**(i-j) * y**(j-1)
+        #         # Second loop: df'/dy
+        #         dxnew_dy += Xcoeff * (j) * x_cond**(i-j) * y_cond**(j-1)
+        #         dynew_dy += Ycoeff * (j) * x_cond**(i-j) * y_cond**(j-1)
+        #         pdb.set_trace()
+        #         print(i, j, dxnew_dx[10], dynew_dx[10], dxnew_dy[10], dynew_dy[10])
 
                 
-        # Take square root for xe/ye_new
-        xe_new = np.sqrt((dxnew_dx * xe)**2 + (dxnew_dy * ye)**2)
-        ye_new = np.sqrt((dynew_dx * xe)**2 + (dynew_dy * ye)**2)
+        # # Take square root for xe/ye_new
+        # pdb.set_trace()
+        
+        # xe_new_cond = np.sqrt((dxnew_dx * xe_cond)**2 + (dxnew_dy * ye_cond)**2)
+        # ye_new_cond = np.sqrt((dynew_dx * xe_cond)**2 + (dynew_dy * ye_cond)**2)
 
-        return xe_new, ye_new
+        # # Get back to original un-conditioned state.
+        # xe_new, ye_new = self.poly_unmap_err_domain(xe_new_cond, ye_new_cond)
+
+        # return xe_new, ye_new
+
+        raise RuntimeError('This method is not yet implemented for Legendre Polynomials')
 
     def evaluate_vel(self, x, y, vx, vy):
         """
@@ -983,28 +1141,37 @@ class LegTransform(Transform2D):
             The transformed vy errors. 
 
         """
-        vx_new = 0.0
-        vy_new = 0.0
+        # # Condition the data.
+        # x_cond, y_cond = self.poly_map_domain(x, y)
+        # vx_cond, vy_cond = self.poly_map_err_domain(vx, vy)
+        
+        # vx_new = 0.0
+        # vy_new = 0.0
 
-        for i in range(self.order + 1):
-            for j in range(i + 1):
-                xid = i - j
-                yid = j
+        # for i in range(self.order + 1):
+        #     for j in range(i + 1):
+        #         xid = i - j
+        #         yid = j
 
-                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
-                Xcoeff = self.px.parameters[coeff_idx]
-                Ycoeff = self.py.parameters[coeff_idx]
+        #         coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(xid, yid) )
+        #         Xcoeff = self.px.parameters[coeff_idx]
+        #         Ycoeff = self.py.parameters[coeff_idx]
                 
-                # First term: df'/dx
-                vx_new += Xcoeff * (i - j) * x**(i-j-1) * y**j * vx
-                vy_new += Ycoeff * (i - j) * x**(i-j-1) * y**j * vx
+        #         # First term: df'/dx
+        #         vx_new_cond += Xcoeff * (i - j) * x_cond**(i-j-1) * y_cond**j * vx_cond
+        #         vy_new_cond += Ycoeff * (i - j) * x_cond**(i-j-1) * y_cond**j * vx_cond
 
-                # Second term: df'/dy
-                vx_new += Xcoeff * (j) * x**(i-j) * y**(j-1) * vy
-                vy_new += Ycoeff * (j) * x**(i-j) * y**(j-1) * vy
-                
-        return vx_new, vy_new
+        #         # Second term: df'/dy
+        #         vx_new_cond += Xcoeff * (j) * x_cond**(i-j) * y_cond**(j-1) * vy_cond
+        #         vy_new_cond += Ycoeff * (j) * x_cond**(i-j) * y_cond**(j-1) * vy_cond
 
+        # # Uncondition the data.
+        # vx_new, vy_new = self.poly_unmap_err_domain(vx_new_cond, vy_new_cond)
+        
+        # return vx_new, vy_new
+
+        raise RuntimeError('This method is not yet implemented for Legendre Polynomials')
+    
     def evaluate_vel_err(self, x, y, vx, vy, xe, ye, vxe, vye):
         """
         Transform velocities.
@@ -1037,48 +1204,51 @@ class LegTransform(Transform2D):
             The transformed vy errors. 
 
         """
-        dvxnew_dx = 0.0
-        dvxnew_dy = 0.0
-        dvxnew_dvx = 0.0
-        dvxnew_dvy = 0.0
+        # dvxnew_dx = 0.0
+        # dvxnew_dy = 0.0
+        # dvxnew_dvx = 0.0
+        # dvxnew_dvy = 0.0
 
-        dvynew_dx = 0.0
-        dvynew_dy = 0.0
-        dvynew_dvx = 0.0
-        dvynew_dvy = 0.0
+        # dvynew_dx = 0.0
+        # dvynew_dy = 0.0
+        # dvynew_dvx = 0.0
+        # dvynew_dvy = 0.0
         
-        for i in range(self.order+1):
-            for j in range(i+1):
-                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
-                Xcoeff = self.px.parameters[coeff_idx]
-                Ycoeff = self.py.parameters[coeff_idx]
+        # for i in range(self.order+1):
+        #     for j in range(i+1):
+        #         coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
+        #         Xcoeff = self.px.parameters[coeff_idx]
+        #         Ycoeff = self.py.parameters[coeff_idx]
                 
-                # First term: dv' / dx
-                dvxnew_dx += Xcoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
-                dvxnew_dx += Xcoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
+        #         # First term: dv' / dx
+        #         dvxnew_dx += Xcoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
+        #         dvxnew_dx += Xcoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
                     
-                dvynew_dx += Ycoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
-                dvynew_dx += Ycoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
+        #         dvynew_dx += Ycoeff * (i-j) * (i-j-1) * x**(i-j-2) * y**j * vx
+        #         dvynew_dx += Ycoeff * (j) * (i-j) * x**(i-j-1) * y**(j-1) * vy
     
-                # Second term: dvx' / dy
-                dvxnew_dy += Xcoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
-                dvxnew_dy += Xcoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
+        #         # Second term: dvx' / dy
+        #         dvxnew_dy += Xcoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
+        #         dvxnew_dy += Xcoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
                     
-                dvynew_dy += Ycoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
-                dvynew_dy += Ycoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
+        #         dvynew_dy += Ycoeff * (i-j) * (j) * x**(i-j-1) * y**(j-1) * vx
+        #         dvynew_dy += Ycoeff * (j) * (j-1) * x**(i-j-1) * y**(j-2) * vy
     
-                # Third term: dvx' / dvx
-                dvxnew_dvx += Xcoeff * (i-j) * x**(i-j-1) * y**j
-                dvynew_dvx += Ycoeff * (i-j) * x**(i-j-1) * y**j
+        #         # Third term: dvx' / dvx
+        #         dvxnew_dvx += Xcoeff * (i-j) * x**(i-j-1) * y**j
+        #         dvynew_dvx += Ycoeff * (i-j) * x**(i-j-1) * y**j
     
-                # Fourth term: dvx' / dvy
-                dvxnew_dvy += Xcoeff * (j) * x**(i-j) * y**(j-1)
-                dvynew_dvy += Ycoeff * (j) * x**(i-j) * y**(j-1)
+        #         # Fourth term: dvx' / dvy
+        #         dvxnew_dvy += Xcoeff * (j) * x**(i-j) * y**(j-1)
+        #         dvynew_dvy += Ycoeff * (j) * x**(i-j) * y**(j-1)
     
-        vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 + (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
-        vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 + (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
+        # vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 + (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
+        # vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 + (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
 
-        return vxe_new, vye_new
+        # return vxe_new, vye_new
+    
+        raise RuntimeError('This method is not yet implemented for Legendre Polynomials')
+    
 
 class PolyClipTransform(Transform2D):
 
@@ -1093,9 +1263,14 @@ class PolyClipTransform(Transform2D):
         c_x, c_y = four_param(x, y, xref, yref)
         
         for i in range(niter+1):
-            t = PolyTransform(x[self.s_bool], y[self.s_bool], xref[self.s_bool], yref[self.s_bool], degree, init_gx=c_x, init_gy=c_y, weights=weights[self.s_bool])
+            t = PolyTransform(x[self.s_bool], y[self.s_bool],
+                              xref[self.s_bool], yref[self.s_bool],
+                              degree, init_gx=c_x, init_gy=c_y,
+                              weights=weights[self.s_bool])
+            
             #reset the initial guesses based on the previous tranforamtion
-            #it is not clear to me that using these values is better than recalculating an intial guess from a 4 parameter tranform
+            #it is not clear to me that using these values is better than
+            # recalculating an intial guess from a 4 parameter tranform
             c_x[0] = t.px.c0_0.value
             c_x[1] = t.px.c1_0.value
             c_x[2] = t.px.c0_1.value
@@ -1142,9 +1317,14 @@ class LegClipTransform(Transform2D):
         c_x, c_y = four_param(x, y, xref, yref)
         
         for i in range(niter+1):
-            t = LegTransform(x[self.s_bool], y[self.s_bool], xref[self.s_bool], yref[self.s_bool], degree, init_gx=c_x, init_gy=c_y, weights=weights[self.s_bool])
+            t = LegTransform(x[self.s_bool], y[self.s_bool],
+                                 xref[self.s_bool], yref[self.s_bool],
+                                 degree, init_gx=c_x, init_gy=c_y,
+                                 weights=weights[self.s_bool])
+            
             #reset the initial guesses based on the previous tranforamtion
-            #it is not clear to me that using these values is better than recalculating an intial guess from a 4 parameter tranform
+            #it is not clear to me that using these values is better than
+            # recalculating an intial guess from a 4 parameter tranform
             c_x[0] = t.px.c0_0.value
             c_x[1] = t.px.c1_0.value
             c_x[2] = t.px.c0_1.value
@@ -1325,50 +1505,3 @@ def four_param(x,y,x_ref,y_ref):
     
     return np.array([a0,trans[0],trans[1]]), np.array([b0,-1.0*trans[1],trans[0]])
 
-############# Tests
-
-def test_PolyTransform():
-    # test the transformation
-    x = np.random.uniform(low=0,high=1000,size=1000)
-    y = np.random.uniform(low=0,high=1000,size=1000)
-    x_err = np.zeros(len(x))+0.1
-    y_err = np.zeros(len(x))+0.1
-    
-    xref = (x + 100.0)*.5
-    yref = (y + 100.0)*.5
-
-    t = PolyTransform(x,y,xref,yref,2)
-    x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
-
-    for i in np.arange(len(x_trans)):
-        print(( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (x[i],x_trans[i],x_trans_err[i],y[i],y_trans[i],y_trans_err[i])))
-    return t
-
-def test_LegTransform():
-    # test the transformation
-    x = np.random.uniform(low=0,high=1000,size=1000)
-    y = np.random.uniform(low=0,high=1000,size=1000)
-    x_err = np.random.normal(loc=0.0,scale=0.1,size=len(x))
-    y_err = np.random.normal(loc=0.0,scale=0.1,size=len(x))
-    
-    xref = (x + 100.0)*.5
-    yref = (y + 100.0)*.5
-
-    x = x+x_err
-    y = y+y_err
-    
-    t = LegTransform(x,y,xref,yref,3)
-    x_trans, x_trans_err, y_trans, y_trans_err = t.evaluate_errors(x,x_err,y,y_err)
-
-    
-    for i in np.arange(len(x_trans)):
-        print(( '%5.4f %5.4f %5.4f %5.4f %5.4f %5.4f' % (xref[i],x_trans[i],x_trans_err[i],yref[i],y_trans[i],y_trans_err[i])))
-
-    # make sure the real and transformed positions are close
-    np.testing.assert_allclose(xref,x_trans,atol=0.1,rtol=1e-3)
-    np.testing.assert_allclose(yref,y_trans,atol=0.1,rtol=1e-3)
-    
-    print( 'PASSED!')
-    return t
-
-    
