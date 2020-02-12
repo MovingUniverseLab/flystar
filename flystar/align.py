@@ -816,6 +816,16 @@ class MosaicSelfRef(object):
         if ('xe' not in ref_list.colnames) and ('ye' not in star_list.colnames):
             weight = None
 
+        if weight is not None:
+            bad = np.where(np.isfinite(weight) == False)[0]
+            if len(bad) == len(weight):
+                # Catch the case where we had no positional errors at all...
+                # The fit should be unweighted.
+                weight = None
+            else:
+                # Fix bad weights:
+                weight[bad] = 0.0
+
         return weight
 
     
