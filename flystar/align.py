@@ -326,7 +326,7 @@ class MosaicSelfRef(object):
         
         return
 
-    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args):
+    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, trans_pos_plot_name=None):
         """
         Given some reference list of positions, loop through all the starlists
         transform and match them.
@@ -461,8 +461,12 @@ class MosaicSelfRef(object):
                        '. If match count is low, check dr_tol, dm_tol.' )
 
             ## Make plot, if desired
-            plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                        fileName='{0}'.format(star_list_T['t'][0]))                
+            if trans_pos_plot_name is None:
+                plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
+                                      fileName='{0}'.format(star_list_T['t'][0]))                
+            else: 
+                plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
+                                      fileName=trans_pos_plot_name)                
 
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
@@ -1185,7 +1189,8 @@ class MosaicToRef(MosaicSelfRef):
                  use_vel=False, update_ref_orig=False,
                  init_guess_mode='miracle',
                  iter_callback=None,
-                 verbose=True):
+                 verbose=True,
+                 trans_pos_plot_name=None):
 
         """
         Required Parameters
