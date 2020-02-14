@@ -1379,6 +1379,28 @@ class MosaicToRef(MosaicSelfRef):
         vye (only if use_vel=True)
 
         """
+        # Create a log file of the parameters used in the fit.
+        with open('MosaicToRef_input_params.log', 'w',) as _log:
+            logger(_log, 'Parameters used for fit: ')
+            logger(_log, 'dr_tol = ' + str(self.dr_tol))
+            logger(_log, 'dm_tol = ' + str(self.dm_tol))
+            logger(_log, 'outlier_tol = ' + str(self.outlier_tol))
+            logger(_log, 'trans_args = ' + str(self.trans_args))
+            logger(_log, 'mag_trans = ' + str(self.mag_trans))
+            logger(_log, 'mag_lim = ' + str(self.mag_lim))
+            logger(_log, 'ref_mag_lim = ' + str(self.ref_mag_lim))
+            logger(_log, 'weights = ' + str(self.weights))
+            logger(_log, 'n_boot = ' + str(self.n_boot))
+            logger(_log, 'boot_epochs_min = ' + str(self.boot_epochs_min))
+            logger(_log, 'trans_input = ' + str(self.trans_input))
+            logger(_log, 'trans_class = ' + str(self.trans_class))
+            logger(_log, 'calc_trans_inverse = ' + str(self.calc_trans_inverse))
+            logger(_log, 'use_ref_new = ' + str(self.use_ref_new))
+            logger(_log, 'use_vel = ' + str(self.use_vel))
+            logger(_log, 'update_ref_orig = ' + str(self.update_ref_orig))
+            logger(_log, 'init_guess_mode = ' + str(self.init_guess_mode))
+            logger(_log, 'iter_callback = ' + str(self.iter_callback))
+
         ##########
         # Setup a reference table to store data. It will contain:
         #    x0, y0, m0 -- the running average of positions: 1D
@@ -3934,3 +3956,7 @@ def get_pos_at_time(t, starlist, use_vel=True):
         
     return (x, y)
 
+def logger(logfile, message):
+    print(message)
+    logfile.write(message + '\n')
+    return
