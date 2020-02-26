@@ -307,7 +307,7 @@ def test_MosaicToRef():
 
     msc.fit()
 
-    # Check our status columsn
+    # Check our status columns
     assert 'use_in_trans' in msc.ref_table.colnames
     assert 'used_in_trans' in msc.ref_table.colnames
     assert 'ref_orig' in msc.ref_table.colnames
