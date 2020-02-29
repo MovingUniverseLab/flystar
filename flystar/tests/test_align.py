@@ -6,6 +6,7 @@ from astropy.table import Table
 import numpy as np
 import pylab as plt
 import pdb
+import datetime
 
 def test_mosaic_lists_shifts():
     """
@@ -634,3 +635,60 @@ def test_mosaic_lists_keck_hst():
               
 
         
+def test_MosaicToRef_hst_me():
+    """
+    Test Casey's issue with 'me' not getting propogated 
+    from the input starlists to the output table.
+
+    Use data from MB10-364 microlensing target for the test. 
+    """
+    # Target RA and Dec (MOA data download)
+    ra = '17:57:05.401'
+    dec = '-34:27:05.01'
+    
+    # Load up a Gaia catalog (queried around the RA/Dec above)
+    my_gaia = Table.read('mb10364_data/my_gaia.fits')
+    my_gaia['me'] = 0.01
+    
+    # Gather the list of starlists. For first pass, don't modify the starlists.
+    # Loop through the observations and read them in, in prep for alignment with Gaia
+    epochs = [2011.83, 2012.73, 2013.81]
+    starlist_names = ['mb10364_data/2011_10_31_F606W_MATCHUP_XYMEEE_final.calib',
+                      'mb10364_data/2012_09_25_F606W_MATCHUP_XYMEEE_final.calib',
+                      'mb10364_data/2013_10_24_F606W_MATCHUP_XYMEEE_final.calib']
+        
+    list_of_starlists = []
+    
+    # Just using the F606W filters first.
+    for ee in range(len(starlist_names)):
+        lis = starlists.StarList.from_lis_file(starlist_names[ee])
+        
+        # # Add additive error term. MAYBE YOU DON'T NEED THIS
+        # lis['xe'] = np.hypot(lis['xe'], 0.01)  # Adding 0.01 pix (0.1 mas) in quadrature.
+        # lis['ye'] = np.hypot(lis['ye'], 0.01)
+        
+        lis['t'] = epochs[ee]
+
+        # Lets dump the faint stars.
+        idx = np.where(lis['m'] < 20.0)[0]
+        lis = lis[idx]
+
+        list_of_starlists.append(lis)
+        
+    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
+                        dr_tol=[0.1], dm_tol=[5],
+                        outlier_tol=[None], mag_lim=[13, 21],
+                        trans_class=transforms.PolyTransform,
+                        trans_args=[{'order': 1}],
+                        use_vel=False,
+                        use_ref_new=False,
+                        update_ref_orig=False,
+                        mag_trans=False,
+                        weights='both,std',
+                        init_guess_mode='miracle', verbose=False)
+    msc.fit()
+    tab = msc.ref_table
+
+    assert 'me' in tab.colnames
+
+    return
