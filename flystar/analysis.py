@@ -83,7 +83,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['t0'] = gaia['ref_epoch'].data
     gaia_new['source_id'] = gaia['source_id']
 
-    # Find sources without velociteis and fix them up.
+    # Find sources without velocities and fix them up.
     idx = np.where(gaia['pmdec'].mask == True)[0]
     gaia_new['vx'][idx] = 0.0
     gaia_new['vy'][idx] = 0.0
@@ -91,6 +91,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['vye'][idx] = 0.0
     
     gaia_new['m'] = gaia['phot_g_mean_mag']
+    gaia_new['me'] = 1.09/gaia['phot_g_mean_flux_over_error']
     gaia_new['parallax'] = gaia['parallax']
     gaia_new['parallax_error'] = gaia['parallax_error']
 
