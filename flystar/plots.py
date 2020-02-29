@@ -1091,15 +1091,15 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None):
     #         print(fmt.format(name=tab['name'][rr], mag=tab['m0'][rr], dr=dr_good_avg[rr],
     #                          x=tab['x0'][rr], y=tab['y0'][rr], r=np.hypot(tab['x0'][rr], tab['y0'][rr])))
 
-    print()
-    print('##########')
-    print('# REF stars')
-    print('##########')
-    print(hdr.format(name='Name', mag='Mag', dr='dr', x='x', y='y', r='r'))
-    for rr in range(len(tab)):
-        if (dr_ref_avg[rr] > 0):
-            print(fmt.format(name=tab['name'][rr], mag=tab['m0'][rr], dr=dr_ref_avg[rr],
-                             x=tab['x0'][rr], y=tab['y0'][rr], r=np.hypot(tab['x0'][rr], tab['y0'][rr])))
+#    print()
+#    print('##########')
+#    print('# REF stars')
+#    print('##########')
+#    print(hdr.format(name='Name', mag='Mag', dr='dr', x='x', y='y', r='r'))
+#    for rr in range(len(tab)):
+#        if (dr_ref_avg[rr] > 0):
+#            print(fmt.format(name=tab['name'][rr], mag=tab['m0'][rr], dr=dr_ref_avg[rr],
+#                             x=tab['x0'][rr], y=tab['y0'][rr], r=np.hypot(tab['x0'][rr], tab['y0'][rr])))
             
     return
 
