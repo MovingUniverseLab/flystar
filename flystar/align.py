@@ -140,6 +140,35 @@ class MosaicSelfRef(object):
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state. 
+
+        Example
+        ----------
+        msc = align.MosaicToRef(list_of_starlists, iters=1,
+                                dr_tol=[0.1], dm_tol=[5],
+                                outlier_tol=[None], mag_lim=[13, 21],
+                                trans_class=transforms.PolyTransform,
+                                trans_args=[{'order': 1}],
+                                weights='both,std',
+                                init_guess_mode='miracle', verbose=False)
+        msc.fit()
+
+        # Access a list of all the transformation parameters:
+        trans_list = msc.trans_list 
+
+        # Access the fully-combined reference table.
+        stars_table = msc.ref_table
+
+        # Plot the magnitude of the first star vs. time:
+        # Overplot the mean magnitude. 
+        plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
+        plt.axhline(stars_table['m0'][0])    
+
+        # Plot the X position of the first star vs. time:
+        # Overplot the best-fit proper motion.
+        times = stars_table['t'][0, :]
+        plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
+        plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))   
+
         """
 
         self.star_lists = list_of_starlists
@@ -1316,6 +1345,37 @@ class MosaicToRef(MosaicSelfRef):
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state. 
 
+        Example
+        ----------
+        msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
+                                dr_tol=[0.1], dm_tol=[5],
+                                outlier_tol=[None], mag_lim=[13, 21],
+                                trans_class=transforms.PolyTransform,
+                                trans_args=[{'order': 1}],
+                                use_vel=True,
+                                use_ref_new=False,
+                                update_ref_orig=False,
+                                mag_trans=False,
+                                weights='both,std',
+                                init_guess_mode='miracle', verbose=False)
+        msc.fit()
+
+        # Access a list of all the transformation parameters:
+        trans_list = msc.trans_list 
+
+        # Access the fully-combined reference table.
+        stars_table = msc.ref_table
+
+        # Plot the magnitude of the first star vs. time:
+        # Overplot the mean magnitude. 
+        plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
+        plt.axhline(stars_table['m0'][0])    
+
+        # Plot the X position of the first star vs. time:
+        # Overplot the best-fit proper motion.
+        times = stars_table['t'][0, :]
+        plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
+        plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))   
         """
         super().__init__(list_of_starlists, ref_index=-1, iters=iters,
                          dr_tol=dr_tol, dm_tol=dm_tol,

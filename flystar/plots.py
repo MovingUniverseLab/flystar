@@ -1031,13 +1031,23 @@ def plot_gaia(gaia):
     return
 
 def plot_pm_error(tab):
-    plt.figure(1, figsize=(6,6))
+    plt.figure(figsize=(6,6))
     plt.clf()
     plt.semilogy(tab['m0'], tab['vxe']*1e3, 'r.', label=r'$\sigma_{\mu_{\alpha *}}$', alpha=0.4)
     plt.semilogy(tab['m0'], tab['vye']*1e3, 'b.', label=r'$\sigma_{\mu_{\delta}}$', alpha=0.4)
     plt.legend()
     plt.xlabel('Mag')
     plt.ylabel('PM Error (mas/yr)')
+
+    return
+
+def plot_mag_error(tab):
+    plt.figure(figsize=(6,6))
+    plt.clf()
+    plt.semilogy(tab['m0'], tab['m0e'], 'r.', alpha=0.4)
+    plt.legend()
+    plt.xlabel('Mag')
+    plt.ylabel('Mag Error (mag)')
 
     return
 
