@@ -1531,9 +1531,13 @@ class MosaicToRef(MosaicSelfRef):
         self.update_ref_table_aggregates()
         
         # Calculate bootstrap transformation errors and proper motion
-        # errors, if desired. 
-        if self.n_boot >= 0:
-            self.calc_bootstrap_errors()
+        # errors, if desired.
+        #=============#
+        # mwhosek, 3/19/2020: we have pulled calc_bootstrap_errors outside the fit()
+        # function, so if the user wants it, they can call it on the Mosaic object
+        # after fit()
+        #if self.n_boot >= 0:
+        #    self.calc_bootstrap_errors()
                         
 
         ##########
