@@ -488,7 +488,7 @@ class MosaicSelfRef(object):
             if self.verbose:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
-
+                
             ## Make plot, if desired
             plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
                                   fileName='{0}'.format(star_list_T['t'][0]))                
@@ -872,7 +872,10 @@ class MosaicSelfRef(object):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(self.star_lists[ii])
-            star_list_T.transform_xym(self.trans_list[ii])
+            if self.mag_trans:
+                star_list_T.transform_xym(self.trans_list[ii])
+            else:
+                star_list_T.transform_xy(self.trans_list[ii])
             
             xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table, use_vel=self.use_vel)  # optional velocity propogation.
             mref = self.ref_table['m0']
