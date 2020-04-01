@@ -141,6 +141,11 @@ class MosaicSelfRef(object):
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state. 
 
+        verbose : int (0 to 9, inclusive)
+            Controls the verbosity of print statements. (0 least, 9 most verbose).
+            For backwards compatibility, 0 = False, 9 = True.
+            (Note: technically right now no checks on whether the number is an integer or not...)
+
         Example
         ----------
         msc = align.MosaicToRef(list_of_starlists, iters=1,
@@ -190,7 +195,13 @@ class MosaicSelfRef(object):
         self.init_guess_mode = init_guess_mode
         self.iter_callback = iter_callback
         self.verbose = verbose
-              
+
+        # For backwards compatibility.
+        if self.verbose is True:
+            self.verbose = 9
+        if self.verbose is False:
+            self.verbose = 0
+            
         self.N_lists = len(self.star_lists)
 
         # Hard-coded values:
@@ -285,7 +296,7 @@ class MosaicSelfRef(object):
             if nn > 0:
                 self.reset_ref_values()
 
-            if self.verbose:
+            if self.verbose > 1:
                 print(" ")
                 print("**********")
                 print("**********")
@@ -320,7 +331,7 @@ class MosaicSelfRef(object):
         ##########
         self.reset_ref_values(exclude=['used_in_trans'])
 
-        if self.verbose:
+        if self.verbose > 0:
             print("**********")
             print("Final Matching")
             print("**********")
@@ -339,7 +350,7 @@ class MosaicSelfRef(object):
         # 
         ##########
         # Find where stars are detected.
-        if self.verbose:
+        if self.verbose > 0:
             print('')
             print('   Preparing the reference table...')
             
@@ -361,7 +372,7 @@ class MosaicSelfRef(object):
         transform and match them.
         """
         for ii in range(len(self.star_lists)):
-            if self.verbose:
+            if self.verbose > 0:
                 msg  = '   Matching catalog {0} / {1} with {2:d} stars'
                 msg2 = '      {0:8s} < {1:0.3f}'
                 print(" ")
@@ -397,7 +408,7 @@ class MosaicSelfRef(object):
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                              ref_list['x'], ref_list['y'], ref_list['m'],
                                              dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-            if self.verbose:
+            if self.verbose > 0:
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
 
@@ -405,7 +416,7 @@ class MosaicSelfRef(object):
             if outlier_tol != None:
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
                                                           outlier_tol)
-                if self.verbose:
+                if self.verbose > 0:
                     print( '  Rejected ', len(idx1) - len(keepers), ' outliers.' )
                     
                 idx1 = idx1[keepers]
@@ -415,7 +426,7 @@ class MosaicSelfRef(object):
             if 'use_in_trans' in ref_list.colnames:
                 keepers = np.where(ref_list[idx2]['use_in_trans'] == True)[0]
                 
-                if self.verbose:
+                if self.verbose > 0:
                     print( '  Rejected ', len(idx1) - len(keepers), ' with use_in_trans=False.' )
                     
                 idx1 = idx1[keepers]
@@ -426,7 +437,7 @@ class MosaicSelfRef(object):
             weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
 
             # Derive the best-fit transformation parameters. 
-            if self.verbose:
+            if self.verbose > 0:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
             trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
@@ -456,7 +467,7 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
 
-            if self.verbose:
+            if self.verbose > 1:
                 hdr = '{nr:13s} {n:13s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
                 hdr += '{dx:7s} {dy:7s} {dm:6s} {xo:9s} {yo:9s} {mo:6s}'
                 print(hdr.format(nr='name_ref', n='name_lis',
@@ -485,7 +496,7 @@ class MosaicSelfRef(object):
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
 
-            if self.verbose:
+            if self.verbose > 0:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
 
@@ -501,7 +512,7 @@ class MosaicSelfRef(object):
                 self.update_ref_table_aggregates()
 
             # Print out some metrics
-            if self.verbose:
+            if self.verbose > 0:
                 msg1 = '    {0:2s} (mean and std) for {1:10s}: {2:8.5f} +/- {3:8.5f}'
                 print('  Residuals: ')
                 print(msg1.format('dr', 'all stars', dr.mean(), dr.std()))
