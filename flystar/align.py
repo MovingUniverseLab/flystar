@@ -400,7 +400,10 @@ class MosaicSelfRef(object):
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans == None:
-                trans = trans_initial_guess(ref_list, star_list_orig_trim, self.trans_args[0],
+                # Only use "use_in_trans" reference stars, even for initial guessing.
+                keepers = np.where(ref_list[idx2]['use_in_trans'] == True)[0]
+                
+                trans = trans_initial_guess(ref_list[keepers], star_list_orig_trim, self.trans_args[0],
                                             mode=self.init_guess_mode,
                                             verbose=self.verbose,
                                             mag_trans=self.mag_trans)
