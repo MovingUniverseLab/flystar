@@ -241,7 +241,7 @@ class MosaicSelfRef(object):
             self.outlier_tol = np.repeat(self.outlier_tol, self.iters)
         assert len(self.outlier_tol) == self.iters
 
-        if self.mag_lim == None:
+        if self.mag_lim is None:
             self.mag_lim = np.repeat([[None, None]], len(self.star_lists), axis=0)
         elif (len(self.mag_lim) == 2):
             self.mag_lim = np.repeat([self.mag_lim], len(self.star_lists), axis=0)
@@ -399,7 +399,7 @@ class MosaicSelfRef(object):
             star_list_T = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, will be transformed copy
 
             ### Initial match and transform: 1st order (if we haven't already).
-            if trans == None:
+            if trans is None:
                 # Only use "use_in_trans" reference stars, even for initial guessing.
                 keepers = np.where(ref_list['use_in_trans'] == True)[0]
                 
