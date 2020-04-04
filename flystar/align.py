@@ -88,7 +88,7 @@ class MosaicSelfRef(object):
             If different from None, it indicates the minimum and maximum magnitude
             on the catalogs for finding the transformations. Note, if you want specify the mag_lim
             separately for each list and each iteration, you need to pass in a 2D array that
-            has dimensions of [2, N_lists] (maybe transposed?).
+            has shape (N_lists, 2).
 
         weights : str
             Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
@@ -1298,7 +1298,7 @@ class MosaicToRef(MosaicSelfRef):
             If different from None, it indicates the minimum and maximum magnitude
             on the catalogs for finding the transformations. Note, if you want specify the mag_lim
             separately for each list and each iteration, you need to pass in a 2D array that
-            has dimensions of [2, N_lists] (maybe transposed?).
+            has shape (N_lists, 2).
 
         ref_mag_lim : array
             If different from None, it indicates the minimum and maximum magnitude
