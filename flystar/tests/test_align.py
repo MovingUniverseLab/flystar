@@ -692,3 +692,104 @@ def test_MosaicToRef_hst_me():
     assert 'me' in tab.colnames
 
     return
+
+def test_transform_xym():
+    """
+    Test to make sure transforms are being done to mags only
+    if mag_trans = True. This can cause subtle bugs 
+    otherwise
+    """
+    #---Align 1: self.mag_Trans = False---#
+    ref = Table.read('ref.lis', format='ascii')
+    list1 = Table.read('E.lis', format='ascii')
+    list2 = Table.read('F.lis', format='ascii')
+
+    list1 = starlists.StarList.from_table(list1)
+    list2 = starlists.StarList.from_table(list2)
+    
+    # Set parameters for alignment
+    transModel = transforms.PolyTransform
+    trans_args = {'order':2}
+    N_loop = 1
+    dr_tol = 0.08
+    dm_tol = 99
+    outlier_tol = None
+    mag_lim = None
+    ref_mag_lim = None
+    weights = 'both,var'
+    n_boot = 15
+
+    mag_trans = False
+
+    # Run FLYSTAR, with bootstraps
+    match1 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
+                                  trans_class=transModel,
+                                  trans_args=trans_args,
+                                  mag_trans=mag_trans,
+                                  mag_lim=mag_lim,
+                                  ref_mag_lim=ref_mag_lim,
+                                  weights=weights,
+                                  n_boot=n_boot,
+                                  use_vel=False,
+                                  use_ref_new=False,
+                                  update_ref_orig=False,
+                                  init_guess_mode='name',
+                                  verbose=False)
+
+    match1.fit()
+    match1.calc_bootstrap_errors()
+
+    # Make sure all transformations have mag_offset = 0 
+    trans_list = match1.trans_list
+
+    for ii in trans_list:
+        assert ii.mag_offset == 0
+
+    # Check that no mag transformation has been applied to m col in ref_table
+    tab1 = match1.ref_table
+    assert np.all(tab1['m'] == tab1['m_orig'])
+    
+    # Check me_boost == 0 or really small (should be the case
+    # since we don't transform mags)
+    assert np.isclose(np.max(tab1['me_boot']), 0, rtol=10**-5)
+    print('Done mag_trans = False case')
+
+    #---Align 2: self.mag_Trans = True---#
+    # Repeat, this time with mag_trans = False
+    mag_trans = True
+    match2 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
+                                  trans_class=transModel,
+                                  trans_args=trans_args,
+                                  mag_trans=mag_trans,
+                                  mag_lim=mag_lim,
+                                  ref_mag_lim=ref_mag_lim,
+                                  weights=weights,
+                                  n_boot=n_boot,
+                                  use_vel=False,
+                                  use_ref_new=False,
+                                  update_ref_orig=False,
+                                  init_guess_mode='name',
+                                  verbose=False)
+
+    match2.fit()
+    match2.calc_bootstrap_errors()
+
+
+    # Make sure all transformations have correct mag offset
+    trans_list2 = match2.trans_list
+
+    for ii in trans_list2:
+        assert ii.mag_offset > 20
+
+    # Make sure final table mags have transform applied (i.e, 
+    tab2 = match2.ref_table
+    assert np.all(tab2['m'] != tab2['m_orig'])
+    
+    # Check me_boost > 0
+    assert np.min(tab2['me_boot']) > 10**-3
+
+    print('Done mag_trans = True case')
+   
+    return

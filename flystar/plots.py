@@ -1051,7 +1051,7 @@ def plot_mag_error(tab):
 
     return
 
-def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None):
+def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=None):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
@@ -1070,7 +1070,8 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None):
         dx, dy = plot_quiver_residuals(tab['x'][:, ee], tab['y'][:, ee], 
                                        xt_mod, yt_mod, 
                                        good_idx, ref_idx,
-                                       'Epoch {0:d}'.format(ee), unit=unit, scale=scale)
+                                       'Epoch {0:d}'.format(ee), 
+                                       unit=unit, scale=scale, plotlim=plotlim)
 
         # Building up average dr for a set of stars.
         dr = np.hypot(dx, dy)
@@ -1113,7 +1114,10 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None):
             
     return
 
-def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, unit='pixel', scale=None):
+
+
+def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, 
+                          unit='pixel', scale=None, plotlim=None):
     """
     unit : str
         'pixel' or 'arcsec'
@@ -1123,6 +1127,9 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, unit
     scale : float
         The quiver scale. If none, then default units will be used appropriate to the unit. 
 
+    plotlim : float (positive)
+        Sets the size of the plotted figure. If None, then default is used.
+        Otherwise plots figure of range [-plotlim, plotlim] x [-plotlim, plotlim].
     """
     dx = (x_t - x_ref)
     dy = (y_t - y_ref)
@@ -1159,6 +1166,9 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, unit
     plt.ylabel('Y (ref ' + unit + ')')
     plt.title(title)
     plt.axis('equal')
+    if plotlim is not None:
+        plt.xlim(-1 * plotlim, plotlim)
+        plt.ylim(-1 * plotlim, plotlim)
     plt.show()
     plt.pause(1)
 

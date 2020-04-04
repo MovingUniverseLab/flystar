@@ -539,7 +539,7 @@ class PolyTransform(Transform2D):
     
     @classmethod
     def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
-                         init_gx=None, init_gy=None, weights=None):
+                         init_gx=None, init_gy=None, weights=None, mag_trans=True):
         
         # now, if the initial guesses are not none, fill in terms until
         if order == 0:
@@ -575,7 +575,7 @@ class PolyTransform(Transform2D):
                 Ycoeff.append( py.parameters[coeff_idx] )
         
         # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
-        if (m is not None) and (mref is not None):
+        if (m is not None) and (mref is not None) and mag_trans:
             m_resid = mref - m
             threshold = 3 * m_resid.std()
             keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
@@ -820,7 +820,7 @@ class LegTransform(Transform2D):
 
     @classmethod
     def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
-                 init_gx=None, init_gy=None, weights=None):
+                 init_gx=None, init_gy=None, weights=None, mag_trans=True):
         """
         Defines a bivariate legendre tranformation from x,y -> xref,yref using 
         Legnedre polynomials as the basis.
@@ -858,7 +858,7 @@ class LegTransform(Transform2D):
         py = fit_p(p_init_y, x, y, yref, weights=weights)
 
         # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
-        if (m is not None) and (mref is not None):
+        if (m is not None) and (mref is not None) and mag_trans:
             m_resid = mref - m
             threshold = 3 * m_resid.std()
             keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
