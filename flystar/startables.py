@@ -389,11 +389,11 @@ class StarTable(Table):
         direction. For 'x', 'y' this means calculating the average position with
         outlier rejection. Optionally, weight by the 'xe' and 'ye' individual
         uncertainties. Optionally, use sigma clipping.
-        "mask_lists" is an array with the indeces of lists that excluded from
-        the combination.
+        "mask_lists" is a list with the indices of starlists that are 
+        excluded from the combination.
         Also, count the number of times a star is found in starlists.
         """
-    
+
         # Combine by position
         if weighted_xy:
             weights_colx = 'xe'
@@ -425,8 +425,8 @@ class StarTable(Table):
 
         Masking of NaN values is also performed.
         
-        "mask_lists" is an array with the indices of lists that excluded from
-        the combination.
+        "mask_lists" is a list with the indices of starlists that are 
+        excluded from the combination.
         
         A flag can be stored in the metadata to record if the average was
         weighted or not.
@@ -443,12 +443,18 @@ class StarTable(Table):
         if mask_val:
             val_2d = np.ma.masked_values(val_2d, mask_val)
         
-        # Remove a list
-        if isinstance(mask_lists, list):
-            if all(isinstance(item, int) for item in mask_lists):
-                val_2d.mask[:, mask_lists] = True
+        if mask_lists is not False:
+            # Remove a list
+            if isinstance(mask_lists, list):
+                if all(isinstance(item, int) for item in mask_lists):
+                    val_2d.mask[:, mask_lists] = True
+                
+            # Throw a warning if mask_lists is not a list
+            if not isinstance(mask_lists, list):
+                err_msg = "mask_lists needs to be a list."
+                warnings.warn(err_msg, UserWarning)
 
-        # Dedicde if we are going to have weights (before we
+        # Decide if we are going to have weights (before we
         # do the expensive sigma clipping routine). Note that
         # if we have only 1 column to average, then we can't do weighting. 
         if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
