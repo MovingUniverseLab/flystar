@@ -83,8 +83,9 @@ def test_combine_lists():
     Test the startables.combine_lists() functionality.
     """
     t = make_star_table()
+    tt = make_tiny_star_table()
 
-    # Test 1: call on a non-existant column.
+    # Test 1: call on a non-existent column.
     with pytest.raises(KeyError):
         t.combine_lists('foo')
 
@@ -109,6 +110,41 @@ def test_combine_lists():
     x_wgt_last = 1.0 / t['xe'][-1, :]**2
     x_avg_last = np.average(t['x'][-1, [2,7]], weights=x_wgt_last[[2,7]])
     assert t['x0'][-1] == pytest.approx(x_avg_last)
+
+    ##########
+    # Test 5: make sure mask_list is working.
+    ##########
+    # Test 5ai: Non-masked, weighted_m=False
+    tt.combine_lists_xym(weighted_xy=True, weighted_m=False, mask_lists=False)
+    assert np.arange(1.8, 38, 4) == pytest.approx(tt['x0'].data)
+    assert np.arange(1.8, 38, 4) == pytest.approx(tt['y0'].data)
+    avg_m = -2.5 * np.log10((4 * 10**-0.4 + 1)/5)
+    assert avg_m * np.ones(10) == pytest.approx(tt['m0'].data)
+
+    # Test 5aii: Non-masked, weighted_m=True
+    tt.combine_lists_xym(weighted_xy=True, weighted_m=True, mask_lists=False)
+    assert np.arange(1.8, 38, 4) == pytest.approx(tt['x0'].data)
+    assert np.arange(1.8, 38, 4) == pytest.approx(tt['y0'].data)
+    avg_m_weight = 0.9391744564422395
+    assert avg_m_weight * np.ones(10) == pytest.approx(tt['m0'].data)
+
+    # Test 5bii: Masked, weighted_m=False
+    tt.combine_lists_xym(weighted_xy=True, weighted_m=False, mask_lists=[1])
+    assert np.arange(2.25, 48, 5) == pytest.approx(tt['x0'].data)
+    assert np.arange(2.25, 48, 5) == pytest.approx(tt['y0'].data)
+    assert np.ones(10) == pytest.approx(tt['m0'].data)
+
+    # Test 5bii: Masked, weighted_m=True (should be identical to 5bi)
+    tt.combine_lists_xym(weighted_xy=True, weighted_m=True, mask_lists=[1])
+    assert np.arange(2.25, 48, 5) == pytest.approx(tt['x0'].data)
+    assert np.arange(2.25, 48, 5) == pytest.approx(tt['y0'].data)
+    assert np.ones(10) == pytest.approx(tt['m0'].data)
+
+    # Test 5c: Things that should break the code.
+    with pytest.raises(RuntimeError):
+        t.combine_lists_xym(weighted_xy=True, weighted_m=True, mask_lists=np.arange(2))
+    with pytest.raises(RuntimeError):
+        t.combine_lists_xym(weighted_xy=True, weighted_m=True, mask_lists=True)
 
     return
 
@@ -257,6 +293,7 @@ def test_combine_1col():
 
 def test_fit_velocities():
     tab = make_star_table()
+    tt = make_tiny_star_table()
 
     # We don't need the entire table... lets just
     # pull a small subset for faster testing.
@@ -337,6 +374,29 @@ def test_fit_velocities():
     assert (tab['x0e'][0:100] > 0).all()
     assert (tab['vye'][0:100] > 0).all()
     assert (tab['y0e'][0:100] > 0).all()
+
+    #########
+    # Test mask_list
+    #########
+    # FIXME: EDIT THIS 
+    # Test 5a: Non-masked
+    tt.fit_velocities(bootstrap=0, verbose=False, mask_lists=False)
+#    assert np.arange(1,11)*0.8 == pytest.approx(tt['x0'].data)
+#    assert np.arange(1,11)*0.8 == pytest.approx(tt['y0'].data)
+#    assert FIXME == pytest.approx(tt['m0'].data)
+    # SOMETHING I DON'T UNDERSTAND ABOUT THE WEIGHTING SCHEME
+
+    # Test 5b: Masked
+    tt.fit_velocities(bootstrap=0, verbose=False, mask_lists=[1])
+#    assert np.arange(1,11) == pytest.approx(tt['x0'].data)
+#    assert np.arange(1,11) == pytest.approx(tt['y0'].data)
+#    assert np.ones(10) == pytest.approx(tt['m0'].data)
+
+    # Test 5c: Things that should break the code.
+    with pytest.raises(RuntimeError):
+        tt.fit_velocities(bootstrap=0, verbose=False, mask_lists=np.arange(2))
+    with pytest.raises(RuntimeError):
+        tt.fit_velocities(bootstrap=0, verbose=False, mask_lists=True)
 
     return
 
@@ -453,7 +513,7 @@ def make_star_table():
     return startable
 
 def make_star_table_1epoch():
-    # User inputp
+    # User input
     cat_file = test_dir + '/test_catalog.fits'
 
     # Read and arrange the test input
@@ -482,7 +542,7 @@ def make_star_table_1epoch():
     return startable
 
 def make_star_table_2epoch():
-    # User inputp
+    # User inpup
     cat_file = test_dir + '/test_catalog.fits'
 
     # Read and arrange the test input
@@ -511,4 +571,29 @@ def make_star_table_2epoch():
     return startable
 
 
+def make_tiny_star_table():
+    """
+    A small (10 stars, 5 epoch) startable for testing masks.
+    """
     
+    name_in = np.array(['N00', 'N01', 'N02', 'N03', 'N04',
+                        'N05', 'N06', 'N07', 'N08', 'N09'])
+    x_in = np.arange(50).reshape((10,5))
+    y_in = np.arange(50).reshape((10,5))
+    m_in = np.ones((10,5))
+    t_in = np.arange(2015,2020) * np.ones((10,5))
+    xe_in = 0.1 * np.ones((10,5))
+    ye_in = 0.1 * np.ones((10,5))
+    me_in = 0.1 * np.ones((10,5))
+
+    # Modify one epoch to have different values.
+    x_in[:,1] = 0
+    y_in[:,1] = 0
+    m_in[:,1] = 0
+    
+    # Generate the startable
+    startable = StarTable(name=name_in, t=t_in,
+                          x=x_in, y=y_in, m=m_in, 
+                          xe=xe_in, ye=ye_in, me=me_in)
+
+    return startable
