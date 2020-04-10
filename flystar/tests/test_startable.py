@@ -378,21 +378,19 @@ def test_fit_velocities():
     #########
     # Test mask_list
     #########
-    # FIXME: EDIT THIS 
-    # Test 5a: Non-masked
-    tt.fit_velocities(bootstrap=0, verbose=False, mask_lists=False)
-#    assert np.arange(1,11)*0.8 == pytest.approx(tt['x0'].data)
-#    assert np.arange(1,11)*0.8 == pytest.approx(tt['y0'].data)
-#    assert FIXME == pytest.approx(tt['m0'].data)
-    # SOMETHING I DON'T UNDERSTAND ABOUT THE WEIGHTING SCHEME
-
-    # Test 5b: Masked
+    # Test 5a: Masked
     tt.fit_velocities(bootstrap=0, verbose=False, mask_lists=[1])
-#    assert np.arange(1,11) == pytest.approx(tt['x0'].data)
-#    assert np.arange(1,11) == pytest.approx(tt['y0'].data)
-#    assert np.ones(10) == pytest.approx(tt['m0'].data)
+    assert np.arange(2.25, 48, 5) == pytest.approx(tt['x0'].data)
+    assert np.arange(2.25, 48, 5) == pytest.approx(tt['y0'].data)
+    assert np.zeros(10) == pytest.approx(tt['x0e'].data)
+    assert np.zeros(10) == pytest.approx(tt['y0e'].data)
+    assert np.ones(10) == pytest.approx(tt['vx'].data)
+    assert np.ones(10) == pytest.approx(tt['vy'].data)
+    assert np.zeros(10) == pytest.approx(tt['vxe'].data)
+    assert np.zeros(10) == pytest.approx(tt['vye'].data)
+    assert 2017.25 * np.ones(10) == pytest.approx(tt['t0'].data)
 
-    # Test 5c: Things that should break the code.
+    # Test 5b: Things that should break the code.
     with pytest.raises(RuntimeError):
         tt.fit_velocities(bootstrap=0, verbose=False, mask_lists=np.arange(2))
     with pytest.raises(RuntimeError):
