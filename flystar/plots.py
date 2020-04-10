@@ -1187,9 +1187,12 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
     return (dx, dy)
 
 
-def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
+def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
     """
     Plot a set of stars positions and residuals over time. 
+
+    epoch_array : None, array
+        Array of the epoch indicies to plot. If None, plots all epochs.
     """
     print( 'Creating residuals plots for star(s):' )
     print( star_names )
@@ -1219,6 +1222,9 @@ def plot_stars(tab, star_names, NcolMax=3, figsize=(15,15)):
             print("!! %s is not in this list"%starName)
 
         fnd = np.where(tab['xe'][ii, :] > 0)[0]
+
+        if epoch_array is not None:
+            fnd = np.intersect1d(fnd, epoch_array)
 
         time = tab['t'][ii, fnd]
         x = tab['x'][ii, fnd]
