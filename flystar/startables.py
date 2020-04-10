@@ -437,7 +437,6 @@ class StarTable(Table):
         if ismag:
             # Convert to flux.
             val_2d = 10**(-val_2d / 2.5)
-
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
         val_2d = np.ma.masked_invalid(val_2d)
         if mask_val:
@@ -451,8 +450,7 @@ class StarTable(Table):
                 
             # Throw a warning if mask_lists is not a list
             if not isinstance(mask_lists, list):
-                err_msg = "mask_lists needs to be a list."
-                warnings.warn(err_msg, UserWarning)
+                raise RuntimeError('mask_lists needs to be a list.')
 
         # Decide if we are going to have weights (before we
         # do the expensive sigma clipping routine). Note that
@@ -491,7 +489,6 @@ class StarTable(Table):
         else:
             avg = np.ma.mean(val_2d_clip, axis=1)
             std = np.ma.std(val_2d_clip, axis=1)
-
         # To Do: bring the previous uncertainties of stars that are detected
         # in only one input frame.
         if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
@@ -505,7 +502,6 @@ class StarTable(Table):
         if ismag:
             std = (2.5 / np.log(10)) * std / avg
             avg = -2.5 * np.ma.log10(avg)
-
         if col_name_avg in self.colnames:
             self[col_name_avg] = avg.data
             self[col_name_std] = std.data
@@ -529,7 +525,8 @@ class StarTable(Table):
         return
 
     
-    def fit_velocities(self, bootstrap=0, verbose=False):
+    def fit_velocities(self, bootstrap=0, verbose=False,
+                       mask_val=None, mask_lists=False):
         """
         Fit velocities for all stars in the table. 
         """
@@ -571,6 +568,7 @@ class StarTable(Table):
 
         self.meta['n_vfit_bootstrap'] = bootstrap
 
+        # (FIXME: Do we need to catch the case where there's a single *unmasked* epoch?)
         # Catch the case when there is only a single epoch. Just return 0 velocity
         # and the same input position for the x0/y0.
         if self['x'].shape[1] == 1:
@@ -593,7 +591,8 @@ class StarTable(Table):
         # STARS LOOP through the stars and work on them 1 at a time.
         # This is slow; but robust.
         for ss in range(N_stars):
-            self.fit_velocity_for_star(ss, bootstrap=bootstrap)
+            self.fit_velocity_for_star(ss, bootstrap=bootstrap,
+                                       mask_val=mask_val, mask_lists=mask_lists)
 
         if verbose:
             stop_time = time.time()
@@ -601,17 +600,34 @@ class StarTable(Table):
         
         return
 
-    def fit_velocity_for_star(self, ss, bootstrap=False):
+    def fit_velocity_for_star(self, ss, bootstrap=False,
+                              mask_val=None, mask_lists=False):
         def poly_model(time, *params):
             pos = np.polynomial.polynomial.polyval(time, params)
             return pos
+
+        # Make a mask of invalid (NaN) values and a user-specified invalid value.
+        x = np.ma.masked_invalid(self['x'][ss, :].data)
+        y = np.ma.masked_invalid(self['y'][ss, :].data)
+        if mask_val:
+            x = np.ma.masked_values(x, mask_val)
+            y = np.ma.masked_values(y, mask_val)
         
-        x = self['x'][ss, :].copy().data
-        y = self['y'][ss, :].copy().data
+        if mask_lists is not False:
+            # Remove a list
+            if isinstance(mask_lists, list):
+                if all(isinstance(item, int) for item in mask_lists):
+                    x.mask[mask_lists] = True
+                    y.mask[mask_lists] = True
+                
+            # Throw a warning if mask_lists is not a list
+            if not isinstance(mask_lists, list):
+                raise RuntimeError('mask_lists needs to be a list.')
 
         if 'xe' in self.colnames:
-            xe = self['xe'][ss, :].copy().data
-            ye = self['ye'][ss, :].copy().data
+            # Make a mask of invalid (NaN) values and a user-specified invalid value.
+            xe = np.ma.masked_invalid(self['xe'][ss, :].data)
+            ye = np.ma.masked_invalid(self['ye'][ss, :].data)
 
             # Catch the case where we have positions but no errors for
             # some of the entries... we need to "fill in" reasonable
@@ -632,11 +648,42 @@ class StarTable(Table):
             N_epochs = len(x)
             xe = np.ones(N_epochs, dtype=float)
             ye = np.ones(N_epochs, dtype=float)
+            xe = np.ma.masked_invalid(xe)
+            ye = np.ma.masked_invalid(xe)
 
+        if mask_val:
+            xe = np.ma.masked_values(xe, mask_val)
+            ye = np.ma.masked_values(ye, mask_val)
+            
+        if mask_lists is not False:
+            # Remove a list
+            if isinstance(mask_lists, list):
+                if all(isinstance(item, int) for item in mask_lists):
+                    xe.mask[mask_lists] = True
+                    ye.mask[mask_lists] = True
+                    
+            # Throw a warning if mask_lists is not a list
+            if not isinstance(mask_lists, list):
+                raise RuntimeError('mask_lists needs to be a list.')    
+
+        # Make a mask of invalid (NaN) values and a user-specified invalid value.
         if 't' in self.colnames:
-            t = self['t'][ss, :].copy().data
+            t = np.ma.masked_invalid(self['t'][ss, :].data)
         else:
-            t = self.meta['list_times']
+            t = np.ma.masked_invalid(self.meta['list_times'])
+
+        if mask_val:
+            t = np.ma.masked_values(t, mask_val)
+            
+        if mask_lists is not False:
+            # Remove a list
+            if isinstance(mask_lists, list):
+                if all(isinstance(item, int) for item in mask_lists):
+                    t.mask[mask_lists] = True
+                    
+            # Throw a warning if mask_lists is not a list
+            if not isinstance(mask_lists, list):
+                raise RuntimeError('mask_lists needs to be a list.')    
 
         # Figure out where we have detections (as indicated by error columns)
         good = np.where((xe != 0) & (ye != 0) &
@@ -672,7 +719,7 @@ class StarTable(Table):
         if (dt == dt[0]).all():
             wgt_x = (1.0/xe)**2
             wgt_y = (1.0/ye)**2
-                
+
             self['x0'][ss] = np.average(x, weights=wgt_x)
             self['y0'][ss] = np.average(y, weights=wgt_y)
             self['x0e'][ss] = np.sqrt(np.average((x - self['x0'][ss])**2, weights=wgt_x))
@@ -685,12 +732,11 @@ class StarTable(Table):
 
             return
 
-
         # Catch the case where we have enough measurements to actually
         # fit a velocity!
         if N_good > 2:
-            vx_opt, vx_cov = curve_fit(poly_model, dt, x, p0=p0x, sigma=xe)
-            vy_opt, vy_cov = curve_fit(poly_model, dt, y, p0=p0y, sigma=ye)
+            vx_opt, vx_cov = curve_fit(poly_model, dt.compressed(), x.compressed(), p0=p0x, sigma=xe.compressed())
+            vy_opt, vy_cov = curve_fit(poly_model, dt.compressed(), y.compressed(), p0=p0y, sigma=ye.compressed())
 
             self['x0'][ss] = vx_opt[0]
             self['vx'][ss] = vx_opt[1]
@@ -709,8 +755,8 @@ class StarTable(Table):
                 for bb in range(bootstrap):
                     bdx = np.random.choice(edx, N_good)
 
-                    vx_opt_b, vx_cov_b = curve_fit(poly_model, dt[bdx], x[bdx], p0=vx_opt, sigma=xe[bdx])
-                    vy_opt_b, vy_cov_b = curve_fit(poly_model, dt[bdx], y[bdx], p0=vy_opt, sigma=ye[bdx])
+                    vx_opt_b, vx_cov_b = curve_fit(poly_model, dt[bdx].compressed(), x[bdx].compressed(), p0=vx_opt, sigma=xe[bdx].compressed())
+                    vy_opt_b, vy_cov_b = curve_fit(poly_model, dt[bdx].compressed(), y[bdx].compressed(), p0=vy_opt, sigma=ye[bdx].compressed())
 
                     fit_x0_b[bb] = vx_opt_b[0]
                     fit_vx_b[bb] = vx_opt_b[1]
@@ -750,12 +796,12 @@ class StarTable(Table):
         else:
             # N_good == 1 case
             self['n_vfit'][ss] = 1
-            self['x0'][ss] = x[good[0]]
-            self['y0'][ss] = y[good[0]]
+            self['x0'][ss] = x
+            self['y0'][ss] = y
             
             if 'xe' in self.colnames:
-                self['x0e'] = xe[good[0]]
-                self['y0e'] = ye[good[0]]
+                self['x0e'] = xe
+                self['y0e'] = ye
 
         return
 
