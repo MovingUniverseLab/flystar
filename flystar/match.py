@@ -1,6 +1,5 @@
-
 import numpy as np
-from flystar import starlists, transforms, startables
+from flystar import starlists, transforms, startables, align
 from collections import Counter
 from scipy.spatial import cKDTree as KDT
 from astropy.table import Column, Table
@@ -536,17 +535,17 @@ def generic_match(sl1, sl2, init_mode='triangle',
         #  Prepare the reduced starlists for matching
         sl1_cut = copy.deepcopy(sl1)
         sl2_cut = copy.deepcopy(sl2)
-        sl1_cut = sl1_cut.restrict_by_value(x_min=xy_match[0], x_max=xy_match[1],
-                                            y_min=xy_match[2], y_max=xy_match[3])
-        sl2_cut = sl2_cut.restrict_by_value(x_min=xy_match[4], x_max=xy_match[5],
-                                            y_min=xy_match[6], y_max=xy_match[7])
-        sl1_cut = sl1_cut.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
-        sl2_cut = sl2_cut.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
+        sl1_cut.restrict_by_value(x_min=xy_match[0], x_max=xy_match[1],
+                                  y_min=xy_match[2], y_max=xy_match[3])
+        sl2_cut.restrict_by_value(x_min=xy_match[4], x_max=xy_match[5],
+                                  y_min=xy_match[6], y_max=xy_match[7])
+        sl1_cut.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
+        sl2_cut.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
         
         # Find the transformation
         # TODO: test 'initial_align' with StarList input
         transf = align.initial_align(sl1_cut, sl2_cut, briteN=n_bright,
-                                     transformModel=model, order=poly_order)
+                                     transformModel=model, order=order_dr[0]) #order_dr[i_loop][0] ?
         
     elif init_mode is 'match_name': #  Name match
         sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(sl1, sl2)
@@ -563,8 +562,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
     # Restrict the matching catalogs
     sl1_match = copy.deepcopy(sl1)
     sl2_match = copy.deepcopy(sl2)
-    sl1_match = sl1_match.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
-    sl2_match = sl2_match.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
+    sl1_match.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
+    sl2_match.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
     
     #  Refine the transformation
     if sigma_match:
@@ -576,8 +575,13 @@ def generic_match(sl1, sl2, init_mode='triangle',
     for i_loop in range(len(order_dr)):
         
         #  Transform and match the catalog to the reference frame
+#        sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
+#                                                     dr_tol=order_dr[i_loop][1],
+#                                                     verbose=verbose)
+
+        print(order_dr[1])
         sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
-                                                     dr_tol=order_dr[i_loop][1],
+                                                     dr_tol=order_dr[1],
                                                      verbose=verbose)
 
         #  Transform the catalog to the reference frame
@@ -611,7 +615,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
         transf, _ = align.find_transform(sl2_match[sl2_idx],
                                          sl2_transf_match[sl2_idx],
                                          sl1_match[sl1_idx], transModel=model,
-                                         order=int(order_dr[i_loop][0]), verbose=verbose)
+                                         order=order_dr[0], verbose=verbose)
+#                                         order=int(order_dr[i_loop][0]), verbose=verbose)
         
         # This section was used for testing transformations with normalized
         # coordinates. Only several catalogs had reduced residuals when using
@@ -650,9 +655,10 @@ def generic_match(sl1, sl2, init_mode='triangle',
          x=np.column_stack((np.array(sl1['x'][sl1_idx]), np.array(sl2_transf['x'][sl2_idx]))),
          y=np.column_stack((np.array(sl1['y'][sl1_idx]), np.array(sl2_transf['y'][sl2_idx]))),
          m=np.column_stack((np.array(sl1['m'][sl1_idx]), np.array(sl2_transf['m'][sl2_idx]))),
-         ep_name=np.column_stack((np.array(sl1['name'][sl1_idx]), np.array(sl2_transf['name'][sl2_idx]))),
-         list_times=[sl1.meta['list_time'], sl2.meta['list_time']],
-         list_names=[sl1.meta['list_name'], sl2.meta['list_name']])
+         ep_name=np.column_stack((np.array(sl1['name'][sl1_idx]), np.array(sl2_transf['name'][sl2_idx]))))
+#         ep_name=np.column_stack((np.array(sl1['name'][sl1_idx]), np.array(sl2_transf['name'][sl2_idx]))),
+#         list_times=[sl1.meta['list_time'], sl2.meta['list_time']],
+#         list_names=[sl1.meta['list_name'], sl2.meta['list_name']])
     
     for col in sl1.colnames:
         if col in sl2.colnames:
