@@ -1,6 +1,7 @@
-from flystar import match
+from flystar import match, starlists, transforms
 import numpy as np
 import pdb
+from astropy.table import Table
 
 def test_match_duplicates():
     x1 = np.array([1618.4, 1619.5, 1346.8, 1533.6, 1541.7,
@@ -136,3 +137,47 @@ def test_miracle_match_briteN():
         assert abs(y1m[ii] - y2m[ii]) < 2
     
     return
+
+
+def test_generic_match():
+    # copied and slightly modified from test_match_duplicates:
+    x1 = np.array([1618.4, 1619.5, 1346.8, 1533.6, 1541.7,
+                    232.5, 2165.4, 2354.1, 1584.5, 1697.8,
+                   1028.9])
+    y1 = np.array([  39.9,   41.3,   97.3,  130.8,  351.9,
+                    769.6,  938.5, 1013.5, 1679.6, 1893.1,
+                   1916.8])
+    
+    m1 = np.array([-5.94, -5.98, -1.96, -2.09, -2.50,
+                   -3.43, -2.23, -3.72, -5.77, -2.97,
+                   -3.35])
+    n1 = np.array(['S00', 'S01', 'S02', 'S03', 'S04',
+                   'S04', 'S06', 'S07', 'S08', 'S09',
+                   'S10'])
+
+    x2 = np.array([1619.2, 1347.1, 1542.0, 2165.7, 2354.6,
+                    734.1,  820.0, 2092.4, 1029.3])
+    y2 = np.array([  41.8,   98.5,  353.1,  940.0, 1015.0,
+                   1763.1, 1783.9, 1806.8, 1918.0])
+    m2 = np.array([-6.05, -2.00, -2.65, -2.30, -3.79,
+                   -2.06, -2.10, -2.38, -3.30])
+    n2 = np.array(['S11', 'S12', 'S13', 'S14', 'S15',
+                   'S16', 'S17', 'S18', 'S19'])
+
+    
+    list1 = Table([n1, x1, y1, m1],
+                  names=('name', 'x', 'y', 'm'))
+    list2 = Table([n2, x2, y2, m2],
+                  names=('name', 'x', 'y', 'm'))
+
+    starlist1 = starlists.StarList.from_table(list1)
+    starlist2 = starlists.StarList.from_table(list2)
+
+    out = match.generic_match(starlist1, starlist2, init_mode='triangle',
+                              model=transforms.PolyTransform, order_dr=(1, 1.0),
+                              dr_final=1.0,
+                              xy_match=(None, None, None, None, None, None, None, None),
+                              m_match=(None, None, None, None), sigma_match=None,
+                              n_bright=8, verbose=True)
+
+    
