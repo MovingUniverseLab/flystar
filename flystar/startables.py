@@ -525,7 +525,7 @@ class StarTable(Table):
         return
 
     
-    def fit_velocities(self, bootstrap=0, verbose=False,
+    def fit_velocities(self, bootstrap=0, fixed_t0=False, verbose=False,
                        mask_val=None, mask_lists=False):
         """
         Fit velocities for all stars in the table. 
@@ -591,7 +591,7 @@ class StarTable(Table):
         # STARS LOOP through the stars and work on them 1 at a time.
         # This is slow; but robust.
         for ss in range(N_stars):
-            self.fit_velocity_for_star(ss, bootstrap=bootstrap,
+            self.fit_velocity_for_star(ss, bootstrap=bootstrap, fixed_t0=fixed_t0,
                                        mask_val=mask_val, mask_lists=mask_lists)
 
         if verbose:
@@ -600,7 +600,7 @@ class StarTable(Table):
         
         return
 
-    def fit_velocity_for_star(self, ss, bootstrap=False,
+    def fit_velocity_for_star(self, ss, bootstrap=False, fixed_t0=False,
                               mask_val=None, mask_lists=False):
         def poly_model(time, *params):
             pos = np.polynomial.polynomial.polyval(time, params)
@@ -707,9 +707,12 @@ class StarTable(Table):
         p0x = np.array([x.mean(), 0.0])
         p0y = np.array([y.mean(), 0.0])
         
-        # Calculate the t0 for all the stars.
-        t_weight = 1.0 / np.hypot(xe, ye)
-        t0 = np.average(t, weights=t_weight)
+        # Unless t0 is fixed, calculate the t0 for the stars.
+        if fixed_t0 is False:
+            t_weight = 1.0 / np.hypot(xe, ye)
+            t0 = np.average(t, weights=t_weight)
+        else:
+            t0 = fixed_t0[ss]
         dt = t - t0
 
         self['t0'][ss] = t0

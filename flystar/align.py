@@ -599,7 +599,7 @@ class MosaicSelfRef(object):
 
         # Use the columns from the ref list to make the ref_table.
         ref_table = StarTable(**col_arrays)
-
+        
         # Make new columns to hold original values. These will be copies
         # of the old columns and will only include x, y, m, xe, ye, me.
         # The columns we have already created will hold transformed values. 
@@ -612,13 +612,24 @@ class MosaicSelfRef(object):
                 new_col.name = old_name + '_orig'
                 ref_table.add_column(new_col)
 
-        # Average the x, y, and m columns (although this is just a copy) and store in
-        # x0, y0, m0. This will be what we use to align with. We will keep
-        # updating the average with every new starlist.
-        ref_table.combine_lists('x')
-        ref_table.combine_lists('y')
-        ref_table.combine_lists('m', ismag=True)
+        # Make sure ref_table has the necessary x0, y0, m0 and associated
+        # error columns. If they don't exist, then add them as a copy of
+        # the original x,y,m etc columns. 
+        new_cols_arr = ['x0', 'x0e', 'y0', 'y0e', 'm0', 'm0e']
+        orig_cols_arr = ['x', 'xe', 'y', 'ye', 'm', 'me']
+        assert len(new_cols_arr) == len(orig_cols_arr)
+        ref_cols = ref_table.keys()
 
+        for ii in range(len(new_cols_arr)):
+            if not new_cols_arr[ii] in ref_cols:
+                # Some munging to convert data shape from (N,1) to (N,),
+                # since these are all 1D cols
+                vals = np.transpose(np.array(ref_table[orig_cols_arr[ii]]))[0]
+
+                # Now add to ref_table
+                new_col = Column(vals, name=new_cols_arr[ii])
+                ref_table.add_column(new_col)
+ 
         # Make sure we have a column to indicate whether each star
         # CAN BE USED in the transformation. This will be 1D
         if 'use_in_trans' not in ref_table.colnames:
@@ -826,7 +837,7 @@ class MosaicSelfRef(object):
                 self.ref_table['vxe'][ref_orig_idx] = vxe_orig
                 self.ref_table['vye'][ref_orig_idx] = vye_orig
                 self.ref_table['t0'][ref_orig_idx] = t0_orig
-                
+
         return
     
     def get_weights_for_lists(self, ref_list, star_list):
@@ -1040,12 +1051,14 @@ class MosaicSelfRef(object):
         ref_table = copy.deepcopy(self.ref_table)
         n_epochs = len(ref_table['x'][0])
         t_arr = ref_table['t'][np.where(ref_table['n_detect'] == np.max(ref_table['n_detect']))[0][0]]
+        t0_arr = ref_table['t0']
 
         # Identify reference stars. If desired, trim ref_table to only stars to only
         # reference stars and those that pass boot_epochs_min criteria
         if self.boot_epochs_min > 0:
             idx_good = np.where( (ref_table['n_detect'] >= self.boot_epochs_min) | (ref_table['use_in_trans']) )
             ref_table = ref_table[idx_good]
+            t0_arr = t0_arr[idx_good]
         else:
             idx_good = np.arange(0, len(ref_table), 1)
         idx_ref = np.where(ref_table['use_in_trans'] == True)
@@ -1174,19 +1187,25 @@ class MosaicSelfRef(object):
                                        me=me_trans_arr[:,ii,boot_idx],
                                        t=np.tile(t_boot, (len(ref_table),1)) )
 
-            # Now, do proper motion calculation
-            star_table.fit_velocities()
+            # Now, do proper motion calculation, making sure to fix t0 to the
+            # orig value (so we can get a reasonable error on x0, y0)
+            star_table.fit_velocities(fixed_t0=t0_arr)
 
             # Save proper motion fit results to output arrays
             x0_arr[:,ii] = star_table['x0']
             y0_arr[:,ii] = star_table['y0']
             vx_arr[:,ii] = star_table['vx']
             vy_arr[:,ii] = star_table['vy']
-            t3 = time.time()
+
+            # Quick check to make sure bootstrap calc was valid: output t0 should be
+            # same as input t0_arr, since we used fixed_t0 option
+            assert np.sum(abs(star_table['t0'] - t0_arr) == 0)
+
+            #t3 = time.time()
             #print('=================================================')
             #print('Time to calc proper motions: {0}s'.format(t3-t2))
             #print('=================================================')
-            
+
         # Calculate the bootstrap error values.
         x_err_b = np.std(x_trans_arr, ddof=1, axis=1)
         y_err_b = np.std(y_trans_arr, ddof=1, axis=1)
@@ -1632,13 +1651,24 @@ def setup_ref_table_from_starlist(star_list):
             new_col.name = old_name + '_orig'
             ref_table.add_column(new_col)
 
-    # Average the x, y, and m columns (although this is just a copy) and store in
-    # x0, y0, m0. This will be what we use to align with. We will keep
-    # updating the average with every new starlist.
-    ref_table.combine_lists('x')
-    ref_table.combine_lists('y')
-    ref_table.combine_lists('m', ismag=True)
+    # Make sure ref_table has the necessary x0, y0, m0 and associated
+    # error columns. If they don't exist, then add them as a copy of
+    # the original x,y,m etc columns. 
+    new_cols_arr = ['x0', 'x0e', 'y0', 'y0e', 'm0', 'm0e']
+    orig_cols_arr = ['x', 'xe', 'y', 'ye', 'm', 'me']
+    assert len(new_cols_arr) == len(orig_cols_arr)
+    ref_cols = ref_table.keys()
 
+    for ii in range(len(new_cols_arr)):
+        if not new_cols_arr[ii] in ref_cols:
+            # Some munging to convert data shape from (N,1) to (N,),
+            # since these are all 1D cols
+            vals = np.transpose(np.array(ref_table[orig_cols_arr[ii]]))[0]
+
+            # Now add to ref_table
+            new_col = Column(vals, name=new_cols_arr[ii])
+            ref_table.add_column(new_col)
+    
     if 'use_in_trans' not in ref_table.colnames:
         new_col = Column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
         ref_table.add_column(new_col)

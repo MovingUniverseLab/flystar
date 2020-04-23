@@ -346,7 +346,15 @@ def test_fit_velocities():
     assert (x0_orig == tab['x0']).all()
     assert (vxe_orig == tab['vxe']).all()
     assert (x0e_orig == tab['x0e']).all()
-    
+
+    ##########
+    # Test fixed_t0 functionality
+    ##########
+    fixed_t0 = tab['t0'] + np.random.normal(size=len(tab))
+    tab.fit_velocities(fixed_t0=fixed_t0)
+
+    assert(np.sum(abs(tab['t0'] - fixed_t0)) == 0)
+
     ##########
     # Test bootstrap
     ##########
@@ -358,7 +366,7 @@ def test_fit_velocities():
     assert tab_b['vxe'][0] > tab['vxe'][0]
     assert tab_b['y0e'][0] > tab['y0e'][0]
     assert tab_b['vye'][0] > tab['vye'][0]
-    
+
     ##########
     # Test what happens with no velocity errors
     ##########
