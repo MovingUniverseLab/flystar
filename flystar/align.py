@@ -599,7 +599,7 @@ class MosaicSelfRef(object):
 
         # Use the columns from the ref list to make the ref_table.
         ref_table = StarTable(**col_arrays)
-
+        
         # Make new columns to hold original values. These will be copies
         # of the old columns and will only include x, y, m, xe, ye, me.
         # The columns we have already created will hold transformed values. 
@@ -612,13 +612,24 @@ class MosaicSelfRef(object):
                 new_col.name = old_name + '_orig'
                 ref_table.add_column(new_col)
 
-        # Average the x, y, and m columns (although this is just a copy) and store in
-        # x0, y0, m0. This will be what we use to align with. We will keep
-        # updating the average with every new starlist.
-        ref_table.combine_lists('x')
-        ref_table.combine_lists('y')
-        ref_table.combine_lists('m', ismag=True)
+        # Make sure ref_table has the necessary x0, y0, m0 and associated
+        # error columns. If they don't exist, then add them as a copy of
+        # the original x,y,m etc columns. 
+        new_cols_arr = ['x0', 'x0e', 'y0', 'y0e', 'm0', 'm0e']
+        orig_cols_arr = ['x', 'xe', 'y', 'ye', 'm', 'me']
+        assert len(new_cols_arr) == len(orig_cols_arr)
+        ref_cols = ref_table.keys()
 
+        for ii in range(len(new_cols_arr)):
+            if not new_cols_arr[ii] in ref_cols:
+                # Some munging to convert data shape from (N,1) to (N,),
+                # since these are all 1D cols
+                vals = np.transpose(np.array(ref_table[orig_cols_arr[ii]]))[0]
+
+                # Now add to ref_table
+                new_col = Column(vals, name=new_cols_arr[ii])
+                ref_table.add_column(new_col)
+ 
         # Make sure we have a column to indicate whether each star
         # CAN BE USED in the transformation. This will be 1D
         if 'use_in_trans' not in ref_table.colnames:
@@ -826,7 +837,7 @@ class MosaicSelfRef(object):
                 self.ref_table['vxe'][ref_orig_idx] = vxe_orig
                 self.ref_table['vye'][ref_orig_idx] = vye_orig
                 self.ref_table['t0'][ref_orig_idx] = t0_orig
-                
+
         return
     
     def get_weights_for_lists(self, ref_list, star_list):
@@ -1640,13 +1651,24 @@ def setup_ref_table_from_starlist(star_list):
             new_col.name = old_name + '_orig'
             ref_table.add_column(new_col)
 
-    # Average the x, y, and m columns (although this is just a copy) and store in
-    # x0, y0, m0. This will be what we use to align with. We will keep
-    # updating the average with every new starlist.
-    ref_table.combine_lists('x')
-    ref_table.combine_lists('y')
-    ref_table.combine_lists('m', ismag=True)
+    # Make sure ref_table has the necessary x0, y0, m0 and associated
+    # error columns. If they don't exist, then add them as a copy of
+    # the original x,y,m etc columns. 
+    new_cols_arr = ['x0', 'x0e', 'y0', 'y0e', 'm0', 'm0e']
+    orig_cols_arr = ['x', 'xe', 'y', 'ye', 'm', 'me']
+    assert len(new_cols_arr) == len(orig_cols_arr)
+    ref_cols = ref_table.keys()
 
+    for ii in range(len(new_cols_arr)):
+        if not new_cols_arr[ii] in ref_cols:
+            # Some munging to convert data shape from (N,1) to (N,),
+            # since these are all 1D cols
+            vals = np.transpose(np.array(ref_table[orig_cols_arr[ii]]))[0]
+
+            # Now add to ref_table
+            new_col = Column(vals, name=new_cols_arr[ii])
+            ref_table.add_column(new_col)
+    
     if 'use_in_trans' not in ref_table.colnames:
         new_col = Column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
         ref_table.add_column(new_col)
