@@ -579,7 +579,6 @@ def generic_match(sl1, sl2, init_mode='triangle',
 #                                                     dr_tol=order_dr[i_loop][1],
 #                                                     verbose=verbose)
 
-        print(order_dr[1])
         sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
                                                      dr_tol=order_dr[1],
                                                      verbose=verbose)
