@@ -615,11 +615,9 @@ class MosaicSelfRef(object):
         # Make sure ref_table has the necessary x0, y0, m0 and associated
         # error columns. If they don't exist, then add them as a copy of
         # the original x,y,m etc columns. 
-        new_cols_arr = ['x0', 'x0e', 'y0', 'y0e', 'm0', 'm0e']
-        orig_cols_arr = ['x', 'xe', 'y', 'ye', 'm', 'me']
-        assert len(new_cols_arr) == len(orig_cols_arr)
+        new_cols_arr = ['x0', 'y0', 'm0']
+        orig_cols_arr = ['x', 'y', 'm']
         ref_cols = ref_table.keys()
-
         for ii in range(len(new_cols_arr)):
             if not new_cols_arr[ii] in ref_cols:
                 # Some munging to convert data shape from (N,1) to (N,),
@@ -629,7 +627,38 @@ class MosaicSelfRef(object):
                 # Now add to ref_table
                 new_col = Column(vals, name=new_cols_arr[ii])
                 ref_table.add_column(new_col)
- 
+
+        # Do the same thing for the x0e, y0e, m0e columns, but
+        # ONLY IF THEY ALREADY EXIST IN REF_TABLE! Otherwise,
+        # just fill these tables with zeros. We need something
+        # in these columns in order for the error propagation to
+        # work later on.
+        new_err_cols = ['x0e', 'y0e', 'm0e']
+        orig_err_cols = ['xe', 'ye', 'me']
+        for ii in range(len(new_err_cols)):
+            # If the orig col name (e.g. xe) is in the ref_table, but the new col name
+            # (e.g. x0e) doesn't exist, then add the x0e column as a duplicate of xe.
+            if (orig_err_cols[ii] in ref_cols) & (not new_err_cols[ii] in ref_cols):
+                # Some munging to convert data shape from (N,1) to (N,),
+                # since these are all 1D cols
+                vals = np.transpose(np.array(ref_table[orig_err_cols[ii]]))[0]
+
+                # Now add to ref_table
+                new_col = Column(vals, name=new_err_cols[ii])
+                ref_table.add_column(new_col)
+            elif (not orig_err_cols[ii] in ref_cols) & (not new_err_cols[ii] in ref_cols):
+                # If neither the orig_err_col or new_err_col is in the ref_table, put in the
+                # new_err_cols as an array of zeros
+                vals = np.zeros(len(ref_table))
+                new_col = Column(vals, name=new_err_cols[ii])
+                ref_table.add_column(new_col)                
+
+        # Final check: ref_table should now have x0, y0, m0, x0e, y0e, and m0e columns
+        # This is necessary for later steps, even if the columns are just zeros.
+        final_new_cols = np.concatenate((new_cols_arr, new_err_cols))
+        for ii in final_new_cols:
+            assert ii in ref_table.keys()
+                
         # Make sure we have a column to indicate whether each star
         # CAN BE USED in the transformation. This will be 1D
         if 'use_in_trans' not in ref_table.colnames:
