@@ -1071,7 +1071,20 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
                                        xt_mod, yt_mod, 
                                        good_idx, ref_idx,
                                        'Epoch {0:d}'.format(ee), 
-                                       unit=unit, scale=scale, plotlim=plotlim)
+                                       unit=unit, scale=scale, plotlim=plotlim,
+                                       x_orig=tab['x_orig'][:, ee], y_orig=tab['y_orig'][:, ee])
+
+        plot_angle_histogram(tab['x'][:, ee], tab['y'][:, ee], 
+                             xt_mod, yt_mod, 
+                             good_idx, ref_idx,
+                             'Epoch {0:d}'.format(ee),
+                             weights=True)
+
+        plot_angle_histogram(tab['x'][:, ee], tab['y'][:, ee], 
+                             xt_mod, yt_mod, 
+                             good_idx, ref_idx,
+                             'Epoch {0:d}'.format(ee),
+                             weights=False)
 
         # Building up average dr for a set of stars.
         dr = np.hypot(dx, dy)
@@ -1114,10 +1127,44 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
             
     return
 
+def angle_from_xy(x, y):
+    """
+    Given x and y, calculate the angle theta in degrees
+    """
+    angles = np.arctan2(y, x) * 180 / np.pi
 
+    return angles
+
+
+def plot_angle_histogram(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, weights=False):
+    dx = (x_t - x_ref)
+    dy = (y_t - y_ref)
+
+    agood = angle_from_xy(dx[good_idx], dy[good_idx])
+    aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+
+    if weights:
+        w_good = np.hypot(dx[good_idx], dy[good_idx])
+        w_ref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+    else:
+        w_good = None
+        w_ref = None
+
+    plt.figure(figsize=(6,6))
+    plt.clf()
+    plt.hist(agood, color='black', histtype = 'step', weights=w_good,
+             alpha=0.8 , bins = 36, density=True)
+    plt.hist(aref ,color='red', histtype = 'step', weights=w_ref,
+             alpha=0.8, bins = 36, density=True)
+    plt.xlabel('Quiver angle (degrees)')
+    plt.title(title)
+    plt.show()
+    plt.pause(1)
+   
 
 def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, 
-                          unit='pixel', scale=None, plotlim=None):
+                          unit='pixel', scale=None, plotlim=None,
+                          x_orig=None, y_orig=None):
     """
     unit : str
         'pixel' or 'arcsec'
@@ -1171,6 +1218,27 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
         plt.ylim(-1 * plotlim, plotlim)
     plt.show()
     plt.pause(1)
+
+
+    if x_orig is not None and y_orig is not None:
+        plt.figure(figsize=(6,6))
+        plt.clf()
+        q = plt.quiver(x_orig[good_idx], y_orig[good_idx], dx[good_idx], dy[good_idx],
+                       color='black', scale=quiv_scale, angles='xy', alpha=0.5)
+        plt.quiver(x_orig[good_idx][ref_idx], y_orig[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
+                   color='red', scale=quiv_scale, angles='xy')
+#        plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
+#                      coordinates='figure', labelpos='E', color='green')
+        plt.xlabel('X (orig pix)')
+        plt.ylabel('Y (orig pix)')
+        plt.title(title)
+        plt.axis('equal')
+        if plotlim is not None:
+            plt.xlim(-1 * plotlim, plotlim)
+            plt.ylim(-1 * plotlim, plotlim)
+        plt.show()
+        plt.pause(1)
+
 
     str_fmt = 'Residuals (mean, std): dx = {0:7.3f} +/- {1:7.3f} {5:s}  dy = {2:7.3f} +/- {3:7.3f} {5:s} for {4:s} stars'
     if len(ref_idx) > 1:
@@ -1307,7 +1375,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
             row = 1 + 3*(i//(Ncols/2)) 
             
         ind = (row-1)*Ncols + col
-
+        
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, fitLineX, 'b-')
         plt.plot(time, fitLineX + fitSigX, 'b--')
@@ -1416,6 +1484,105 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
     plt.show()
 
     return
+
+
+def plot_stars_mag(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
+    """
+    Plot a set of stars magnitude + error bars over time. 
+
+    epoch_array : None, array
+        Array of the epoch indicies to plot. If None, plots all epochs.
+    """
+    print( 'Creating magnitude plots for star(s):' )
+    print( star_names )
+
+    Nstars = len(star_names)
+    Ncols = np.min([Nstars, NcolMax])
+    if Nstars <= Ncols:
+        Nrows = 2
+    else:
+        Nrows = math.ceil(Nstars/Ncols) * 2
+    
+    plt.close('all')
+    plt.figure(2, figsize=figsize)
+    names = tab['name']
+    
+    for i in range(Nstars):
+        starName = star_names[i]
+
+        try:
+            ii = np.where(tab['name'] == starName)[0][0]
+            print(ii, tab[ii]['name'])
+        except IndexError:
+            print("!! %s is not in this list"%starName)
+
+        fnd = np.where(tab['xe'][ii, :] > 0)[0]
+
+        if epoch_array is not None:
+            fnd = np.intersect1d(fnd, epoch_array)
+
+        time = tab['t'][ii, fnd]
+        m = tab['m'][ii, fnd]
+        merr = tab['me'][ii, fnd]
+        m0 = tab['m0'][ii]
+        m0e = tab['m0e'][ii]
+
+        diff = m0 - m
+
+        print( 'Star:        ', starName )
+#        print( 'Average mag (unweighted) = {:.3f}'.format(np.average(m)))
+#        print( 'St dev mag (unweighted, millimag) = {:.1f}'.format(1000 * np.std(m)))
+        print( 'Average mag (weighted) = {:.3f}'.format(m0))
+        print( 'Std dev mag (weighted, millimag) = {:.1f}'.format(1000 * m0e))
+
+        tmin = time.min()
+        tmax = time.max()
+
+        dateTicLoc = plt.MultipleLocator(3)
+        dateTicRng = [np.floor(tmin), np.ceil(tmax)]
+        dateTics = np.arange(np.floor(tmin), np.ceil(tmax)+0.1)
+        DateTicsLabel = dateTics
+
+        # See if we are using MJD instead.
+        if time[0] > 50000:
+            print('MJD')
+            dateTicLoc = plt.MultipleLocator(1000)
+            t0 = int(np.round(np.min(time), 50))
+            tO = int(np.round(np.max(time), 50))
+            dateTicRng = [tmin-200, tmax+200]
+            dateTics = np.arange(dateTicRng[0], dateTicRng[-1]+500, 1000)
+            DateTicsLabel = dateTics
+
+        from matplotlib.ticker import FormatStrFormatter
+        fmtX = FormatStrFormatter('%5i')
+        fmtY = FormatStrFormatter('%6.3f')
+        fontsize1 = 10
+
+        paxes = plt.subplot(Nrows, Ncols, i+1)
+        plt.plot(time, m0 * np.ones(len(time)), label='m0')
+        plt.errorbar(time, m, yerr=merr, fmt='k.')
+        rng = plt.axis()
+        plt.xlabel('Date (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('mag', fontsize=fontsize1)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.yaxis.set_major_formatter(fmtY)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+        plt.title(starName, fontsize=12, color='red')
+        plt.gca().invert_yaxis()
+        if i == 0:
+            plt.legend()
+        
+    if Nstars == 1:
+        plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
+        # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
+    else:
+        plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
+        # plt.savefig(rootDir+'plots/plotStar_all.png')
+        plt.show()
+
+    plt.show()
 
 
 def plot_errors_vs_r_m(star_tab):
