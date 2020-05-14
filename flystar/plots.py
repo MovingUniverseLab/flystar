@@ -1051,14 +1051,14 @@ def plot_mag_error(tab):
 
     return
 
-def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=None):
+def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=None, trans_list=None):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
     n_good = np.zeros(len(tab), dtype=int)
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
-    
+
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
         xt_mod = tab['x0'] + tab['vx'] * dt
@@ -1066,6 +1066,16 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
         
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
         ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+
+        if trans_list is not None:
+            c01_idx = trans_list[ee].px.param_names.index('c0_1')
+            c10_idx = trans_list[ee].px.param_names.index('c1_0')
+            c01 = trans_list[ee].px.parameters[c01_idx]
+            c10 = trans_list[ee].px.parameters[c10_idx]
+            da = np.degrees(np.arctan2(-c01, c10))
+            print(da)
+        else:
+            da=0
 
         dx, dy = plot_quiver_residuals(tab['x'][:, ee], tab['y'][:, ee], 
                                        xt_mod, yt_mod, 
@@ -1077,14 +1087,14 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
         plot_angle_histogram(tab['x'][:, ee], tab['y'][:, ee], 
                              xt_mod, yt_mod, 
                              good_idx, ref_idx,
-                             'Epoch {0:d}'.format(ee),
-                             weights=True)
+                             'Epoch {0:d}, unweighted'.format(ee),
+                             weights=False, da=da)
 
-        plot_angle_histogram(tab['x'][:, ee], tab['y'][:, ee], 
-                             xt_mod, yt_mod, 
-                             good_idx, ref_idx,
-                             'Epoch {0:d}'.format(ee),
-                             weights=False)
+        plot_mag_scatter(tab['m'][:, ee], 
+                         tab['x'][:, ee], tab['y'][:, ee], 
+                         xt_mod, yt_mod, 
+                         good_idx, ref_idx,
+                         'Epoch {0:d}'.format(ee), da=da)
 
         # Building up average dr for a set of stars.
         dr = np.hypot(dx, dy)
@@ -1135,13 +1145,20 @@ def angle_from_xy(x, y):
 
     return angles
 
-
-def plot_angle_histogram(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, weights=False):
+def plot_angle_histogram(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, weights=False, da=0):
     dx = (x_t - x_ref)
     dy = (y_t - y_ref)
 
     agood = angle_from_xy(dx[good_idx], dy[good_idx])
     aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+
+    # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
+    agood -= da
+    aref -= da
+
+    # Keep everything within 0 to 360
+    agood = agood % 360
+    aref = aref % 360
 
     if weights:
         w_good = np.hypot(dx[good_idx], dy[good_idx])
@@ -1160,7 +1177,50 @@ def plot_angle_histogram(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, weigh
     plt.title(title)
     plt.show()
     plt.pause(1)
-   
+
+def plot_mag_scatter(m_t, x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, da=0):
+    # Residual
+    dx = (x_t - x_ref)
+    dy = (y_t - y_ref)
+    
+    # Magnitude
+    mgood = m_t[good_idx]
+    mref = m_t[good_idx][ref_idx]
+
+    # Residual angle
+    agood = angle_from_xy(dx[good_idx], dy[good_idx])
+    aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+    # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
+    agood -= da
+    aref -= da
+
+    # Keep everything within 0 to 360
+    agood = agood % 360
+    aref = aref % 360
+
+    # Residual magnitude
+    rgood = np.hypot(dx[good_idx], dy[good_idx])
+    rref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+
+    plt.figure(figsize=(12,6))
+    plt.clf()
+    ax1 = plt.subplot(1, 2, 1)
+    ax2 = plt.subplot(1, 2, 2)
+    plt.subplots_adjust(wspace=0.4)
+
+    ax1.scatter(mgood, agood, color='black', alpha=0.3, s=7)
+    ax1.scatter(mref, aref, color='red', alpha=0.3, s=7)
+    ax1.set_xlabel('mag')
+    ax1.set_ylabel('res. angle')
+
+    ax2.scatter(mgood, rgood, color='black', alpha=0.3, s=7)
+    ax2.scatter(mref, rref, color='red', alpha=0.3, s=7)
+    ax2.set_xlabel('mag')
+    ax2.set_ylabel('res. magnitude')
+
+    plt.title(title)
+    plt.show()
+    plt.pause(1)
 
 def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, 
                           unit='pixel', scale=None, plotlim=None,
@@ -1206,7 +1266,7 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
     q = plt.quiver(x_ref[good_idx], y_ref[good_idx], dx[good_idx], dy[good_idx],
                    color='black', scale=quiv_scale, angles='xy', alpha=0.5)
     plt.quiver(x_ref[good_idx][ref_idx], y_ref[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
-                   color='red', scale=quiv_scale, angles='xy')
+               color='red', scale=quiv_scale, angles='xy')
     plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
                       coordinates='figure', labelpos='E', color='green')
     plt.xlabel('X (ref ' + unit + ')')
@@ -1223,12 +1283,17 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
     if x_orig is not None and y_orig is not None:
         plt.figure(figsize=(6,6))
         plt.clf()
-        q = plt.quiver(x_orig[good_idx], y_orig[good_idx], dx[good_idx], dy[good_idx],
-                       color='black', scale=quiv_scale, angles='xy', alpha=0.5)
-        plt.quiver(x_orig[good_idx][ref_idx], y_orig[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
-                   color='red', scale=quiv_scale, angles='xy')
-#        plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
-#                      coordinates='figure', labelpos='E', color='green')
+#        q = plt.quiver(x_orig[good_idx], y_orig[good_idx], dx[good_idx], dy[good_idx],
+#                       color='black', scale=quiv_scale, angles='xy', alpha=0.5)
+#        plt.quiver(x_orig[good_idx][ref_idx], y_orig[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
+#                   color='red', scale=quiv_scale, angles='xy')
+
+        r_good = np.hypot(dx[good_idx], dy[good_idx])
+        r_ref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+
+        plt.scatter(x_orig[good_idx], y_orig[good_idx], s=r_good**2, alpha=0.3, color='black')
+        plt.scatter(x_orig[good_idx][ref_idx], y_orig[good_idx][ref_idx], s=r_ref**2, alpha=0.5, color='red')
+
         plt.xlabel('X (orig pix)')
         plt.ylabel('Y (orig pix)')
         plt.title(title)
