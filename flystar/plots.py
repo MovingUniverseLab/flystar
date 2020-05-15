@@ -1434,13 +1434,13 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     fig, ax = plt.subplots(1, 2, figsize=(12,6), sharey=True)
 #    plt.clf()
     plt.subplots_adjust(wspace=0.01)
-    ax[0].scatter(x_orig[good_idx], agood, color='black', alpha=0.6, s=5)
-    ax[0].scatter(x_orig[good_idx][ref_idx], aref, color='red', alpha=0.6, s=5)
+    ax[0].scatter(x_orig[good_idx], agood, color='black', alpha=0.3, s=5)
+    ax[0].scatter(x_orig[good_idx][ref_idx], aref, color='red', alpha=0.3, s=5)
     ax[0].set_xlabel('X (orig pix)')
     ax[0].set_ylabel('Quiver angle (degrees), HST camera')
 
-    ax[1].scatter(y_orig[good_idx], agood, color='black', alpha=0.6, s=5)
-    ax[1].scatter(y_orig[good_idx][ref_idx], aref, color='red', alpha=0.6, s=5)
+    ax[1].scatter(y_orig[good_idx], agood, color='black', alpha=0.3, s=5)
+    ax[1].scatter(y_orig[good_idx][ref_idx], aref, color='red', alpha=0.3, s=5)
     ax[1].set_xlabel('Y (orig pix)')
     plt.title(title)
 #    plt.axis('equal')
@@ -1452,6 +1452,61 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
 
     return
 
+
+def plot_chi2_dist(tab, Ndetect):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    chi2_x_list = []
+    chi2_y_list = []
+    fnd_list = [] # Number of non-NaN error measurements
+    
+    for ii in range(len(tab['xe'])):
+        # Ignore the NaNs 
+        fnd = np.where(tab['xe'][ii, :] > 0)[0]
+        fnd_list.append(len(fnd))
+        
+        time = tab['t'][ii, fnd]
+        x = tab['x'][ii, fnd]
+        y = tab['y'][ii, fnd]
+        xerr = tab['xe'][ii, fnd]
+        yerr = tab['ye'][ii, fnd]
+
+        dt = tab['t'][ii, fnd] - tab['t0'][ii]
+        fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
+        fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
+
+        diffX = x - fitLineX
+        diffY = y - fitLineY
+        sigX = diffX / xerr
+        sigY = diffY / yerr
+        
+        chi2_x = np.sum(sigX**2)
+        chi2_y = np.sum(sigY**2)
+        chi2_x_list.append(chi2_x)
+        chi2_y_list.append(chi2_y)
+
+    x = np.array(chi2_x_list)
+    y = np.array(chi2_y_list)
+    fnd = np.array(fnd_list)
+    
+    idx = np.where(fnd == Ndetect)[0]
+    # Fitting position and velocity... so subtract 2 to get Ndof
+    Ndof = Ndetect - 2 
+    chi2_xaxis = np.linspace(0, 40, 100)
+
+    plt.figure(figsize=(6,4))
+    plt.clf()
+    plt.hist(x[idx], bins=np.arange(400), histtype='step', label='X', density=True)
+    plt.hist(y[idx], bins=np.arange(400), histtype='step', label='Y', density=True)
+    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6, 
+             label='$\chi^2$ ' + str(Ndof) + ' dof')
+    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.xlim(0, 40)
+    plt.legend()
+
+    return
 
 def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
     """
