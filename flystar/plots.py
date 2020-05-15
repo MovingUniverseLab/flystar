@@ -1143,7 +1143,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                                    xt_mod, yt_mod, 
                                    good_idx, ref_idx,
                                    tab['x_orig'][:, ee], tab['y_orig'][:, ee], da,
-                                   'Epoch {0:d}, unweighted'.format(ee))
+                                   'Epoch {0:d}'.format(ee))
 
         plot_mag_scatter(tab['m'][:, ee], 
                          tab['x'][:, ee], tab['y'][:, ee], 
@@ -1151,6 +1151,12 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                          good_idx, ref_idx,
                          'Epoch {0:d}'.format(ee), da=da)
 
+        plot_quiver_residuals_orig_angle_xy(tab['x'][:, ee], tab['y'][:, ee],
+                                            xt_mod, yt_mod, 
+                                            good_idx, ref_idx,
+                                            tab['x_orig'][:, ee], tab['y_orig'][:, ee], da,
+                                            'Epoch {0:d}'.format(ee))
+    
         # Building up average dr for a set of stars.
         dr = np.hypot(dx, dy)
 
@@ -1237,22 +1243,20 @@ def plot_mag_scatter(m_t, x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, da=0
     rgood = np.hypot(dx[good_idx], dy[good_idx])
     rref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
 
-    pdb.set_trace()
-
     fig, ax = plt.subplots(2, 1, figsize=(6,6), sharex=True)
-#                           gridspec_kw={'width_ratios': [1, 1.4]})
-#    plt.subplots_adjust(left=0.1, bottom=0.15, wspace=0.1)
-    plt.clf()
-    ax[0].plot(mgood, agood, '.', color='black', alpha=0.3, ms=7)
-    ax[0].plot(mref, aref, '.', color='red', alpha=0.3, ms=7)
-    ax[0].set_ylabel('Angle')
+#    plt.clf()
+    plt.subplots_adjust(hspace=0.01)
+    ax[0].scatter(mgood, agood, color='black', alpha=0.3, s=7)
+    ax[0].scatter(mref, aref, color='red', alpha=0.3, s=7)
+    ax[0].set_ylabel('Angle (deg)')
 
-    ax[1].plot(mgood, rgood, '.', color='black', alpha=0.3, ms=7)
-    ax[1].plot(mref, rref, '.', color='red', alpha=0.3, ms=7)
+    ax[1].scatter(mgood, rgood, color='black', alpha=0.3, s=7)
+    ax[1].scatter(mref, rref, color='red', alpha=0.3, s=7)
     ax[1].set_xlabel('mag')
     ax[1].set_ylabel('Modulus')
+    ax[1].set_ylim(-0.001, 1.1 * np.max(np.concatenate([rgood, rref])))
 
-    plt.title(title)
+    ax[0].set_title(title)
     plt.show()
     plt.pause(1)
 
@@ -1372,12 +1376,12 @@ def plot_quiver_residuals_orig(x_t, y_t, x_ref, y_ref, good_idx, ref_idx,
     ax1.set_xlabel('Quiver angle (degrees), HST camera')
     
     ax2.scatter(x_orig[good_idx], y_orig[good_idx], 
-                s=r_good**2, alpha=0.3, color='black')
+                s=5e5 * r_good**2, alpha=0.3, color='black')
     ax2.scatter(x_orig[good_idx][ref_idx], y_orig[good_idx][ref_idx], 
-                s=r_ref**2, alpha=0.5, color='red')    
+                s=5e5 * r_ref**2, alpha=0.5, color='red')    
     ax2.set_xlabel('X (orig pix)')
     ax2.set_ylabel('Y (orig pix)')
-    plt.suptitle(title)
+    plt.title(title)
     plt.axis('equal')
     if plotlim is not None:
         plt.xlim(-1 * plotlim, plotlim)
@@ -1386,6 +1390,67 @@ def plot_quiver_residuals_orig(x_t, y_t, x_ref, y_ref, good_idx, ref_idx,
     plt.pause(1)
 
     return (dx, dy)
+
+
+def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, 
+                                        x_orig, y_orig, da, title, scale=None, plotlim=None):
+    """
+    unit : str
+        'pixel' or 'arcsec'
+        The pixel units of the input values. Note, if arcsec, then the values will be
+        converted to milli-arcsec for plotting when appropriate. 
+
+    scale : float
+        The quiver scale. If none, then default units will be used appropriate to the unit. 
+
+    plotlim : float (positive)
+        Sets the size of the plotted figure. If None, then default is used.
+        Otherwise plots figure of range [-plotlim, plotlim] x [-plotlim, plotlim].
+    """
+    dx = (x_t - x_ref)
+    dy = (y_t - y_ref)
+    
+    # Residual modulus
+    r_good = np.hypot(dx[good_idx], dy[good_idx])
+    r_ref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+
+    # Residual angle
+    agood = angle_from_xy(dx[good_idx], dy[good_idx])
+    aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+    # Subtract off rotation angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
+    agood -= da
+    aref -= da
+    # Keep everything within 0 to 360
+    agood = agood % 360
+    aref = aref % 360
+
+    plt.figure(figsize=(14,6))
+    plt.clf()
+    ax1 = plt.subplot(1, 2, 1)
+    ax2 = plt.subplot(1, 2, 2)
+    plt.subplots_adjust(wspace=0.3)
+
+    plt.clf()
+    fig, ax = plt.subplots(1, 2, figsize=(12,6), sharey=True)
+#    plt.clf()
+    plt.subplots_adjust(wspace=0.01)
+    ax[0].scatter(x_orig[good_idx], agood, color='black', alpha=0.6, s=5)
+    ax[0].scatter(x_orig[good_idx][ref_idx], aref, color='red', alpha=0.6, s=5)
+    ax[0].set_xlabel('X (orig pix)')
+    ax[0].set_ylabel('Quiver angle (degrees), HST camera')
+
+    ax[1].scatter(y_orig[good_idx], agood, color='black', alpha=0.6, s=5)
+    ax[1].scatter(y_orig[good_idx][ref_idx], aref, color='red', alpha=0.6, s=5)
+    ax[1].set_xlabel('Y (orig pix)')
+    plt.title(title)
+#    plt.axis('equal')
+    if plotlim is not None:
+        plt.xlim(-1 * plotlim, plotlim)
+        plt.ylim(-1 * plotlim, plotlim)
+    plt.show()
+    plt.pause(1)
+
+    return
 
 
 def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
