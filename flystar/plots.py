@@ -7,6 +7,7 @@ from matplotlib import colors
 from scipy.stats import chi2
 import pdb
 import math
+import astropy
 
 ####################################################
 # Code for making diagnostic plots for astrometry
@@ -1148,19 +1149,20 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
 
         plot_mag_scatter(tab['m'][:, ee], 
                          tab['x'][:, ee], tab['y'][:, ee], 
+                         tab['xe'][:, ee], tab['ye'][:, ee],
                          xt_mod, yt_mod, 
                          good_idx, ref_idx,
                          'Epoch {0:d}'.format(ee), da=da)
 
-        plot_quiver_residuals_orig_angle_xy(tab['x'][:, ee], tab['y'][:, ee],
-                                            xt_mod, yt_mod, 
-                                            good_idx, ref_idx,
-                                            tab['x_orig'][:, ee], tab['y_orig'][:, ee], da,
-                                            'Epoch {0:d}'.format(ee))
-
-        plot_quiver_residuals_vs_pos_err(dx, dy, good_idx, ref_idx,
-                                         1e3 * tab['xe'][:, ee], 1e3 * tab['ye'][:, ee], 
-                                         'positional err (mas)', 'Epoch {0:d}'.format(ee), da=da)
+#        plot_quiver_residuals_orig_angle_xy(tab['x'][:, ee], tab['y'][:, ee],
+#                                            xt_mod, yt_mod, 
+#                                            good_idx, ref_idx,
+#                                            tab['x_orig'][:, ee], tab['y_orig'][:, ee], da,
+#                                            'Epoch {0:d}'.format(ee))
+#
+#        plot_quiver_residuals_vs_pos_err(dx, dy, good_idx, ref_idx,
+#                                         1e3 * tab['xe'][:, ee], 1e3 * tab['ye'][:, ee], 
+#                                         'positional err (mas)', 'Epoch {0:d}'.format(ee), da=da)
     
         # Building up average dr for a set of stars.
         dr = np.hypot(dx, dy)
@@ -1203,6 +1205,53 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
             
     return
 
+
+def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None):
+    m_t_list = []
+    x_t_list = []
+    y_t_list = []
+    xe_t_list = [] 
+    ye_t_list = []
+    x_ref_list = []
+    y_ref_list = [] 
+    good_idx_list = [] 
+    ref_idx_list =[] 
+    da_list = []
+
+    ntrans = len(tab_list)
+
+    for mm in range(ntrans):
+        tab = tab_list[mm]
+        trans_list = trans_list_list[mm]
+        for ee in range(tab['x'].shape[1]):
+            dt = tab['t'][:, ee] - tab['t0']
+            xt_mod = tab['x0'] + tab['vx'] * dt
+            yt_mod = tab['y0'] + tab['vy'] * dt
+        
+            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
+            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+
+            da = calc_da(trans_list[ee])
+
+            m_t_list.append(tab['m'][:, ee])
+            x_t_list.append(tab['x'][:, ee])
+            y_t_list.append(tab['y'][:, ee])
+            xe_t_list.append(tab['xe'][:, ee]) 
+            ye_t_list.append(tab['ye'][:, ee])
+            x_ref_list.append(xt_mod)
+            y_ref_list.append(yt_mod)
+            good_idx_list.append(good_idx) 
+            ref_idx_list.append(ref_idx) 
+            da_list.append(da)
+
+    for ee in range(tab_list[0]['x'].shape[1]):
+        plot_mag_scatter_multi_trans(m_t_list[ee::ntrans], x_t_list[ee::ntrans], y_t_list[ee::ntrans], 
+                                     xe_t_list[ee::ntrans], ye_t_list[ee::ntrans], x_ref_list[ee::ntrans], y_ref_list[ee::ntrans], 
+                                     good_idx_list[ee::ntrans], ref_idx_list[ee::ntrans], 'Epoch {0:d}'.format(ee), da_list[ee::ntrans])
+        
+    return
+
+
 def angle_from_xy(x, y):
     """
     Given x and y, calculate the angle theta in degrees
@@ -1224,7 +1273,117 @@ def calc_da(trans_list):
     
     return da
 
-def plot_mag_scatter(m_t, x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, da=0):
+def plot_mag_scatter_multi_trans(m_t_list, x_t_list, y_t_list, 
+                                 xe_t_list, ye_t_list, x_ref_list, y_ref_list, 
+                                 good_idx_list, ref_idx_list, title, da_list):
+    mgood_all = np.array([])
+    rgood_all = np.array([])
+    mref_all = np.array([])
+    rref_all = np.array([])
+    agood_all = np.array([])
+    aref_all = np.array([])
+    xegood_all = np.array([])
+    xeref_all = np.array([])
+    yegood_all = np.array([])
+    yeref_all = np.array([])
+    
+    for ii in range(len(m_t_list)):
+        m_t = m_t_list[ii] 
+        x_t = x_t_list[ii]
+        y_t = y_t_list[ii]
+        xe_t = xe_t_list[ii]
+        ye_t = ye_t_list[ii]
+        x_ref = x_ref_list[ii]
+        y_ref = y_ref_list[ii]
+        good_idx = good_idx_list[ii]
+        ref_idx = ref_idx_list[ii]
+        da = da_list[ii]
+    
+        # Residual
+        dx = (x_t - x_ref)
+        dy = (y_t - y_ref)
+        
+        # Magnitude
+        mgood = m_t[good_idx]
+        mref = m_t[good_idx][ref_idx]
+    
+        # Residual angle
+        agood = angle_from_xy(dx[good_idx], dy[good_idx])
+        aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+        # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
+        agood -= da
+        aref -= da
+    
+        # Keep everything within 0 to 360
+        agood = agood % 360
+        aref = aref % 360
+    
+        # Residual magnitude
+        rgood = np.hypot(dx[good_idx], dy[good_idx])
+        rref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+    
+        # Errors in x and y position
+        xegood = xe_t[good_idx]
+        xeref = xe_t[good_idx][ref_idx]
+        yegood = ye_t[good_idx]
+        yeref = ye_t[good_idx][ref_idx]
+    
+        mgood_all = np.concatenate((mgood_all, mgood.data))
+        rgood_all = np.concatenate((rgood_all, rgood.data))
+        mref_all = np.concatenate((mref_all, mref.data))
+        rref_all = np.concatenate((rref_all, rref.data))
+        agood_all = np.concatenate((agood_all, agood.data))
+        aref_all = np.concatenate((aref_all, aref.data))
+        xegood_all = np.concatenate((xegood_all, xegood.data))
+        xeref_all = np.concatenate((xeref_all, xeref.data))
+        yegood_all = np.concatenate((yegood_all, yegood.data))
+        yeref_all = np.concatenate((yeref_all, yeref.data))
+    
+    fig, ax = plt.subplots(6, 1, figsize=(6,18), sharex=True, num=103)
+#    plt.clf()
+    plt.subplots_adjust(hspace=0.01)
+    ax[0].scatter(mgood_all, agood_all, color='black', alpha=0.3, s=7)
+    ax[0].scatter(mref_all, aref_all, color='red', alpha=0.3, s=7)
+    ax[0].set_ylabel('Angle (deg)')
+
+    ax[1].scatter(mgood_all, rgood_all, color='black', alpha=0.3, s=7)
+    ax[1].scatter(mref_all, rref_all, color='red', alpha=0.3, s=7)
+    ax[1].set_xlabel('mag')
+    ax[1].set_ylabel('Modulus (arcsec)')
+    ax[1].set_yscale('log')
+    if type(rgood_all) == astropy.table.column.MaskedColumn:
+        ax[1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_all.data, rref_all.data])))
+    else:
+        ax[1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_all, rref_all])))
+
+    ax[2].scatter(mgood_all, np.cos(np.radians(agood_all)) * rgood_all, color='black', alpha=0.3, s=7)
+    ax[2].scatter(mref_all, np.cos(np.radians(aref_all)) * rref_all, color='red', alpha=0.3, s=7)
+    ax[2].set_xlabel('mag')
+    ax[2].set_ylabel('Res, x (arcsec)')
+    ax[2].set_ylim(-0.01, 0.01)
+
+    ax[3].scatter(mgood_all, np.sin(np.radians(agood_all)) * rgood_all, color='black', alpha=0.3, s=7)
+    ax[3].scatter(mref_all, np.sin(np.radians(aref_all)) * rref_all, color='red', alpha=0.3, s=7)
+    ax[3].set_xlabel('mag')
+    ax[3].set_ylabel('Res, y (arcsec)')
+    ax[3].set_ylim(-0.01, 0.01)
+
+    ax[4].scatter(mgood_all, np.cos(np.radians(agood_all)) * rgood_all/xegood_all, color='black', alpha=0.3, s=7)
+    ax[4].scatter(mref_all, np.cos(np.radians(aref_all)) * rref_all/xeref_all, color='red', alpha=0.3, s=7)
+    ax[4].set_xlabel('mag')
+    ax[4].set_ylabel('Res/Pos Err, x')
+
+    ax[5].scatter(mgood_all, np.sin(np.radians(agood_all)) * rgood_all/yegood_all, color='black', alpha=0.3, s=7)
+    ax[5].scatter(mref_all, np.sin(np.radians(aref_all)) * rref_all/yeref_all, color='red', alpha=0.3, s=7)
+    ax[5].set_xlabel('mag')
+    ax[5].set_ylabel('Res/Pos Err, y')
+
+    ax[0].set_title(title)
+    plt.show()
+    plt.pause(1)
+
+
+def plot_mag_scatter(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title, da=0):
     # Residual
     dx = (x_t - x_ref)
     dy = (y_t - y_ref)
@@ -1248,7 +1407,13 @@ def plot_mag_scatter(m_t, x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, da=0
     rgood = np.hypot(dx[good_idx], dy[good_idx])
     rref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
 
-    fig, ax = plt.subplots(2, 1, figsize=(6,6), sharex=True)
+    # Errors in x and y position
+    xegood = xe_t[good_idx]
+    xeref = xe_t[good_idx][ref_idx]
+    yegood = ye_t[good_idx]
+    yeref = ye_t[good_idx][ref_idx]
+
+    fig, ax = plt.subplots(6, 1, figsize=(6,18), sharex=True, num=103)
 #    plt.clf()
     plt.subplots_adjust(hspace=0.01)
     ax[0].scatter(mgood, agood, color='black', alpha=0.3, s=7)
@@ -1258,13 +1423,38 @@ def plot_mag_scatter(m_t, x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, da=0
     ax[1].scatter(mgood, rgood, color='black', alpha=0.3, s=7)
     ax[1].scatter(mref, rref, color='red', alpha=0.3, s=7)
     ax[1].set_xlabel('mag')
-    ax[1].set_ylabel('Modulus')
-    ax[1].set_ylim(-0.001, 1.1 * np.max(np.concatenate([rgood, rref])))
+    ax[1].set_ylabel('Modulus (arcsec)')
+    ax[1].set_yscale('log')
+    if type(rgood) == astropy.table.column.MaskedColumn:
+        ax[1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
+    else:
+        ax[1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+
+    ax[2].scatter(mgood, np.cos(np.radians(agood)) * rgood, color='black', alpha=0.3, s=7)
+    ax[2].scatter(mref, np.cos(np.radians(aref)) * rref, color='red', alpha=0.3, s=7)
+    ax[2].set_xlabel('mag')
+    ax[2].set_ylabel('Res, x (arcsec)')
+    ax[2].set_ylim(-0.01, 0.01)
+
+    ax[3].scatter(mgood, np.sin(np.radians(agood)) * rgood, color='black', alpha=0.3, s=7)
+    ax[3].scatter(mref, np.sin(np.radians(aref)) * rref, color='red', alpha=0.3, s=7)
+    ax[3].set_xlabel('mag')
+    ax[3].set_ylabel('Res, y (arcsec)')
+    ax[3].set_ylim(-0.01, 0.01)
+
+    ax[4].scatter(mgood, np.cos(np.radians(agood)) * rgood/xegood, color='black', alpha=0.3, s=7)
+    ax[4].scatter(mref, np.cos(np.radians(aref)) * rref/xeref, color='red', alpha=0.3, s=7)
+    ax[4].set_xlabel('mag')
+    ax[4].set_ylabel('Res/Pos Err, x')
+
+    ax[5].scatter(mgood, np.sin(np.radians(agood)) * rgood/yegood, color='black', alpha=0.3, s=7)
+    ax[5].scatter(mref, np.sin(np.radians(aref)) * rref/yeref, color='red', alpha=0.3, s=7)
+    ax[5].set_xlabel('mag')
+    ax[5].set_ylabel('Res/Pos Err, y')
 
     ax[0].set_title(title)
     plt.show()
     plt.pause(1)
-
 
 def plot_quiver_residuals_vs_pos_err(dx, dy, good_idx, ref_idx, 
                                      xerr, yerr, errtype, title, da=0):
@@ -1394,7 +1584,7 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
         unit2 = 'mas'
 
 
-    plt.figure(figsize=(6,6))
+    plt.figure(101, figsize=(6,6))
     plt.clf()
     q = plt.quiver(x_ref[good_idx], y_ref[good_idx], dx[good_idx], dy[good_idx],
                    color='black', scale=quiv_scale, angles='xy', alpha=0.5)
@@ -1469,7 +1659,7 @@ def plot_quiver_residuals_orig(x_t, y_t, x_ref, y_ref, good_idx, ref_idx,
     dx_ref_new, dy_ref_new = rotate(dx[good_idx][ref_idx], dy[good_idx][ref_idx], -da)
     print('Rotation angle between HST and Gaia (deg): ', da)
 
-    plt.figure(figsize=(6,6))
+    plt.figure(102, figsize=(6,6))
     plt.clf()
     q = plt.quiver(x_orig[good_idx], y_orig[good_idx], dx_good_new, dy_good_new,
                    color='black', scale=scale, angles='xy', alpha=0.5)
@@ -1874,7 +2064,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
     return
 
 
-def plot_stars_mag(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
+def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,12)):
     """
     Plot a set of stars magnitude + error bars over time. 
 
@@ -1916,6 +2106,11 @@ def plot_stars_mag(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,1
         m0e = tab['m0e'][ii]
 
         diff = m0 - m
+        sig = diff/merr
+        
+        chi2 = np.sum(sig)
+        dof = len(m) - 1 # horizontal line has only 1 dof right?
+        chi2_red = chi2/dof
 
         print( 'Star:        ', starName )
 #        print( 'Average mag (unweighted) = {:.3f}'.format(np.average(m)))
@@ -1946,7 +2141,7 @@ def plot_stars_mag(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,1
         fmtY = FormatStrFormatter('%6.3f')
         fontsize1 = 10
 
-        paxes = plt.subplot(Nrows, Ncols, i+1)
+        paxes = plt.subplot(2*Nrows, Ncols, 2*i+1)
         plt.plot(time, m0 * np.ones(len(time)), label='m0')
         plt.errorbar(time, m, yerr=merr, fmt='k.')
         rng = plt.axis()
@@ -1957,16 +2152,27 @@ def plot_stars_mag(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,1
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.yaxis.set_major_formatter(fmtY)
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
-        plt.title(starName, fontsize=12, color='red')
+#        plt.title(starName, fontsize=12, color='red')
         plt.gca().invert_yaxis()
         if i == 0:
             plt.legend()
-        
+        plt.annotate(starName,xy=(1.0, 1.1), xycoords='axes fraction', fontsize=12, color='red')
+
+        bins = np.arange(-7.5, 7.5, 1)
+        paxes = plt.subplot(2*Nrows, Ncols, 2*i+2)
+        id = np.where(diff < 0)[0]
+        sig[id] = -1.*sig[id] 
+        (n, b, p) = plt.hist(sig, bins, histtype='stepfilled', color='b')
+        plt.setp(p, 'facecolor', 'b')
+        plt.axis([-7, 7, 0, 8], fontsize=10)
+        plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
+        plt.ylabel('N epochs', fontsize=fontsize1)
+       
     if Nstars == 1:
         plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
         # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
     else:
-        plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
+        plt.subplots_adjust(wspace=0.5, hspace=0.7, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
         # plt.savefig(rootDir+'plots/plotStar_all.png')
         plt.show()
 
