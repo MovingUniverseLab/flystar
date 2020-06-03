@@ -211,8 +211,8 @@ class PolyTransform(Transform2D):
     y' = b0 + b1*x + b2*y. + b3*x**2 + b4*x*y. + b5*y**2
 
     Note that a 0th order polynomial is 
-    x' = a0 + x
-    y' = b0 + y
+    x' = a0
+    y' = b0
     """
     def __init__(self, order, px, py, pxerr=None, pyerr=None, mag_offset=0.0):
         """
