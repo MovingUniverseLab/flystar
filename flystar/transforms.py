@@ -451,7 +451,7 @@ class PolyTransform(Transform2D):
                 if j:
                     vx_new += Xcoeff * (j) * x**(i-j) * y**(j-1) * vy
                     vy_new += Ycoeff * (j) * x**(i-j) * y**(j-1) * vy
-                
+
         return vx_new, vy_new
 
     def evaluate_vel_err(self, x, y, vx, vy, xe, ye, vxe, vye):
@@ -534,7 +534,7 @@ class PolyTransform(Transform2D):
                               (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
         vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 +
                               (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
-
+        
         return vxe_new, vye_new
     
     @classmethod

@@ -738,8 +738,10 @@ class StarTable(Table):
         # Catch the case where we have enough measurements to actually
         # fit a velocity!
         if N_good > 2:
-            vx_opt, vx_cov = curve_fit(poly_model, dt.compressed(), x.compressed(), p0=p0x, sigma=xe.compressed())
-            vy_opt, vy_cov = curve_fit(poly_model, dt.compressed(), y.compressed(), p0=p0y, sigma=ye.compressed())
+            vx_opt, vx_cov = curve_fit(poly_model, dt.compressed(), x.compressed(), p0=p0x, sigma=xe.compressed(),
+                                           absolute_sigma=True)
+            vy_opt, vy_cov = curve_fit(poly_model, dt.compressed(), y.compressed(), p0=p0y, sigma=ye.compressed(),
+                                           absolute_sigma=True)
 
             self['x0'][ss] = vx_opt[0]
             self['vx'][ss] = vx_opt[1]
@@ -758,8 +760,10 @@ class StarTable(Table):
                 for bb in range(bootstrap):
                     bdx = np.random.choice(edx, N_good)
 
-                    vx_opt_b, vx_cov_b = curve_fit(poly_model, dt[bdx].compressed(), x[bdx].compressed(), p0=vx_opt, sigma=xe[bdx].compressed())
-                    vy_opt_b, vy_cov_b = curve_fit(poly_model, dt[bdx].compressed(), y[bdx].compressed(), p0=vy_opt, sigma=ye[bdx].compressed())
+                    vx_opt_b, vx_cov_b = curve_fit(poly_model, dt[bdx].compressed(), x[bdx].compressed(), p0=vx_opt, sigma=xe[bdx].compressed(),
+                                                       absolute_sigma=True)
+                    vy_opt_b, vy_cov_b = curve_fit(poly_model, dt[bdx].compressed(), y[bdx].compressed(), p0=vy_opt, sigma=ye[bdx].compressed(),
+                                                       absolute_sigma=True)
 
                     fit_x0_b[bb] = vx_opt_b[0]
                     fit_vx_b[bb] = vx_opt_b[1]

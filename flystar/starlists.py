@@ -649,7 +649,7 @@ class StarList(Table):
             self['ye'] = ye_T
 
         return
-
+    
     def transform_m(self, trans):
         """
         Apply a transformation (instance of flystar.transforms.Transform2D)
