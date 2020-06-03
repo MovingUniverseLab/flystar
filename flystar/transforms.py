@@ -219,8 +219,8 @@ class PolyTransform(Transform2D):
         Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
         Note that a 0th order polynomial is 
-        x' = a0 + x
-        y' = b0 + y
+        x' = a0
+        y' = b0
         
         Parameters
         ----------
