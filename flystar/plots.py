@@ -4,10 +4,13 @@ import pylab as plt
 import numpy as np
 import matplotlib.mlab as mlab
 from matplotlib import colors
+import matplotlib.cm as cm
 from scipy.stats import chi2
+from scipy.optimize import curve_fit
 import pdb
 import math
 import astropy
+from astropy.io import ascii
 
 ####################################################
 # Code for making diagnostic plots for astrometry
@@ -1152,7 +1155,8 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                          tab['xe'][:, ee], tab['ye'][:, ee],
                          xt_mod, yt_mod, 
                          good_idx, ref_idx,
-                         'Epoch {0:d}'.format(ee), da=da)
+                         'Epoch {0:d}'.format(ee), da=da,
+                         xorig=tab['x_orig'][:, ee], yorig=tab['y_orig'][:, ee])
 
 #        plot_quiver_residuals_orig_angle_xy(tab['x'][:, ee], tab['y'][:, ee],
 #                                            xt_mod, yt_mod, 
@@ -1383,7 +1387,7 @@ def plot_mag_scatter_multi_trans(m_t_list, x_t_list, y_t_list,
     plt.pause(1)
 
 
-def plot_mag_scatter(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title, da=0):
+def plot_mag_scatter(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title, da=0, xorig=None, yorig=None):
     # Residual
     dx = (x_t - x_ref)
     dy = (y_t - y_ref)
@@ -1455,6 +1459,43 @@ def plot_mag_scatter(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx,
     ax[0].set_title(title)
     plt.show()
     plt.pause(1)
+
+#    mgood_all = np.array([])
+#    rgood_all = np.array([])
+#    mref_all = np.array([])
+#    rref_all = np.array([])
+#    agood_all = np.array([])
+#    aref_all = np.array([])
+#    xegood_all = np.array([])
+#    xeref_all = np.array([])
+#    yegood_all = np.array([])
+#    yeref_all = np.array([])
+#
+#    from astropy.io import ascii
+#    tref = astropy.table.Table()
+#    tgood = astropy.table.Table()
+#    tgood['mgood'] = mgood
+#    tgood['rgood'] = rgood
+#    tgood['agood'] = agood
+#    tgood['xgood'] = x_ref[good_idx]
+#    tgood['ygood'] = y_ref[good_idx]
+#    tgood['xgoodorig'] = xorig[good_idx]
+#    tgood['ygoodorig'] = yorig[good_idx]
+#    tgood['xegood'] = xegood
+#    tgood['yegood'] = yegood
+#
+#    tref['mref'] = mref
+#    tref['rref'] = rref
+#    tref['aref'] = aref
+#    tref['xreforig'] = xorig[good_idx][ref_idx]
+#    tref['yreforig'] = yorig[good_idx][ref_idx]
+#    tref['xref'] = x_ref[good_idx][ref_idx]
+#    tref['yref'] = y_ref[good_idx][ref_idx]
+#    tref['xeref'] = xeref
+#    tref['yeref'] = yeref
+#
+#    ascii.write(tgood, 'OB110037_e' + title[-1] + 'good.dat', overwrite=True)
+#    ascii.write(tref, 'OB110037_e' + title[-1] + 'ref.dat', overwrite=True)
 
 def plot_quiver_residuals_vs_pos_err(dx, dy, good_idx, ref_idx, 
                                      xerr, yerr, errtype, title, da=0):
@@ -1833,7 +1874,7 @@ def plot_chi2_dist(tab, Ndetect):
 
     return
 
-def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
+def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), color_time=False):
     """
     Plot a set of stars positions and residuals over time. 
 
@@ -1873,6 +1914,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
             fnd = np.intersect1d(fnd, epoch_array)
 
         time = tab['t'][ii, fnd]
+        dtime = time.data % 1 
         x = tab['x'][ii, fnd]
         y = tab['y'][ii, fnd]
         xerr = tab['xe'][ii, fnd]
@@ -1958,7 +2000,17 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
         plt.plot(time, fitLineX, 'b-')
         plt.plot(time, fitLineX + fitSigX, 'b--')
         plt.plot(time, fitLineX - fitSigX, 'b--')
-        plt.errorbar(time, x, yerr=xerr, fmt='k.')
+        if not color_time:
+            plt.errorbar(time, x, yerr=xerr, fmt='k.')
+        else:
+#            sc = plt.scatter(time, x, s=0, c=dtime, vmin=0, vmax=1, cmap='gray')
+#            clb = plt.colorbar(sc)
+            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+            for xx, yy, ee, color in zip(time, x, xerr, time_color):
+                plt.plot(xx, yy, '.', color=color)
+                plt.errorbar(xx, yy, ee, color=color)
         rng = plt.axis()
         #plt.ylim(np.min(x-xerr)*0.99, np.max(x+xerr)*1.01) 
         plt.xlabel('Date (yrs)', fontsize=fontsize1)
@@ -1978,7 +2030,15 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
         plt.plot(time, fitLineY, 'b-')
         plt.plot(time, fitLineY + fitSigY, 'b--')
         plt.plot(time, fitLineY - fitSigY, 'b--')
-        plt.errorbar(time, y, yerr=yerr, fmt='k.')
+        if not color_time:
+            plt.errorbar(time, y, yerr=yerr, fmt='k.')
+        else:
+            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+            for xx, yy, ee, color in zip(time, y, yerr, time_color):
+                plt.plot(xx, yy, '.', color=color)
+                plt.errorbar(xx, yy, ee, color=color)
         rng = plt.axis()
         plt.axis(dateTicRng + [rng[2], rng[3]], fontsize=fontsize1)
         plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
@@ -1997,7 +2057,15 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
         plt.plot(time, np.zeros(len(time)), 'b-')
         plt.plot(time,  fitSigX*1e3, 'b--')
         plt.plot(time, -fitSigX*1e3, 'b--')
-        plt.errorbar(time, (x - fitLineX)*1e3, yerr=xerr*1e3, fmt='k.')
+        if not color_time:
+            plt.errorbar(time, (x - fitLineX)*1e3, yerr=xerr*1e3, fmt='k.')
+        else:
+            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+            for xx, yy, ee, color in zip(time, (x - fitLineX)*1e3, xerr*1e3, time_color):
+                plt.plot(xx, yy, '.', color=color)
+                plt.errorbar(xx, yy, ee, color=color)
         plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
         plt.xlabel('Date (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
@@ -2013,7 +2081,15 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
         plt.plot(time, np.zeros(len(time)), 'b-')
         plt.plot(time,  fitSigY*1e3, 'b--')
         plt.plot(time, -fitSigY*1e3, 'b--')
-        plt.errorbar(time, (y - fitLineY)*1e3, yerr=yerr*1e3, fmt='k.')
+        if not color_time:
+            plt.errorbar(time, (y - fitLineY)*1e3, yerr=yerr*1e3, fmt='k.')
+        else:
+            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+            for xx, yy, ee, color in zip(time, (y - fitLineY)*1e3, yerr*1e3, time_color):
+                plt.plot(xx, yy, '.', color=color)
+                plt.errorbar(xx, yy, ee, color=color)
         plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
         plt.xlabel('Date (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
@@ -2027,7 +2103,15 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
         ind = (row-1)*Ncols + col
 
         paxes = plt.subplot(Nrows, Ncols, ind)
-        plt.errorbar(x,y, xerr=xerr, yerr=yerr, fmt='k.')
+        if not color_time:
+            plt.errorbar(x,y, xerr=xerr, yerr=yerr, fmt='k.')
+        else:
+            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+            for xx, yy, eexx, eeyy, color in zip(x, y, xerr, yerr, time_color):
+                plt.plot(xx, yy, '.', color=color)
+                plt.errorbar(xx, yy, eexx, eeyy, color=color)
         plt.axis('equal')
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
         paxes.yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
@@ -2064,7 +2148,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15)):
     return
 
 
-def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,12)):
+def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,12), color_time=False):
     """
     Plot a set of stars magnitude + error bars over time. 
 
@@ -2100,6 +2184,7 @@ def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,1
             fnd = np.intersect1d(fnd, epoch_array)
 
         time = tab['t'][ii, fnd]
+        dtime = time.data % 1 
         m = tab['m'][ii, fnd]
         merr = tab['me'][ii, fnd]
         m0 = tab['m0'][ii]
@@ -2143,7 +2228,15 @@ def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,1
 
         paxes = plt.subplot(2*Nrows, Ncols, 2*i+1)
         plt.plot(time, m0 * np.ones(len(time)), label='m0')
-        plt.errorbar(time, m, yerr=merr, fmt='k.')
+        if not color_time:
+            plt.errorbar(time, m, yerr=merr, fmt='k.')
+        else:
+            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+            for xx, yy, ee, color in zip(time, m, merr, time_color):
+                plt.plot(xx, yy, '.', color=color)
+                plt.errorbar(xx, yy, ee, color=color)
         rng = plt.axis()
         plt.xlabel('Date (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
