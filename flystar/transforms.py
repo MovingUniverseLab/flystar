@@ -695,8 +695,8 @@ class Shift(PolyTransform):
         px_dict = Shift.make_param_dict(px, 1, isY=False)
         py_dict = Shift.make_param_dict(py, 1, isY=True)
         
-        self.px = models.Polynomial2D(order, **px_dict, fixed={'c1_0', 'c1_1'})
-        self.py = models.Polynomial2D(order, **py_dict, fixed={'c1_0', 'c1_1'})
+        self.px = models.Polynomial2D(order, **px_dict, fixed={'c0_0': False, 'c1_0': True})
+        self.py = models.Polynomial2D(order, **py_dict, fixed={'c0_0': False, 'c1_0': True})
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.order = 0
