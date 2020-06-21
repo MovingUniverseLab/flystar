@@ -1439,22 +1439,26 @@ def plot_mag_scatter(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx,
     ax[2].set_xlabel('mag')
     ax[2].set_ylabel('Res, x (arcsec)')
     ax[2].set_ylim(-0.01, 0.01)
+    ax[2].axhline(y=0)
 
     ax[3].scatter(mgood, np.sin(np.radians(agood)) * rgood, color='black', alpha=0.3, s=7)
     ax[3].scatter(mref, np.sin(np.radians(aref)) * rref, color='red', alpha=0.3, s=7)
     ax[3].set_xlabel('mag')
     ax[3].set_ylabel('Res, y (arcsec)')
     ax[3].set_ylim(-0.01, 0.01)
+    ax[3].axhline(y=0)
 
     ax[4].scatter(mgood, np.cos(np.radians(agood)) * rgood/xegood, color='black', alpha=0.3, s=7)
     ax[4].scatter(mref, np.cos(np.radians(aref)) * rref/xeref, color='red', alpha=0.3, s=7)
     ax[4].set_xlabel('mag')
     ax[4].set_ylabel('Res/Pos Err, x')
+    ax[4].axhline(y=0)
 
     ax[5].scatter(mgood, np.sin(np.radians(agood)) * rgood/yegood, color='black', alpha=0.3, s=7)
     ax[5].scatter(mref, np.sin(np.radians(aref)) * rref/yeref, color='red', alpha=0.3, s=7)
     ax[5].set_xlabel('mag')
     ax[5].set_ylabel('Res/Pos Err, y')
+    ax[5].axhline(y=0)
 
     ax[0].set_title(title)
     plt.show()
@@ -2003,10 +2007,8 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         if not color_time:
             plt.errorbar(time, x, yerr=xerr, fmt='k.')
         else:
-#            sc = plt.scatter(time, x, s=0, c=dtime, vmin=0, vmax=1, cmap='gray')
-#            clb = plt.colorbar(sc)
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, x, xerr, time_color):
                 plt.plot(xx, yy, '.', color=color)
@@ -2034,7 +2036,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
             plt.errorbar(time, y, yerr=yerr, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, y, yerr, time_color):
                 plt.plot(xx, yy, '.', color=color)
@@ -2061,7 +2063,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
             plt.errorbar(time, (x - fitLineX)*1e3, yerr=xerr*1e3, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, (x - fitLineX)*1e3, xerr*1e3, time_color):
                 plt.plot(xx, yy, '.', color=color)
@@ -2085,7 +2087,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
             plt.errorbar(time, (y - fitLineY)*1e3, yerr=yerr*1e3, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, (y - fitLineY)*1e3, yerr*1e3, time_color):
                 plt.plot(xx, yy, '.', color=color)
@@ -2106,8 +2108,11 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         if not color_time:
             plt.errorbar(x,y, xerr=xerr, yerr=yerr, fmt='k.')
         else:
+            sc = plt.scatter(x, y, s=0, c=dtime, vmin=0, vmax=1, cmap='hsv')
+            clb = plt.colorbar(sc)
+            clb.ax.tick_params(labelsize=fontsize1)
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, eexx, eeyy, color in zip(x, y, xerr, yerr, time_color):
                 plt.plot(xx, yy, '.', color=color)
@@ -2232,7 +2237,7 @@ def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,1
             plt.errorbar(time, m, yerr=merr, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-            mapper = cm.ScalarMappable(norm=norm, cmap='viridis')
+            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, m, merr, time_color):
                 plt.plot(xx, yy, '.', color=color)
