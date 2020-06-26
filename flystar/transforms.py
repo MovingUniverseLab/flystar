@@ -428,9 +428,9 @@ class PolyTransform(Transform2D):
         Returns:
         ----------
         vx' : array
-            The transformed vx errors.
+            The transformed vx.
         vy' : array
-            The transformed vy errors. 
+            The transformed vy. 
 
         """
         vx_new = 0.0
@@ -677,6 +677,428 @@ class PolyTransform(Transform2D):
         _out.close()
 
         return
+
+
+class CTEtrans(PolyTransform):
+    """
+    Defines a transformation designed to capture the distortions in magnitude 
+    and y-position introduced into the HST UVIS detector due to CTE.
+
+    QUESTIONS HERE:
+        1. Should pc be split into [A, m0, alpha] and [z1, z2, z3] or kept 
+        together?
+
+        2. All that fancy stuff in __init__ for px and py is b/c it's using
+        Astropy, right?
+
+    """
+    def __init__(self, order, px, py, pc, pxerr=None, pyerr=None, pcerr=None,
+                 mag_offset=0.0):
+        """
+        Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
+        and the coefficients for the x transformation and y transformation. 
+        Note that a 0th order polynomial is 
+        x' = a0
+        y' = b0
+        
+        Parameters
+        ----------
+        px : list or array [a0, a1, a2, ...] 
+            coefficients to transform input x coordinates into output x' coordinates.
+
+        py : list or array [b0, b1, b2, ...] 
+            coefficients to transform input y coordinates into output y' coordinates.
+
+        pc : list or array [z1, z2, z3, A, m0, alpha]
+            coefficients for the CTE transformations
+
+        order : int
+            The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
+
+        pxerr : array or list
+            array or list of errors of the coefficients to transform input x coordinates 
+            into output x' coordinates.
+        
+        pyerr : array or list
+            array or list of errors of the coefficients to transform input y coordinates 
+            into output y' coordinates.
+
+        pcerr : array or list
+            array or list of errors of the coefficients for the CTE transformation
+
+        mag_offset : float
+            magnitude difference with the reference catalog (mag_ref - mag_cat)
+        """
+        self.order = order
+        self.poly_order = order
+        
+        if self.order == 0:
+            self.poly_order = 1
+            px = np.append(px, [1.0, 0.0])
+            py = np.append(py, [0.0, 1.0])
+            pxerr = np.append(pxerr, [0.0, 0.0])
+            pyerr = np.append(pyerr, [0.0, 0.0])
+            
+            px_dict = PolyTransform.make_param_dict(px, self.poly_order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
+            
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
+            self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
+            self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
+        else:
+            px_dict = PolyTransform.make_param_dict(px, self.order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.order, isY=True)
+            
+            self.px = models.Polynomial2D(self.order, **px_dict)
+            self.py = models.Polynomial2D(self.order, **py_dict)
+
+        self.pc = pc    
+        self.pxerr = pxerr
+        self.pyerr = pyerr
+        self.pcerr = pcerr
+        self.mag_offset = mag_offset
+
+        # Break out individual pieces for easy use
+        # (is there a better way to do this? Something
+        # involving * or ** or something?)
+        self.z1 = pc[0] 
+        self.z2 = pc[1]   
+        self.z3 = pc[2] 
+        self.A = pc[3] 
+        self.m0 = pc[4] 
+        self.alpha = pc[5] 
+
+        return
+
+    # make_param_dict should be inherited
+
+    def T_cte_m(y, m, z1, z2, z3):
+        """
+        Transformation model for magnitudes due to CTE
+        """
+        return m + z1 * np.exp(z2 * m) + z3 * y
+        
+    def T_cte_y(y, m, A, m0, alpha):
+        """
+        Transformation model for detector y-position due to CTE
+        """
+        return y + A * (m/m0)**alpha
+
+    def evaluate(self, x, y, m):
+        """
+        Apply the transformation to a starlist.
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The raw x coordinates to be transformed.
+        y : numpy array
+            The raw y coordinates to be transformed.
+        m : numpy array
+            The raw magnitudes to be transformed.
+
+        Returns:
+        ----------
+        xnew : array
+            The transformed x coordinates.
+        ynew : array
+            The transformed y coordinates. 
+        mnew : array
+            The transformed magnitudes.
+        """
+        ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
+
+        mcte = T_cte_m(y, m, self.z1, self.z2, self.z3)
+
+        xnew = self.px(x, ycte)
+        ynew = self.py(x, ycte)
+        mnew = mcte + self.mag_offset
+
+        return xnew, ynew, mnew 
+
+    def evaluate_error(self, x, y, m, xe, ye, me):
+        """
+        Transform positional uncertainties. 
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        xe : numpy array
+            The raw x errors to be transformed.
+        ye : numpy array
+            The raw y errors to be transformed.
+
+        Returns:
+        ----------
+        xe' : array
+            The transformed x errors.
+        ye' : array
+            The transformed y errors. 
+
+        """
+        dxnew_dx = 0.0
+        dxnew_dy = 0.0
+        dxnew_dycte = 0.0
+        dxnew_dm = 0.0
+
+        dynew_dx = 0.0
+        dynew_dy = 0.0
+        dynew_dycte = 0.0
+        dynew_dm = 0.0
+
+        ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
+
+# Next line won't work... would have to pull out some of the code
+#        xe_new, ye_new = super().evaluate_error(x, y, xe, ye)
+
+        ###
+        # Evaluate the polynomial first.
+        # This calculates dxnew_dx, dynew_dx, dxnew_dycte, dynew_dycte
+        ####
+        for i in range(self.poly_order + 1):
+            for j in range(i + 1):
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                # First loop: df'/dx
+                if (i - j):
+                    dxnew_dx += Xcoeff * (i - j) * x**(i-j-1) * ycte**j
+                    dynew_dx += Ycoeff * (i - j) * x**(i-j-1) * ycte**j
+
+                # Second loop: df'/dy
+                if j:
+                    dxnew_dycte += Xcoeff * (j) * x**(i-j) * ycte**(j-1)
+                    dynew_dycte += Ycoeff * (j) * x**(i-j) * ycte**(j-1)
+
+        ###
+        # Evalulate dycte_dm
+        ###
+        coeff = self.A * self.alpha/self.m0
+        dycte_dm = coeff * (m/self.m0)**(self.alpha - 1)
+
+        dxnew_dy = dxnew_dycte
+        dynew_dy = dynew_dycte
+        dxnew_dm = dxnew_dycte * dycte_dm
+        dynew_dm = dynew_dycte * dycte_dm
+
+        # Take square root for xe/ye_new
+        xe_new = np.sqrt((dxnew_dx * xe)**2 + (dxnew_dy * ye)**2 + (dxnew_dm * me)**2)
+        ye_new = np.sqrt((dynew_dx * xe)**2 + (dynew_dy * ye)**2 + (dynew_dm * me)**2)
+
+        return xe_new, ye_new
+
+    def evaluate_vel(self, x, y, m, vx, vy):
+        """
+        Transform velocities.
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        vx : numpy array
+            The raw vx to be transformed.
+        vy : numpy array
+            The raw vy to be transformed.
+
+        Returns:
+        ----------
+        vx' : array
+            The transformed vx.
+        vy' : array
+            The transformed vy. 
+
+        """
+        vx_new = 0.0
+        vy_new = 0.0
+
+        ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
+
+        for i in range(self.poly_order + 1):
+            for j in range(i + 1):
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                # First term: df'/dx
+                if (i - j):
+                    vx_new += Xcoeff * (i - j) * x**(i-j-1) * ycte**j * vx
+                    vy_new += Ycoeff * (i - j) * x**(i-j-1) * ycte**j * vx
+
+                # Second term: df'/dy
+                if j:
+                    vx_new += Xcoeff * (j) * x**(i-j) * y**(j-1) * vy
+                    vy_new += Ycoeff * (j) * x**(i-j) * y**(j-1) * vy
+
+        return vx_new, vy_new
+
+    # In progress
+    def evaluate_vel_err(self, x, y, m, vx, vy, xe, ye, me, vxe, vye):
+        """
+        Transform velocities.
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        m : numpy array
+            The original magnitudes to be used in the transformation.
+        vx : numpy array
+            The raw vx to be transformed.
+        vy : numpy array
+            The raw vy to be transformed.
+        xe : numpy array
+            The original x coordinates to be used in the transformation.
+        ye : numpy array
+            The original y coordinates to be used in the transformation.
+        me : numpy array
+            The original magnitude uncertainties to be used in the transformation.
+        vxe : numpy array
+            The raw vx to be transformed.
+        vye : numpy array
+            The raw vy to be transformed.
+
+
+        Returns:
+        ----------
+        vxe' : array
+            The transformed vx errors.
+        vye' : array
+            The transformed vy errors. 
+
+        """
+        dvxnew_dx = 0.0
+        dvxnew_dy = 0.0
+        dvxnew_dycte = 0.0
+        dvxnew_dm = 0.0
+        dvxnew_dvx = 0.0
+        dvxnew_dvy = 0.0
+
+        dvynew_dx = 0.0
+        dvynew_dy = 0.0
+        dvynew_dycte = 0.0
+        dvynew_dm = 0.0
+        dvynew_dvx = 0.0
+        dvynew_dvy = 0.0
+
+        ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
+
+        # dycte_dm
+        coeff = self.A * self.alpha/self.m0
+        dycte_dm = coeff * (m/self.m0)**(self.alpha - 1)
+        
+        for i in range(self.poly_order + 1):
+            for j in range(i+1):
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+
+                # dvx' / dycte
+                if ((i-j) * (j)):
+                    dvxnew_dycte += Xcoeff * (i-j) * (j) * x**(i-j-1) * ycte**(j-1) * vx
+                    dvynew_dycte += Ycoeff * (i-j) * (j) * x**(i-j-1) * ycte**(j-1) * vx
+                
+                if (j * (j-1)):
+                    dvxnew_dycte += Xcoeff * (j) * (j-1) * x**(i-j-1) * ycte**(j-2) * vy
+                    dvynew_dycte += Ycoeff * (j) * (j-1) * x**(i-j-1) * ycte**(j-2) * vy
+                
+                # First term: dvx' / dx
+                if ((i-j) * (i-j-1)):
+                    dvxnew_dx += Xcoeff * (i-j) * (i-j-1) * x**(i-j-2) * ycte**j * vx
+                    dvynew_dx += Ycoeff * (i-j) * (i-j-1) * x**(i-j-2) * ycte**j * vx
+                
+                if (j * (i-j)):
+                    dvxnew_dx += Xcoeff * (j) * (i-j) * x**(i-j-1) * ycte**(j-1) * vy
+                    dvynew_dx += Ycoeff * (j) * (i-j) * x**(i-j-1) * ycte**(j-1) * vy
+    
+                # Second term: dvx' / dy
+                dvxnew_dy = dvxnew_dycte
+                dvynew_dy = dvynew_dycte
+    
+                # Third term: dvx' / dvx
+                if (i-j):
+                    dvxnew_dvx += Xcoeff * (i-j) * x**(i-j-1) * ycte**j
+                    dvynew_dvx += Ycoeff * (i-j) * x**(i-j-1) * ycte**j
+    
+                # Fourth term: dvx' / dvy
+                if j:
+                    dvxnew_dvy += Xcoeff * (j) * x**(i-j) * ycte**(j-1)
+                    dvynew_dvy += Ycoeff * (j) * x**(i-j) * ycte**(j-1)
+    
+                # Fifth term: dvx' / dm
+                dvxnew_dm = dvxnew_dycte * dycte_dm
+                dvynew_dm = dvynew_dycte * dycte_dm
+
+        vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 + (dvxnew_dm * me)**2 +
+                              (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
+        vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 + (dvynew_dm * me)**2 +
+                              (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
+        
+        return vxe_new, vye_new
+
+    # FIGURE THIS OUT...
+    @classmethod
+    def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
+                         init_gx=None, init_gy=None, weights=None, mag_trans=True):
+        
+        # now, if the initial guesses are not none, fill in terms until
+        if order == 0:
+            poly_order = 1
+            init_gx = np.append(init_gx, [1.0, 0.0])
+            init_gy = np.append(init_gy, [0.0, 1.0])
+        
+            init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
+            init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
+
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True, 'c0_1': True}
+            p_init_x = models.Polynomial2D(poly_order, **init_gx, fixed=fixed_params)
+            p_init_y = models.Polynomial2D(poly_order, **init_gy, fixed=fixed_params)
+        else:
+            init_gx = PolyTransform.make_param_dict(init_gx, order, isY=False)
+            init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
+        
+            p_init_x = models.Polynomial2D(order, **init_gx)
+            p_init_y = models.Polynomial2D(order, **init_gy)
+        
+        fit_p  = fitting.LinearLSQFitter()
+
+        px = fit_p(p_init_x, x, y, xref, weights=weights)
+        py = fit_p(p_init_y, x, y, yref, weights=weights)
+
+        # Re-order the parameters for ingest by PolyTransform.
+        Xcoeff = []
+        Ycoeff = []
+        for i in range(order+1):
+            for j in range(i+1):
+                coeff_idx = px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
+                Xcoeff.append( px.parameters[coeff_idx] )
+                Ycoeff.append( py.parameters[coeff_idx] )
+        
+        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
+        if (m is not None) and (mref is not None) and mag_trans:
+            m_resid = mref - m
+            threshold = 3 * m_resid.std()
+            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+            mag_offset = np.mean((mref - m)[keepers])
+        else:
+            mag_offset =  0
+        
+        trans = cls(order, Xcoeff, Ycoeff, mag_offset=mag_offset)
+
+        return trans
+
+    # I think this should just be inherited... the polynomial 
+    # coefficients don't change. Plus this is just for astropy
+    # polynomial I think...
+    # def from_file(cls, trans_file)
+    # def to_file(self, trans_file)
         
 class Shift(PolyTransform):
     '''
