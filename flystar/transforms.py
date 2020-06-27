@@ -874,9 +874,7 @@ class CTEtrans(PolyTransform):
                     dxnew_dycte += Xcoeff * (j) * x**(i-j) * ycte**(j-1)
                     dynew_dycte += Ycoeff * (j) * x**(i-j) * ycte**(j-1)
 
-        ###
         # Evalulate dycte_dm
-        ###
         coeff = self.A * self.alpha/self.m0
         dycte_dm = coeff * (m/self.m0)**(self.alpha - 1)
 
@@ -885,11 +883,16 @@ class CTEtrans(PolyTransform):
         dxnew_dm = dxnew_dycte * dycte_dm
         dynew_dm = dynew_dycte * dycte_dm
 
-        # Take square root for xe/ye_new
+        # Calculate partial derivatives for dmnew
+        dmnew_dm = 1 + self.z1 * self.z2 * np.exp(self.z2 * m)
+        dmnew_dy = self.z3
+
+        # Take square root for xe/ye/me_new
         xe_new = np.sqrt((dxnew_dx * xe)**2 + (dxnew_dy * ye)**2 + (dxnew_dm * me)**2)
         ye_new = np.sqrt((dynew_dx * xe)**2 + (dynew_dy * ye)**2 + (dynew_dm * me)**2)
+        me_new = np.sqrt((dmnew_dm * me)**2 + (dmnew_dy * ye)**2)
 
-        return xe_new, ye_new
+        return xe_new, ye_new, me_new
 
     def evaluate_vel(self, x, y, m, vx, vy):
         """
