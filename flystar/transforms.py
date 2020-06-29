@@ -1,6 +1,7 @@
 from astropy.modeling import models, fitting
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline as spline
+from scipy.optimize import curve_fit
 from scipy import stats
 from astropy.table import Table
 import collections
@@ -540,7 +541,7 @@ class PolyTransform(Transform2D):
     @classmethod
     def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
                          init_gx=None, init_gy=None, weights=None, mag_trans=True):
-        
+        pdb.set_trace()
         # now, if the initial guesses are not none, fill in terms until
         if order == 0:
             poly_order = 1
@@ -559,8 +560,8 @@ class PolyTransform(Transform2D):
         
             p_init_x = models.Polynomial2D(order, **init_gx)
             p_init_y = models.Polynomial2D(order, **init_gy)
-        
-        fit_p  = fitting.LinearLSQFitter()
+            
+        fit_p = fitting.LinearLSQFitter()
 
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
@@ -940,7 +941,6 @@ class CTEtrans(PolyTransform):
 
         return vx_new, vy_new
 
-    # In progress
     def evaluate_vel_err(self, x, y, m, vx, vy, xe, ye, me, vxe, vye):
         """
         Transform velocities.
@@ -1048,8 +1048,9 @@ class CTEtrans(PolyTransform):
 
     # FIGURE THIS OUT...
     @classmethod
-    def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
-                         init_gx=None, init_gy=None, weights=None, mag_trans=True):
+    def derive_transform(cls, x, y, m, xref, yref, mref, order,
+                         init_gx=None, init_gy=None, init_gm=None,
+                         weights=None, mag_trans=True):
         
         # now, if the initial guesses are not none, fill in terms until
         if order == 0:
@@ -1069,7 +1070,11 @@ class CTEtrans(PolyTransform):
         
             p_init_x = models.Polynomial2D(order, **init_gx)
             p_init_y = models.Polynomial2D(order, **init_gy)
-        
+
+        if init_gm is None:
+            # FIXME WHAT SHOULD THE INITIAL GUESS BE?????
+            pass
+            
         fit_p  = fitting.LinearLSQFitter()
 
         px = fit_p(p_init_x, x, y, xref, weights=weights)
