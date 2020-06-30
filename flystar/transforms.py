@@ -543,7 +543,6 @@ class PolyTransform(Transform2D):
     @classmethod
     def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
                          init_gx=None, init_gy=None, weights=None, mag_trans=True):
-        pdb.set_trace()
         # now, if the initial guesses are not none, fill in terms until
         if order == 0:
             poly_order = 1
@@ -983,38 +982,23 @@ class UVIS_CTE_trans(PolyTransform):
         py = best_fit_params[nfree:2*nfree]
         pc = best_fit_params[:-6]
 
-        # Calculate covariance.
-        # From https://github.com/scipy/scipy/blob/2526df72e5d4ca8bad6e2f4b3cbdfbc33e805865/scipy/optimize/minpack.py#L739
-        # Do Moore-Penrose inverse discarding zero singular values.
-        _, s, VT = svd(res.jac, full_matrices=False)
-        threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
-        s = s[s > threshold]
-        VT = VT[:s.size]
-        pcov = np.dot(VT.T / s**2, VT)
+#        # Calculate covariance.
+#        # From https://github.com/scipy/scipy/blob/2526df72e5d4ca8bad6e2f4b3cbdfbc33e805865/scipy/optimize/minpack.py#L739
+#        # Do Moore-Penrose inverse discarding zero singular values.
+#        _, s, VT = svd(res.jac, full_matrices=False)
+#        threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
+#        s = s[s > threshold]
+#        VT = VT[:s.size]
+#        pcov = np.dot(VT.T / s**2, VT)
 
-        # FIX THIS, I THINK MAG_OFFSET NEEDS TO BE FIT
-        return CTEtrans(order, px, py, pc, mag_offset)
-
-        # FIGURE OUT IF WE STILL NEED THE REST OF THIS STUFF BELOW
-        # Re-order the parameters for ingest by PolyTransform.
-        Xcoeff = []
-        Ycoeff = []
-        for i in range(order+1):
-            for j in range(i+1):
-                coeff_idx = px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
-                Xcoeff.append( px.parameters[coeff_idx] )
-                Ycoeff.append( py.parameters[coeff_idx] )
+        # Calculate the magnitude offset using a 3-sigma clipped mean
+        mcte = T_cte_m(y, m, pc[0], pc[1], pc[2]) # FIX THIS
+        m_resid = mref - mcte
+        threshold = 3 * m_resid.std()
+        keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+        mag_offset = np.mean((mref - m)[keepers])
         
-        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
-        if (m is not None) and (mref is not None) and mag_trans:
-            m_resid = mref - m
-            threshold = 3 * m_resid.std()
-            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            mag_offset = np.mean((mref - m)[keepers])
-        else:
-            mag_offset =  0
-        
-        trans = cls(order, Xcoeff, Ycoeff, mag_offset=mag_offset)
+        trans = cls(order, px, py, pc, mag_offset)
 
         return trans
 
