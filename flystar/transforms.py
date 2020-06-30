@@ -1,7 +1,9 @@
 from astropy.modeling import models, fitting
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline as spline
-from scipy.optimize import curve_fit
+from scipy import optimize
+from scipy.special import binom
+from scipy.linalg import svd
 from scipy import stats
 from astropy.table import Table
 import collections
@@ -680,7 +682,7 @@ class PolyTransform(Transform2D):
         return
 
 
-class CTEtrans(PolyTransform):
+class UVIS_CTE_trans(PolyTransform):
     """
     Defines a transformation designed to capture the distortions in magnitude 
     and y-position introduced into the HST UVIS detector due to CTE.
@@ -693,8 +695,8 @@ class CTEtrans(PolyTransform):
         Astropy, right?
 
     """
-    def __init__(self, order, px, py, pc, pxerr=None, pyerr=None, pcerr=None,
-                 mag_offset=0.0):
+    def __init__(self, order, px, py, pc, mag_offset,
+                 pxerr=None, pyerr=None, pcerr=None):
         """
         Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
@@ -896,163 +898,65 @@ class CTEtrans(PolyTransform):
         return xe_new, ye_new, me_new
 
     def evaluate_vel(self, x, y, m, vx, vy):
-        """
-        Transform velocities.
-
-        Parameters: 
-        ----------
-        x : numpy array
-            The original x coordinates to be used in the transformation.
-        y : numpy array
-            The original y coordinates to be used in the transformation.
-        vx : numpy array
-            The raw vx to be transformed.
-        vy : numpy array
-            The raw vy to be transformed.
-
-        Returns:
-        ----------
-        vx' : array
-            The transformed vx.
-        vy' : array
-            The transformed vy. 
-
-        """
-        vx_new = 0.0
-        vy_new = 0.0
-
-        ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
-
-        for i in range(self.poly_order + 1):
-            for j in range(i + 1):
-                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
-                Xcoeff = self.px.parameters[coeff_idx]
-                Ycoeff = self.py.parameters[coeff_idx]
-                
-                # First term: df'/dx
-                if (i - j):
-                    vx_new += Xcoeff * (i - j) * x**(i-j-1) * ycte**j * vx
-                    vy_new += Ycoeff * (i - j) * x**(i-j-1) * ycte**j * vx
-
-                # Second term: df'/dy
-                if j:
-                    vx_new += Xcoeff * (j) * x**(i-j) * y**(j-1) * vy
-                    vy_new += Ycoeff * (j) * x**(i-j) * y**(j-1) * vy
-
-        return vx_new, vy_new
+        raise RuntimeError("Velocities should always be derived AFTER the CTE correction + transformation.")
 
     def evaluate_vel_err(self, x, y, m, vx, vy, xe, ye, me, vxe, vye):
-        """
-        Transform velocities.
+        raise RuntimeError("Velocities should always be derived AFTER the CTE correction + transformation.")
 
-        Parameters: 
-        ----------
-        x : numpy array
-            The original x coordinates to be used in the transformation.
-        y : numpy array
-            The original y coordinates to be used in the transformation.
-        m : numpy array
-            The original magnitudes to be used in the transformation.
-        vx : numpy array
-            The raw vx to be transformed.
-        vy : numpy array
-            The raw vy to be transformed.
-        xe : numpy array
-            The original x coordinates to be used in the transformation.
-        ye : numpy array
-            The original y coordinates to be used in the transformation.
-        me : numpy array
-            The original magnitude uncertainties to be used in the transformation.
-        vxe : numpy array
-            The raw vx to be transformed.
-        vye : numpy array
-            The raw vy to be transformed.
-
-
-        Returns:
-        ----------
-        vxe' : array
-            The transformed vx errors.
-        vye' : array
-            The transformed vy errors. 
-
-        """
-        dvxnew_dx = 0.0
-        dvxnew_dy = 0.0
-        dvxnew_dycte = 0.0
-        dvxnew_dm = 0.0
-        dvxnew_dvx = 0.0
-        dvxnew_dvy = 0.0
-
-        dvynew_dx = 0.0
-        dvynew_dy = 0.0
-        dvynew_dycte = 0.0
-        dvynew_dm = 0.0
-        dvynew_dvx = 0.0
-        dvynew_dvy = 0.0
-
-        ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
-
-        # dycte_dm
-        coeff = self.A * self.alpha/self.m0
-        dycte_dm = coeff * (m/self.m0)**(self.alpha - 1)
-        
-        for i in range(self.poly_order + 1):
-            for j in range(i+1):
-                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
-                Xcoeff = self.px.parameters[coeff_idx]
-                Ycoeff = self.py.parameters[coeff_idx]
-
-                # dvx' / dycte
-                if ((i-j) * (j)):
-                    dvxnew_dycte += Xcoeff * (i-j) * (j) * x**(i-j-1) * ycte**(j-1) * vx
-                    dvynew_dycte += Ycoeff * (i-j) * (j) * x**(i-j-1) * ycte**(j-1) * vx
-                
-                if (j * (j-1)):
-                    dvxnew_dycte += Xcoeff * (j) * (j-1) * x**(i-j-1) * ycte**(j-2) * vy
-                    dvynew_dycte += Ycoeff * (j) * (j-1) * x**(i-j-1) * ycte**(j-2) * vy
-                
-                # First term: dvx' / dx
-                if ((i-j) * (i-j-1)):
-                    dvxnew_dx += Xcoeff * (i-j) * (i-j-1) * x**(i-j-2) * ycte**j * vx
-                    dvynew_dx += Ycoeff * (i-j) * (i-j-1) * x**(i-j-2) * ycte**j * vx
-                
-                if (j * (i-j)):
-                    dvxnew_dx += Xcoeff * (j) * (i-j) * x**(i-j-1) * ycte**(j-1) * vy
-                    dvynew_dx += Ycoeff * (j) * (i-j) * x**(i-j-1) * ycte**(j-1) * vy
-    
-                # Second term: dvx' / dy
-                dvxnew_dy = dvxnew_dycte
-                dvynew_dy = dvynew_dycte
-    
-                # Third term: dvx' / dvx
-                if (i-j):
-                    dvxnew_dvx += Xcoeff * (i-j) * x**(i-j-1) * ycte**j
-                    dvynew_dvx += Ycoeff * (i-j) * x**(i-j-1) * ycte**j
-    
-                # Fourth term: dvx' / dvy
-                if j:
-                    dvxnew_dvy += Xcoeff * (j) * x**(i-j) * ycte**(j-1)
-                    dvynew_dvy += Ycoeff * (j) * x**(i-j) * ycte**(j-1)
-    
-                # Fifth term: dvx' / dm
-                dvxnew_dm = dvxnew_dycte * dycte_dm
-                dvynew_dm = dvynew_dycte * dycte_dm
-
-        vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 + (dvxnew_dm * me)**2 +
-                              (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
-        vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 + (dvynew_dm * me)**2 +
-                              (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
-        
-        return vxe_new, vye_new
-
-    # FIGURE THIS OUT...
     @classmethod
-    def derive_transform(cls, x, y, m, xref, yref, mref, order,
+    def derive_transform(cls, x, y, m, xe, ye, me,
+                         xref, yref, mref, order,
                          init_gx=None, init_gy=None, init_gm=None,
                          weights=None, mag_trans=True):
-        
-        # now, if the initial guesses are not none, fill in terms until
+
+        def res_func(params, x_in, y_in, m_in, 
+                     xe_in, ye_in, me_in, 
+                     x_ref, y_ref, m_ref, 
+                     order):
+            """
+            FIX THIS AFTER WRITING
+
+            Computes vector of residuals. The minimization is wrt params.
+
+            Parameters
+            ----------
+            params : ndarray
+                shape (n,) (never a scalar, even for n=1)
+
+            Return
+            ------
+            all_res : array(_like?)
+                shape (m,) or scalar
+           """
+            ###
+            # Break up params so they can be fed into the UVIS_CTE_trans class.
+            ###
+            nfree = binom(order + 2, order)            
+
+            # Check that the length of params is right
+            if 2*nfree + 6 != len(params):
+                raise Exception('Something wrong! Order incorrect or length of params is wrong!')
+
+            try_px = params[:nfree]
+            try_py = params[nfree:2*nfree]
+            try_pc = params[:-6]
+
+            try_trans = UVIS_CTE_trans(order, try_px, try_py, try_pc, mag_offset)
+
+            # Calculate the residuals.
+            x_out, y_out, m_out = try_trans.evaluate(x_in, y_in, m_in)
+            xe_out, ye_out, me_out = try_trans.evaluate_errors(x_in, y_in, m_in, xe_in, ye_in, me_in)
+
+            x_res = (x_out - x_ref) / xe_out
+            y_res = y_out - y_ref / ye_out
+            m_res = m_out - m_ref / me_out
+            
+            # CHECK that this returns array (m,)
+            all_res = np.concatenate((x_res, y_res, m_res))
+            
+            return all_res
+
+        # Fill in initial guesses
         if order == 0:
             poly_order = 1
             init_gx = np.append(init_gx, [1.0, 0.0])
@@ -1061,25 +965,37 @@ class CTEtrans(PolyTransform):
             init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
             init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
 
-            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True, 'c0_1': True}
-            p_init_x = models.Polynomial2D(poly_order, **init_gx, fixed=fixed_params)
-            p_init_y = models.Polynomial2D(poly_order, **init_gy, fixed=fixed_params)
         else:
             init_gx = PolyTransform.make_param_dict(init_gx, order, isY=False)
             init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
         
-            p_init_x = models.Polynomial2D(order, **init_gx)
-            p_init_y = models.Polynomial2D(order, **init_gy)
-
         if init_gm is None:
-            # FIXME WHAT SHOULD THE INITIAL GUESS BE?????
-            pass
-            
-        fit_p  = fitting.LinearLSQFitter()
+            init_gm = [0., 0., 0., 0., 1., 0.]
 
-        px = fit_p(p_init_x, x, y, xref, weights=weights)
-        py = fit_p(p_init_y, x, y, yref, weights=weights)
+        # CHECK MAKE SURE SHAPE RIGHT.
+        init_param_values = np.concatenate((init_gx, init_gy, init_gm))
 
+        farg = (x, y, m, xe, ye, me, xref, yref, mref, order)
+        res = optimize.least_squares(res_func, init_param_values, args=farg)
+        best_fit_params = res.x
+
+        px = best_fit_params[:nfree]
+        py = best_fit_params[nfree:2*nfree]
+        pc = best_fit_params[:-6]
+
+        # Calculate covariance.
+        # From https://github.com/scipy/scipy/blob/2526df72e5d4ca8bad6e2f4b3cbdfbc33e805865/scipy/optimize/minpack.py#L739
+        # Do Moore-Penrose inverse discarding zero singular values.
+        _, s, VT = svd(res.jac, full_matrices=False)
+        threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
+        s = s[s > threshold]
+        VT = VT[:s.size]
+        pcov = np.dot(VT.T / s**2, VT)
+
+        # FIX THIS, I THINK MAG_OFFSET NEEDS TO BE FIT
+        return CTEtrans(order, px, py, pc, mag_offset)
+
+        # FIGURE OUT IF WE STILL NEED THE REST OF THIS STUFF BELOW
         # Re-order the parameters for ingest by PolyTransform.
         Xcoeff = []
         Ycoeff = []
