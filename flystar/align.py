@@ -1,4 +1,5 @@
 import numpy as np
+import flystar
 from flystar import match
 from flystar import transforms
 from flystar import plots
@@ -406,12 +407,16 @@ class MosaicSelfRef(object):
                 trans = trans_initial_guess(ref_list[keepers], star_list_orig_trim, self.trans_args[0],
                                             mode=self.init_guess_mode,
                                             verbose=self.verbose,
-                                            mag_trans=self.mag_trans)
+                                            mag_trans=self.mag_trans,
+                                            trans_class=self.trans_class)
 
-            if self.mag_trans:
-                star_list_T.transform_xym(trans) # trimmed, transformed
+            if self.trans_class == flystar.transforms.UVIS_CTE_trans:
+                star_list_T.transform_xym_CTE(trans)
             else:
-                star_list_T.transform_xy(trans) 
+                if self.mag_trans:
+                    star_list_T.transform_xym(trans) # trimmed, transformed
+                else:
+                    star_list_T.transform_xy(trans) 
                 
             # Match stars between the transformed, trimmed lists.
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -444,15 +449,21 @@ class MosaicSelfRef(object):
 
             # Determine weights in the fit.
             weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
-
             # Derive the best-fit transformation parameters. 
             if self.verbose > 0:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
-            trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
-                                                      ref_list['x'][idx2], ref_list['y'][idx2],
-                                                      **trans_args,
-                                                      m=star_list['m'][idx1], mref=ref_list['m'][idx2],
-                                                      weights=weight, mag_trans=self.mag_trans)
+            if self.trans_class == flystar.transforms.UVIS_CTE_trans:
+                trans = self.trans_class.derive_transform(trans_args['order'],
+                                                          star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], star_list_orig_trim['m'][idx1], 
+                                                          star_list_orig_trim['xe'][idx1], star_list_orig_trim['ye'][idx1], star_list_orig_trim['me'][idx1], 
+                                                          ref_list['x'][idx2], ref_list['y'][idx2], ref_list['m'][idx2], 
+                                                          weights=weight)
+            else:
+                trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
+                                                          ref_list['x'][idx2], ref_list['y'][idx2],
+                                                          **trans_args,
+                                                          m=star_list['m'][idx1], mref=ref_list['m'][idx2],
+                                                          weights=weight, mag_trans=self.mag_trans)
 
             # Save the final transformation.
             self.trans_list[ii] = trans
@@ -461,6 +472,7 @@ class MosaicSelfRef(object):
             # NOTE: We will not recalculate weights here
             if self.calc_trans_inverse:
                 print('Doing inverse')
+                # FIXME: NEED TO ADD IF FOR UVIS_CTE_trans
                 trans_inv = self.trans_class.derive_transform(ref_list['x'][idx2], ref_list['y'][idx2],
                                                               star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
                                                               trans_args['order'], m=ref_list['m'][idx2],
@@ -471,10 +483,14 @@ class MosaicSelfRef(object):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(star_list)
-            if self.mag_trans:
-                star_list_T.transform_xym(self.trans_list[ii])
+
+            if self.trans_class == flystar.transforms.UVIS_CTE_trans:
+                star_list_T.transform_xym_CTE(self.trans_list[ii])
             else:
-                star_list_T.transform_xy(self.trans_list[ii])
+                if self.mag_trans:
+                    star_list_T.transform_xym(self.trans_list[ii])
+                else:
+                    star_list_T.transform_xy(self.trans_list[ii])
 
             if self.verbose > 1:
                 hdr = '{nr:13s} {n:13s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
@@ -3481,7 +3497,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
 
 def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
                         ignore_contains='star', verbose=True, n_req_match=2,
-                            mag_trans=True):
+                        mag_trans=True, trans_class=transforms.PolyTransform):
     """
     Take two starlists and perform an initial matching and transformation.
 
@@ -3542,7 +3558,25 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         order = 0
     else:
         order = 1
-    trans = transforms.PolyTransform.derive_transform(x1m, y1m ,x2m, y2m, order=order, weights=None)
+
+    if trans_class == flystar.transforms.UVIS_CTE_trans:
+        idx1 = np.zeros(N, dtype=int)
+        for ii in range(N):
+            idx = np.where((star_list['x'] == x1m[ii]) & 
+                           (star_list['y'] == y1m[ii]))[0]
+            idx1[ii] = int(idx)
+            if len(idx) != 1:
+                raise RuntimeError('Cannot find the index!')
+
+        xe1m = star_list['xe'][idx1] 
+        ye1m = star_list['xe'][idx1] 
+        me1m = star_list['xe'][idx1]
+
+        trans = transforms.UVIS_CTE_trans.derive_transform(order, x1m, y1m, m1m, 
+                                                           xe1m, ye1m, me1m,
+                                                           x2m, y2m, m2m, weights=None)
+    else:
+        trans = transforms.PolyTransform.derive_transform(x1m, y1m, x2m, y2m, order=order, weights=None)
 
     # Calculate flux transformation based on matches. If desired, should be applied as
     #     m' = m + mag_offset
