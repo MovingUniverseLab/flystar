@@ -11,7 +11,7 @@ def test_PolyTransform_init_no_guess():
 
     return
 
-def compare_evaluate_errors():
+def compare_PolyTransform_evaluate_errors():
     px_init = [ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
     py_init = [ 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
     
@@ -30,7 +30,7 @@ def compare_evaluate_errors():
 
     return
 
-def test_evaluate_errors():
+def test_PolyTransform_evaluate_errors():
     px_init = [ 100.0, 0.99, 1e-6]
     py_init = [ 100.0, 1e-6, 0.99]
     
@@ -54,7 +54,51 @@ def test_evaluate_errors():
 
     return
 
-def test_evaluate_velocities():
+def test_UVIS_CTE_trans_evalulate_1():
+    px_init = [100.0, 0.99, 1e-6]
+    py_init = [100.0, 1e-6, 0.99]
+    pc_init = [1e-6, 1.01, 1e-6, 1e-6, 0.99, 1e-6]
+    pm_init = [15.0]
+    
+    foo = transforms.UVIS_CTE_trans(1, px_init, py_init, pc_init, pm_init)
+
+    x = np.arange(10)
+    y = np.arange(10)
+    m = np.ones(10)
+
+    xnew, ynew, mnew = foo.evaluate(x, y, m)
+
+    print(xnew)
+    print(ynew)
+    print(mnew)
+    
+    # Should this do the assert thing?
+
+    return 
+
+def test_UVIS_CTE_trans_evalulate_2():
+    px_init = [100.0, 0.99, 1e-6, 1e-6, 1e-6, 1e-6]
+    py_init = [100.0, 1e-6, 0.99, 1e-6, 1e-6, 1e-6]
+    pc_init = [1e-6, 1.01, 1e-6, 1e-6, 0.99, 1e-6]
+    pm_init = [15.0]
+
+    foo = transforms.UVIS_CTE_trans(2, px_init, py_init, pc_init, pm_init)
+
+    x = np.arange(10)
+    y = np.arange(10)
+    m = np.ones(10)
+
+    xnew, ynew, mnew = foo.evaluate(x, y, m)
+
+    print(xnew)
+    print(ynew)
+    print(mnew)
+
+    # Should this do the assert thing?
+
+    return
+
+def test_PolyTransform_evaluate_velocities():
     px_init = [ 0.0, 0.99, 1e-6]
     py_init = [ 0.0, 1e-6, 0.99]
     
@@ -93,7 +137,7 @@ def test_evaluate_velocities():
 
     return
 
-def test_0th_order_poly():
+def test_PolyTransform_0th_order_poly():
     # Test out a 0th order polynomial implementation.
     # Note that this isn't a true 0th order; but rather a 1st order
     # with the c1_* coefficieints fixed. But this is the way we
