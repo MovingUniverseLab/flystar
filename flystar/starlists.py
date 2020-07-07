@@ -640,13 +640,9 @@ class StarList(Table):
         if trans == None:
             return
 
-        print('x before transform :', self['x'].data[0:5])
-        print('y before transform :', self['y'].data[0:5])        
         x_T, y_T = trans.evaluate(self['x'], self['y'])
         self['x'] = x_T
         self['y'] = y_T
-        print('x after transform :', self['x'].data[0:5])
-        print('y after transform :', self['y'].data[0:5])
 
         if 'xe' in self.colnames:
             xe_T, ye_T = trans.evaluate_error(self['x'], self['y'], self['xe'], self['ye'])
@@ -666,17 +662,11 @@ class StarList(Table):
         """
         if trans == None:
             return
-
-        print('x before transform :', self['x'].data[0:5])
-        print('y before transform :', self['y'].data[0:5])
-        print('m before transform :', self['m'].data[0:5])
+        
         x_T, y_T, m_T = trans.evaluate(self['x'], self['y'], self['m'])
         self['x'] = x_T
         self['y'] = y_T
         self['m'] = m_T
-        print('x after transform :', self['x'].data[0:5])
-        print('y after transform :', self['y'].data[0:5])
-        print('m after transform :', self['m'].data[0:5])
 
         # FIXME: I don't understand how this works?? This uses the updated values to calculate the error?
         if 'xe' in self.colnames:

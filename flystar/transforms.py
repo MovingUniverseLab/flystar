@@ -693,8 +693,8 @@ class UVIS_CTE_trans_1(PolyTransform):
     Defines a transformation designed to capture the distortions in magnitude 
     and y-position introduced into the HST UVIS detector due to CTE.
     """
-    def __init__(self, order, px, py, pc, pm,
-                 pxerr=None, pyerr=None, pcerr=None, pmerr=None):
+    def __init__(self, order, px, py, pc,
+                 pxerr=None, pyerr=None, pcerr=None):
         """
         Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
@@ -716,10 +716,6 @@ class UVIS_CTE_trans_1(PolyTransform):
         pc : list or array [z1, z2, z3, w1, w2, w3]
             coefficients for the CTE transformations
 
-        pm : float
-            magnitude difference with the reference catalog and CTE corrected catalog,
-            e.g. pm =  mref - mcte. Also referred to as magnitude offset
-
         pxerr : array or list
             array or list of errors of the coefficients to transform input x coordinates 
             into output x' coordinates.
@@ -731,8 +727,6 @@ class UVIS_CTE_trans_1(PolyTransform):
         pcerr : array or list
             array or list of errors of the coefficients for the CTE transformation
 
-        pmerr : float
-            error of the magnitude offset 
         """
         self.order = order
         self.poly_order = order
@@ -759,11 +753,9 @@ class UVIS_CTE_trans_1(PolyTransform):
             self.py = models.Polynomial2D(self.order, **py_dict)
 
         self.pc = pc    
-        self.pm = pm
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.pcerr = pcerr
-        self.pmerr = pmerr
 
         # Break out individual pieces of CTE correction
         # for easy use
@@ -805,7 +797,7 @@ class UVIS_CTE_trans_1(PolyTransform):
 
         xnew = self.px(x, ycte)
         ynew = self.py(x, ycte)
-        mnew = mcte + self.pm
+        mnew = mcte
 
         return xnew, ynew, mnew 
 
@@ -893,7 +885,7 @@ class UVIS_CTE_trans_1(PolyTransform):
     def derive_transform(cls, order, x, y, m, 
                          xref, yref, mref,
                          init_gx=None, init_gy=None, 
-                         init_gc=None, init_gm=None,
+                         init_gc=None,
                          weights=None):
 
         def res_func(params, order,
@@ -925,13 +917,12 @@ class UVIS_CTE_trans_1(PolyTransform):
             # Check that the length of params is right
             # 2*n_poly_coeff (2* since x and y)
             # 6 for CTE parameters, 1 for mag offset
-            if 2*n_poly_coeff + 6 + 1 != len(params):
+            if 2*n_poly_coeff + 6 != len(params):
                 raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
             try_px_list = params[:n_poly_coeff]
             try_py_list = params[n_poly_coeff:2*n_poly_coeff]
-            try_pc = params[-7:-1]
-            try_pm = params[-1]
+            try_pc = params[-6:]
 
             # Turn the list of x and y polynomial coefficients back into a dictionary.
             try_px = {}
@@ -952,7 +943,7 @@ class UVIS_CTE_trans_1(PolyTransform):
 
             x_out = px(x, ycte)
             y_out = py(x, ycte)
-            m_out = mcte + try_pm
+            m_out = mcte
 
             # Calculate the residuals.
             if weights is None:
@@ -982,15 +973,12 @@ class UVIS_CTE_trans_1(PolyTransform):
             init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
         
         if init_gc is None:
-            init_gc = [0., 0., 0., 0., 0., 1.]
-
-        if init_gm is None:
             # Calculate the magnitude offset using a 3-sigma clipped mean
             m_resid = mref - m
             threshold = 3 * m_resid.std()
             keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            init_gm = np.mean((mref - m)[keepers])
-            init_gm = [init_gm]
+            moff = np.mean((mref - m)[keepers])
+            init_gc = [moff, 0., 0., 0., 0., 1.]
 
         # Need to concatenate everything, but init_gx and init_gy are dictionaries.
         # So we unpack the dictionary into a list in a particular order.
@@ -1004,7 +992,7 @@ class UVIS_CTE_trans_1(PolyTransform):
                 init_gy_list.append(init_gy[key])
 
         # FIXME: CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
-        init_param_values = init_gx_list + init_gy_list + init_gc + init_gm
+        init_param_values = init_gx_list + init_gy_list + init_gc
 
         ###
         # Break up params so they can be fed into the UVIS_CTE_trans class.
@@ -1016,17 +1004,16 @@ class UVIS_CTE_trans_1(PolyTransform):
         # Check that the length of params is right
         # 2*n_poly_coeff (2* since x and y)
         # 6 for CTE parameters, 1 for mag offset
-        if 2*n_poly_coeff + 6 + 1 != len(init_param_values):
+        if 2*n_poly_coeff + 6 != len(init_param_values):
             raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
         farg = (order, x, y, m, xref, yref, mref)
         pxymc = optimize.least_squares(res_func, init_param_values, args=farg).x
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
-        pc = pxymc[-7:-1]
-        pm = pxymc[-1]
+        pc = pxymc[-6:]
         
-        trans = cls(order, px, py, pc, pm)
+        trans = cls(order, px, py, pc)
 
         return trans
 
