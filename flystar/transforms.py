@@ -212,6 +212,7 @@ class four_paramNW:
         yn = self.py[0] + self.py[1]*x + self.py[2]*y
         return xn, yn 
 
+
 class PolyTransform(Transform2D):
     """
     Defines a 2D affine polynomial transform between x, y -> xref, yref
@@ -687,7 +688,7 @@ class PolyTransform(Transform2D):
 
         return
 
-class UVIS_CTE_trans(PolyTransform):
+class UVIS_CTE_trans_1(PolyTransform):
     """
     Defines a transformation designed to capture the distortions in magnitude 
     and y-position introduced into the HST UVIS detector due to CTE.
@@ -889,18 +890,16 @@ class UVIS_CTE_trans(PolyTransform):
         raise RuntimeError("Velocities should always be derived AFTER the CTE correction + transformation.")
 
     @classmethod
-    # FIXME: TAKE OUT xe, ye, me AS REQ'D ARGUMENTS
-    # AND ACTUALLY HAVE IT COME IN THROUGH WEIGHTS!!!
     def derive_transform(cls, order, x, y, m, 
-                         xe, ye, me, xref, yref, mref,
+                         xref, yref, mref,
                          init_gx=None, init_gy=None, 
                          init_gc=None, init_gm=None,
                          weights=None):
 
         def res_func(params, order,
                      x_in, y_in, m_in, 
-                     xe_in, ye_in, me_in, 
-                     x_ref, y_ref, m_ref):
+                     x_ref, y_ref, m_ref,
+                     weights=None):
             """
             FIX THIS AFTER WRITING
 
@@ -915,7 +914,7 @@ class UVIS_CTE_trans(PolyTransform):
             ------
             all_res : array(_like?)
                 shape (m,) or scalar
-           """
+            """
             ###
             # Break up params so they can be fed into the UVIS_CTE_trans class.
             ###
@@ -945,33 +944,30 @@ class UVIS_CTE_trans(PolyTransform):
                     try_py[key] = try_py_list[counter]
                     counter += 1
 
-            try_trans = UVIS_CTE_trans(order, try_px, try_py, try_pc, try_pm)
+            ycte = T_cte_y_stsci(y, m, try_pc[3], try_pc[4], try_pc[5])
+            mcte = T_cte_m(y, m, try_pc[0], try_pc[1], try_pc[2])
+
+            px = models.Polynomial2D(order, **try_px)
+            py = models.Polynomial2D(order, **try_py)
+
+            x_out = px(x, ycte)
+            y_out = py(x, ycte)
+            m_out = mcte + try_pm
 
             # Calculate the residuals.
-            x_out, y_out, m_out = try_trans.evaluate(x_in, y_in, m_in)
-            xe_out, ye_out, me_out = try_trans.evaluate_error(x_in, y_in, m_in, xe_in, ye_in, me_in)
+            if weights is None:
+                x_res = x_out - x_ref 
+                y_res = y_out - y_ref 
+                m_res = m_out - m_ref 
+            else:
+                x_res = weights * (x_out - x_ref)
+                y_res = weights * (y_out - y_ref)
+                m_res = weights * (m_out - m_ref)
 
-            x_res = (x_out - x_ref) / xe_out
-            y_res = (y_out - y_ref) / ye_out
-            m_res = (m_out - m_ref) / me_out
+            res = np.concatenate((x_res, y_res, m_res))
 
-#            x_res = x_out 
-#            y_res = y_out
-#            m_res = m_out
+            return res
             
-            # CHECK that this returns array (m,)
-            all_res = np.concatenate((x_res, y_res, m_res))
-
-            return all_res
-
-        px_up = init_gx + 10
-        px_lo = init_gx - 10
-        py_up = init_gy + 10
-        py_lo = init_gy - 10
-        px_lims = list(zip(px_lo.tolist(), px_up.tolist()))
-        py_lims = list(zip(py_lo.tolist(), py_up.tolist()))
-        px_py_lims = px_lims + py_lims
-
         # Fill in initial guesses
         if order == 0:
             poly_order = 1
@@ -994,6 +990,7 @@ class UVIS_CTE_trans(PolyTransform):
             threshold = 3 * m_resid.std()
             keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
             init_gm = np.mean((mref - m)[keepers])
+            init_gm = [init_gm]
 
         # Need to concatenate everything, but init_gx and init_gy are dictionaries.
         # So we unpack the dictionary into a list in a particular order.
@@ -1007,27 +1004,8 @@ class UVIS_CTE_trans(PolyTransform):
                 init_gy_list.append(init_gy[key])
 
         # FIXME: CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
-        init_param_values = np.concatenate((init_gx_list, init_gy_list, init_gc, [init_gm]))
-        init_param_values = init_gx_list + init_gy_list + init_gc + [init_gm]
+        init_param_values = init_gx_list + init_gy_list + init_gc + init_gm
 
-        # Bounds
-        pc_pm_lims = [(-1, 1), (-1, 1), (-1, 1), (-1, 1), (-1, 1), (-1, 1), (init_gm - 2, init_gm + 2)]
-
-        bounds = px_py_lims + pc_pm_lims
-        bounds = list(map(list, zip(*bounds)))
-#        print(init_param_values)
-        print('OPTIMIZING!')
-        farg = (order, x, y, m, xe, ye, me, xref, yref, mref)
-        res = optimize.least_squares(res_func, init_param_values, args=farg, bounds=bounds)
-
-        best_fit_params = res.x
-
-        # Try differential evolution?
-        # Try leastsq? (Don't think it works)
-#        print(best_fit_params)
-        print(np.array(init_param_values) - np.array(best_fit_params))
-
-        
         ###
         # Break up params so they can be fed into the UVIS_CTE_trans class.
         ###
@@ -1038,23 +1016,16 @@ class UVIS_CTE_trans(PolyTransform):
         # Check that the length of params is right
         # 2*n_poly_coeff (2* since x and y)
         # 6 for CTE parameters, 1 for mag offset
-        if 2*n_poly_coeff + 6 + 1 != len(best_fit_params):
+        if 2*n_poly_coeff + 6 + 1 != len(init_param_values):
             raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
-        px = best_fit_params[:n_poly_coeff]
-        py = best_fit_params[n_poly_coeff:2*n_poly_coeff]
-        pc = best_fit_params[-7:-1]
-        pm = best_fit_params[-1]
-
-#        # Calculate covariance.
-#        # From https://github.com/scipy/scipy/blob/2526df72e5d4ca8bad6e2f4b3cbdfbc33e805865/scipy/optimize/minpack.py#L739
-#        # Do Moore-Penrose inverse discarding zero singular values.
-#        _, s, VT = svd(res.jac, full_matrices=False)
-#        threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
-#        s = s[s > threshold]
-#        VT = VT[:s.size]
-#        pcov = np.dot(VT.T / s**2, VT)
-
+        farg = (order, x, y, m, xref, yref, mref)
+        pxymc = optimize.least_squares(res_func, init_param_values, args=farg).x
+        px = pxymc[:n_poly_coeff]
+        py = pxymc[n_poly_coeff:2*n_poly_coeff]
+        pc = pxymc[-7:-1]
+        pm = pxymc[-1]
+        
         trans = cls(order, px, py, pc, pm)
 
         return trans
@@ -1455,7 +1426,7 @@ class PolyTransform_test(PolyTransform):
 
         if method==7:
             print('Method 7')
-            # Same as Method 6, but 
+            # Same as Method 6, but calls from the class. WHY DOES THIS NOT WORK??
             farg = (order, x, y, xref, yref, weights)
             pxy = optimize.least_squares(res_func, init_gx_list + init_gy_list, args=farg).x
             n_poly_coeff = int(binom(order + 2, order))
@@ -1476,7 +1447,7 @@ class PolyTransform_test(PolyTransform):
         return trans
 
 
-class UVIS_CTE_trans_ours(PolyTransform):
+class UVIS_CTE_trans_2(PolyTransform):
     """
     Defines a transformation designed to capture the distortions in magnitude 
     and y-position introduced into the HST UVIS detector due to CTE.
@@ -1589,7 +1560,6 @@ class UVIS_CTE_trans_ours(PolyTransform):
             The transformed magnitudes.
         """
         ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
-
         mcte = T_cte_m(y, m, self.z1, self.z2, self.z3)
 
         xnew = self.px(x, ycte)
@@ -1682,21 +1652,16 @@ class UVIS_CTE_trans_ours(PolyTransform):
         raise RuntimeError("Velocities should always be derived AFTER the CTE correction + transformation.")
 
     @classmethod
-    # FIXME: TAKE OUT xe, ye, me AS REQ'D ARGUMENTS
-    # AND ACTUALLY HAVE IT COME IN THROUGH WEIGHTS!!!
     def derive_transform(cls, order, x, y, m, 
-                         xe, ye, me, xref, yref, mref,
+                         xref, yref, mref,
                          init_gx=None, init_gy=None, 
                          init_gc=None, init_gm=None,
                          weights=None):
 
         def res_func(params, order,
                      x_in, y_in, m_in, 
-                     xe_in, ye_in, me_in, 
-                     x_ref, y_ref, m_ref):
-#                     x_ref, y_ref, m_ref,
-#                     init_gx=init_gx, init_gy=init_gy,
-#                     init_gc=init_gc, init_gm=init_gm):
+                     x_ref, y_ref, m_ref,
+                     weights=None):
             """
             FIX THIS AFTER WRITING
 
@@ -1741,32 +1706,27 @@ class UVIS_CTE_trans_ours(PolyTransform):
                     try_py[key] = try_py_list[counter]
                     counter += 1
 
-            try_trans = UVIS_CTE_trans(order, try_px, try_py, try_pc, try_pm)
+            ycte = T_cte_y(y, m, try_pc[3], try_pc[4], try_pc[5])
+            mcte = T_cte_m(y, m, try_pc[0], try_pc[1], try_pc[2])
+            
+            px = models.Polynomial2D(order, **try_px)
+            py = models.Polynomial2D(order, **try_py)
+
+            x_out = px(x, ycte)
+            y_out = py(x, ycte)
+            m_out = mcte + try_pm
 
             # Calculate the residuals.
-            x_out, y_out, m_out = try_trans.evaluate(x_in, y_in, m_in)
-            xe_out, ye_out, me_out = try_trans.evaluate_error(x_in, y_in, m_in, xe_in, ye_in, me_in)
+            if weights is None:
+                x_res = x_out - x_ref 
+                y_res = y_out - y_ref 
+                m_res = m_out - m_ref 
+            else:
+                x_res = weights * (x_out - x_ref)
+                y_res = weights * (y_out - y_ref)
+                m_res = weights * (m_out - m_ref)
 
-            x_res = (x_out - x_ref) / xe_out
-            y_res = (y_out - y_ref) / ye_out
-            m_res = (m_out - m_ref) / me_out
-
-#            x_res = x_out 
-#            y_res = y_out
-#            m_res = m_out
-            
-            # CHECK that this returns array (m,)
-            all_res = np.concatenate((x_res, y_res, m_res))
-
-            return all_res
-
-        px_up = init_gx + 10
-        px_lo = init_gx - 10
-        py_up = init_gy + 10
-        py_lo = init_gy - 10
-        px_lims = list(zip(px_lo.tolist(), px_up.tolist()))
-        py_lims = list(zip(py_lo.tolist(), py_up.tolist()))
-        px_py_lims = px_lims + py_lims
+            res = np.concatenate((x_res, y_res, m_res))
 
         # Fill in initial guesses
         if order == 0:
@@ -1785,8 +1745,6 @@ class UVIS_CTE_trans_ours(PolyTransform):
             init_gc = [0., 0., 0., 0., np.average(m), 0.]
 
         if init_gm is None:
-#            init_gm = [0.]
-#        else:
             # Calculate the magnitude offset using a 3-sigma clipped mean
             m_resid = mref - m
             threshold = 3 * m_resid.std()
@@ -1806,30 +1764,7 @@ class UVIS_CTE_trans_ours(PolyTransform):
                 init_gy_list.append(init_gy[key])
 
         # FIXME: CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
-        init_param_values = np.concatenate((init_gx_list, init_gy_list, init_gc, init_gm))
         init_param_values = init_gx_list + init_gy_list + init_gc + init_gm
-        
-        # Bounds
-        mavg = np.average(m)
-        mstd = np.std(m)
-
-        mrefavg = np.average(mref)
-
-        pc_pm_lims = [(-1, 1), (-1, 1), (-1, 1), (-1, 1), (mavg - mstd, mavg + mstd), (-1, 1), (init_gm - 2, init_gm + 2)]
-
-        bounds = px_py_lims + pc_pm_lims
-        bounds = list(map(list, zip(*bounds)))
-        pdb.set_trace()
-        print(init_param_values)
-        print('OPTIMIZING!')
-        farg = (order, x, y, m, xe, ye, me, xref, yref, mref)
-        res = optimize.least_squares(res_func, init_param_values, args=farg, bounds=bounds)
-
-        best_fit_params = res.x
-
-        # Try differential evolution?
-        # Try leastsq? (Don't think it works)
-        print(best_fit_params)
 
         ###
         # Break up params so they can be fed into the UVIS_CTE_trans class.
@@ -1841,22 +1776,16 @@ class UVIS_CTE_trans_ours(PolyTransform):
         # Check that the length of params is right
         # 2*n_poly_coeff (2* since x and y)
         # 6 for CTE parameters, 1 for mag offset
-        if 2*n_poly_coeff + 6 + 1 != len(best_fit_params):
+        if 2*n_poly_coeff + 6 + 1 != len(init_param_values):
             raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
-        px = best_fit_params[:n_poly_coeff]
-        py = best_fit_params[n_poly_coeff:2*n_poly_coeff]
-        pc = best_fit_params[-7:-1]
-        pm = best_fit_params[-1]
-
-#        # Calculate covariance.
-#        # From https://github.com/scipy/scipy/blob/2526df72e5d4ca8bad6e2f4b3cbdfbc33e805865/scipy/optimize/minpack.py#L739
-#        # Do Moore-Penrose inverse discarding zero singular values.
-#        _, s, VT = svd(res.jac, full_matrices=False)
-#        threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
-#        s = s[s > threshold]
-#        VT = VT[:s.size]
-#        pcov = np.dot(VT.T / s**2, VT)
+        farg = (order, x, y, m, xref, yref, mref)
+        pxymc = optimize.least_squares(res_func, init_param_values, args=farg).x
+        px = pxymc[:n_poly_coeff]
+        py = pxymc[n_poly_coeff:2*n_poly_coeff]
+        pc = pxymc[-7:-1]
+        pm = pxymc[-1]
+        
         trans = cls(order, px, py, pc, pm)
 
         return trans
