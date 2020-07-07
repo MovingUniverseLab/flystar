@@ -452,18 +452,26 @@ class MosaicSelfRef(object):
             # Derive the best-fit transformation parameters. 
             if self.verbose > 0:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
+            print('TRANSFORM') # temp
             if self.trans_class == flystar.transforms.UVIS_CTE_trans:
+                # Use this as a guess
+                guess = transforms.PolyTransform.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
+                                                          ref_list['x'][idx2], ref_list['y'][idx2],
+                                                          **trans_args,
+                                                          m=star_list['m'][idx1], mref=ref_list['m'][idx2],
+                                                          weights=weight, mag_trans=self.mag_trans)                
+
                 trans = self.trans_class.derive_transform(trans_args['order'],
                                                           star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], star_list_orig_trim['m'][idx1], 
                                                           star_list_orig_trim['xe'][idx1], star_list_orig_trim['ye'][idx1], star_list_orig_trim['me'][idx1], 
                                                           ref_list['x'][idx2], ref_list['y'][idx2], ref_list['m'][idx2], 
-                                                          weights=weight)
+                                                          weights=weight, init_gx = guess.px.parameters, init_gy = guess.py.parameters)
             else:
                 trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                           ref_list['x'][idx2], ref_list['y'][idx2],
                                                           **trans_args,
                                                           m=star_list['m'][idx1], mref=ref_list['m'][idx2],
-                                                          weights=weight, mag_trans=self.mag_trans)
+                                                          weights=weight, mag_trans=self.mag_trans)                
 
             # Save the final transformation.
             self.trans_list[ii] = trans
@@ -472,7 +480,7 @@ class MosaicSelfRef(object):
             # NOTE: We will not recalculate weights here
             if self.calc_trans_inverse:
                 print('Doing inverse')
-                # FIXME: NEED TO ADD IF FOR UVIS_CTE_trans
+                # FIXME: NEED TO ADD IF FOR UVIS_CTE_trans. But this new class takes in the errors... 
                 trans_inv = self.trans_class.derive_transform(ref_list['x'][idx2], ref_list['y'][idx2],
                                                               star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
                                                               trans_args['order'], m=ref_list['m'][idx2],
@@ -1183,6 +1191,7 @@ class MosaicSelfRef(object):
                     weight = None
             
                 # Recalculate transformation
+                print('BOOTSTRAP') # temp
                 trans = self.trans_class.derive_transform(starlist_boot['x'], starlist_boot['y'],
                                                                    ref_boot['x'], ref_boot['y'],
                                                                    self.trans_args[0]['order'],
@@ -2314,6 +2323,7 @@ def initial_align(table1, table2, briteN=100,
     print(( '{0} stars matched between starlist1 and starlist2'.format(N)))
 
     # Calculate transformation based on matches
+    print('INITIAL ALIGN') # temp
     t = transformModel.derive_transform(x1m, y1m ,x2m, y2m, order=order, weights=None)
 
     print( 'End initial match \n')
@@ -2462,6 +2472,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
         weight = None
 
     # Calculate transform based on the matched stars
+    print('Find transform') # temp
     t = transModel.derive_transform(x1, y1, x2, y2, order, m=m1, mref=m2, weights=weight)
 
     N_trans = len(x1)
@@ -3506,7 +3517,6 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     is just blind triangle matching on the brightest 50 stars. 
     """
     warnings.filterwarnings('ignore', category=AstropyUserWarning)
-    
     if mode == 'name':
         # First trim the two lists down to only those that don't contain
         # the "ignore_contains" string.
@@ -3558,8 +3568,9 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         order = 0
     else:
         order = 1
-
+    print('TRANS INITIAL GUESS') # temp
     if trans_class == flystar.transforms.UVIS_CTE_trans:
+        # Get the corresponding errors for the matched stars
         idx1 = np.zeros(N, dtype=int)
         for ii in range(N):
             idx = np.where((star_list['x'] == x1m[ii]) & 
@@ -3571,10 +3582,14 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         xe1m = star_list['xe'][idx1] 
         ye1m = star_list['xe'][idx1] 
         me1m = star_list['xe'][idx1]
-
+        print('GUESS')
+        guess = transforms.PolyTransform.derive_transform(x1m, y1m, x2m, y2m, order=order, weights=None)
+        print('TRANS')
         trans = transforms.UVIS_CTE_trans.derive_transform(order, x1m, y1m, m1m, 
                                                            xe1m, ye1m, me1m,
-                                                           x2m, y2m, m2m, weights=None)
+                                                           x2m, y2m, m2m, weights=None,
+                                                           init_gx = guess.px.parameters, 
+                                                           init_gy = guess.py.parameters)
     else:
         trans = transforms.PolyTransform.derive_transform(x1m, y1m, x2m, y2m, order=order, weights=None)
 
