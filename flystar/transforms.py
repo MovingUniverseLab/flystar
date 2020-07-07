@@ -11,13 +11,12 @@ import re
 import pdb
 
 #import sys
-#
 #if not sys.warnoptions:
 #    import os, warnings
 #    warnings.simplefilter("error") # Change the filter in this process
 #    os.environ["PYTHONWARNINGS"] = "default" # Also affect subprocesses
 #
-#np.seterr(divide='raise', over='raise')
+#np.seterr(divide='raise', over='raise', invalid='raise')
 
 class Transform2D(object):
     '''
@@ -212,7 +211,6 @@ class four_paramNW:
         xn = self.px[0] + self.px[1]*x + self.px[2]*y
         yn = self.py[0] + self.py[1]*x + self.py[2]*y
         return xn, yn 
-        
 
 class PolyTransform(Transform2D):
     """
@@ -570,8 +568,9 @@ class PolyTransform(Transform2D):
         
             p_init_x = models.Polynomial2D(order, **init_gx)
             p_init_y = models.Polynomial2D(order, **init_gy)
-            
-        fit_p = fitting.LinearLSQFitter()
+
+#        fit_p = fitting.LinearLSQFitter()
+        fit_p = fitting.LevMarLSQFitter()
 
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
@@ -584,7 +583,6 @@ class PolyTransform(Transform2D):
                 coeff_idx = px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
                 Xcoeff.append( px.parameters[coeff_idx] )
                 Ycoeff.append( py.parameters[coeff_idx] )
-        
         # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
         if (m is not None) and (mref is not None) and mag_trans:
             m_resid = mref - m
@@ -689,8 +687,701 @@ class PolyTransform(Transform2D):
 
         return
 
-
 class UVIS_CTE_trans(PolyTransform):
+    """
+    Defines a transformation designed to capture the distortions in magnitude 
+    and y-position introduced into the HST UVIS detector due to CTE.
+    """
+    def __init__(self, order, px, py, pc, pm,
+                 pxerr=None, pyerr=None, pcerr=None, pmerr=None):
+        """
+        Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
+        and the coefficients for the x transformation and y transformation. 
+        Note that a 0th order polynomial is 
+        x' = a0
+        y' = b0
+        
+        Parameters
+        ----------
+        order : int
+            The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
+
+        px : list or array [a0, a1, a2, ...] 
+            coefficients to transform input x coordinates into output x' coordinates.
+
+        py : list or array [b0, b1, b2, ...] 
+            coefficients to transform input y coordinates into output y' coordinates.
+
+        pc : list or array [z1, z2, z3, w1, w2, w3]
+            coefficients for the CTE transformations
+
+        pm : float
+            magnitude difference with the reference catalog and CTE corrected catalog,
+            e.g. pm =  mref - mcte. Also referred to as magnitude offset
+
+        pxerr : array or list
+            array or list of errors of the coefficients to transform input x coordinates 
+            into output x' coordinates.
+        
+        pyerr : array or list
+            array or list of errors of the coefficients to transform input y coordinates 
+            into output y' coordinates.
+
+        pcerr : array or list
+            array or list of errors of the coefficients for the CTE transformation
+
+        pmerr : float
+            error of the magnitude offset 
+        """
+        self.order = order
+        self.poly_order = order
+
+        # Munge the coefficients into a dictionary for the astropy Polynomial2D object
+        if self.order == 0:
+            self.poly_order = 1
+            px = np.append(px, [1.0, 0.0])
+            py = np.append(py, [0.0, 1.0])
+            pxerr = np.append(pxerr, [0.0, 0.0])
+            pyerr = np.append(pyerr, [0.0, 0.0])
+            
+            px_dict = PolyTransform.make_param_dict(px, self.poly_order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
+            
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
+            self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
+            self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
+        else:
+            px_dict = PolyTransform.make_param_dict(px, self.order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.order, isY=True)
+            
+            self.px = models.Polynomial2D(self.order, **px_dict)
+            self.py = models.Polynomial2D(self.order, **py_dict)
+
+        self.pc = pc    
+        self.pm = pm
+        self.pxerr = pxerr
+        self.pyerr = pyerr
+        self.pcerr = pcerr
+        self.pmerr = pmerr
+
+        # Break out individual pieces of CTE correction
+        # for easy use
+        self.z1 = pc[0] 
+        self.z2 = pc[1]   
+        self.z3 = pc[2] 
+        self.w1 = pc[3] 
+        self.w2 = pc[4] 
+        self.w3 = pc[5] 
+
+        return
+
+    # make_param_dict should be inherited
+
+    def evaluate(self, x, y, m):
+        """
+        Apply the transformation to a starlist.
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The raw x coordinates to be transformed.
+        y : numpy array
+            The raw y coordinates to be transformed.
+        m : numpy array
+            The raw magnitudes to be transformed.
+
+        Returns:
+        ----------
+        xnew : array
+            The transformed x coordinates.
+        ynew : array
+            The transformed y coordinates. 
+        mnew : array
+            The transformed magnitudes.
+        """
+        ycte = T_cte_y_stsci(y, m, self.w1, self.w2, self.w3)
+        mcte = T_cte_m(y, m, self.z1, self.z2, self.z3)
+
+        xnew = self.px(x, ycte)
+        ynew = self.py(x, ycte)
+        mnew = mcte + self.pm
+
+        return xnew, ynew, mnew 
+
+    def evaluate_error(self, x, y, m, xe, ye, me):
+        """
+        Transform positional uncertainties. 
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        xe : numpy array
+            The raw x errors to be transformed.
+        ye : numpy array
+            The raw y errors to be transformed.
+
+        Returns:
+        ----------
+        xe' : array
+            The transformed x errors.
+        ye' : array
+            The transformed y errors. 
+
+        """
+        dxnew_dx = 0.0
+        dxnew_dy = 0.0
+        dxnew_dycte = 0.0
+        dxnew_dm = 0.0
+
+        dynew_dx = 0.0
+        dynew_dy = 0.0
+        dynew_dycte = 0.0
+        dynew_dm = 0.0
+
+        ycte = T_cte_y_stsci(y, m, self.w1, self.w2, self.w3)
+
+        ###
+        # Evaluate the polynomial first.
+        # This calculates dxnew_dx, dynew_dx, dxnew_dycte, dynew_dycte
+        ####
+        for i in range(self.poly_order + 1):
+            for j in range(i + 1):
+                coeff_idx = self.px.param_names.index( 'c{0}_{1}'.format(i-j, j) )
+                Xcoeff = self.px.parameters[coeff_idx]
+                Ycoeff = self.py.parameters[coeff_idx]
+                
+                # First loop: df'/dx
+                if (i - j):
+                    dxnew_dx += Xcoeff * (i - j) * x**(i-j-1) * ycte**j
+                    dynew_dx += Ycoeff * (i - j) * x**(i-j-1) * ycte**j
+
+                # Second loop: df'/dy
+                if j:
+                    dxnew_dycte += Xcoeff * (j) * x**(i-j) * ycte**(j-1)
+                    dynew_dycte += Ycoeff * (j) * x**(i-j) * ycte**(j-1)
+
+        dycte_dm = self.w2
+        dycte_dy = self.w3
+
+        dxnew_dy = dxnew_dycte * dycte_dy
+        dynew_dy = dynew_dycte * dycte_dy
+        dxnew_dm = dxnew_dycte * dycte_dm
+        dynew_dm = dynew_dycte * dycte_dm
+
+        # Calculate partial derivatives for dmnew
+        dmnew_dm = 1 + self.z1 * self.z2 * np.exp(self.z2 * m)
+        dmnew_dy = self.z3
+
+        # Take square root for xe/ye/me_new
+        xe_new = np.sqrt((dxnew_dx * xe)**2 + (dxnew_dy * ye)**2 + (dxnew_dm * me)**2)
+        ye_new = np.sqrt((dynew_dx * xe)**2 + (dynew_dy * ye)**2 + (dynew_dm * me)**2)
+        me_new = np.sqrt((dmnew_dm * me)**2 + (dmnew_dy * ye)**2)
+
+        return xe_new, ye_new, me_new
+
+    def evaluate_vel(self, x, y, m, vx, vy):
+        raise RuntimeError("Velocities should always be derived AFTER the CTE correction + transformation.")
+
+    def evaluate_vel_err(self, x, y, m, vx, vy, xe, ye, me, vxe, vye):
+        raise RuntimeError("Velocities should always be derived AFTER the CTE correction + transformation.")
+
+    @classmethod
+    # FIXME: TAKE OUT xe, ye, me AS REQ'D ARGUMENTS
+    # AND ACTUALLY HAVE IT COME IN THROUGH WEIGHTS!!!
+    def derive_transform(cls, order, x, y, m, 
+                         xe, ye, me, xref, yref, mref,
+                         init_gx=None, init_gy=None, 
+                         init_gc=None, init_gm=None,
+                         weights=None):
+
+        def res_func(params, order,
+                     x_in, y_in, m_in, 
+                     xe_in, ye_in, me_in, 
+                     x_ref, y_ref, m_ref):
+            """
+            FIX THIS AFTER WRITING
+
+            Computes vector of residuals. The minimization is wrt params.
+
+            Parameters
+            ----------
+            params : ndarray
+                shape (n,) (never a scalar, even for n=1)
+
+            Return
+            ------
+            all_res : array(_like?)
+                shape (m,) or scalar
+           """
+            ###
+            # Break up params so they can be fed into the UVIS_CTE_trans class.
+            ###
+            # Number of coefficients for the x and y polynomial
+            # Given by (n+d) choose d, where d is degree and n is number of variables
+            n_poly_coeff = int(binom(order + 2, order))
+
+            # Check that the length of params is right
+            # 2*n_poly_coeff (2* since x and y)
+            # 6 for CTE parameters, 1 for mag offset
+            if 2*n_poly_coeff + 6 + 1 != len(params):
+                raise Exception('Something wrong! Order incorrect or length of params is wrong!')
+
+            try_px_list = params[:n_poly_coeff]
+            try_py_list = params[n_poly_coeff:2*n_poly_coeff]
+            try_pc = params[-7:-1]
+            try_pm = params[-1]
+
+            # Turn the list of x and y polynomial coefficients back into a dictionary.
+            try_px = {}
+            try_py = {}
+            counter = 0
+            for i in range(order+1):
+                for j in range(i+1):
+                    key = 'c{0}_{1}'.format((i-j), j)
+                    try_px[key] = try_px_list[counter]
+                    try_py[key] = try_py_list[counter]
+                    counter += 1
+
+            try_trans = UVIS_CTE_trans(order, try_px, try_py, try_pc, try_pm)
+
+            # Calculate the residuals.
+            x_out, y_out, m_out = try_trans.evaluate(x_in, y_in, m_in)
+            xe_out, ye_out, me_out = try_trans.evaluate_error(x_in, y_in, m_in, xe_in, ye_in, me_in)
+
+            x_res = (x_out - x_ref) / xe_out
+            y_res = (y_out - y_ref) / ye_out
+            m_res = (m_out - m_ref) / me_out
+
+#            x_res = x_out 
+#            y_res = y_out
+#            m_res = m_out
+            
+            # CHECK that this returns array (m,)
+            all_res = np.concatenate((x_res, y_res, m_res))
+
+            return all_res
+
+        px_up = init_gx + 10
+        px_lo = init_gx - 10
+        py_up = init_gy + 10
+        py_lo = init_gy - 10
+        px_lims = list(zip(px_lo.tolist(), px_up.tolist()))
+        py_lims = list(zip(py_lo.tolist(), py_up.tolist()))
+        px_py_lims = px_lims + py_lims
+
+        # Fill in initial guesses
+        if order == 0:
+            poly_order = 1
+            init_gx = np.append(init_gx, [1.0, 0.0])
+            init_gy = np.append(init_gy, [0.0, 1.0])
+        
+            init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
+            init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
+
+        else:
+            init_gx = PolyTransform.make_param_dict(init_gx, order, isY=False)
+            init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
+        
+        if init_gc is None:
+            init_gc = [0., 0., 0., 0., 0., 1.]
+
+        if init_gm is None:
+            # Calculate the magnitude offset using a 3-sigma clipped mean
+            m_resid = mref - m
+            threshold = 3 * m_resid.std()
+            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+            init_gm = np.mean((mref - m)[keepers])
+
+        # Need to concatenate everything, but init_gx and init_gy are dictionaries.
+        # So we unpack the dictionary into a list in a particular order.
+        # We will turn it back into a dictionary later... 
+        init_gx_list = []
+        init_gy_list = []
+        for i in range(order+1):
+            for j in range(i+1):
+                key = 'c{0}_{1}'.format((i-j), j)
+                init_gx_list.append(init_gx[key])
+                init_gy_list.append(init_gy[key])
+
+        # FIXME: CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
+        init_param_values = np.concatenate((init_gx_list, init_gy_list, init_gc, [init_gm]))
+        init_param_values = init_gx_list + init_gy_list + init_gc + [init_gm]
+
+        # Bounds
+        pc_pm_lims = [(-1, 1), (-1, 1), (-1, 1), (-1, 1), (-1, 1), (-1, 1), (init_gm - 2, init_gm + 2)]
+
+        bounds = px_py_lims + pc_pm_lims
+        bounds = list(map(list, zip(*bounds)))
+#        print(init_param_values)
+        print('OPTIMIZING!')
+        farg = (order, x, y, m, xe, ye, me, xref, yref, mref)
+        res = optimize.least_squares(res_func, init_param_values, args=farg, bounds=bounds)
+
+        best_fit_params = res.x
+
+        # Try differential evolution?
+        # Try leastsq? (Don't think it works)
+#        print(best_fit_params)
+        print(np.array(init_param_values) - np.array(best_fit_params))
+
+        
+        ###
+        # Break up params so they can be fed into the UVIS_CTE_trans class.
+        ###
+        # Number of coefficients for the x and y polynomial
+        # Given by (n+d) choose d, where d is degree and n is number of variables
+        n_poly_coeff = int(binom(order + 2, order))
+
+        # Check that the length of params is right
+        # 2*n_poly_coeff (2* since x and y)
+        # 6 for CTE parameters, 1 for mag offset
+        if 2*n_poly_coeff + 6 + 1 != len(best_fit_params):
+            raise Exception('Something wrong! Order incorrect or length of params is wrong!')
+
+        px = best_fit_params[:n_poly_coeff]
+        py = best_fit_params[n_poly_coeff:2*n_poly_coeff]
+        pc = best_fit_params[-7:-1]
+        pm = best_fit_params[-1]
+
+#        # Calculate covariance.
+#        # From https://github.com/scipy/scipy/blob/2526df72e5d4ca8bad6e2f4b3cbdfbc33e805865/scipy/optimize/minpack.py#L739
+#        # Do Moore-Penrose inverse discarding zero singular values.
+#        _, s, VT = svd(res.jac, full_matrices=False)
+#        threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
+#        s = s[s > threshold]
+#        VT = VT[:s.size]
+#        pcov = np.dot(VT.T / s**2, VT)
+
+        trans = cls(order, px, py, pc, pm)
+
+        return trans
+
+    #####
+    # I think this should just be inherited... the polynomial 
+    # coefficients don't change. Plus this is just for astropy
+    # polynomial I think...
+    #####
+    # def from_file(cls, trans_file)
+    # def to_file(self, trans_file)
+
+
+
+# TEMPORARY FOR TESTING
+class PolyTransform_test(PolyTransform):
+    """
+    Defines a 2D affine polynomial transform between x, y -> xref, yref
+    The tranformation is independent for x and y and has the form (for 2nd order fit):
+
+    x' = a0 + a1*x + a2*y. + a3*x**2 + a4*x*y. + a5*y**2
+    y' = b0 + b1*x + b2*y. + b3*x**2 + b4*x*y. + b5*y**2
+
+    Note that a 0th order polynomial is 
+    x' = a0
+    y' = b0
+    """
+    def __init__(self, order, px, py, pxerr=None, pyerr=None, mag_offset=0.0):
+        """
+        Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
+        and the coefficients for the x transformation and y transformation. 
+        Note that a 0th order polynomial is 
+        x' = a0
+        y' = b0
+        
+        Parameters
+        ----------
+        px : list or array [a0, a1, a2, ...] 
+            coefficients to transform input x coordinates into output x' coordinates.
+
+        py : list or array [b0, b1, b2, ...] 
+            coefficients to transform input y coordinates into output y' coordinates.
+        
+        order : int
+            The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
+
+        pxerr : array or list
+            array or list of errors of the coefficients to transform input x coordinates 
+            into output x' coordinates.
+        
+        pyerr : array or list
+            array or list of errors of the coefficients to transform input y coordinates 
+            into output y' coordinates.
+        
+        mag_offset : float
+            magnitude difference with the reference catalog (mag_ref - mag_cat)
+            
+        """
+        self.order = order
+        self.poly_order = order
+        
+        if self.order == 0:
+            self.poly_order = 1
+            px = np.append(px, [1.0, 0.0])
+            py = np.append(py, [0.0, 1.0])
+            pxerr = np.append(pxerr, [0.0, 0.0])
+            pyerr = np.append(pyerr, [0.0, 0.0])
+            
+            px_dict = PolyTransform.make_param_dict(px, self.poly_order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
+            
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
+            self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
+            self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
+        else:
+            px_dict = PolyTransform.make_param_dict(px, self.order, isY=False)
+            py_dict = PolyTransform.make_param_dict(py, self.order, isY=True)
+            
+            self.px = models.Polynomial2D(self.order, **px_dict)
+            self.py = models.Polynomial2D(self.order, **py_dict)
+            
+        self.pxerr = pxerr
+        self.pyerr = pyerr
+        self.mag_offset = mag_offset
+
+        return
+
+    @classmethod
+    def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
+                         init_gx=None, init_gy=None, weights=None, mag_trans=True,
+                         method=3):
+        def res_func(params, order,
+                     x_in, y_in, x_ref, y_ref,
+                     poly):
+            """
+            FIX THIS AFTER WRITING
+            
+            Computes vector of residuals. The minimization is wrt params.
+            
+            Parameters
+            ----------
+            params : ndarray
+            shape (n,) (never a scalar, even for n=1)
+
+            poly : 'x' or 'y'
+
+            Return
+            ------
+            all_res : array(_like?)
+            shape (m,) or scalar
+            """
+            ###
+            # Break up params so they can be fed into the UVIS_CTE_trans class.
+            ###
+            # Number of coefficients for the x and y polynomial
+            # Given by (n+d) choose d, where d is degree and n is number of variables
+            n_poly_coeff = int(binom(order + 2, order))
+
+            # Check that the length of params is right
+            # 2*n_poly_coeff (2* since x and y)
+            if 2*n_poly_coeff != len(params):
+                raise Exception('Something wrong! Order incorrect or length of params is wrong!')
+
+            try_px_list = params[:n_poly_coeff]
+            try_py_list = params[n_poly_coeff:2*n_poly_coeff]
+
+           # Turn the list of x and y polynomial coefficients back into a dictionary.
+            try_px = {}
+            try_py = {}
+            counter = 0
+            for i in range(order+1):
+                for j in range(i+1):
+                    key = 'c{0}_{1}'.format((i-j), j)
+                    try_px[key] = try_px_list[counter]
+                    try_py[key] = try_py_list[counter]
+                    counter += 1
+                    
+            try_trans = PolyTransform_test(order, try_px, try_py)
+                    
+            # Calculate the residuals.
+            x_out, y_out = try_trans.evaluate(x_in, y_in)
+
+            if poly=='x':
+                res = np.sum(x_out - x_ref) 
+
+            if poly=='y':
+                res = np.sum(y_out - y_ref) 
+            print(params)
+            print(res)
+            return res
+
+        def res_func_p(params, order,
+                       x_in, y_in, ref):
+            """
+            FIX THIS AFTER WRITING
+            
+            Computes vector of residuals. The minimization is wrt params.
+            
+            Parameters
+            ----------
+            params : ndarray
+            shape (n,) (never a scalar, even for n=1)
+
+            order : 
+                order of polynomial
+
+            x_in, y_in, ref : array
+
+            Return
+            ------
+            """
+           # Turn the list of x and y polynomial coefficients back into a dictionary.
+            try_p = {}
+            counter = 0
+            for i in range(order+1):
+                for j in range(i+1):
+                    key = 'c{0}_{1}'.format((i-j), j)
+                    try_p[key] = params[counter]
+                    counter += 1
+
+            p = models.Polynomial2D(order, **try_p)
+
+            out = p(x_in, y_in)
+
+            # NOT summed
+            res = out - ref
+
+            return res
+       
+        # now, if the initial guesses are not none, fill in terms until
+        if order == 0:
+            poly_order = 1
+            init_gx = np.append(init_gx, [1.0, 0.0])
+            init_gy = np.append(init_gy, [0.0, 1.0])
+            
+            init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
+            init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
+            
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True, 'c0_1': True}
+            p_init_x = models.Polynomial2D(poly_order, **init_gx, fixed=fixed_params)
+            p_init_y = models.Polynomial2D(poly_order, **init_gy, fixed=fixed_params)
+        else:
+            init_gx = PolyTransform.make_param_dict(init_gx, order, isY=False)
+            init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
+            
+            p_init_x = models.Polynomial2D(order, **init_gx)
+            p_init_y = models.Polynomial2D(order, **init_gy)
+
+        # Need to concatenate everything, but init_gx and init_gy are dictionaries.
+        # So we unpack the dictionary into a list in a particular order.
+        # We will turn it back into a dictionary later... 
+        init_gx_list = []
+        init_gy_list = []
+        for i in range(order+1):
+            for j in range(i+1):
+                key = 'c{0}_{1}'.format((i-j), j)
+                init_gx_list.append(init_gx[key])
+                init_gy_list.append(init_gy[key])
+                
+        if method==0:
+            print('Method 0')
+            fit_p = fitting.LevMarLSQFitter()
+            
+            px = fit_p(p_init_x, x, y, xref, weights=weights)
+            py = fit_p(p_init_y, x, y, yref, weights=weights)
+            
+            # Re-order the parameters for ingest by PolyTransform.
+            Xcoeff = []
+            Ycoeff = []
+            for i in range(order+1):
+                for j in range(i+1):
+                    coeff_idx = px.param_names.index( 'c{0}_{1}'.format((i-j), j) )
+                    Xcoeff.append( px.parameters[coeff_idx] )
+                    Ycoeff.append( py.parameters[coeff_idx] )
+                    
+            px = Xcoeff
+            py = Ycoeff
+
+        if method==1:
+            print('Method 1')
+            # This gives the same thing as method 0. It is basically the same thing,
+            # but I deconstructed the function and stripped out a lot of checks
+            t = fitting.LevMarLSQFitter()
+            
+            model_copy = fitting._validate_model(p_init_x, t.supported_constraints)
+            farg = (model_copy, weights, ) + fitting._convert_input(x, y, xref)
+            init_param_values, _ = fitting._model_to_fit_params(model_copy)
+            print(init_param_values)
+            px = optimize.leastsq(t.objective_function, init_param_values, args=farg)[0]
+            print(px)
+            
+            model_copy = fitting._validate_model(p_init_y, t.supported_constraints)
+            farg = (model_copy, weights, ) + fitting._convert_input(x, y, yref)
+            init_param_values, _ = fitting._model_to_fit_params(model_copy)
+            print(init_param_values)
+            py = optimize.leastsq(t.objective_function, init_param_values, args=farg)[0]
+            print(py)
+
+        if method==2:
+            print('Method 2')
+            # This uses least_squares instead of leastsq. Almost everything is exactly
+            # the same. 
+            t = fitting.LevMarLSQFitter()
+            model_copy = fitting._validate_model(p_init_x, t.supported_constraints)
+            farg = (model_copy, weights, ) + fitting._convert_input(x, y, xref)
+            init_param_values, _ = fitting._model_to_fit_params(model_copy)
+            print(init_param_values)
+            px = optimize.least_squares(t.objective_function, init_param_values, args=farg).x
+            print(px)
+            
+            model_copy = fitting._validate_model(p_init_y, t.supported_constraints)
+            farg = (model_copy, weights, ) + fitting._convert_input(x, y, yref)
+            init_param_values, _ = fitting._model_to_fit_params(model_copy)
+            print(init_param_values)
+            py = optimize.least_squares(t.objective_function, init_param_values, args=farg).x
+            print(py)
+
+        if method==3:
+            print('Method 3')
+            # Basically the same as Method 2, but just stripping away more of the checks.
+            t = fitting.LevMarLSQFitter()
+            farg = (p_init_x, weights, x, y, xref)
+            px = optimize.least_squares(t.objective_function, init_gx_list, args=farg).x
+            print(px)
+            
+            farg = (p_init_y, weights, x, y, yref)
+            py = optimize.least_squares(t.objective_function, init_gy_list, args=farg).x
+            print(py)
+
+        if method==4:
+            print('Method 4 (no weights)')
+            # Trying to strip out more dependence on astropy stuff. Writing my own
+            # function to minimize. But has no weights.
+            farg = (order, x, y, xref)
+            px = optimize.least_squares(res_func_p, init_gx_list, args=farg).x
+            print(px)
+            
+            farg = (order, x, y, yref)
+            py = optimize.least_squares(res_func_p, init_gy_list, args=farg).x
+            print(py)
+
+        if method==5:
+            print('Method 5')
+            # Same as Method 5, but implementing weights.
+            farg = (order, x, y, xref)
+            px = optimize.least_squares(res_func_p, init_gx_list, args=farg).x
+            print(px)
+            
+            farg = (order, x, y, yref)
+            py = optimize.least_squares(res_func_p, init_gy_list, args=farg).x
+            print(py)
+
+        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
+        if (m is not None) and (mref is not None) and mag_trans:
+            m_resid = mref - m
+            threshold = 3 * m_resid.std()
+            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+            mag_offset = np.mean((mref - m)[keepers])
+        else:
+            mag_offset =  0
+        
+        trans = cls(order, px, py, mag_offset=mag_offset)
+
+        return trans
+
+
+class UVIS_CTE_trans_ours(PolyTransform):
     """
     Defines a transformation designed to capture the distortions in magnitude 
     and y-position introduced into the HST UVIS detector due to CTE.
@@ -738,7 +1429,8 @@ class UVIS_CTE_trans(PolyTransform):
         """
         self.order = order
         self.poly_order = order
-        
+
+        # Munge the coefficients into a dictionary for the astropy Polynomial2D object
         if self.order == 0:
             self.poly_order = 1
             px = np.append(px, [1.0, 0.0])
@@ -846,9 +1538,6 @@ class UVIS_CTE_trans(PolyTransform):
 
         ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
 
-        # Next line won't work... would have to pull out some of the code
-        # xe_new, ye_new = super().evaluate_error(x, y, xe, ye)
-
         ###
         # Evaluate the polynomial first.
         # This calculates dxnew_dx, dynew_dx, dxnew_dycte, dynew_dycte
@@ -898,6 +1587,8 @@ class UVIS_CTE_trans(PolyTransform):
         raise RuntimeError("Velocities should always be derived AFTER the CTE correction + transformation.")
 
     @classmethod
+    # FIXME: TAKE OUT xe, ye, me AS REQ'D ARGUMENTS
+    # AND ACTUALLY HAVE IT COME IN THROUGH WEIGHTS!!!
     def derive_transform(cls, order, x, y, m, 
                          xe, ye, me, xref, yref, mref,
                          init_gx=None, init_gy=None, 
@@ -908,6 +1599,9 @@ class UVIS_CTE_trans(PolyTransform):
                      x_in, y_in, m_in, 
                      xe_in, ye_in, me_in, 
                      x_ref, y_ref, m_ref):
+#                     x_ref, y_ref, m_ref,
+#                     init_gx=init_gx, init_gy=init_gy,
+#                     init_gc=init_gc, init_gm=init_gm):
             """
             FIX THIS AFTER WRITING
 
@@ -961,12 +1655,23 @@ class UVIS_CTE_trans(PolyTransform):
             x_res = (x_out - x_ref) / xe_out
             y_res = (y_out - y_ref) / ye_out
             m_res = (m_out - m_ref) / me_out
+
+#            x_res = x_out 
+#            y_res = y_out
+#            m_res = m_out
             
             # CHECK that this returns array (m,)
             all_res = np.concatenate((x_res, y_res, m_res))
-            
+
             return all_res
 
+        px_up = init_gx + 10
+        px_lo = init_gx - 10
+        py_up = init_gy + 10
+        py_lo = init_gy - 10
+        px_lims = list(zip(px_lo.tolist(), px_up.tolist()))
+        py_lims = list(zip(py_lo.tolist(), py_up.tolist()))
+        px_py_lims = px_lims + py_lims
 
         # Fill in initial guesses
         if order == 0:
@@ -980,20 +1685,20 @@ class UVIS_CTE_trans(PolyTransform):
         else:
             init_gx = PolyTransform.make_param_dict(init_gx, order, isY=False)
             init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
-        
+ 
         if init_gc is None:
-            init_gc = [0., 0., 0., 0., 1., 0.]
+            init_gc = [0., 0., 0., 0., np.average(m), 0.]
 
         if init_gm is None:
-            init_gm = [0.]
-        else:
+#            init_gm = [0.]
+#        else:
             # Calculate the magnitude offset using a 3-sigma clipped mean
-            mcte = T_cte_m(y, m, try_pc[0], try_pc[1], try_pc[2])
-            m_resid = mref - mcte
+            m_resid = mref - m
             threshold = 3 * m_resid.std()
             keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
             init_gm = np.mean((mref - m)[keepers])
-        
+            init_gm = [init_gm]
+
         # Need to concatenate everything, but init_gx and init_gy are dictionaries.
         # So we unpack the dictionary into a list in a particular order.
         # We will turn it back into a dictionary later... 
@@ -1005,14 +1710,31 @@ class UVIS_CTE_trans(PolyTransform):
                 init_gx_list.append(init_gx[key])
                 init_gy_list.append(init_gy[key])
 
-# CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
-#        init_param_values = np.concatenate((init_gx_list, init_gy_list, init_gc, init_gm))
+        # FIXME: CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
+        init_param_values = np.concatenate((init_gx_list, init_gy_list, init_gc, init_gm))
         init_param_values = init_gx_list + init_gy_list + init_gc + init_gm
+        
+        # Bounds
+        mavg = np.average(m)
+        mstd = np.std(m)
 
+        mrefavg = np.average(mref)
+
+        pc_pm_lims = [(-1, 1), (-1, 1), (-1, 1), (-1, 1), (mavg - mstd, mavg + mstd), (-1, 1), (init_gm - 2, init_gm + 2)]
+
+        bounds = px_py_lims + pc_pm_lims
+        bounds = list(map(list, zip(*bounds)))
+        pdb.set_trace()
+        print(init_param_values)
         print('OPTIMIZING!')
         farg = (order, x, y, m, xe, ye, me, xref, yref, mref)
-        res = optimize.least_squares(res_func, init_param_values, args=farg)
+        res = optimize.least_squares(res_func, init_param_values, args=farg, bounds=bounds)
+
         best_fit_params = res.x
+
+        # Try differential evolution?
+        # Try leastsq? (Don't think it works)
+        print(best_fit_params)
 
         ###
         # Break up params so they can be fed into the UVIS_CTE_trans class.
@@ -1040,7 +1762,6 @@ class UVIS_CTE_trans(PolyTransform):
 #        s = s[s > threshold]
 #        VT = VT[:s.size]
 #        pcov = np.dot(VT.T / s**2, VT)
-
         trans = cls(order, px, py, pc, pm)
 
         return trans
@@ -1052,7 +1773,8 @@ class UVIS_CTE_trans(PolyTransform):
     #####
     # def from_file(cls, trans_file)
     # def to_file(self, trans_file)
-        
+
+
 class Shift(PolyTransform):
     '''
     Defines shift tranformation between x,y and xref, yref
@@ -1880,11 +2602,13 @@ def four_param(x,y,x_ref,y_ref):
     
     return np.array([a0,trans[0],trans[1]]), np.array([b0,-1.0*trans[1],trans[0]])
 
+
 def T_cte_m(y, m, z1, z2, z3):
     """
     Transformation model for magnitudes due to CTE
     """
     return m + z1 * np.exp(z2 * m) + z3 * y
+
         
 def T_cte_y(y, m, A, m0, alpha):
     """
@@ -1895,5 +2619,11 @@ def T_cte_y(y, m, A, m0, alpha):
     base = m/m0
 
     return y + A * np.sign(base) * np.abs(base)**alpha
+ 
 
-
+def T_cte_y_stsci(y, m, w1, w2, w3):
+    """
+    Transformation model for detector y-position due to CTE
+    from the STSci website
+    """
+    return w1 + (w2 * m) + (w3 * y)
