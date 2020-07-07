@@ -1145,10 +1145,10 @@ class PolyTransform_test(PolyTransform):
     @classmethod
     def derive_transform(cls, x, y, xref, yref, order, m=None, mref=None,
                          init_gx=None, init_gy=None, weights=None, mag_trans=True,
-                         method=3):
-        def res_func(params, order,
+                         method=6):
+        def res_func(params, order, 
                      x_in, y_in, x_ref, y_ref,
-                     poly):
+                     weights=None):
             """
             FIX THIS AFTER WRITING
             
@@ -1192,22 +1192,30 @@ class PolyTransform_test(PolyTransform):
                     try_py[key] = try_py_list[counter]
                     counter += 1
                     
-            try_trans = PolyTransform_test(order, try_px, try_py)
-                    
+            # IS IT NOT WORKING BECAUSE OF THE SELF STUFF? WHY DOESN'T IT UPDATE?
+#            try_trans = PolyTransform_test(order, try_px, try_py)
             # Calculate the residuals.
-            x_out, y_out = try_trans.evaluate(x_in, y_in)
+#            x_out, y_out = try_trans.evaluate(x_in, y_in)
 
-            if poly=='x':
-                res = np.sum(x_out - x_ref) 
+            try_trans = PolyTransform(order, try_px, try_py)
+            x_out = try_trans.px(x_in, y_in)
+            y_out = try_trans.py(x_in, y_in)
 
-            if poly=='y':
-                res = np.sum(y_out - y_ref) 
-            print(params)
-            print(res)
+            if weights is None:
+                res_x = x_out - x_ref
+                res_y = y_out - y_ref 
+            else:
+                res_x = weights * (x_out - x_ref) 
+                res_y = weights * (y_out - y_ref) 
+
+            res = np.concatenate((res_x, res_y))
+
             return res
 
-        def res_func_p(params, order,
-                       x_in, y_in, ref):
+        def res_func_p_together(params, order,
+                                x_in, y_in, x_ref, y_ref,
+                                weights=None):
+ 
             """
             FIX THIS AFTER WRITING
             
@@ -1226,6 +1234,71 @@ class PolyTransform_test(PolyTransform):
             Return
             ------
             """
+            ###
+            # Break up params so they can be fed into the UVIS_CTE_trans class.
+            ###
+            # Number of coefficients for the x and y polynomial
+            # Given by (n+d) choose d, where d is degree and n is number of variables
+            n_poly_coeff = int(binom(order + 2, order))
+
+            # Check that the length of params is right
+            # 2*n_poly_coeff (2* since x and y)
+            if 2*n_poly_coeff != len(params):
+                raise Exception('Something wrong! Order incorrect or length of params is wrong!')
+
+            try_px_list = params[:n_poly_coeff]
+            try_py_list = params[n_poly_coeff:2*n_poly_coeff]
+
+           # Turn the list of x and y polynomial coefficients back into a dictionary.
+            try_px = {}
+            try_py = {}
+            counter = 0
+            for i in range(order+1):
+                for j in range(i+1):
+                    key = 'c{0}_{1}'.format((i-j), j)
+                    try_px[key] = try_px_list[counter]
+                    try_py[key] = try_py_list[counter]
+                    counter += 1
+
+            px = models.Polynomial2D(order, **try_px)
+            py = models.Polynomial2D(order, **try_py)
+
+            x_out = px(x_in, y_in)
+            y_out = py(x_in, y_in)
+
+            # NOT summed
+            if weights is None:
+                res_x = x_out - x_ref
+                res_y = y_out - y_ref
+            else:
+                x_res = weights * (x_out - x_ref)
+                y_res = weights * (y_out - y_ref)
+
+            res = np.concatenate((x_res, y_res))
+
+            return res
+
+        def res_func_p(params, order,
+                       x_in, y_in, ref,
+                       weights=None):
+            """
+            FIX THIS AFTER WRITING
+            
+            Computes vector of residuals. The minimization is wrt params.
+            
+            Parameters
+            ----------
+            params : ndarray
+            shape (n,) (never a scalar, even for n=1)
+
+            order : 
+                order of polynomial
+
+            x_in, y_in, x_ref, y_ref : array
+
+            Return
+            ------
+            """
            # Turn the list of x and y polynomial coefficients back into a dictionary.
             try_p = {}
             counter = 0
@@ -1240,10 +1313,14 @@ class PolyTransform_test(PolyTransform):
             out = p(x_in, y_in)
 
             # NOT summed
-            res = out - ref
+            if weights is None:
+                res = out - ref
+            else:
+                res = weights * (out - ref)
 
             return res
-       
+
+
         # now, if the initial guesses are not none, fill in terms until
         if order == 0:
             poly_order = 1
@@ -1358,14 +1435,32 @@ class PolyTransform_test(PolyTransform):
 
         if method==5:
             print('Method 5')
-            # Same as Method 5, but implementing weights.
-            farg = (order, x, y, xref)
+            # Same as Method 4, but implementing weights.
+            farg = (order, x, y, xref, weights)
             px = optimize.least_squares(res_func_p, init_gx_list, args=farg).x
             print(px)
             
-            farg = (order, x, y, yref)
+            farg = (order, x, y, yref, weights)
             py = optimize.least_squares(res_func_p, init_gy_list, args=farg).x
             print(py)
+
+        if method==6:
+            print('Method 6')
+            # Same as Method 5, but combining into one call. 
+            farg = (order, x, y, xref, yref, weights)
+            pxy = optimize.least_squares(res_func_p_together, init_gx_list + init_gy_list, args=farg).x
+            n_poly_coeff = int(binom(order + 2, order))
+            px = pxy[:n_poly_coeff]
+            py = pxy[n_poly_coeff:2*n_poly_coeff]
+
+        if method==7:
+            print('Method 7')
+            # Same as Method 6, but 
+            farg = (order, x, y, xref, yref, weights)
+            pxy = optimize.least_squares(res_func, init_gx_list + init_gy_list, args=farg).x
+            n_poly_coeff = int(binom(order + 2, order))
+            px = pxy[:n_poly_coeff]
+            py = pxy[n_poly_coeff:2*n_poly_coeff]
 
         # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
         if (m is not None) and (mref is not None) and mag_trans:
