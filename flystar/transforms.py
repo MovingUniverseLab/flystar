@@ -1695,7 +1695,7 @@ class UVIS_CTE_trans_2(PolyTransform):
 
             ycte = T_cte_y(y, m, try_pc[3], try_pc[4], try_pc[5])
             mcte = T_cte_m(y, m, try_pc[0], try_pc[1], try_pc[2])
-            
+
             px = models.Polynomial2D(order, **try_px)
             py = models.Polynomial2D(order, **try_py)
 
@@ -1714,6 +1714,9 @@ class UVIS_CTE_trans_2(PolyTransform):
                 m_res = weights * (m_out - m_ref)
 
             res = np.concatenate((x_res, y_res, m_res))
+
+            return res
+
 
         # Fill in initial guesses
         if order == 0:
