@@ -452,7 +452,6 @@ class MosaicSelfRef(object):
             # Derive the best-fit transformation parameters. 
             if self.verbose > 0:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
-            print('TRANSFORM') # temp
             if (self.trans_class == flystar.transforms.UVIS_CTE_trans_1) or (self.trans_class == flystar.transforms.UVIS_CTE_trans_2):
                 # Use this as a guess
                 guess = transforms.PolyTransform.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
@@ -1193,7 +1192,6 @@ class MosaicSelfRef(object):
                     weight = None
             
                 # Recalculate transformation
-                print('BOOTSTRAP') # temp
                 trans = self.trans_class.derive_transform(starlist_boot['x'], starlist_boot['y'],
                                                                    ref_boot['x'], ref_boot['y'],
                                                                    self.trans_args[0]['order'],
@@ -2325,7 +2323,6 @@ def initial_align(table1, table2, briteN=100,
     print(( '{0} stars matched between starlist1 and starlist2'.format(N)))
 
     # Calculate transformation based on matches
-    print('INITIAL ALIGN') # temp
     t = transformModel.derive_transform(x1m, y1m ,x2m, y2m, order=order, weights=None)
 
     print( 'End initial match \n')
@@ -2474,7 +2471,6 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
         weight = None
 
     # Calculate transform based on the matched stars
-    print('Find transform') # temp
     t = transModel.derive_transform(x1, y1, x2, y2, order, m=m1, mref=m2, weights=weight)
 
     N_trans = len(x1)
@@ -3570,7 +3566,6 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         order = 0
     else:
         order = 1
-    print('TRANS INITIAL GUESS') # temp
     if trans_class == flystar.transforms.UVIS_CTE_trans_1:
         # Get the corresponding errors for the matched stars
         # FIXME: Necessary or not???
