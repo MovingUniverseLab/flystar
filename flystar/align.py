@@ -6,6 +6,7 @@ from flystar import plots
 from flystar.starlists import StarList
 from flystar.startables import StarTable
 from astropy.table import Table, Column, vstack
+from scipy.optimize import curve_fit
 import datetime
 import copy
 import os
@@ -13,6 +14,19 @@ import pdb
 import time
 import warnings
 from astropy.utils.exceptions import AstropyUserWarning
+
+#            pdb.set_trace()
+#            #######################################################################
+#            # EXPERIMENTAL NEW STUFF... 
+#            gpopt_list = align.fit_out_CTE(trans, 'power')
+#            y_orig_CTE = tab3['y_orig'][:,ee] - align.T_cte_y(tab3['m'][:,ee],*gpopt_list[ee])
+#            star_list = starlists.StarList(name=tab3['name'], x=tab3['x_orig'][:,ee], y=y_orig_CTE, m=tab3['m'][:,ee])
+#            star_list_T = copy.deepcopy(star_list)
+#            star_list_T.transform_xy(msc3.trans_list[ee])
+#            tab3_CTE['x'][:,ee] = star_list_T['x']
+#            tab3_CTE['y'][:,ee] = star_list_T['y']   
+#
+#            #######################################################################
 
 # Keep a list of columns that are "aggregated" motion model terms.
 motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
@@ -463,6 +477,7 @@ class MosaicSelfRef(object):
                 trans = self.trans_class.derive_transform(trans_args['order'],
                                                           star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], star_list_orig_trim['m'][idx1], 
                                                           ref_list['x'][idx2], ref_list['y'][idx2], ref_list['m'][idx2], 
+                                                          xerr=star_list_orig_trim['xe'][idx1], yerr=star_list_orig_trim['ye'][idx1], merr=star_list_orig_trim['me'][idx1], 
                                                           weights=weight, init_gx = guess.px.parameters, init_gy = guess.py.parameters)
             else:
                 trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
@@ -530,7 +545,7 @@ class MosaicSelfRef(object):
             if self.verbose > 0:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
-                
+
             ## Make plot, if desired
             plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
                                   fileName='{0}'.format(star_list_T['t'][0]))                
@@ -1471,6 +1486,7 @@ class MosaicToRef(MosaicSelfRef):
         stars_table = msc.ref_table
 
         # Plot the magnitude of the first star vs. time:
+
         # Overplot the mean magnitude. 
         plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
         plt.axhline(stars_table['m0'][0])    
@@ -1664,7 +1680,6 @@ class MosaicToRef(MosaicSelfRef):
             self.iter_callback(self.ref_table, nn)
 
         return
-
 
 def setup_ref_table_from_starlist(star_list):
     """ 
@@ -3585,6 +3600,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         print('TRANS')
         trans = transforms.UVIS_CTE_trans_1.derive_transform(order, x1m, y1m, m1m, 
                                                              x2m, y2m, m2m, weights=None,
+                                                             xerr=xe1m, yerr=ye1m, merr=me1m,
                                                              init_gx = guess.px.parameters, 
                                                              init_gy = guess.py.parameters)
     elif trans_class == flystar.transforms.UVIS_CTE_trans_2:
@@ -3606,6 +3622,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         print('TRANS')
         trans = transforms.UVIS_CTE_trans_2.derive_transform(order, x1m, y1m, m1m, 
                                                              x2m, y2m, m2m, weights=None,
+                                                             xerr=xe1m, yerr=ye1m, merr=me1m,
                                                              init_gx = guess.px.parameters, 
                                                              init_gy = guess.py.parameters)
     else:
@@ -3853,3 +3870,137 @@ def logger(logfile, message):
     print(message)
     logfile.write(message + '\n')
     return
+
+def fit_out_CTE(tab, trans_list, cte_fit, mlim=15):
+    if cte_fit == 'power_line': 
+        cte_coeff_list1 = []
+        cte_coeff_list2 = []
+        for ee in range(tab['x'].shape[1]):
+            dt = tab['t'][:, ee] - tab['t0']
+            xt_mod = tab['x0'] + tab['vx'] * dt
+            yt_mod = tab['y0'] + tab['vy'] * dt
+    
+            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
+            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+    
+            da = plots.calc_da(trans_list[ee])
+    
+            gpopt1, gpopt2, gpcov1, gpcov2 = calc_CTE_fit(tab['m'][:, ee],
+                                                          tab['x'][:, ee], tab['y'][:, ee],
+                                                          tab['xe'][:, ee], tab['ye'][:, ee],
+                                                          xt_mod, yt_mod,
+                                                          good_idx, ref_idx,
+                                                          'power_line', da=da)
+    
+            cte_coeff_list1.append(gpopt1)
+            cte_coeff_list2.append(gpopt2)
+    
+        return cte_coeff_list1, cte_coeff_list2
+
+    if cte_fit == 'power': 
+        cte_coeff_list = []
+        for ee in range(tab['x'].shape[1]):
+            dt = tab['t'][:, ee] - tab['t0']
+            xt_mod = tab['x0'] + tab['vx'] * dt
+            yt_mod = tab['y0'] + tab['vy'] * dt
+    
+            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
+            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+    
+            da = plots.calc_da(trans_list[ee])
+    
+            gpopt, gpcov = calc_CTE_fit(tab['m'][:, ee],
+                                        tab['x'][:, ee], tab['y'][:, ee],
+                                        tab['xe'][:, ee], tab['ye'][:, ee],
+                                        xt_mod, yt_mod,
+                                        good_idx, ref_idx,
+                                        'power', da=da, mlim=mlim)
+    
+            cte_coeff_list.append(gpopt)
+
+    if cte_fit == 'line': 
+        cte_coeff_list = []
+        for ee in range(tab['x'].shape[1]):
+            dt = tab['t'][:, ee] - tab['t0']
+            xt_mod = tab['x0'] + tab['vx'] * dt
+            yt_mod = tab['y0'] + tab['vy'] * dt
+    
+            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
+            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+    
+            da = plots.calc_da(trans_list[ee])
+    
+            gpopt, gpcov = calc_CTE_fit(tab['m'][:, ee],
+                                        tab['x'][:, ee], tab['y'][:, ee],
+                                        tab['xe'][:, ee], tab['ye'][:, ee],
+                                        xt_mod, yt_mod,
+                                        good_idx, ref_idx,
+                                        'line', da=da, mlim=mlim)
+
+            cte_coeff_list.append(gpopt)
+
+        return cte_coeff_list
+
+def calc_CTE_fit(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, cte_fit, da=0, mlim=15):
+    # Residual
+    dx = (x_t - x_ref)
+    dy = (y_t - y_ref)
+
+    # Magnitude
+    mgood = m_t[good_idx]
+
+    # Residual angle                                                                                                                       
+    agood = plots.angle_from_xy(dx[good_idx], dy[good_idx])
+
+    # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)                                                     
+    # Keep everything within 0 to 360                                                                                                     
+    agood -= da % 360
+
+    # Residual magnitude                                                                                                                  
+    rgood = np.hypot(dx[good_idx], dy[good_idx])
+
+    # Y residual
+    ygood = np.sin(np.radians(agood)) * rgood
+
+    #####                                                                                                                                  
+    # Fit the y-residuals and subtract them away.                                                                                          
+    #####                                                                                         
+    if cte_fit == 'power_line':
+        idx1 = np.where((mgood > 15) & 
+                        (mgood < 18.5))[0]
+        
+        idx2 = np.where(mgood > 18.5)[0]
+        
+        gpopt1, gpcov1 = curve_fit(T_line, mgood[idx1], ygood[idx1], maxfev=100000)
+        gpopt2, gpcov2 = curve_fit(T_cte_y, mgood[idx2], ygood[idx2], maxfev=100000)
+
+        # Corrected values = ygood - T_cte_y(mgood, *gpopt)
+
+        return gpopt1, gpopt2, gpcov1, gpcov2
+
+    if cte_fit == 'power':
+        idx = np.where(mgood > mlim)[0]
+
+        gpopt, gpcov = curve_fit(T_cte_y, mgood, ygood, maxfev=100000)
+
+        # Corrected values = ygood - T_cte_y(mgood, *gpopt)
+
+        return gpopt, gpcov
+
+    if cte_fit == 'line':
+        # FIX THIS
+        idx = np.where((mgood < 20) & (mgood > 16))[0]
+
+        gpopt, gpcov = curve_fit(T_line, mgood, ygood, maxfev=100000)
+
+        # Corrected values = ygood - T_cte_y(mgood, *gpopt)
+
+        return gpopt, gpcov
+
+def T_cte_y(m, A, m0, alpha, m1):
+    base = m/m0
+
+    return m1 + A * np.sign(base) * np.abs(base)**alpha
+
+def T_line(m, a, b):
+    return a + m*b

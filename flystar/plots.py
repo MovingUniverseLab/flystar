@@ -1119,7 +1119,7 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
     return
 
 
-def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None):
+def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None, cte_fit=None, mlim=15):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
@@ -1156,7 +1156,8 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                          xt_mod, yt_mod, 
                          good_idx, ref_idx,
                          'Epoch {0:d}'.format(ee), da=da,
-                         xorig=tab['x_orig'][:, ee], yorig=tab['y_orig'][:, ee])
+                         xorig=tab['x_orig'][:, ee], yorig=tab['y_orig'][:, ee],
+                         cte_fit=cte_fit, mlim=mlim)
 
 #        plot_quiver_residuals_orig_angle_xy(tab['x'][:, ee], tab['y'][:, ee],
 #                                            xt_mod, yt_mod, 
@@ -1387,7 +1388,7 @@ def plot_mag_scatter_multi_trans(m_t_list, x_t_list, y_t_list,
     plt.pause(1)
 
 
-def plot_mag_scatter(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title, da=0, xorig=None, yorig=None):
+def plot_mag_scatter(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title, da=0, xorig=None, yorig=None, cte_fit=None, mlim=15):
     # Residual
     dx = (x_t - x_ref)
     dy = (y_t - y_ref)
@@ -1483,78 +1484,205 @@ def plot_mag_scatter(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx,
     # that pull fit around. 2. Fit bright and faint ends separately.
     # 3. Include weights?
 
-    idx = np.where(mgood > 15)[0]
-    gpopt, gpcov = curve_fit(T_cte_y, mgood[idx], ygood[idx], maxfev=100000)
- 
-    marr = np.linspace(13, 24, 1000)
+    if cte_fit=='power':
+        idx = np.where(mgood > mlim)[0]
+        gpopt, gpcov = curve_fit(T_cte_y, mgood[idx], ygood[idx], maxfev=100000)
+     
+        marr = np.linspace(13, 24, 1000)
+    
+        # Corrected values
+        ygood_new = ygood - T_cte_y(mgood, *gpopt)
+        yref_new = yref - T_cte_y(mref, *gpopt)
+    
+        agood = angle_from_xy(xgood, ygood) % 360
+        rgood = np.hypot(xgood, ygood)
+        aref = angle_from_xy(xref, yref) % 360
+        rref = np.hypot(xref, yref)
+    
+        agood_new = angle_from_xy(xgood, ygood_new) % 360
+        rgood_new = np.hypot(xgood, ygood_new)
+        aref_new = angle_from_xy(xref, yref_new) % 360
+        rref_new = np.hypot(xref, yref_new)
+    
+        fig, ax = plt.subplots(4, 2, figsize=(12,12), sharex=True, sharey='row', num=105)
+        plt.subplots_adjust(hspace=0.01, wspace=0.01)
+        ax[0,0].scatter(mgood, ygood, color='black', alpha=0.3, s=7)
+        ax[0,0].scatter(mref, yref, color='red', alpha=0.3, s=7)
+        ax[0,0].set_ylabel('Res, y (arcsec)')
+        ax[0,0].set_ylim(-0.01, 0.01)
+        ax[0,0].axhline(y=0)
+        ax[0,0].plot(marr, T_cte_y(marr, *gpopt), 'k-')
+        ax[0,0].set_title('No correction')
+    
+        ax[0,1].scatter(mgood, ygood_new, color='black', alpha=0.3, s=7)
+        ax[0,1].scatter(mref, yref_new, color='red', alpha=0.3, s=7)
+        ax[0,1].set_ylim(-0.01, 0.01)
+        ax[0,1].axhline(y=0)
+        ax[0,1].set_title('Corrected')
+    
+        ax[1,0].scatter(mgood, ygood/yegood, color='black', alpha=0.3, s=7)
+        ax[1,0].scatter(mref, yref/yeref, color='red', alpha=0.3, s=7)
+        ax[1,0].set_ylabel('Res/Pos Err, y')
+        ax[1,0].set_ylim(-10, 10)
+        ax[1,0].axhline(y=0)
+    
+        ax[1,1].scatter(mgood, ygood_new/yegood, color='black', alpha=0.3, s=7)
+        ax[1,1].scatter(mref, yref_new/yeref, color='red', alpha=0.3, s=7)
+        ax[1,1].set_ylim(-10, 10)
+        ax[1,1].axhline(y=0)
+    
+        ax[2,0].scatter(mgood, rgood, color='black', alpha=0.3, s=7)
+        ax[2,0].scatter(mref, rref, color='red', alpha=0.3, s=7)
+        ax[2,0].set_ylabel('Modulus (arcsec)')
+        ax[2,0].set_yscale('log')
+        if type(rgood) == astropy.table.column.MaskedColumn:
+            ax[2,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
+        else:
+            ax[2,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+    
+        ax[2,1].scatter(mgood, rgood_new, color='black', alpha=0.3, s=7)
+        ax[2,1].scatter(mref, rref_new, color='red', alpha=0.3, s=7)
+        ax[2,1].set_yscale('log')
+        if type(rgood_new) == astropy.table.column.MaskedColumn:
+            ax[2,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data, rref_new.data])))
+        else:
+            ax[2,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new, rref_new])))
+    
+        ax[3,0].scatter(mgood, agood, color='black', alpha=0.3, s=7)
+        ax[3,0].scatter(mref, aref, color='red', alpha=0.3, s=7)
+        ax[3,0].set_ylabel('Angle (deg)')
+        ax[3,0].set_xlabel('mag')
+    
+        ax[3,1].scatter(mgood, agood_new, color='black', alpha=0.3, s=7)
+        ax[3,1].scatter(mref, aref_new, color='red', alpha=0.3, s=7)
+        ax[3,1].set_xlabel('mag')
 
-    # Corrected values
-    ygood_new = ygood - T_cte_y(mgood, *gpopt)
-    yref_new = yref - T_cte_y(mref, *gpopt)
+    if cte_fit=='power_line':
+        idx1 = np.where((mgood > 15) & (mgood < 18.5))[0]
+        idx2 = np.where(mgood > 18.5)[0]
 
-    agood = angle_from_xy(xgood, ygood) % 360
-    rgood = np.hypot(xgood, ygood)
-    aref = angle_from_xy(xref, yref) % 360
-    rref = np.hypot(xref, yref)
+        idx1r = np.where((mref > 15) & (mref < 18.5))[0]
+        idx2r = np.where(mref > 18.5)[0]
 
-    agood_new = angle_from_xy(xgood, ygood_new) % 360
-    rgood_new = np.hypot(xgood, ygood_new)
-    aref_new = angle_from_xy(xref, yref_new) % 360
-    rref_new = np.hypot(xref, yref_new)
+        gpopt1, gpcov1 = curve_fit(T_line, mgood[idx1], ygood[idx1], maxfev=100000)
+        gpopt2, gpcov2 = curve_fit(T_cte_y, mgood[idx2], ygood[idx2], maxfev=100000)
+     
+        marr1 = np.linspace(13, 18.5, 1000)
+        marr2 = np.linspace(18.5, 24, 1000)
 
-    fig, ax = plt.subplots(4, 2, figsize=(12,12), sharex=True, sharey='row', num=105)
-    plt.subplots_adjust(hspace=0.01, wspace=0.01)
-    ax[0,0].scatter(mgood, ygood, color='black', alpha=0.3, s=7)
-    ax[0,0].scatter(mref, yref, color='red', alpha=0.3, s=7)
-    ax[0,0].set_ylabel('Res, y (arcsec)')
-    ax[0,0].set_ylim(-0.01, 0.01)
-    ax[0,0].axhline(y=0)
-    ax[0,0].plot(marr, T_cte_y(marr, *gpopt), 'k-')
-    ax[0,0].set_title('No correction')
+        mgood1 = mgood[idx1]
+        mgood2 = mgood[idx2]
+        mref1 = mref[idx1r]
+        mref2 = mref[idx2r]
 
-    ax[0,1].scatter(mgood, ygood_new, color='black', alpha=0.3, s=7)
-    ax[0,1].scatter(mref, yref_new, color='red', alpha=0.3, s=7)
-    ax[0,1].set_ylim(-0.01, 0.01)
-    ax[0,1].axhline(y=0)
-    ax[0,1].set_title('Corrected')
+        xgood1 = xgood[idx1]
+        xgood2 = xgood[idx2]
+        ygood1 = ygood[idx1]
+        ygood2 = ygood[idx2]
 
-    ax[1,0].scatter(mgood, ygood/yegood, color='black', alpha=0.3, s=7)
-    ax[1,0].scatter(mref, yref/yeref, color='red', alpha=0.3, s=7)
-    ax[1,0].set_ylabel('Res/Pos Err, y')
-    ax[1,0].set_ylim(-10, 10)
-    ax[1,0].axhline(y=0)
+        xref1 = xref[idx1r]
+        xref2 = xref[idx2r]
+        yref1 = yref[idx1r]
+        yref2 = yref[idx2r]
 
-    ax[1,1].scatter(mgood, ygood_new/yegood, color='black', alpha=0.3, s=7)
-    ax[1,1].scatter(mref, yref_new/yeref, color='red', alpha=0.3, s=7)
-    ax[1,1].set_ylim(-10, 10)
-    ax[1,1].axhline(y=0)
+        xegood1 = xegood[idx1]
+        xegood2 = xegood[idx2]
+        yegood1 = yegood[idx1]
+        yegood2 = yegood[idx2]
 
-    ax[2,0].scatter(mgood, rgood, color='black', alpha=0.3, s=7)
-    ax[2,0].scatter(mref, rref, color='red', alpha=0.3, s=7)
-    ax[2,0].set_ylabel('Modulus (arcsec)')
-    ax[2,0].set_yscale('log')
-    if type(rgood) == astropy.table.column.MaskedColumn:
-        ax[2,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
-    else:
-        ax[2,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+        xeref1 = xeref[idx1r]
+        xeref2 = xeref[idx2r]
+        yeref1 = yeref[idx1r]
+        yeref2 = yeref[idx2r]
+    
+        # Corrected values
+        ygood_new1 = ygood1 - T_line(mgood1, *gpopt1)
+        yref_new1 = yref1 - T_line(mref1, *gpopt1)
+        ygood_new2 = ygood2 - T_cte_y(mgood2, *gpopt2)
+        yref_new2 = yref2 - T_cte_y(mref2, *gpopt2)
 
-    ax[2,1].scatter(mgood, rgood_new, color='black', alpha=0.3, s=7)
-    ax[2,1].scatter(mref, rref_new, color='red', alpha=0.3, s=7)
-    ax[2,1].set_yscale('log')
-    if type(rgood_new) == astropy.table.column.MaskedColumn:
-        ax[2,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data, rref_new.data])))
-    else:
-        ax[2,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new, rref_new])))
+        agood1 = angle_from_xy(xgood1, ygood1) % 360
+        rgood1 = np.hypot(xgood1, ygood1)
+        aref1 = angle_from_xy(xref1, yref1) % 360
+        rref1 = np.hypot(xref1, yref1)
 
-    ax[3,0].scatter(mgood, agood, color='black', alpha=0.3, s=7)
-    ax[3,0].scatter(mref, aref, color='red', alpha=0.3, s=7)
-    ax[3,0].set_ylabel('Angle (deg)')
-    ax[3,0].set_xlabel('mag')
+        agood_new1 = angle_from_xy(xgood1, ygood_new1) % 360
+        rgood_new1 = np.hypot(xgood1, ygood_new1)
+        aref_new1 = angle_from_xy(xref1, yref_new1) % 360
+        rref_new1 = np.hypot(xref1, yref_new1)
 
-    ax[3,1].scatter(mgood, agood_new, color='black', alpha=0.3, s=7)
-    ax[3,1].scatter(mref, aref_new, color='red', alpha=0.3, s=7)
-    ax[3,1].set_xlabel('mag')
+        agood2 = angle_from_xy(xgood2, ygood2) % 360
+        rgood2 = np.hypot(xgood2, ygood2)
+        aref2 = angle_from_xy(xref2, yref2) % 360
+        rref2 = np.hypot(xref2, yref2)
 
+        agood_new2 = angle_from_xy(xgood2, ygood_new2) % 360
+        rgood_new2 = np.hypot(xgood2, ygood_new2)
+        aref_new2 = angle_from_xy(xref2, yref_new2) % 360
+        rref_new2 = np.hypot(xref2, yref_new2)
+    
+        fig, ax = plt.subplots(4, 2, figsize=(12,12), sharex=True, sharey='row', num=105)
+        plt.subplots_adjust(hspace=0.01, wspace=0.01)
+        ax[0,0].scatter(mgood, ygood, color='black', alpha=0.3, s=7)
+        ax[0,0].scatter(mref, yref, color='red', alpha=0.3, s=7)
+        ax[0,0].set_ylabel('Res, y (arcsec)')
+        ax[0,0].set_ylim(-0.01, 0.01)
+        ax[0,0].axhline(y=0)
+        ax[0,0].plot(marr1, T_line(marr1, *gpopt1), 'b-')
+        ax[0,0].plot(marr2, T_cte_y(marr2, *gpopt2), 'b-')
+        ax[0,0].set_title('No correction')
+    
+        ax[0,1].scatter(mgood1, ygood_new1, color='black', alpha=0.3, s=7)
+        ax[0,1].scatter(mref1, yref_new1, color='red', alpha=0.3, s=7)
+        ax[0,1].scatter(mgood2, ygood_new2, color='black', alpha=0.3, s=7)
+        ax[0,1].scatter(mref2, yref_new2, color='red', alpha=0.3, s=7)
+        ax[0,1].set_ylim(-0.01, 0.01)
+        ax[0,1].axhline(y=0)
+        ax[0,1].set_title('Corrected')
+    
+        ax[1,0].scatter(mgood, ygood/yegood, color='black', alpha=0.3, s=7)
+        ax[1,0].scatter(mref, yref/yeref, color='red', alpha=0.3, s=7)
+        ax[1,0].set_ylabel('Res/Pos Err, y')
+        ax[1,0].set_ylim(-10, 10)
+        ax[1,0].axhline(y=0)
+    
+        ax[1,1].scatter(mgood1, ygood_new1/yegood1, color='black', alpha=0.3, s=7)
+        ax[1,1].scatter(mref1, yref_new1/yeref1, color='red', alpha=0.3, s=7)
+        ax[1,1].scatter(mgood2, ygood_new2/yegood2, color='black', alpha=0.3, s=7)
+        ax[1,1].scatter(mref2, yref_new2/yeref2, color='red', alpha=0.3, s=7)
+        ax[1,1].set_ylim(-10, 10)
+        ax[1,1].axhline(y=0)
+    
+        ax[2,0].scatter(mgood, rgood, color='black', alpha=0.3, s=7)
+        ax[2,0].scatter(mref, rref, color='red', alpha=0.3, s=7)
+        ax[2,0].set_ylabel('Modulus (arcsec)')
+        ax[2,0].set_yscale('log')
+        if type(rgood) == astropy.table.column.MaskedColumn:
+            ax[2,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
+        else:
+            ax[2,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+    
+        ax[2,1].scatter(mgood1, rgood_new1, color='black', alpha=0.3, s=7)
+        ax[2,1].scatter(mref1, rref_new1, color='red', alpha=0.3, s=7)
+        ax[2,1].scatter(mgood2, rgood_new2, color='black', alpha=0.3, s=7)
+        ax[2,1].scatter(mref2, rref_new2, color='red', alpha=0.3, s=7)
+        ax[2,1].set_yscale('log')
+        if type(rgood_new2) == astropy.table.column.MaskedColumn:
+            ax[2,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data2, rref_new.data2])))
+        else:
+            ax[2,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new2, rref_new2])))
+    
+        ax[3,0].scatter(mgood, agood, color='black', alpha=0.3, s=7)
+        ax[3,0].scatter(mref, aref, color='red', alpha=0.3, s=7)
+        ax[3,0].set_ylabel('Angle (deg)')
+        ax[3,0].set_xlabel('mag')
+    
+        ax[3,1].scatter(mgood1, agood_new1, color='black', alpha=0.3, s=7)
+        ax[3,1].scatter(mref1, aref_new1, color='red', alpha=0.3, s=7)
+        ax[3,1].scatter(mgood2, agood_new2, color='black', alpha=0.3, s=7)
+        ax[3,1].scatter(mref2, aref_new2, color='red', alpha=0.3, s=7)
+        ax[3,1].set_xlabel('mag')
+    
 def T_cte_y(m, A, m0, alpha, m1):
     base = m/m0
 
