@@ -3871,75 +3871,132 @@ def logger(logfile, message):
     logfile.write(message + '\n')
     return
 
-def fit_out_CTE(tab, trans_list, cte_fit, mlim=15):
-    if cte_fit == 'power_line': 
-        cte_coeff_list1 = []
-        cte_coeff_list2 = []
-        for ee in range(tab['x'].shape[1]):
-            dt = tab['t'][:, ee] - tab['t0']
-            xt_mod = tab['x0'] + tab['vx'] * dt
-            yt_mod = tab['y0'] + tab['vy'] * dt
+def fit_out_CTE(tab, trans_list, tran_list_inv, cte_fit, mlim=15):
+#    dummy_names = [str(ii) for ii in range(len(m_t))]
+    for ee in range(tab['x'].shape[1]):
+        dt = tab['t'][:, ee] - tab['t0']
+        xt_mod = tab['x0'] + tab['vx'] * dt
+        yt_mod = tab['y0'] + tab['vy'] * dt
     
-            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
-            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
-    
-            da = plots.calc_da(trans_list[ee])
-    
-            gpopt1, gpopt2, gpcov1, gpcov2 = calc_CTE_fit(tab['m'][:, ee],
-                                                          tab['x'][:, ee], tab['y'][:, ee],
-                                                          tab['xe'][:, ee], tab['ye'][:, ee],
-                                                          xt_mod, yt_mod,
-                                                          good_idx, ref_idx,
-                                                          'power_line', da=da)
-    
-            cte_coeff_list1.append(gpopt1)
-            cte_coeff_list2.append(gpopt2)
-    
-        return cte_coeff_list1, cte_coeff_list2
+        good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
+        ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
 
-    if cte_fit == 'power': 
-        cte_coeff_list = []
-        for ee in range(tab['x'].shape[1]):
-            dt = tab['t'][:, ee] - tab['t0']
-            xt_mod = tab['x0'] + tab['vx'] * dt
-            yt_mod = tab['y0'] + tab['vy'] * dt
-    
-            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
-            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
-    
-            da = plots.calc_da(trans_list[ee])
-    
-            gpopt, gpcov = calc_CTE_fit(tab['m'][:, ee],
-                                        tab['x'][:, ee], tab['y'][:, ee],
-                                        tab['xe'][:, ee], tab['ye'][:, ee],
-                                        xt_mod, yt_mod,
-                                        good_idx, ref_idx,
-                                        'power', da=da, mlim=mlim)
-    
-            cte_coeff_list.append(gpopt)
+        starlist_t = starlists.Starlist(name=tab['name'][:,ee], x=tab['x'][:,ee],
+                                        y=tab['y'][:,ee], m=tab['m'][:,ee])
 
-    if cte_fit == 'line': 
-        cte_coeff_list = []
-        for ee in range(tab['x'].shape[1]):
-            dt = tab['t'][:, ee] - tab['t0']
-            xt_mod = tab['x0'] + tab['vx'] * dt
-            yt_mod = tab['y0'] + tab['vy'] * dt
-    
-            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
-            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
-    
-            da = plots.calc_da(trans_list[ee])
-    
-            gpopt, gpcov = calc_CTE_fit(tab['m'][:, ee],
-                                        tab['x'][:, ee], tab['y'][:, ee],
-                                        tab['xe'][:, ee], tab['ye'][:, ee],
-                                        xt_mod, yt_mod,
-                                        good_idx, ref_idx,
-                                        'line', da=da, mlim=mlim)
+        starlist_mod = starlists.Starlist(name=tab['name'][:,ee], xt_mod['x'][:,ee],
+                                          yt_mod['y'][:,ee], m=tab['m'][:,ee])
+   
+        starlist_t.transform_xy(trans_list[ee])
+        starlist_mod.transform_xy(trans_list[ee])
 
-            cte_coeff_list.append(gpopt)
+        dx = starlist_t['x'] - starlist_mod['x']
+        dy = starlist_t['y'] - starlist_mod['y']
+        mgood = m_t[good_idx]
 
-        return cte_coeff_list
+#    if cte_fit == 'power_line': 
+#        gpopt1_list = []
+#        gpopt2_list = []
+#        gpcov1_list = []
+#        gpcov2_list = []
+#        for ee in range(tab['x'].shape[1]):
+#            dt = tab['t'][:, ee] - tab['t0']
+#            xt_mod = tab['x0'] + tab['vx'] * dt
+#            yt_mod = tab['y0'] + tab['vy'] * dt
+#    
+#            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
+#            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+#    
+#            da = plots.calc_da(trans_list[ee])
+#    
+#            gpopt1, gpopt2, gpcov1, gpcov2 = calc_CTE_fit(tab['m'][:, ee],
+#                                                          tab['x'][:, ee], tab['y'][:, ee],
+#                                                          tab['xe'][:, ee], tab['ye'][:, ee],
+#                                                          xt_mod, yt_mod,
+#                                                          good_idx, ref_idx,
+#                                                          'power_line', da=da)
+#    
+#            gpopt1_list.append(gpopt1)
+#            gpopt2_list.append(gpopt2)
+#            gpcov1_list.append(gpcov1)
+#            gpcov2_list.append(gpcov2)
+#    
+#        return gpopt1_list, gpopt2_list, gpcov1_list, gpcov2_list
+#
+#    if cte_fit == 'power': 
+#        gpopt_list = []
+#        gpcov_list = []
+#        for ee in range(tab['x'].shape[1]):
+#            dt = tab['t'][:, ee] - tab['t0']
+#            xt_mod = tab['x0'] + tab['vx'] * dt
+#            yt_mod = tab['y0'] + tab['vy'] * dt
+#    
+#            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
+#            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+#    
+#            da = plots.calc_da(trans_list[ee])
+#    
+#            gpopt, gpcov = calc_CTE_fit(tab['m'][:, ee],
+#                                        tab['x'][:, ee], tab['y'][:, ee],
+#                                        tab['xe'][:, ee], tab['ye'][:, ee],
+#                                        xt_mod, yt_mod,
+#                                        good_idx, ref_idx,
+#                                        'power', da=da, mlim=mlim)
+#    
+#            gpopt_list.append(gpopt)
+#            gpcov_list.append(gpcov)
+#
+#        tab_cte = copy.deepcopy(tab)
+#        
+#        
+#        return gpopt_list, gpcov_list
+#
+#    if cte_fit == 'line': 
+#        gpopt_list = []
+#        gpcov_list = []
+#        for ee in range(tab['x'].shape[1]):
+#            dt = tab['t'][:, ee] - tab['t0']
+#            xt_mod = tab['x0'] + tab['vx'] * dt
+#            yt_mod = tab['y0'] + tab['vy'] * dt
+#    
+#            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
+#            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+#    
+#            da = plots.calc_da(trans_list[ee])
+#    
+#            gpopt, gpcov = calc_CTE_fit(tab['m'][:, ee],
+#                                        tab['x'][:, ee], tab['y'][:, ee],
+#                                        tab['xe'][:, ee], tab['ye'][:, ee],
+#                                        xt_mod, yt_mod,
+#                                        good_idx, ref_idx,
+#                                        'line', da=da, mlim=mlim)
+#
+#            gpopt_list.append(gpopt)
+#            gpcov_list.append(gpcov)
+#
+#        return gpopt_list, gpcov_list
+
+def calc_CTE_fit_from_trans(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, trans):
+    # Residual
+    dx = (x_t - x_ref)
+    dy = (y_t - y_ref)
+
+    # Magnitude
+    mgood = m_t[good_idx]
+
+    # Residual angle                                                                                                                
+    agood = plots.angle_from_xy(dx[good_idx], dy[good_idx])
+
+    # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)                                           
+    # Keep everything within 0 to 360                                                                                               
+    agood -= da % 360
+
+    # Residual magnitude                                                                                                              
+    rgood = np.hypot(dx[good_idx], dy[good_idx])
+
+    # Y residual
+    ygood = np.sin(np.radians(agood)) * rgood
+
 
 def calc_CTE_fit(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, cte_fit, da=0, mlim=15):
     # Residual
@@ -3949,47 +4006,50 @@ def calc_CTE_fit(m_t, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, cte
     # Magnitude
     mgood = m_t[good_idx]
 
-    # Residual angle                                                                                                                       
+    # Residual angle                                                                                                                
     agood = plots.angle_from_xy(dx[good_idx], dy[good_idx])
 
-    # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)                                                     
-    # Keep everything within 0 to 360                                                                                                     
+    # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)                                           
+    # Keep everything within 0 to 360                                                                                               
     agood -= da % 360
 
-    # Residual magnitude                                                                                                                  
+    # Residual magnitude                                                                                                              
     rgood = np.hypot(dx[good_idx], dy[good_idx])
 
     # Y residual
     ygood = np.sin(np.radians(agood)) * rgood
 
-    #####                                                                                                                                  
-    # Fit the y-residuals and subtract them away.                                                                                          
+    #####                                                                                                                             
+    # Fit the y-residuals and subtract them away.                                                                                  
     #####                                                                                         
-    if cte_fit == 'power_line':
-        idx1 = np.where((mgood > 15) & 
-                        (mgood < 18.5))[0]
-        
-        idx2 = np.where(mgood > 18.5)[0]
-        
-        gpopt1, gpcov1 = curve_fit(T_line, mgood[idx1], ygood[idx1], maxfev=100000)
-        gpopt2, gpcov2 = curve_fit(T_cte_y, mgood[idx2], ygood[idx2], maxfev=100000)
-
-        # Corrected values = ygood - T_cte_y(mgood, *gpopt)
-
-        return gpopt1, gpopt2, gpcov1, gpcov2
+#    if cte_fit == 'power_line':
+#        idx1 = np.where((mgood > 15) & 
+#                        (mgood < 18.5))[0]
+#        
+#        idx2 = np.where(mgood > 18.5)[0]
+#        
+#        gpopt1, gpcov1 = curve_fit(T_line, mgood[idx1], ygood[idx1], maxfev=100000)
+#        gpopt2, gpcov2 = curve_fit(T_cte_y, mgood[idx2], ygood[idx2], maxfev=100000)
+#
+#        # Corrected values = ygood - T_cte_y(mgood, *gpopt)
+#
+#        return gpopt1, gpopt2, gpcov1, gpcov2
 
     if cte_fit == 'power':
         idx = np.where(mgood > mlim)[0]
 
         gpopt, gpcov = curve_fit(T_cte_y, mgood, ygood, maxfev=100000)
 
-        # Corrected values = ygood - T_cte_y(mgood, *gpopt)
+        ygood_cte = ygood - T_cte_y(mgood, *gpopt)
+
+        x
 
         return gpopt, gpcov
 
     if cte_fit == 'line':
-        # FIX THIS
-        idx = np.where((mgood < 20) & (mgood > 16))[0]
+        # FIX THIS SO NOT HARDCODED
+#        idx = np.where((mgood < 20) & (mgood > 16))[0]
+        idx = np.where((mgood < 19) & (mgood > 15))[0]
 
         gpopt, gpcov = curve_fit(T_line, mgood, ygood, maxfev=100000)
 
