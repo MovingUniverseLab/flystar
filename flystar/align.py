@@ -17,19 +17,6 @@ from astropy.utils.exceptions import AstropyUserWarning
 import matplotlib.pyplot as plt
 import astropy
 
-#            pdb.set_trace()
-#            #######################################################################
-#            # EXPERIMENTAL NEW STUFF... 
-#            gpopt_list = align.fit_out_CTE(trans, 'power')
-#            y_orig_CTE = tab3['y_orig'][:,ee] - align.T_cte_y(tab3['m'][:,ee],*gpopt_list[ee])
-#            star_list = starlists.StarList(name=tab3['name'], x=tab3['x_orig'][:,ee], y=y_orig_CTE, m=tab3['m'][:,ee])
-#            star_list_T = copy.deepcopy(star_list)
-#            star_list_T.transform_xy(msc3.trans_list[ee])
-#            tab3_CTE['x'][:,ee] = star_list_T['x']
-#            tab3_CTE['y'][:,ee] = star_list_T['y']   
-#
-#            #######################################################################
-
 # Keep a list of columns that are "aggregated" motion model terms.
 motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
                           'vx', 'vxe', 'vy', 'vye',
@@ -3875,25 +3862,48 @@ def logger(logfile, message):
 
 
 def fit_out_CTE(tab, trans_list, trans_list_inv):
+    """
+    Create a new table, which corrects CTE in the 
+    inpute table
+
+    FIXME: fix y_orig too? and eventually magnitudes?
+
+    Parameters
+    ----------
+    tab : flystar StarTable
+
+    trans_list: flystar Transformation
+
+    trans_list_in: flystar Transformation which is inverse of trans_list
+    """
+    # Create the new table.
     tab_cte = copy.deepcopy(tab)
 
+    # For each epoch...
     for ee in range(tab['x'].shape[1]):
+        # Get the expected (model) positions
         dt = tab['t'][:, ee] - tab['t0']
         xt_mod = tab['x0'] + tab['vx'] * dt
         yt_mod = tab['y0'] + tab['vy'] * dt
 
+        # Get the "good" and reference (i.e. used in the transformation) stars
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
         ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
 
+        # Put the stars in starlist for transformation.
         starlist_t = StarList(name=tab['name'], x=tab['x'][:,ee],
                               y=tab['y'][:,ee], m=tab['m'][:,ee])
 
+        # Put the expected (model) positions in a starlist for transformation.
         starlist_mod = StarList(name=tab['name'], x=xt_mod,
                                 y=yt_mod, m=tab['m'][:,ee])
 
+        # Use inverse transformation to put both lists into 
+        # the original reference frame.
         starlist_t.transform_xy(trans_list_inv[ee])
         starlist_mod.transform_xy(trans_list_inv[ee])
 
+        # Calculate the residuals in the original reference frame.
         dx = starlist_t['x'] - starlist_mod['x']
         dy = starlist_t['y'] - starlist_mod['y']
 
@@ -3904,17 +3914,49 @@ def fit_out_CTE(tab, trans_list, trans_list_inv):
         # Magnitude
         mgood = m_t[good_idx]
 
+        # 15 for OB110037, 16.5 for OB110310
+#        idx = np.where(mgood > 16.5)[0]
         idx = np.where(mgood > 15)[0]
 
+        # Make this an "if" statement, choose the type of fit you want
         gpopt, gpcov = curve_fit(T_cte_y, mgood[idx], dy[good_idx][idx], maxfev=100000)
+#        gpopt, gpcov = curve_fit(T_cte_ym, (mgood[idx], starlist_t['y'][good_idx][idx]),
+#                                            dy[good_idx][idx], maxfev=100000)
 
+        # Subtract off the error
         starlist_t['y'] -= T_cte_y(starlist_t['m'], *gpopt)
+#        starlist_t['y'] -= T_cte_ym((starlist_t['m'], starlist_t['y']), *gpopt)
+
+#        new_dy = starlist_t['y'] - starlist_mod['y']
+#        fig, ax = plt.subplots(num=1)
+#        ax.scatter(m_t, new_dy, s=0.1)
+#        ax.set_xlabel('mag')
+#        ax.set_ylabel('dy')
+#        ax.axhline(y=0)
+#        plt.title('Epoch ' + str(ee))
+#        plt.show()
+#
+#        fig, ax = plt.subplots(num=2)
+#        ax.scatter(starlist_t['y'], new_dy, s=0.1)
+#        ax.set_xlabel('y')
+#        ax.set_ylabel('dy')
+#        ax.axhline(y=0)
+#        plt.show()
+
+        # Transform the positions back into the frame and 
+        # fill in the table.
         starlist_t.transform_xy(trans_list[ee])
 
         tab_cte['x'][:,ee] = starlist_t['x']
         tab_cte['y'][:,ee] = starlist_t['y']
-    
+
     return tab_cte
+
+def T_cte_ym(MY, A, m0, alpha, m1, m2):
+    m,y = MY
+    base = m/m0
+
+    return m1 + y*m2 + A * np.sign(base) * np.abs(base)**alpha 
 
 def T_cte_y(m, A, m0, alpha, m1):
     base = m/m0
