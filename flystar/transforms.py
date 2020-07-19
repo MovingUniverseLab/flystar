@@ -955,15 +955,13 @@ class UVIS_CTE_trans_1(PolyTransform):
             xe_out, ye_out, me_out = try_trans.evaluate_error(x_in, y_in, m_in, xe_in, ye_in, me_in)
     
             # Calculate the residuals.
-            if weights is None:
-                x_res = x_out - x_ref 
-                y_res = y_out - y_ref 
-                m_res = m_out - m_ref 
-            # THIS SHOULD REALLY TAKE DIFFERENT VALUES FOR WEIGHTS (LIKE 'LIST,STD', 'LIST,VAR', ETC.)
-            else:
-                x_res = (x_out - x_ref)/xe_out
-                y_res = (y_out - y_ref)/ye_out
-                m_res = (m_out - m_ref)/me_out
+            x_res = x_out - x_ref 
+            y_res = y_out - y_ref 
+            m_res = m_out - m_ref 
+            if weights is not None:
+                x_res *= weights
+                y_res *= weights
+                m_res *= weights
 
             res = np.concatenate((x_res, y_res, m_res))
 
@@ -1296,16 +1294,17 @@ class UVIS_CTE_trans_2(PolyTransform):
 
             x_out, y_out, m_out = try_trans.evaluate(x_in, y_in, m_in)
             xe_out, ye_out, me_out = try_trans.evaluate_error(x_in, y_in, m_in, xe_in, ye_in, me_in)
-
+            
+            # Should just be the same weights as in PolyTransform's derive transform
+            # b/c it's the errors before you perform the transformation.
             # Calculate the residuals.
-            if weights is None:
-                x_res = x_out - x_ref 
-                y_res = y_out - y_ref 
-                m_res = m_out - m_ref 
-            else:
-                x_res = (x_out - x_ref)/xe_out
-                y_res = (y_out - y_ref)/ye_out
-                m_res = (m_out - m_ref)/me_out
+            x_res = x_out - x_ref 
+            y_res = y_out - y_ref 
+            m_res = m_out - m_ref 
+            if weights is not None:
+                x_res *= weights
+                y_res *= weights
+                m_res *= weights
 
             res = np.concatenate((x_res, y_res, m_res))
 
@@ -1653,14 +1652,13 @@ class UVIS_CTE_trans_3(PolyTransform):
             xe_out, ye_out, me_out = try_trans.evaluate_error(x_in, y_in, m_in, xe_in, ye_in, me_in)
 
             # Calculate the residuals.
-            if weights is None:
-                x_res = x_out - x_ref 
-                y_res = y_out - y_ref 
-                m_res = m_out - m_ref 
-            else:
-                x_res = (x_out - x_ref)/xe_out
-                y_res = (y_out - y_ref)/ye_out
-                m_res = (m_out - m_ref)/me_out
+            x_res = x_out - x_ref 
+            y_res = y_out - y_ref 
+            m_res = m_out - m_ref 
+            if weights is not None:
+                x_res *= weights
+                y_res *= weights
+                m_res *= weights
 
             res = np.concatenate((x_res, y_res, m_res))
 
