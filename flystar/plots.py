@@ -1743,94 +1743,94 @@ def T_cte_y(m, A, m0, alpha, m1):
 def T_line(m, a, b):
     return a + m*b
 
-def plot_quiver_residuals_vs_pos_err(dx, dy, good_idx, ref_idx, 
-                                     xerr, yerr, errtype, title, da=0):
-    """
-    dx, dy are the output of plot_quiver_residuals
-    errtype is string for the type of error...
-    """
-    # Residual angle
-    agood = angle_from_xy(dx[good_idx], dy[good_idx])
-    aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
-    # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
-    agood -= da
-    aref -= da
-
-    # Keep everything within 0 to 360
-    agood = agood % 360
-    aref = aref % 360
-
-    dr = np.hypot(dx,dy)
-
-    rerr = np.hypot(xerr, yerr)
-
-    plt.figure(figsize=(14,10))
-    plt.clf()
-    ax1 = plt.subplot(2, 3, 1)
-    ax2 = plt.subplot(2, 3, 2)
-    ax3 = plt.subplot(2, 3, 3)
-    ax4 = plt.subplot(2, 3, 4)
-    ax5 = plt.subplot(2, 3, 5)
-    ax6 = plt.subplot(2, 3, 6)
-    plt.subplots_adjust(wspace=0.4, hspace=0.3)
-
-    ax1.semilogy(dx[good_idx], xerr[good_idx], 
-                 'k.', alpha=0.3, ms=2)
-    ax1.semilogy(dx[good_idx][ref_idx], xerr[good_idx][ref_idx], 
-                 'r.', alpha=0.3, ms=2)
-    ax1.set_xlim(-5, 5)
-    ax1.set_ylim(1e-3, 1)
-    ax1.set_xlabel('x residual')
-    ax1.set_ylabel('x ' + errtype)
-
-    ax2.semilogy(dy[good_idx], yerr[good_idx], 
-                'k.', alpha=0.3, ms=2)
-    ax2.semilogy(dy[good_idx][ref_idx], yerr[good_idx][ref_idx], 
-                'r.', alpha=0.3, ms=2)
-    ax2.set_ylim(1e-3, 1)
-    ax2.set_xlim(-5, 5)
-    ax2.set_xlabel('y residual')
-    ax2.set_ylabel('y ' + errtype)
-    ax2.set_title(title)
-
-    ax3.semilogy(dr[good_idx], rerr[good_idx], 
-                'k.', alpha=0.3, ms=2)
-    ax3.semilogy(dr[good_idx][ref_idx], rerr[good_idx][ref_idx], 
-                'r.', alpha=0.3, ms=2) 
-    ax3.set_xlim(0, 5)
-    ax3.set_ylim(1e-3, 1)
-    ax3.set_xlabel('total residual')
-    ax3.set_ylabel('total ' + errtype)
-
-    ax4.semilogy(agood, xerr[good_idx], 
-                 'k.', alpha=0.3, ms=2)
-    ax4.semilogy(aref, xerr[good_idx][ref_idx], 
-                 'r.', alpha=0.3, ms=2)
-    ax4.set_ylim(1e-3, 1)
-    ax4.set_xlabel('residual angle')
-    ax4.set_ylabel('x ' + errtype)
-
-    ax5.semilogy(agood, yerr[good_idx], 
-                'k.', alpha=0.3, ms=2)
-    ax5.semilogy(aref, yerr[good_idx][ref_idx], 
-                'r.', alpha=0.3, ms=2)
-    ax5.set_ylim(1e-3, 1)
-    ax5.set_xlabel('residual angle')
-    ax5.set_ylabel('y ' + errtype)
-    ax5.set_title(title)
-
-    ax6.semilogy(agood, rerr[good_idx], 
-                'k.', alpha=0.3, ms=2)
-    ax6.semilogy(aref, rerr[good_idx][ref_idx], 
-                'r.', alpha=0.3, ms=2) 
-    ax6.set_ylim(1e-3, 1)
-    ax6.set_xlabel('residual angle')
-    ax6.set_ylabel('total ' + errtype)
-
-    plt.show()
-    plt.pause(1)
-
-    return
+#def plot_quiver_residuals_vs_pos_err(dx, dy, good_idx, ref_idx, 
+#                                     xerr, yerr, errtype, title, da=0):
+#    """
+#    dx, dy are the output of plot_quiver_residuals
+#    errtype is string for the type of error...
+#    """
+#    # Residual angle
+#    agood = angle_from_xy(dx[good_idx], dy[good_idx])
+#    aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+#    # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
+#    agood -= da
+#    aref -= da
+#
+#    # Keep everything within 0 to 360
+#    agood = agood % 360
+#    aref = aref % 360
+#
+#    dr = np.hypot(dx,dy)
+#
+#    rerr = np.hypot(xerr, yerr)
+#
+#    plt.figure(figsize=(14,10))
+#    plt.clf()
+#    ax1 = plt.subplot(2, 3, 1)
+#    ax2 = plt.subplot(2, 3, 2)
+#    ax3 = plt.subplot(2, 3, 3)
+#    ax4 = plt.subplot(2, 3, 4)
+#    ax5 = plt.subplot(2, 3, 5)
+#    ax6 = plt.subplot(2, 3, 6)
+#    plt.subplots_adjust(wspace=0.4, hspace=0.3)
+#
+#    ax1.semilogy(dx[good_idx], xerr[good_idx], 
+#                 'k.', alpha=0.3, ms=2)
+#    ax1.semilogy(dx[good_idx][ref_idx], xerr[good_idx][ref_idx], 
+#                 'r.', alpha=0.3, ms=2)
+#    ax1.set_xlim(-5, 5)
+#    ax1.set_ylim(1e-3, 1)
+#    ax1.set_xlabel('x residual')
+#    ax1.set_ylabel('x ' + errtype)
+#
+#    ax2.semilogy(dy[good_idx], yerr[good_idx], 
+#                'k.', alpha=0.3, ms=2)
+#    ax2.semilogy(dy[good_idx][ref_idx], yerr[good_idx][ref_idx], 
+#                'r.', alpha=0.3, ms=2)
+#    ax2.set_ylim(1e-3, 1)
+#    ax2.set_xlim(-5, 5)
+#    ax2.set_xlabel('y residual')
+#    ax2.set_ylabel('y ' + errtype)
+#    ax2.set_title(title)
+#
+#    ax3.semilogy(dr[good_idx], rerr[good_idx], 
+#                'k.', alpha=0.3, ms=2)
+#    ax3.semilogy(dr[good_idx][ref_idx], rerr[good_idx][ref_idx], 
+#                'r.', alpha=0.3, ms=2) 
+#    ax3.set_xlim(0, 5)
+#    ax3.set_ylim(1e-3, 1)
+#    ax3.set_xlabel('total residual')
+#    ax3.set_ylabel('total ' + errtype)
+#
+#    ax4.semilogy(agood, xerr[good_idx], 
+#                 'k.', alpha=0.3, ms=2)
+#    ax4.semilogy(aref, xerr[good_idx][ref_idx], 
+#                 'r.', alpha=0.3, ms=2)
+#    ax4.set_ylim(1e-3, 1)
+#    ax4.set_xlabel('residual angle')
+#    ax4.set_ylabel('x ' + errtype)
+#
+#    ax5.semilogy(agood, yerr[good_idx], 
+#                'k.', alpha=0.3, ms=2)
+#    ax5.semilogy(aref, yerr[good_idx][ref_idx], 
+#                'r.', alpha=0.3, ms=2)
+#    ax5.set_ylim(1e-3, 1)
+#    ax5.set_xlabel('residual angle')
+#    ax5.set_ylabel('y ' + errtype)
+#    ax5.set_title(title)
+#
+#    ax6.semilogy(agood, rerr[good_idx], 
+#                'k.', alpha=0.3, ms=2)
+#    ax6.semilogy(aref, rerr[good_idx][ref_idx], 
+#                'r.', alpha=0.3, ms=2) 
+#    ax6.set_ylim(1e-3, 1)
+#    ax6.set_xlabel('residual angle')
+#    ax6.set_ylabel('total ' + errtype)
+#
+#    plt.show()
+#    plt.pause(1)
+#
+#    return
 
 
 def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, 
@@ -2004,65 +2004,65 @@ def rotate(x, y, theta):
     return xnew, ynew
 
 
-def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, 
-                                        x_orig, y_orig, da, title, scale=None, plotlim=None):
-    """
-    unit : str
-        'pixel' or 'arcsec'
-        The pixel units of the input values. Note, if arcsec, then the values will be
-        converted to milli-arcsec for plotting when appropriate. 
-
-    scale : float
-        The quiver scale. If none, then default units will be used appropriate to the unit. 
-
-    plotlim : float (positive)
-        Sets the size of the plotted figure. If None, then default is used.
-        Otherwise plots figure of range [-plotlim, plotlim] x [-plotlim, plotlim].
-    """
-    dx = (x_t - x_ref)
-    dy = (y_t - y_ref)
-    
-    # Residual modulus
-    r_good = np.hypot(dx[good_idx], dy[good_idx])
-    r_ref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
-
-    # Residual angle
-    agood = angle_from_xy(dx[good_idx], dy[good_idx])
-    aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
-    # Subtract off rotation angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
-    agood -= da
-    aref -= da
-    # Keep everything within 0 to 360
-    agood = agood % 360
-    aref = aref % 360
-
-    plt.figure(figsize=(14,6))
-    plt.clf()
-    ax1 = plt.subplot(1, 2, 1)
-    ax2 = plt.subplot(1, 2, 2)
-    plt.subplots_adjust(wspace=0.3)
-
-    plt.clf()
-    fig, ax = plt.subplots(1, 2, figsize=(12,6), sharey=True)
+#def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, 
+#                                        x_orig, y_orig, da, title, scale=None, plotlim=None):
+#    """
+#    unit : str
+#        'pixel' or 'arcsec'
+#        The pixel units of the input values. Note, if arcsec, then the values will be
+#        converted to milli-arcsec for plotting when appropriate. 
+#
+#    scale : float
+#        The quiver scale. If none, then default units will be used appropriate to the unit. 
+#
+#    plotlim : float (positive)
+#        Sets the size of the plotted figure. If None, then default is used.
+#        Otherwise plots figure of range [-plotlim, plotlim] x [-plotlim, plotlim].
+#    """
+#    dx = (x_t - x_ref)
+#    dy = (y_t - y_ref)
+#    
+#    # Residual modulus
+#    r_good = np.hypot(dx[good_idx], dy[good_idx])
+#    r_ref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+#
+#    # Residual angle
+#    agood = angle_from_xy(dx[good_idx], dy[good_idx])
+#    aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+#    # Subtract off rotation angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
+#    agood -= da
+#    aref -= da
+#    # Keep everything within 0 to 360
+#    agood = agood % 360
+#    aref = aref % 360
+#
+#    plt.figure(figsize=(14,6))
 #    plt.clf()
-    plt.subplots_adjust(wspace=0.01)
-    ax[0].scatter(x_orig[good_idx], agood, color='black', alpha=0.3, s=5)
-    ax[0].scatter(x_orig[good_idx][ref_idx], aref, color='red', alpha=0.3, s=5)
-    ax[0].set_xlabel('X (orig pix)')
-    ax[0].set_ylabel('Quiver angle (degrees), HST camera')
-
-    ax[1].scatter(y_orig[good_idx], agood, color='black', alpha=0.3, s=5)
-    ax[1].scatter(y_orig[good_idx][ref_idx], aref, color='red', alpha=0.3, s=5)
-    ax[1].set_xlabel('Y (orig pix)')
-    plt.title(title)
-    plt.axis('equal')
-    if plotlim is not None:
-        plt.xlim(-1 * plotlim, plotlim)
-        plt.ylim(-1 * plotlim, plotlim)
-    plt.show()
-    plt.pause(1)
-
-    return
+#    ax1 = plt.subplot(1, 2, 1)
+#    ax2 = plt.subplot(1, 2, 2)
+#    plt.subplots_adjust(wspace=0.3)
+#
+#    plt.clf()
+#    fig, ax = plt.subplots(1, 2, figsize=(12,6), sharey=True)
+##    plt.clf()
+#    plt.subplots_adjust(wspace=0.01)
+#    ax[0].scatter(x_orig[good_idx], agood, color='black', alpha=0.3, s=5)
+#    ax[0].scatter(x_orig[good_idx][ref_idx], aref, color='red', alpha=0.3, s=5)
+#    ax[0].set_xlabel('X (orig pix)')
+#    ax[0].set_ylabel('Quiver angle (degrees), HST camera')
+#
+#    ax[1].scatter(y_orig[good_idx], agood, color='black', alpha=0.3, s=5)
+#    ax[1].scatter(y_orig[good_idx][ref_idx], aref, color='red', alpha=0.3, s=5)
+#    ax[1].set_xlabel('Y (orig pix)')
+#    plt.title(title)
+#    plt.axis('equal')
+#    if plotlim is not None:
+#        plt.xlim(-1 * plotlim, plotlim)
+#        plt.ylim(-1 * plotlim, plotlim)
+#    plt.show()
+#    plt.pause(1)
+#
+#    return
 
 
 def plot_chi2_dist(tab, Ndetect):
