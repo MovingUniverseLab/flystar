@@ -3861,7 +3861,7 @@ def logger(logfile, message):
     return
 
 
-def fit_out_CTE(tab, trans_list, trans_list_inv):
+def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, plot=False):
     """
     Create a new table, which corrects CTE in the 
     inpute table
@@ -3875,9 +3875,20 @@ def fit_out_CTE(tab, trans_list, trans_list_inv):
     trans_list: flystar Transformation
 
     trans_list_in: flystar Transformation which is inverse of trans_list
+
+    cfunc : string of the fit you want to do
     """
     # Create the new table.
     tab_cte = copy.deepcopy(tab)
+
+    # TEMP until figure out ZP meta dumb stuff...
+#    zp_arr = np.array([28.4863, 28.4815, 28.9271, 29.6635, 29.6774, 29.6726, 29.5692, 29.1380, 29.1377])
+#    zp_arr -= 0.425
+#    zp_arr = zp_arr[::-1]
+
+    # Determined by eye...
+    zp_arr = np.array([19.0, 18.7, 18.5, 18.7, 18.5, 18.7, 19.0, 19.0, 19.0]) - 3.5
+    zp_arr = zp_arr[::-1]
 
     # For each epoch...
     for ee in range(tab['x'].shape[1]):
@@ -3892,7 +3903,8 @@ def fit_out_CTE(tab, trans_list, trans_list_inv):
 
         # Put the stars in starlist for transformation.
         starlist_t = StarList(name=tab['name'], x=tab['x'][:,ee],
-                              y=tab['y'][:,ee], m=tab['m'][:,ee])
+                              y=tab['y'][:,ee], m=tab['m'][:,ee],
+                              xe=tab['xe'][:,ee], ye=tab['ye'][:,ee])
 
         # Put the expected (model) positions in a starlist for transformation.
         starlist_mod = StarList(name=tab['name'], x=xt_mod,
@@ -3902,53 +3914,371 @@ def fit_out_CTE(tab, trans_list, trans_list_inv):
         # the original reference frame.
         starlist_t.transform_xy(trans_list_inv[ee])
         starlist_mod.transform_xy(trans_list_inv[ee])
+        
+        starlist_t_cte = copy.deepcopy(starlist_t)
 
-        # Calculate the residuals in the original reference frame.
-        dx = starlist_t['x'] - starlist_mod['x']
-        dy = starlist_t['y'] - starlist_mod['y']
+        # Calculate the residuals in the original reference frame (units of arcsec).
+        dy_orig = starlist_t['y'] - starlist_mod['y']
 
-        m_t = tab['m'][:,ee]
-        xe_t = tab['xe'][:,ee]
-        ye_t = tab['ye'][:,ee]
-    
         # Magnitude
+        m_t = tab['m'][:,ee]
         mgood = m_t[good_idx]
 
-        # 15 for OB110037, 16.5 for OB110310
-#        idx = np.where(mgood > 16.5)[0]
-        idx = np.where(mgood > 15)[0]
+        # m and y for curve plotting
+        marr = np.linspace(13, 25, 100)
+        yarr = np.linspace(0, 2000, 100)
 
-        # Make this an "if" statement, choose the type of fit you want
-        gpopt, gpcov = curve_fit(T_cte_y, mgood[idx], dy[good_idx][idx], maxfev=100000)
-#        gpopt, gpcov = curve_fit(T_cte_ym, (mgood[idx], starlist_t['y'][good_idx][idx]),
-#                                            dy[good_idx][idx], maxfev=100000)
+        # Different regimes
+        # Saturated
+#        sat_idx = np.where(mgood < zp_arr[ee] - 13.5)[0]
+        sat_idx = np.where(mgood < zp_arr[ee])[0]
 
-        # Subtract off the error
-        starlist_t['y'] -= T_cte_y(starlist_t['m'], *gpopt)
-#        starlist_t['y'] -= T_cte_ym((starlist_t['m'], starlist_t['y']), *gpopt)
+        # Nonlinear
+#        non_idx = np.where((mgood > zp_arr[ee] - 13.5) & 
+#                              (mgood < zp_arr[ee] - 10))[0]
+        non_idx = np.where((mgood > zp_arr[ee]) & 
+                              (mgood < zp_arr[ee] + 3.5))[0]
 
-#        new_dy = starlist_t['y'] - starlist_mod['y']
-#        fig, ax = plt.subplots(num=1)
-#        ax.scatter(m_t, new_dy, s=0.1)
-#        ax.set_xlabel('mag')
-#        ax.set_ylabel('dy')
-#        ax.axhline(y=0)
-#        plt.title('Epoch ' + str(ee))
-#        plt.show()
+        # Linear 
+#        lin_idx = np.where(mgood > zp_arr[ee] - 10)[0]
+        lin_idx = np.where(mgood > zp_arr[ee] + 3.5)[0]
+
+        # Find the best-fit parameters for the residual model, and then
+        # subtract it off.
+
+        if cfunc=='mexp_mpower':
+            iidx = np.concatenate((non_idx, lin_idx))
+            gpopt, gpcov = curve_fit(T_cte_y_exp_power, mgood[iidx], dy_orig[good_idx][iidx],
+                                     maxfev=100000, bounds=([0, 0, 1, -10, 17], [np.inf, np.inf, np.inf, 10, 20]))
+            starlist_t_cte['y'] -= T_cte_y_exp_power(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y_exp_power(marr, *gpopt)
+            print(gpopt)
+            A, m0, alpha, m1, mb = gpopt
+            a = m1 - (A/(alpha - 1))*(mb/m0)**alpha
+            b = (A*alpha/(alpha-1)) * (mb/m0)**alpha * np.exp(1 - alpha)
+            c = (alpha - 1)/mb
+            print(a, b, c)
+
+        if cfunc=='mpoly2_mpower':
+            iidx = np.concatenate((non_idx, lin_idx))
+            gpopt, gpcov = curve_fit(T_cte_y_poly2_power, mgood[iidx], dy_orig[good_idx][iidx],
+                                     maxfev=100000, bounds=([0, 0, 1, -10, 17], [np.inf, np.inf, np.inf, 10, 20]))
+            starlist_t_cte['y'] -= T_cte_y_poly2_power(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y_poly2_power(marr, *gpopt)
+            print(gpopt)
+            A, m0, alpha, m1, mb = gpopt
+            a = m1 - A*(mb/m0)**alpha * (1 + 1.5*alpha - 0.5*alpha**2)
+            b = (-A * alpha/m0) * (mb/m0)**(alpha - 1)
+            c = A * alpha * (alpha - 1)/(2 * m0**2) * (mb/m0)**(alpha-2)
+            print(a, b, c)
+
+        if cfunc=='mpower':
+#            mbins, binned_dy = bin_data(mgood[lin_idx], dy_orig[good_idx][lin_idx], 20)
+#            guess_gpopt, _ = curve_fit(T_cte_y, mbins, binned_dy, 
+#                                       maxfev=100000)            
+#            print(guess_gpopt)
+            gpopt, gpcov = curve_fit(T_cte_y, mgood[lin_idx], dy_orig[good_idx][lin_idx], 
+                                     maxfev=100000, bounds=([0, 0, 1, -10], [np.inf, np.inf, np.inf, 10]))
+#            gpopt_non, gpcov_non = curve_fit(T_cte_y, mgood[non_idx], dy_orig[good_idx][non_idx], 
+#                                             maxfev=100000, bounds=([0, 0, 1, -10], [np.inf, np.inf, np.inf, 10]))
+            starlist_t_cte['y'] -= T_cte_y(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y(marr, *gpopt)
+            print(gpopt)
+
+        if cfunc=='mexp':
+            gpopt, gpcov = curve_fit(T_cte_y_exp, mgood[lin_idx], dy_orig[good_idx][lin_idx], 
+                                     maxfev=100000)
+            starlist_t_cte['y'] -= T_cte_y_exp(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y_exp(marr, *gpopt)
+            print(gpopt)
+
+        if cfunc=='mpower15_yline':
+#            gpopt_guess, gpcov_guess = curve_fit(T_cte_y, mgood[lin_idx], dy_orig[good_idx][lin_idx], maxfev=100000)
+#            p0 = np.append(gpopt_guess, [1])
+#            gpopt, gpcov = curve_fit(T_cte_ym, (mgood[lin_idx], starlist_t['y'][good_idx][lin_idx]),
+#                                     dy[good_idx][lin_idx], maxfev=100000, p0=p0)
+            gpopt, gpcov = curve_fit(T_cte_ym, (mgood[lin_idx], starlist_t['y'][good_idx][lin_idx]),
+                                     dy_orig[good_idx][lin_idx], maxfev=100000)
+            starlist_t_cte['y'] -= T_cte_ym((starlist_t['m'], starlist_t['y']), *gpopt)
+            dyarr = T_cte_ym((marr,yarr), *gpopt)
+
+        if cfunc=='gompertz':
+            gpopt, gpcov = curve_fit(T_cte_y_gompertz, mgood[lin_idx], dy_orig[good_idx][lin_idx], maxfev=100000)
+            starlist_t_cte['y'] -= T_cte_y_gompertz(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y_gompertz(marr, *gpopt)
+
+        if cfunc=='poly3':
+            gpopt, gpcov = curve_fit(T_cte_y_poly3, mgood[non_idx], dy_orig[good_idx][non_idx], maxfev=100000)
+            starlist_t_cte['y'] -= T_cte_y_poly3(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y_poly3(marr, *gpopt)
+
+        if cfunc=='poly2':
+            gpopt, gpcov = curve_fit(T_cte_y_poly2, mgood[non_idx], dy_orig[good_idx][non_idx], maxfev=100000)
+            starlist_t_cte['y'] -= T_cte_y_poly2(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y_poly2(marr, *gpopt)
+
+        print('Time : ', tab['t'][:, ee][0])
+        print('-13.5 + ZP : ', zp_arr[ee] - 13.5)
+        print('Number of saturated : ', len(sat_idx))
+        print('Number of nonlinear : ', len(non_idx))
+
+        if plot:
+            pscale=0.04
+            dx = (starlist_t['x'] - starlist_mod['x'])*pscale
+            dy = (starlist_t['y'] - starlist_mod['y'])*pscale
+
+            xgood = starlist_t['x'][good_idx]
+            xref = starlist_t['x'][good_idx][ref_idx]
+
+            ygood = starlist_t['y'][good_idx]
+            yref = starlist_t['y'][good_idx][ref_idx]
+
+            dxgood = dx[good_idx]
+            dxref = dx[good_idx][ref_idx]
+
+            dygood = dy[good_idx]
+            dyref = dy[good_idx][ref_idx]
+
+            mref = starlist_t['m'][good_idx][ref_idx]
+
+            agood = plots.angle_from_xy(dxgood, dygood) % 360
+            aref = plots.angle_from_xy(dxref, dyref) % 360
+
+            rgood = np.hypot(dxgood, dygood)
+            rref = np.hypot(dxref, dyref)
+
+            xegood = starlist_t['xe'][good_idx]*pscale
+            xeref = starlist_t['xe'][good_idx][ref_idx]*pscale
+
+            yegood = starlist_t['ye'][good_idx]*pscale
+            yeref = starlist_t['ye'][good_idx][ref_idx]*pscale
+
+            dy_new = (starlist_t_cte['y'] - starlist_mod['y'])*pscale
+            dygood_new = dy_new[good_idx] 
+            dyref_new = dy_new[good_idx][ref_idx]
+
+            agood_new = plots.angle_from_xy(dxgood, dygood_new) % 360
+            aref_new = plots.angle_from_xy(dxref, dyref_new) % 360
+
+            rgood_new = np.hypot(dxgood, dygood_new)
+            rref_new = np.hypot(dxref, dyref_new)
+
+            dyarr *= pscale
+            
+            # FIXME figsize=(20,18), num=103
+            fig, ax = plt.subplots(6, 4, figsize=(12,10), sharex='col', sharey='row', num=ee)
+            plt.subplots_adjust(hspace=0.01, wspace=0.01)
+            # mag vs stuff, uncorrected
+            ax[0,0].scatter(mgood, agood, color='black', alpha=0.3, s=1)
+            ax[0,0].scatter(mref, aref, color='red', alpha=0.3, s=1)
+            ax[0,0].set_ylabel('Angle (deg)')
+            ax[0,0].set_title('No correction')
+
+            ax[1,0].scatter(mgood, rgood, color='black', alpha=0.3, s=1)
+            ax[1,0].scatter(mref, rref, color='red', alpha=0.3, s=1)
+            ax[1,0].set_ylabel('Modulus (arcsec)')
+            ax[1,0].set_yscale('log')
+            if type(rgood) == astropy.table.column.MaskedColumn:
+                ax[1,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
+            else:
+                ax[1,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+
+            ax[2,0].scatter(mgood, dxgood, color='black', alpha=0.3, s=1)
+            ax[2,0].scatter(mref, dxref, color='red', alpha=0.3, s=1)
+            ax[2,0].set_ylabel('Res, x (arcsec)')
+            ax[2,0].set_ylim(-0.01, 0.01)
+            ax[2,0].axhline(y=0)
+
+            ax[3,0].scatter(mgood, dygood, color='black', alpha=0.3, s=1)
+            ax[3,0].scatter(mref, dyref, color='red', alpha=0.3, s=1)
+            ax[3,0].set_ylabel('Res, y (arcsec)')
+            ax[3,0].plot(marr, dyarr, 'c-')
+#            ax[3,0].scatter(mbins, binned_dy*pscale, s=7, color='orange') # TEMP
+            ax[3,0].set_ylim(-0.01, 0.01)
+            ax[3,0].axhline(y=0)
+            
+            ax[4,0].scatter(mgood, dxgood/xegood, color='black', alpha=0.3, s=1)
+            ax[4,0].scatter(mref, dxref/xeref, color='red', alpha=0.3, s=1)
+            ax[4,0].set_ylabel('Res/Pos Err, x')
+            ax[4,0].axhline(y=0)
+            
+            ax[5,0].scatter(mgood, dygood/yegood, color='black', alpha=0.3, s=1)
+            ax[5,0].scatter(mref, dyref/yeref, color='red', alpha=0.3, s=1)
+            ax[5,0].set_xlabel('mag')
+            ax[5,0].set_ylabel('Res/Pos Err, y')
+            ax[5,0].axhline(y=0)
+
+            # mag vs stuff, corrected
+            ax[0,1].scatter(mgood, agood_new, color='black', alpha=0.3, s=1)
+            ax[0,1].scatter(mref, aref_new, color='red', alpha=0.3, s=1)
+            ax[0,1].set_title('Correction')
+
+            ax[1,1].scatter(mgood, rgood_new, color='black', alpha=0.3, s=1)
+            ax[1,1].scatter(mref, rref_new, color='red', alpha=0.3, s=1)
+            ax[1,1].set_yscale('log')
+            if type(rgood) == astropy.table.column.MaskedColumn:
+                ax[1,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data, rref_new.data])))
+            else:
+                ax[1,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new, rref_new])))
+
+            ax[3,1].scatter(mgood, dygood_new, color='black', alpha=0.3, s=1)
+            ax[3,1].scatter(mref, dyref_new, color='red', alpha=0.3, s=1)
+            ax[3,1].set_ylim(-0.01, 0.01)
+            ax[3,1].axhline(y=0)
+            
+            ax[5,1].scatter(mgood, dygood_new/yegood, color='black', alpha=0.3, s=1)
+            ax[5,1].scatter(mref, dyref_new/yeref, color='red', alpha=0.3, s=1)
+            ax[5,1].set_xlabel('mag')
+            ax[5,1].axhline(y=0)
+
+            # y vs stuff, uncorrected
+            ax[0,2].scatter(ygood, agood, color='black', alpha=0.3, s=1)
+            ax[0,2].scatter(yref, aref, color='red', alpha=0.3, s=1)
+            ax[0,2].set_title('No correction')
+
+            ax[1,2].scatter(ygood, rgood, color='black', alpha=0.3, s=1)
+            ax[1,2].scatter(yref, rref, color='red', alpha=0.3, s=1)
+            ax[1,2].set_yscale('log')
+            if type(rgood) == astropy.table.column.MaskedColumn:
+                ax[1,2].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
+            else:
+                ax[1,2].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+
+            ax[2,2].scatter(ygood, dxgood, color='black', alpha=0.3, s=1)
+            ax[2,2].scatter(yref, dxref, color='red', alpha=0.3, s=1)
+            ax[2,2].set_ylim(-0.01, 0.01)
+            ax[2,2].axhline(y=0)
+
+            ax[3,2].scatter(ygood, dygood, color='black', alpha=0.3, s=1)
+            ax[3,2].scatter(yref, dyref, color='red', alpha=0.3, s=1)
+            ax[3,2].set_ylim(-0.01, 0.01)
+            ax[3,2].axhline(y=0)
+            
+            ax[4,2].scatter(ygood, dxgood/xegood, color='black', alpha=0.3, s=1)
+            ax[4,2].scatter(yref, dxref/xeref, color='red', alpha=0.3, s=1)
+            ax[4,2].axhline(y=0)
+            
+            ax[5,2].scatter(ygood, dygood/yegood, color='black', alpha=0.3, s=1)
+            ax[5,2].scatter(yref, dyref/yeref, color='red', alpha=0.3, s=1)
+            ax[5,2].set_xlabel('y orig (pix)')
+            ax[5,2].axhline(y=0)
+
+            # y vs stuff, corrected
+            ax[0,3].scatter(ygood, agood_new, color='black', alpha=0.3, s=1)
+            ax[0,3].scatter(yref, aref_new, color='red', alpha=0.3, s=1)
+            ax[0,3].set_title('Correction')
+
+            ax[1,3].scatter(ygood, rgood_new, color='black', alpha=0.3, s=1)
+            ax[1,3].scatter(yref, rref_new, color='red', alpha=0.3, s=1)
+            ax[1,3].set_yscale('log')
+            if type(rgood) == astropy.table.column.MaskedColumn:
+                ax[1,3].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data, rref.data])))
+            else:
+                ax[1,3].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new, rref])))
+
+            ax[3,3].scatter(ygood, dygood_new, color='black', alpha=0.3, s=1)
+            ax[3,3].scatter(yref, dyref_new, color='red', alpha=0.3, s=1)
+            ax[3,3].set_ylim(-0.01, 0.01)
+            ax[3,3].axhline(y=0)
+            
+            ax[5,3].scatter(ygood, dygood_new/yegood, color='black', alpha=0.3, s=1)
+            ax[5,3].scatter(yref, dyref_new/yeref, color='red', alpha=0.3, s=1)
+            ax[5,3].set_xlabel('y orig (pix)')
+            ax[5,3].axhline(y=0)
+
+            # FIXME these lines are temp
+            
+            dmag = 3.5
+
+#            ax[0,0].axvline(x=zp_arr[ee] - 13.5)
+#            ax[1,0].axvline(x=zp_arr[ee] - 13.5)
+#            ax[2,0].axvline(x=zp_arr[ee] - 13.5)
+#            ax[3,0].axvline(x=zp_arr[ee] - 13.5)
+#            ax[4,0].axvline(x=zp_arr[ee] - 13.5)
+#            ax[5,0].axvline(x=zp_arr[ee] - 13.5)
 #
-#        fig, ax = plt.subplots(num=2)
-#        ax.scatter(starlist_t['y'], new_dy, s=0.1)
-#        ax.set_xlabel('y')
-#        ax.set_ylabel('dy')
-#        ax.axhline(y=0)
-#        plt.show()
+#            ax[0,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[1,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[2,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[3,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[4,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[5,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#
+#            ax[0,1].axvline(x=zp_arr[ee] - 13.5)
+#            ax[1,1].axvline(x=zp_arr[ee] - 13.5)
+#            ax[2,1].axvline(x=zp_arr[ee] - 13.5)
+#            ax[3,1].axvline(x=zp_arr[ee] - 13.5)
+#            ax[4,1].axvline(x=zp_arr[ee] - 13.5)
+#            ax[5,1].axvline(x=zp_arr[ee] - 13.5)
+#
+#            ax[0,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[1,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[2,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[3,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[4,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
+#            ax[5,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
 
+            ax[0,0].axvline(x=zp_arr[ee])
+            ax[1,0].axvline(x=zp_arr[ee])
+            ax[2,0].axvline(x=zp_arr[ee])
+            ax[3,0].axvline(x=zp_arr[ee])
+            ax[4,0].axvline(x=zp_arr[ee])
+            ax[5,0].axvline(x=zp_arr[ee])
+
+            ax[0,0].axvline(x=zp_arr[ee] + dmag)
+            ax[1,0].axvline(x=zp_arr[ee] + dmag)
+            ax[2,0].axvline(x=zp_arr[ee] + dmag)
+            ax[3,0].axvline(x=zp_arr[ee] + dmag)
+            ax[4,0].axvline(x=zp_arr[ee] + dmag)
+            ax[5,0].axvline(x=zp_arr[ee] + dmag)
+
+            ax[0,1].axvline(x=zp_arr[ee])
+            ax[1,1].axvline(x=zp_arr[ee])
+            ax[2,1].axvline(x=zp_arr[ee])
+            ax[3,1].axvline(x=zp_arr[ee])
+            ax[4,1].axvline(x=zp_arr[ee])
+            ax[5,1].axvline(x=zp_arr[ee])
+
+            ax[0,1].axvline(x=zp_arr[ee] + dmag)
+            ax[1,1].axvline(x=zp_arr[ee] + dmag)
+            ax[2,1].axvline(x=zp_arr[ee] + dmag)
+            ax[3,1].axvline(x=zp_arr[ee] + dmag)
+            ax[4,1].axvline(x=zp_arr[ee] + dmag)
+            ax[5,1].axvline(x=zp_arr[ee] + dmag)
+
+#
+#            ax[0,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[1,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[2,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[3,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[4,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[5,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#
+#            ax[0,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[1,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[2,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[3,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[4,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[5,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+
+            ax[4,0].set_ylim(-10, 10)
+            ax[5,0].set_ylim(-10, 10)
+            ax[4,1].set_ylim(-10, 10)
+            ax[5,1].set_ylim(-10, 10)
+
+#            ax[0,0].set_xlim(zp_arr[ee] - 13.5, zp_arr[ee] - 10)
+#            ax[0,1].set_xlim(zp_arr[ee] - 13.5, zp_arr[ee] - 10)
+
+            plt.suptitle('Epoch ' + str(ee))
+            plt.show()
+            plt.pause(1)
+            
         # Transform the positions back into the frame and 
         # fill in the table.
-        starlist_t.transform_xy(trans_list[ee])
+        starlist_t_cte.transform_xy(trans_list[ee])
 
-        tab_cte['x'][:,ee] = starlist_t['x']
-        tab_cte['y'][:,ee] = starlist_t['y']
+        tab_cte['x'][:,ee] = starlist_t_cte['x']
+        tab_cte['y'][:,ee] = starlist_t_cte['y']
 
     return tab_cte
 
@@ -3963,5 +4293,73 @@ def T_cte_y(m, A, m0, alpha, m1):
 
     return m1 + A * np.sign(base) * np.abs(base)**alpha
 
+def T_cte_y_exp(m, a, b, c):
+    return a + b * np.exp(c*m)
+
+def T_cte_y_poly3(m, a0, a1, a2, a3):
+    return a0 + a1*m + a2*m**2 + a3*m**3 
+
+def T_cte_y_poly2(m, a, b, c):
+    return a + b*m + c*m**2
+
+def T_cte_y_gompertz(m, m1, a, b, c):
+    return m1 + a * np.exp(-b*np.exp(m*-c))
+
 def T_line(m, a, b):
     return a + m*b
+
+def T_cte_y_poly2_power(m, A, m0, alpha, m1, mb):
+    # bp is the breakpoint
+    a = m1 + A*(mb/m0)**alpha * (1 - 1.5*alpha + 0.5*alpha**2)
+    b = (A * alpha/m0) * (2 - alpha) * (mb/m0)**(alpha - 1)
+    c = A * alpha * (alpha - 1)/(2 * m0**2) * (mb/m0)**(alpha-2)
+    return np.piecewise(m, 
+                        [m < mb, m >= mb], 
+                        [lambda m: T_cte_y_poly2(m, a, b, c), lambda m: T_cte_y(m, A, m0, alpha, m1)])
+
+def T_cte_y_exp_power(m, A, m0, alpha, m1, mb):
+    # mb is the breakpoint
+    a = m1 - (A/(alpha - 1))*(mb/m0)**alpha
+    b = (A*alpha/(alpha-1)) * (mb/m0)**alpha * np.exp(1 - alpha)
+    c = (alpha - 1)/mb
+
+    return np.piecewise(m, 
+                        [m < mb, m >= mb], 
+                        [lambda m: T_cte_y_exp(m, a, b, c), lambda m: T_cte_y(m, A, m0, alpha, m1)])
+    
+def bin_data(xarr, yarr, nbin, xmin=None, xmax=None, clip=False):
+    """
+    xarr : array
+        x input array
+    yarr : array
+        y input array (the thing being binned)
+    xmin, xmax : float
+        min and max of the binned data
+    nbin : int
+        number of bins
+    """
+    if xmin is None:
+        xmin=np.min(xarr)
+    if xmax is None:
+        xmax=np.max(xarr)
+
+    bins = np.linspace(xmin, xmax, nbin+1)
+    bin_centers = 0.5*(bins[1:] + bins[:-1])
+    binned_data = np.zeros(nbin)
+    for nn in range(nbin):
+        idx = np.where((xarr > bins[nn]) & 
+                       (xarr < bins[nn+1]))[0]
+
+        if clip:
+            mean = yarr[idx].mean()
+            std = yarr[idx].std()
+            sc_idx = np.where((yarr[idx] < mean + 1 * std) &
+                              (yarr[idx] > mean - 1 * std))
+            bd = np.average(yarr[idx][sc_idx])
+        else:
+            bd = np.average(yarr[idx])
+
+        binned_data[nn] = bd
+
+    return bin_centers, binned_data
+
