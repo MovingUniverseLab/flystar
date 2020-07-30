@@ -2782,4 +2782,166 @@ class PrintSelected(object):
 #
 #    return
 
+def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, region=None):
+    """
+    region : 'nonlin', 'nonsat', 'lin'
+    """
+    # Length of fit_titles shoudl equal len(good)
+    # FIXME figsize=(20,18), num=103
+    n = len(good)
+    if len(fit_titles) != len(good):
+        print('The number of titles needs to be the same length as the arrays')
+        pdb.set_trace()
+    # Loop over epochs
+    for ee in range(len(good[0][0])):
+        fig, ax = plt.subplots(6, n+1, figsize=((n+1)*3, 10), sharex='col', sharey='row', num=100+ee)
+        plt.subplots_adjust(hspace=0.01, wspace=0.01)
+        
+        for ii in range(len(good)):
+            mgood = good[ii][0][ee]
+            mref = ref[ii][0][ee]
+            yegood = good[ii][6][ee]
+            yeref = ref[ii][6][ee]
+            
+            if ii == 0:
+                agood = good[ii][1][ee]
+                rgood = good[ii][2][ee]
+                dxgood = good[ii][3][ee]
+                dygood = good[ii][4][ee]
+                xegood = good[ii][5][ee]
+                
+                aref = ref[ii][1][ee]
+                rref = ref[ii][2][ee]
+                dxref = ref[ii][3][ee]
+                dyref = ref[ii][4][ee]
+                xeref = ref[ii][5][ee]
 
+                ax[0,ii].set_title('Uncorrected')
+                
+                ax[0,ii].scatter(mgood, dxgood, color='black', alpha=0.3, s=1)
+                ax[0,ii].scatter(mref, dxref, color='red', alpha=0.3, s=1)
+                ax[0,ii].set_ylabel('Res, x (arcsec)')
+                ax[0,ii].set_ylim(-0.01, 0.01)
+                ax[0,ii].axhline(y=0)
+                
+                ax[1,ii].scatter(mgood, dxgood/xegood, color='black', alpha=0.3, s=1)
+                ax[1,ii].scatter(mref, dxref/xeref, color='red', alpha=0.3, s=1)
+                ax[1,ii].set_ylabel('Res/Pos Err, x')
+                ax[1,ii].set_ylim(-10, 10)
+                ax[1,ii].axhline(y=0)
+                
+                ax[2,ii].scatter(mgood, dygood, color='black', alpha=0.3, s=1)
+                ax[2,ii].scatter(mref, dyref, color='red', alpha=0.3, s=1)
+                ax[2,ii].set_ylabel('Res, y (arcsec)')
+                ax[2,ii].set_ylim(-0.01, 0.01)
+                ax[2,ii].axhline(y=0)
+                
+                ax[3,ii].scatter(mgood, dygood/yegood, color='black', alpha=0.3, s=1)
+                ax[3,ii].scatter(mref, dyref/yeref, color='red', alpha=0.3, s=1)
+                ax[3,ii].set_ylabel('Res/Pos Err, y')
+                ax[3,ii].set_ylim(-10, 10)
+                ax[3,ii].axhline(y=0)
+
+                ax[4,ii].scatter(mgood, agood, color='black', alpha=0.3, s=1)
+                ax[4,ii].scatter(mref, aref, color='red', alpha=0.3, s=1)
+                ax[4,ii].set_ylabel('Angle (deg)')
+                
+                ax[5,ii].scatter(mgood, rgood, color='black', alpha=0.3, s=1)
+                ax[5,ii].scatter(mref, rref, color='red', alpha=0.3, s=1)
+                ax[5,ii].set_ylabel('Modulus (arcsec)')
+                ax[5,ii].set_yscale('log')
+                if type(rgood) == astropy.table.column.MaskedColumn:
+                    ax[5,ii].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
+                else:
+                    ax[5,ii].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+                ax[5,ii].set_xlabel('mag')
+            
+                # Denote the saturated, nonlinear, linear regimes  
+                dmag = -3.5
+
+                ax[0,ii].axvline(x=bp_arr[ee], ls = ':')
+                ax[1,ii].axvline(x=bp_arr[ee], ls = ':')
+                ax[2,ii].axvline(x=bp_arr[ee], ls = ':')
+                ax[3,ii].axvline(x=bp_arr[ee], ls = ':')
+                ax[4,ii].axvline(x=bp_arr[ee], ls = ':')
+                ax[5,ii].axvline(x=bp_arr[ee], ls = ':')
+
+                ax[0,ii].axvline(x=bp_arr[ee] + dmag, ls = ':')
+                ax[1,ii].axvline(x=bp_arr[ee] + dmag, ls = ':')
+                ax[2,ii].axvline(x=bp_arr[ee] + dmag, ls = ':')
+                ax[3,ii].axvline(x=bp_arr[ee] + dmag, ls = ':')
+                ax[4,ii].axvline(x=bp_arr[ee] + dmag, ls = ':')
+                ax[5,ii].axvline(x=bp_arr[ee] + dmag, ls = ':')
+
+                if region == 'nonlin':
+                    # Axis limits to only show the nonlinear regime
+                    ax[0,ii].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+
+                if region == 'nonsat':
+                    # Axis limits to only show the nonsaturated regime
+                    ax[0,ii].set_xlim(bp_arr[ee] + dmag, None)
+
+                if region == 'lin':
+                    # Axis limits to only show the linear regime
+                    ax[0,ii].set_xlim(bp_arr[ee], None)
+
+            ax[0,ii+1].set_title(fit_titles[ii])
+                
+            agood_new = good_new[ii][0][ee]
+            rgood_new = good_new[ii][1][ee]
+            dygood_new = good_new[ii][2][ee]
+
+            aref_new = ref_new[ii][0][ee]
+            rref_new = ref_new[ii][1][ee]
+            dyref_new = ref_new[ii][2][ee]
+            
+            ax[2,ii+1].scatter(mgood, dygood_new, color='black', alpha=0.3, s=1)
+            ax[2,ii+1].scatter(mref, dyref_new, color='red', alpha=0.3, s=1)
+            ax[2,ii+1].set_ylim(-0.01, 0.01)
+            ax[2,ii+1].axhline(y=0)
+            
+            ax[3,ii+1].scatter(mgood, dygood_new/yegood, color='black', alpha=0.3, s=1)
+            ax[3,ii+1].scatter(mref, dyref_new/yeref, color='red', alpha=0.3, s=1)
+            ax[3,ii+1].axhline(y=0)
+
+            ax[4,ii+1].scatter(mgood, agood_new, color='black', alpha=0.3, s=1)
+            ax[4,ii+1].scatter(mref, aref_new, color='red', alpha=0.3, s=1)
+            
+            ax[5,ii+1].scatter(mgood, rgood_new, color='black', alpha=0.3, s=1)
+            ax[5,ii+1].scatter(mref, rref_new, color='red', alpha=0.3, s=1)
+            ax[5,ii+1].set_yscale('log')
+            if type(rgood) == astropy.table.column.MaskedColumn:
+                ax[5,ii].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data, rref_new.data])))
+            else:
+                ax[5,ii].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new, rref_new])))
+            ax[5,ii+1].set_xlabel('mag')
+        
+            ax[0,ii+1].axvline(x=bp_arr[ee], ls = ':')
+            ax[1,ii+1].axvline(x=bp_arr[ee], ls = ':')
+            ax[2,ii+1].axvline(x=bp_arr[ee], ls = ':')
+            ax[3,ii+1].axvline(x=bp_arr[ee], ls = ':')
+            ax[4,ii+1].axvline(x=bp_arr[ee], ls = ':')
+            ax[5,ii+1].axvline(x=bp_arr[ee], ls = ':')
+            
+            ax[0,ii+1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[1,ii+1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[2,ii+1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[3,ii+1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[4,ii+1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[5,ii+1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+
+            if region == 'nonlin':
+                # Axis limits to only show the nonlinear regime
+                ax[0,ii+1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+
+            if region == 'nonsat':
+                # Axis limits to only show the nonsaturated regime
+                ax[0,ii+1].set_xlim(bp_arr[ee] + dmag, None)
+
+            if region == 'lin':
+                # Axis limits to only show the linear regime
+                ax[0,ii+1].set_xlim(bp_arr[ee], None)
+                
+        plt.suptitle('Epoch ' + str(ee))
+        plt.show()
+        plt.pause(1)

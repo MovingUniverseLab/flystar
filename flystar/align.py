@@ -3861,7 +3861,7 @@ def logger(logfile, message):
     return
 
 
-def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, plot=False):
+def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retver=False):
     """
     Create a new table, which corrects CTE in the 
     inpute table
@@ -3877,18 +3877,38 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, plot=False):
     trans_list_in: flystar Transformation which is inverse of trans_list
 
     cfunc : string of the fit you want to do
+
+    plot : boolean
+
+    bp_arr : array of the breakpoint (linear to nonlinear)
+
+    retver : boolean
+        return verbosity (True returns a bunch of stuff, False just returns the new table)
     """
     # Create the new table.
     tab_cte = copy.deepcopy(tab)
 
-    # TEMP until figure out ZP meta dumb stuff...
-#    zp_arr = np.array([28.4863, 28.4815, 28.9271, 29.6635, 29.6774, 29.6726, 29.5692, 29.1380, 29.1377])
-#    zp_arr -= 0.425
-#    zp_arr = zp_arr[::-1]
-
-    # Determined by eye...
-    zp_arr = np.array([19.0, 18.7, 18.5, 18.7, 18.5, 18.7, 19.0, 19.0, 19.0]) - 3.5
-    zp_arr = zp_arr[::-1]
+    if retver:
+        mgood_arr = []
+        agood_arr = []
+        rgood_arr = []
+        dxgood_arr = []
+        dygood_arr = []
+        xegood_arr = []
+        yegood_arr = []
+        mref_arr = []
+        aref_arr = []
+        rref_arr = []
+        dxref_arr = []
+        dyref_arr = []
+        xeref_arr = []
+        yeref_arr = []
+        agood_new_arr = []
+        rgood_new_arr = []
+        dygood_new_arr = []
+        aref_new_arr = []
+        rref_new_arr = []
+        dyref_new_arr = []
 
     # For each epoch...
     for ee in range(tab['x'].shape[1]):
@@ -3930,141 +3950,146 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, plot=False):
 
         # Different regimes
         # Saturated
-#        sat_idx = np.where(mgood < zp_arr[ee] - 13.5)[0]
-        sat_idx = np.where(mgood < zp_arr[ee])[0]
-
+        sat_idx = np.where(mgood < bp_arr[ee] - 3.5)[0]
+            
         # Nonlinear
-#        non_idx = np.where((mgood > zp_arr[ee] - 13.5) & 
-#                              (mgood < zp_arr[ee] - 10))[0]
-        non_idx = np.where((mgood > zp_arr[ee]) & 
-                              (mgood < zp_arr[ee] + 3.5))[0]
-
+        non_idx = np.where((mgood > bp_arr[ee] - 3.5) & 
+                           (mgood < bp_arr[ee]))[0]
+        
         # Linear 
-#        lin_idx = np.where(mgood > zp_arr[ee] - 10)[0]
-        lin_idx = np.where(mgood > zp_arr[ee] + 3.5)[0]
+        lin_idx = np.where(mgood > bp_arr[ee])[0]
 
         # Find the best-fit parameters for the residual model, and then
         # subtract it off.
-
-        if cfunc=='mexp_mpower':
+        # Naming convention...
+        if cfunc=='exp_power_nonsat':
             iidx = np.concatenate((non_idx, lin_idx))
             gpopt, gpcov = curve_fit(T_cte_y_exp_power, mgood[iidx], dy_orig[good_idx][iidx],
                                      maxfev=100000, bounds=([0, 0, 1, -10, 17], [np.inf, np.inf, np.inf, 10, 20]))
             starlist_t_cte['y'] -= T_cte_y_exp_power(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_exp_power(marr, *gpopt)
-            print(gpopt)
-            A, m0, alpha, m1, mb = gpopt
-            a = m1 - (A/(alpha - 1))*(mb/m0)**alpha
-            b = (A*alpha/(alpha-1)) * (mb/m0)**alpha * np.exp(1 - alpha)
-            c = (alpha - 1)/mb
-            print(a, b, c)
+#            print(gpopt)
+#            A, m0, alpha, m1, mb = gpopt
+#            a = m1 - (A/(alpha - 1))*(mb/m0)**alpha
+#            b = (A*alpha/(alpha-1)) * (mb/m0)**alpha * np.exp(1 - alpha)
+#            c = (alpha - 1)/mb
+#            print(a, b, c)
 
-        if cfunc=='mpoly2_mpower':
+        if cfunc=='poly2_power_nonsat':
             iidx = np.concatenate((non_idx, lin_idx))
             gpopt, gpcov = curve_fit(T_cte_y_poly2_power, mgood[iidx], dy_orig[good_idx][iidx],
                                      maxfev=100000, bounds=([0, 0, 1, -10, 17], [np.inf, np.inf, np.inf, 10, 20]))
             starlist_t_cte['y'] -= T_cte_y_poly2_power(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_poly2_power(marr, *gpopt)
-            print(gpopt)
-            A, m0, alpha, m1, mb = gpopt
-            a = m1 - A*(mb/m0)**alpha * (1 + 1.5*alpha - 0.5*alpha**2)
-            b = (-A * alpha/m0) * (mb/m0)**(alpha - 1)
-            c = A * alpha * (alpha - 1)/(2 * m0**2) * (mb/m0)**(alpha-2)
-            print(a, b, c)
+#            print(gpopt)
+#            A, m0, alpha, m1, mb = gpopt
+#            a = m1 + A*(mb/m0)**alpha * (1 - 1.5*alpha + 0.5*alpha**2)
+#            b = (A * alpha/m0) * (2 - alpha) * (mb/m0)**(alpha - 1)
+#            c = A * alpha * (alpha - 1)/(2 * m0**2) * (mb/m0)**(alpha-2)
+#            print(a, b, c)
 
-        if cfunc=='mpower':
+        if cfunc=='power_nonsat':
 #            mbins, binned_dy = bin_data(mgood[lin_idx], dy_orig[good_idx][lin_idx], 20)
 #            guess_gpopt, _ = curve_fit(T_cte_y, mbins, binned_dy, 
 #                                       maxfev=100000)            
 #            print(guess_gpopt)
-            gpopt, gpcov = curve_fit(T_cte_y, mgood[lin_idx], dy_orig[good_idx][lin_idx], 
+            iidx = np.concatenate((non_idx, lin_idx))
+            gpopt, gpcov = curve_fit(T_cte_y, mgood[iidx], dy_orig[good_idx][iidx], 
                                      maxfev=100000, bounds=([0, 0, 1, -10], [np.inf, np.inf, np.inf, 10]))
 #            gpopt_non, gpcov_non = curve_fit(T_cte_y, mgood[non_idx], dy_orig[good_idx][non_idx], 
 #                                             maxfev=100000, bounds=([0, 0, 1, -10], [np.inf, np.inf, np.inf, 10]))
             starlist_t_cte['y'] -= T_cte_y(starlist_t['m'], *gpopt)
             dyarr = T_cte_y(marr, *gpopt)
-            print(gpopt)
 
-        if cfunc=='mexp':
-            gpopt, gpcov = curve_fit(T_cte_y_exp, mgood[lin_idx], dy_orig[good_idx][lin_idx], 
+        if cfunc=='exp_nonsat':
+            iidx = np.concatenate((non_idx, lin_idx))
+            gpopt, gpcov = curve_fit(T_cte_y_exp, mgood[iidx], dy_orig[good_idx][iidx], 
                                      maxfev=100000)
             starlist_t_cte['y'] -= T_cte_y_exp(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_exp(marr, *gpopt)
-            print(gpopt)
 
-        if cfunc=='mpower15_yline':
+        if cfunc=='power15_yline_nonsat':
+            iidx = np.concatenate((non_idx, lin_idx))
 #            gpopt_guess, gpcov_guess = curve_fit(T_cte_y, mgood[lin_idx], dy_orig[good_idx][lin_idx], maxfev=100000)
 #            p0 = np.append(gpopt_guess, [1])
 #            gpopt, gpcov = curve_fit(T_cte_ym, (mgood[lin_idx], starlist_t['y'][good_idx][lin_idx]),
 #                                     dy[good_idx][lin_idx], maxfev=100000, p0=p0)
-            gpopt, gpcov = curve_fit(T_cte_ym, (mgood[lin_idx], starlist_t['y'][good_idx][lin_idx]),
-                                     dy_orig[good_idx][lin_idx], maxfev=100000)
+            gpopt, gpcov = curve_fit(T_cte_ym, (mgood[iidx], starlist_t['y'][good_idx][iidx]),
+                                     dy_orig[good_idx][iidx], maxfev=100000)
             starlist_t_cte['y'] -= T_cte_ym((starlist_t['m'], starlist_t['y']), *gpopt)
             dyarr = T_cte_ym((marr,yarr), *gpopt)
 
-        if cfunc=='gompertz':
-            gpopt, gpcov = curve_fit(T_cte_y_gompertz, mgood[lin_idx], dy_orig[good_idx][lin_idx], maxfev=100000)
+        if cfunc=='gompertz_nonlin':
+            gpopt, gpcov = curve_fit(T_cte_y_gompertz, mgood[non_idx], dy_orig[good_idx][non_idx], maxfev=100000)
             starlist_t_cte['y'] -= T_cte_y_gompertz(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_gompertz(marr, *gpopt)
 
-        if cfunc=='poly3':
-            gpopt, gpcov = curve_fit(T_cte_y_poly3, mgood[non_idx], dy_orig[good_idx][non_idx], maxfev=100000)
-            starlist_t_cte['y'] -= T_cte_y_poly3(starlist_t['m'], *gpopt)
-            dyarr = T_cte_y_poly3(marr, *gpopt)
-
-        if cfunc=='poly2':
+        if cfunc=='poly2_nonlin':
             gpopt, gpcov = curve_fit(T_cte_y_poly2, mgood[non_idx], dy_orig[good_idx][non_idx], maxfev=100000)
             starlist_t_cte['y'] -= T_cte_y_poly2(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_poly2(marr, *gpopt)
 
-        print('Time : ', tab['t'][:, ee][0])
-        print('-13.5 + ZP : ', zp_arr[ee] - 13.5)
-        print('Number of saturated : ', len(sat_idx))
-        print('Number of nonlinear : ', len(non_idx))
+        if cfunc=='power_nonlin':
+            gpopt, gpcov = curve_fit(T_cte_y, mgood[non_idx], dy_orig[good_idx][non_idx], 
+                                     maxfev=100000, bounds=([0, 0, 1, -10], [np.inf, np.inf, np.inf, 10]))
+            starlist_t_cte['y'] -= T_cte_y(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y(marr, *gpopt)
 
-        if plot:
-            pscale=0.04
-            dx = (starlist_t['x'] - starlist_mod['x'])*pscale
-            dy = (starlist_t['y'] - starlist_mod['y'])*pscale
+        if cfunc=='exp_nonlin':
+            gpopt, gpcov = curve_fit(T_cte_y_exp, mgood[non_idx], dy_orig[good_idx][non_idx], 
+                                     maxfev=100000)
+            starlist_t_cte['y'] -= T_cte_y_exp(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y_exp(marr, *gpopt)
 
-            xgood = starlist_t['x'][good_idx]
-            xref = starlist_t['x'][good_idx][ref_idx]
+#        print('Time : ', tab['t'][:, ee][0])
+#        print('Number of saturated : ', len(sat_idx))
+#        print('Number of nonlinear : ', len(non_idx))
+#        print('Number of linear : ', len(lin_idx))
 
-            ygood = starlist_t['y'][good_idx]
-            yref = starlist_t['y'][good_idx][ref_idx]
-
-            dxgood = dx[good_idx]
-            dxref = dx[good_idx][ref_idx]
-
-            dygood = dy[good_idx]
-            dyref = dy[good_idx][ref_idx]
-
-            mref = starlist_t['m'][good_idx][ref_idx]
-
-            agood = plots.angle_from_xy(dxgood, dygood) % 360
-            aref = plots.angle_from_xy(dxref, dyref) % 360
-
-            rgood = np.hypot(dxgood, dygood)
-            rref = np.hypot(dxref, dyref)
-
-            xegood = starlist_t['xe'][good_idx]*pscale
-            xeref = starlist_t['xe'][good_idx][ref_idx]*pscale
-
-            yegood = starlist_t['ye'][good_idx]*pscale
-            yeref = starlist_t['ye'][good_idx][ref_idx]*pscale
-
-            dy_new = (starlist_t_cte['y'] - starlist_mod['y'])*pscale
-            dygood_new = dy_new[good_idx] 
-            dyref_new = dy_new[good_idx][ref_idx]
-
-            agood_new = plots.angle_from_xy(dxgood, dygood_new) % 360
-            aref_new = plots.angle_from_xy(dxref, dyref_new) % 360
-
-            rgood_new = np.hypot(dxgood, dygood_new)
-            rref_new = np.hypot(dxref, dyref_new)
-
-            dyarr *= pscale
+        # Stuff for plotting 
+        pscale=0.04
+        dx = (starlist_t['x'] - starlist_mod['x'])*pscale
+        dy = (starlist_t['y'] - starlist_mod['y'])*pscale
+        
+        xgood = starlist_t['x'][good_idx]
+        xref = starlist_t['x'][good_idx][ref_idx]
+        
+        ygood = starlist_t['y'][good_idx]
+        yref = starlist_t['y'][good_idx][ref_idx]
+        
+        dxgood = dx[good_idx]
+        dxref = dx[good_idx][ref_idx]
+        
+        dygood = dy[good_idx]
+        dyref = dy[good_idx][ref_idx]
+        
+        mref = starlist_t['m'][good_idx][ref_idx]
+        
+        agood = plots.angle_from_xy(dxgood, dygood) % 360
+        aref = plots.angle_from_xy(dxref, dyref) % 360
+        
+        rgood = np.hypot(dxgood, dygood)
+        rref = np.hypot(dxref, dyref)
+        
+        xegood = starlist_t['xe'][good_idx]*pscale
+        xeref = starlist_t['xe'][good_idx][ref_idx]*pscale
+        
+        yegood = starlist_t['ye'][good_idx]*pscale
+        yeref = starlist_t['ye'][good_idx][ref_idx]*pscale
+        
+        dy_new = (starlist_t_cte['y'] - starlist_mod['y'])*pscale
+        dygood_new = dy_new[good_idx] 
+        dyref_new = dy_new[good_idx][ref_idx]
+        
+        agood_new = plots.angle_from_xy(dxgood, dygood_new) % 360
+        aref_new = plots.angle_from_xy(dxref, dyref_new) % 360
+        
+        rgood_new = np.hypot(dxgood, dygood_new)
+        rref_new = np.hypot(dxref, dyref_new)
+        
+        dyarr *= pscale
             
+        if plot:
             # FIXME figsize=(20,18), num=103
             fig, ax = plt.subplots(6, 4, figsize=(12,10), sharex='col', sharey='row', num=ee)
             plt.subplots_adjust(hspace=0.01, wspace=0.01)
@@ -4186,92 +4211,82 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, plot=False):
             ax[5,3].set_xlabel('y orig (pix)')
             ax[5,3].axhline(y=0)
 
-            # FIXME these lines are temp
+            # Denote the saturated, nonlinear, linear regimes 
+            dmag = -3.5
             
-            dmag = 3.5
+            ax[0,0].axvline(x=bp_arr[ee], ls = ':')
+            ax[1,0].axvline(x=bp_arr[ee], ls = ':')
+            ax[2,0].axvline(x=bp_arr[ee], ls = ':')
+            ax[3,0].axvline(x=bp_arr[ee], ls = ':')
+            ax[4,0].axvline(x=bp_arr[ee], ls = ':')
+            ax[5,0].axvline(x=bp_arr[ee], ls = ':')
+            
+            ax[0,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[1,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[2,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[3,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[4,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[5,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            
+            ax[0,1].axvline(x=bp_arr[ee], ls = ':')
+            ax[1,1].axvline(x=bp_arr[ee], ls = ':')
+            ax[2,1].axvline(x=bp_arr[ee], ls = ':')
+            ax[3,1].axvline(x=bp_arr[ee], ls = ':')
+            ax[4,1].axvline(x=bp_arr[ee], ls = ':')
+            ax[5,1].axvline(x=bp_arr[ee], ls = ':')
+            
+            ax[0,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[1,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[2,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[3,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[4,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
+            ax[5,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
 
-#            ax[0,0].axvline(x=zp_arr[ee] - 13.5)
-#            ax[1,0].axvline(x=zp_arr[ee] - 13.5)
-#            ax[2,0].axvline(x=zp_arr[ee] - 13.5)
-#            ax[3,0].axvline(x=zp_arr[ee] - 13.5)
-#            ax[4,0].axvline(x=zp_arr[ee] - 13.5)
-#            ax[5,0].axvline(x=zp_arr[ee] - 13.5)
+            # Axis limits to only show the nonlinear regime
+#            ax[0,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[1,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[2,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[3,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[4,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[5,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
 #
-#            ax[0,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[1,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[2,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[3,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[4,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[5,0].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#
-#            ax[0,1].axvline(x=zp_arr[ee] - 13.5)
-#            ax[1,1].axvline(x=zp_arr[ee] - 13.5)
-#            ax[2,1].axvline(x=zp_arr[ee] - 13.5)
-#            ax[3,1].axvline(x=zp_arr[ee] - 13.5)
-#            ax[4,1].axvline(x=zp_arr[ee] - 13.5)
-#            ax[5,1].axvline(x=zp_arr[ee] - 13.5)
-#
-#            ax[0,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[1,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[2,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[3,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[4,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
-#            ax[5,1].axvline(x=zp_arr[ee] - 13.5 + dmag)
-
-            ax[0,0].axvline(x=zp_arr[ee])
-            ax[1,0].axvline(x=zp_arr[ee])
-            ax[2,0].axvline(x=zp_arr[ee])
-            ax[3,0].axvline(x=zp_arr[ee])
-            ax[4,0].axvline(x=zp_arr[ee])
-            ax[5,0].axvline(x=zp_arr[ee])
-
-            ax[0,0].axvline(x=zp_arr[ee] + dmag)
-            ax[1,0].axvline(x=zp_arr[ee] + dmag)
-            ax[2,0].axvline(x=zp_arr[ee] + dmag)
-            ax[3,0].axvline(x=zp_arr[ee] + dmag)
-            ax[4,0].axvline(x=zp_arr[ee] + dmag)
-            ax[5,0].axvline(x=zp_arr[ee] + dmag)
-
-            ax[0,1].axvline(x=zp_arr[ee])
-            ax[1,1].axvline(x=zp_arr[ee])
-            ax[2,1].axvline(x=zp_arr[ee])
-            ax[3,1].axvline(x=zp_arr[ee])
-            ax[4,1].axvline(x=zp_arr[ee])
-            ax[5,1].axvline(x=zp_arr[ee])
-
-            ax[0,1].axvline(x=zp_arr[ee] + dmag)
-            ax[1,1].axvline(x=zp_arr[ee] + dmag)
-            ax[2,1].axvline(x=zp_arr[ee] + dmag)
-            ax[3,1].axvline(x=zp_arr[ee] + dmag)
-            ax[4,1].axvline(x=zp_arr[ee] + dmag)
-            ax[5,1].axvline(x=zp_arr[ee] + dmag)
-
-#
-#            ax[0,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[1,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[2,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[3,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[4,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[5,0].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#
-#            ax[0,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[1,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[2,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[3,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[4,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
-#            ax[5,1].set_xlim(zp_arr[ee], zp_arr[ee] + dmag)
+#            ax[0,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[1,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[2,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[3,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[4,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+#            ax[5,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
 
             ax[4,0].set_ylim(-10, 10)
             ax[5,0].set_ylim(-10, 10)
             ax[4,1].set_ylim(-10, 10)
             ax[5,1].set_ylim(-10, 10)
 
-#            ax[0,0].set_xlim(zp_arr[ee] - 13.5, zp_arr[ee] - 10)
-#            ax[0,1].set_xlim(zp_arr[ee] - 13.5, zp_arr[ee] - 10)
-
             plt.suptitle('Epoch ' + str(ee))
             plt.show()
             plt.pause(1)
+        
+        if retver:
+            mgood_arr.append(mgood)
+            agood_arr.append(agood)
+            rgood_arr.append(rgood)
+            dxgood_arr.append(dxgood)
+            dygood_arr.append(dygood)
+            xegood_arr.append(xegood)
+            yegood_arr.append(yegood)
+            mref_arr.append(mref)
+            aref_arr.append(aref)
+            rref_arr.append(rref)
+            dxref_arr.append(dxref)
+            dyref_arr.append(dyref)
+            xeref_arr.append(xeref)
+            yeref_arr.append(yeref)
+            agood_new_arr.append(agood_new)
+            rgood_new_arr.append(rgood_new)
+            dygood_new_arr.append(dygood_new)
+            aref_new_arr.append(aref_new)
+            rref_new_arr.append(rref_new)
+            dyref_new_arr.append(dyref_new)
             
         # Transform the positions back into the frame and 
         # fill in the table.
@@ -4279,8 +4294,17 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, plot=False):
 
         tab_cte['x'][:,ee] = starlist_t_cte['x']
         tab_cte['y'][:,ee] = starlist_t_cte['y']
+        
+    if not retver:
+        return tab_cte
 
-    return tab_cte
+    else:
+        good = [mgood_arr, agood_arr, rgood_arr, dxgood_arr, dygood_arr, xegood_arr, yegood_arr]
+        ref = [mref_arr, aref_arr, rref_arr, dxref_arr, dyref_arr, xeref_arr, yeref_arr]
+        good_new = [agood_new_arr, rgood_new_arr, dygood_new_arr]
+        ref_new = [aref_new_arr, rref_new_arr, dyref_new_arr]
+
+        return tab_cte, good, ref, good_new, ref_new
 
 def T_cte_ym(MY, A, m0, alpha, m1, m2):
     m,y = MY
