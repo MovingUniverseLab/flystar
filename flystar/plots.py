@@ -2450,339 +2450,8 @@ class PrintSelected(object):
 
         return
 
-###
-# Old stuff.
-###
-#def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None):
-#    m_t_list = []
-#    x_t_list = []
-#    y_t_list = []
-#    xe_t_list = [] 
-#    ye_t_list = []
-#    x_ref_list = []
-#    y_ref_list = [] 
-#    good_idx_list = [] 
-#    ref_idx_list =[] 
-#    da_list = []
-#
-#    ntrans = len(tab_list)
-#
-#    for mm in range(ntrans):
-#        tab = tab_list[mm]
-#        trans_list = trans_list_list[mm]
-#        for ee in range(tab['x'].shape[1]):
-#            dt = tab['t'][:, ee] - tab['t0']
-#            xt_mod = tab['x0'] + tab['vx'] * dt
-#            yt_mod = tab['y0'] + tab['vy'] * dt
-#        
-#            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
-#            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
-#
-#            da = calc_da(trans_list[ee])
-#
-#            m_t_list.append(tab['m'][:, ee])
-#            x_t_list.append(tab['x'][:, ee])
-#            y_t_list.append(tab['y'][:, ee])
-#            xe_t_list.append(tab['xe'][:, ee]) 
-#            ye_t_list.append(tab['ye'][:, ee])
-#            x_ref_list.append(xt_mod)
-#            y_ref_list.append(yt_mod)
-#            good_idx_list.append(good_idx) 
-#            ref_idx_list.append(ref_idx) 
-#            da_list.append(da)
-#
-#    for ee in range(tab_list[0]['x'].shape[1]):
-#        plot_mag_scatter_multi_trans(m_t_list[ee::ntrans], x_t_list[ee::ntrans], y_t_list[ee::ntrans], 
-#                                     xe_t_list[ee::ntrans], ye_t_list[ee::ntrans], x_ref_list[ee::ntrans], y_ref_list[ee::ntrans], 
-#                                     good_idx_list[ee::ntrans], ref_idx_list[ee::ntrans], 'Epoch {0:d}'.format(ee), da_list[ee::ntrans])
-#        
-#    return
 
-#def plot_mag_scatter_multi_trans(m_t_list, x_t_list, y_t_list, 
-#                                 xe_t_list, ye_t_list, x_ref_list, y_ref_list, 
-#                                 good_idx_list, ref_idx_list, title, da_list):
-#    mgood_all = np.array([])
-#    rgood_all = np.array([])
-#    mref_all = np.array([])
-#    rref_all = np.array([])
-#    agood_all = np.array([])
-#    aref_all = np.array([])
-#    xegood_all = np.array([])
-#    xeref_all = np.array([])
-#    yegood_all = np.array([])
-#    yeref_all = np.array([])
-#    
-#    for ii in range(len(m_t_list)):
-#        m_t = m_t_list[ii] 
-#        x_t = x_t_list[ii]
-#        y_t = y_t_list[ii]
-#        xe_t = xe_t_list[ii]
-#        ye_t = ye_t_list[ii]
-#        x_ref = x_ref_list[ii]
-#        y_ref = y_ref_list[ii]
-#        good_idx = good_idx_list[ii]
-#        ref_idx = ref_idx_list[ii]
-#        da = da_list[ii]
-#    
-#        # Residual
-#        dx = (x_t - x_ref)
-#        dy = (y_t - y_ref)
-#        
-#        # Magnitude
-#        mgood = m_t[good_idx]
-#        mref = m_t[good_idx][ref_idx]
-#    
-#        # Residual angle
-#        agood = angle_from_xy(dx[good_idx], dy[good_idx])
-#        aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
-#        # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
-#        agood -= da
-#        aref -= da
-#    
-#        # Keep everything within 0 to 360
-#        agood = agood % 360
-#        aref = aref % 360
-#    
-#        # Residual magnitude
-#        rgood = np.hypot(dx[good_idx], dy[good_idx])
-#        rref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
-#    
-#        # Errors in x and y position
-#        xegood = xe_t[good_idx]
-#        xeref = xe_t[good_idx][ref_idx]
-#        yegood = ye_t[good_idx]
-#        yeref = ye_t[good_idx][ref_idx]
-#    
-#        mgood_all = np.concatenate((mgood_all, mgood.data))
-#        rgood_all = np.concatenate((rgood_all, rgood.data))
-#        mref_all = np.concatenate((mref_all, mref.data))
-#        rref_all = np.concatenate((rref_all, rref.data))
-#        agood_all = np.concatenate((agood_all, agood.data))
-#        aref_all = np.concatenate((aref_all, aref.data))
-#        xegood_all = np.concatenate((xegood_all, xegood.data))
-#        xeref_all = np.concatenate((xeref_all, xeref.data))
-#        yegood_all = np.concatenate((yegood_all, yegood.data))
-#        yeref_all = np.concatenate((yeref_all, yeref.data))
-#    
-#    fig, ax = plt.subplots(6, 1, figsize=(6,18), sharex=True, num=103)
-##    plt.clf()
-#    plt.subplots_adjust(hspace=0.01)
-#    ax[0].scatter(mgood_all, agood_all, color='black', alpha=0.3, s=7)
-#    ax[0].scatter(mref_all, aref_all, color='red', alpha=0.3, s=7)
-#    ax[0].set_ylabel('Angle (deg)')
-#
-#    ax[1].scatter(mgood_all, rgood_all, color='black', alpha=0.3, s=7)
-#    ax[1].scatter(mref_all, rref_all, color='red', alpha=0.3, s=7)
-#    ax[1].set_xlabel('mag')
-#    ax[1].set_ylabel('Modulus (arcsec)')
-#    ax[1].set_yscale('log')
-#    if type(rgood_all) == astropy.table.column.MaskedColumn:
-#        ax[1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_all.data, rref_all.data])))
-#    else:
-#        ax[1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_all, rref_all])))
-#
-#    ax[2].scatter(mgood_all, np.cos(np.radians(agood_all)) * rgood_all, color='black', alpha=0.3, s=7)
-#    ax[2].scatter(mref_all, np.cos(np.radians(aref_all)) * rref_all, color='red', alpha=0.3, s=7)
-#    ax[2].set_xlabel('mag')
-#    ax[2].set_ylabel('Res, x (arcsec)')
-#    ax[2].set_ylim(-0.01, 0.01)
-#
-#    ax[3].scatter(mgood_all, np.sin(np.radians(agood_all)) * rgood_all, color='black', alpha=0.3, s=7)
-#    ax[3].scatter(mref_all, np.sin(np.radians(aref_all)) * rref_all, color='red', alpha=0.3, s=7)
-#    ax[3].set_xlabel('mag')
-#    ax[3].set_ylabel('Res, y (arcsec)')
-#    ax[3].set_ylim(-0.01, 0.01)
-#
-#    ax[4].scatter(mgood_all, np.cos(np.radians(agood_all)) * rgood_all/xegood_all, color='black', alpha=0.3, s=7)
-#    ax[4].scatter(mref_all, np.cos(np.radians(aref_all)) * rref_all/xeref_all, color='red', alpha=0.3, s=7)
-#    ax[4].set_xlabel('mag')
-#    ax[4].set_ylabel('Res/Pos Err, x')
-#
-#    ax[5].scatter(mgood_all, np.sin(np.radians(agood_all)) * rgood_all/yegood_all, color='black', alpha=0.3, s=7)
-#    ax[5].scatter(mref_all, np.sin(np.radians(aref_all)) * rref_all/yeref_all, color='red', alpha=0.3, s=7)
-#    ax[5].set_xlabel('mag')
-#    ax[5].set_ylabel('Res/Pos Err, y')
-#
-#    ax[0].set_title(title)
-#    plt.show()
-#    plt.pause(1)
-
-#def plot_quiver_residuals_vs_pos_err(dx, dy, good_idx, ref_idx, 
-#                                     xerr, yerr, errtype, title, da=0):
-#    """
-#    dx, dy are the output of plot_quiver_residuals
-#    errtype is string for the type of error...
-#    """
-#    # Residual angle
-#    agood = angle_from_xy(dx[good_idx], dy[good_idx])
-#    aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
-#    # Subtract off some angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
-#    agood -= da
-#    aref -= da
-#
-#    # Keep everything within 0 to 360
-#    agood = agood % 360
-#    aref = aref % 360
-#
-#    dr = np.hypot(dx,dy)
-#
-#    rerr = np.hypot(xerr, yerr)
-#
-#    plt.figure(figsize=(14,10))
-#    plt.clf()
-#    ax1 = plt.subplot(2, 3, 1)
-#    ax2 = plt.subplot(2, 3, 2)
-#    ax3 = plt.subplot(2, 3, 3)
-#    ax4 = plt.subplot(2, 3, 4)
-#    ax5 = plt.subplot(2, 3, 5)
-#    ax6 = plt.subplot(2, 3, 6)
-#    plt.subplots_adjust(wspace=0.4, hspace=0.3)
-#
-#    ax1.semilogy(dx[good_idx], xerr[good_idx], 
-#                 'k.', alpha=0.3, ms=2)
-#    ax1.semilogy(dx[good_idx][ref_idx], xerr[good_idx][ref_idx], 
-#                 'r.', alpha=0.3, ms=2)
-#    ax1.set_xlim(-5, 5)
-#    ax1.set_ylim(1e-3, 1)
-#    ax1.set_xlabel('x residual')
-#    ax1.set_ylabel('x ' + errtype)
-#
-#    ax2.semilogy(dy[good_idx], yerr[good_idx], 
-#                'k.', alpha=0.3, ms=2)
-#    ax2.semilogy(dy[good_idx][ref_idx], yerr[good_idx][ref_idx], 
-#                'r.', alpha=0.3, ms=2)
-#    ax2.set_ylim(1e-3, 1)
-#    ax2.set_xlim(-5, 5)
-#    ax2.set_xlabel('y residual')
-#    ax2.set_ylabel('y ' + errtype)
-#    ax2.set_title(title)
-#
-#    ax3.semilogy(dr[good_idx], rerr[good_idx], 
-#                'k.', alpha=0.3, ms=2)
-#    ax3.semilogy(dr[good_idx][ref_idx], rerr[good_idx][ref_idx], 
-#                'r.', alpha=0.3, ms=2) 
-#    ax3.set_xlim(0, 5)
-#    ax3.set_ylim(1e-3, 1)
-#    ax3.set_xlabel('total residual')
-#    ax3.set_ylabel('total ' + errtype)
-#
-#    ax4.semilogy(agood, xerr[good_idx], 
-#                 'k.', alpha=0.3, ms=2)
-#    ax4.semilogy(aref, xerr[good_idx][ref_idx], 
-#                 'r.', alpha=0.3, ms=2)
-#    ax4.set_ylim(1e-3, 1)
-#    ax4.set_xlabel('residual angle')
-#    ax4.set_ylabel('x ' + errtype)
-#
-#    ax5.semilogy(agood, yerr[good_idx], 
-#                'k.', alpha=0.3, ms=2)
-#    ax5.semilogy(aref, yerr[good_idx][ref_idx], 
-#                'r.', alpha=0.3, ms=2)
-#    ax5.set_ylim(1e-3, 1)
-#    ax5.set_xlabel('residual angle')
-#    ax5.set_ylabel('y ' + errtype)
-#    ax5.set_title(title)
-#
-#    ax6.semilogy(agood, rerr[good_idx], 
-#                'k.', alpha=0.3, ms=2)
-#    ax6.semilogy(aref, rerr[good_idx][ref_idx], 
-#                'r.', alpha=0.3, ms=2) 
-#    ax6.set_ylim(1e-3, 1)
-#    ax6.set_xlabel('residual angle')
-#    ax6.set_ylabel('total ' + errtype)
-#
-#    plt.show()
-#    plt.pause(1)
-#
-#    return
-
-#    plt.figure(figsize=(14,6))
-#    plt.clf()
-#    ax1 = plt.subplot(1, 2, 1)
-#    ax2 = plt.subplot(1, 2, 2)
-#    plt.subplots_adjust(wspace=0.3)
-#    ax1.hist(agood, color='black', histtype = 'step',
-#             alpha=0.8 , bins = 36, density=True)
-#    ax1.hist(aref ,color='red', histtype = 'step',
-#             alpha=0.8, bins = 36, density=True)
-#    ax1.set_xlabel('Quiver angle (degrees), HST camera')
-#    
-#    ax2.scatter(x_orig[good_idx], y_orig[good_idx], 
-#                s=5e3 * r_good**2, alpha=0.3, color='black')
-#    ax2.scatter(x_orig[good_idx][ref_idx], y_orig[good_idx][ref_idx], 
-#                s=5e3 * r_ref**2, alpha=0.5, color='red')    
-#    ax2.set_xlabel('X (orig pix)')
-#    ax2.set_ylabel('Y (orig pix)')
-#    plt.title(title)
-#    plt.axis('equal')
-#    if plotlim is not None:
-#        plt.xlim(-1 * plotlim, plotlim)
-#        plt.ylim(-1 * plotlim, plotlim)
-#    plt.show()
-#    plt.pause(1)
-
-
-#def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, 
-#                                        x_orig, y_orig, da, title, scale=None, plotlim=None):
-#    """
-#    unit : str
-#        'pixel' or 'arcsec'
-#        The pixel units of the input values. Note, if arcsec, then the values will be
-#        converted to milli-arcsec for plotting when appropriate. 
-#
-#    scale : float
-#        The quiver scale. If none, then default units will be used appropriate to the unit. 
-#
-#    plotlim : float (positive)
-#        Sets the size of the plotted figure. If None, then default is used.
-#        Otherwise plots figure of range [-plotlim, plotlim] x [-plotlim, plotlim].
-#    """
-#    dx = (x_t - x_ref)
-#    dy = (y_t - y_ref)
-#    
-#    # Residual modulus
-#    r_good = np.hypot(dx[good_idx], dy[good_idx])
-#    r_ref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
-#
-#    # Residual angle
-#    agood = angle_from_xy(dx[good_idx], dy[good_idx])
-#    aref = angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
-#    # Subtract off rotation angle IN DEGREES (e.g. if going from Gaia to HST camera frame)
-#    agood -= da
-#    aref -= da
-#    # Keep everything within 0 to 360
-#    agood = agood % 360
-#    aref = aref % 360
-#
-#    plt.figure(figsize=(14,6))
-#    plt.clf()
-#    ax1 = plt.subplot(1, 2, 1)
-#    ax2 = plt.subplot(1, 2, 2)
-#    plt.subplots_adjust(wspace=0.3)
-#
-#    plt.clf()
-#    fig, ax = plt.subplots(1, 2, figsize=(12,6), sharey=True)
-##    plt.clf()
-#    plt.subplots_adjust(wspace=0.01)
-#    ax[0].scatter(x_orig[good_idx], agood, color='black', alpha=0.3, s=5)
-#    ax[0].scatter(x_orig[good_idx][ref_idx], aref, color='red', alpha=0.3, s=5)
-#    ax[0].set_xlabel('X (orig pix)')
-#    ax[0].set_ylabel('Quiver angle (degrees), HST camera')
-#
-#    ax[1].scatter(y_orig[good_idx], agood, color='black', alpha=0.3, s=5)
-#    ax[1].scatter(y_orig[good_idx][ref_idx], aref, color='red', alpha=0.3, s=5)
-#    ax[1].set_xlabel('Y (orig pix)')
-#    plt.title(title)
-#    plt.axis('equal')
-#    if plotlim is not None:
-#        plt.xlim(-1 * plotlim, plotlim)
-#        plt.ylim(-1 * plotlim, plotlim)
-#    plt.show()
-#    plt.pause(1)
-#
-#    return
-
-def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, region=None):
+def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, plot_regime=None):
     """
     region : 'nonlin', 'nonsat', 'lin'
     """
@@ -2873,15 +2542,15 @@ def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, region=
                 ax[4,ii].axvline(x=bp_arr[ee] + dmag, ls = ':')
                 ax[5,ii].axvline(x=bp_arr[ee] + dmag, ls = ':')
 
-                if region == 'nonlin':
+                if plot_regime == 'nonlin':
                     # Axis limits to only show the nonlinear regime
                     ax[0,ii].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
 
-                if region == 'nonsat':
+                if plot_regime == 'nonsat':
                     # Axis limits to only show the nonsaturated regime
                     ax[0,ii].set_xlim(bp_arr[ee] + dmag, None)
 
-                if region == 'lin':
+                if plot_regime == 'lin':
                     # Axis limits to only show the linear regime
                     ax[0,ii].set_xlim(bp_arr[ee], None)
 
@@ -2930,15 +2599,15 @@ def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, region=
             ax[4,ii+1].axvline(x=bp_arr[ee] + dmag, ls = ':')
             ax[5,ii+1].axvline(x=bp_arr[ee] + dmag, ls = ':')
 
-            if region == 'nonlin':
+            if plot_regime == 'nonlin':
                 # Axis limits to only show the nonlinear regime
                 ax[0,ii+1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
 
-            if region == 'nonsat':
+            if plot_regime == 'nonsat':
                 # Axis limits to only show the nonsaturated regime
                 ax[0,ii+1].set_xlim(bp_arr[ee] + dmag, None)
 
-            if region == 'lin':
+            if plot_regime == 'lin':
                 # Axis limits to only show the linear regime
                 ax[0,ii+1].set_xlim(bp_arr[ee], None)
                 

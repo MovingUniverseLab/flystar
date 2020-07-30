@@ -3861,7 +3861,7 @@ def logger(logfile, message):
     return
 
 
-def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retver=False):
+def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot_regime=None, retver=False):
     """
     Create a new table, which corrects CTE in the 
     inpute table
@@ -3876,11 +3876,30 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
 
     trans_list_in: flystar Transformation which is inverse of trans_list
 
-    cfunc : string of the fit you want to do
+    cfunc : string
+        The different functional forms and regimes to fit over. Choices are:
+        'exp_power_nonsat'
+        'poly2_power_nonsat'
+        'power_nonsat'
+        'exp_nonsat'
+        'power_yline_nonsat'
+        'gompertz_nonlin'
+        'poly2_nonlin'
+        'poly3_nonlin'
+        'power_nonlin'
+        'exp_nonlin'
 
     plot : boolean
+        Make the plots or not.
 
-    bp_arr : array of the breakpoint (linear to nonlinear)
+    plot_regime : str or None
+        Pick whether to plot nonlinear, nonsaturated, or linear regime.
+        'nonlin'
+        'nonsat'
+        'lin'
+
+    bp_arr : array 
+        Array of the breakpoints (linear to nonlinear).
 
     retver : boolean
         return verbosity (True returns a bunch of stuff, False just returns the new table)
@@ -3888,6 +3907,7 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
     # Create the new table.
     tab_cte = copy.deepcopy(tab)
 
+    # Create empty lists to store all the verbose return output.
     if retver:
         mgood_arr = []
         agood_arr = []
@@ -3948,20 +3968,20 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
         marr = np.linspace(13, 25, 100)
         yarr = np.linspace(0, 2000, 100)
 
-        # Different regimes
-        # Saturated
-        sat_idx = np.where(mgood < bp_arr[ee] - 3.5)[0]
+        # Defined the different regimes...
+        dmag = -3.5            
+        # ...Saturated
+        sat_idx = np.where(mgood < bp_arr[ee] + dmag)[0]
             
-        # Nonlinear
-        non_idx = np.where((mgood > bp_arr[ee] - 3.5) & 
+        # ...Nonlinear
+        non_idx = np.where((mgood > bp_arr[ee] + dmag) & 
                            (mgood < bp_arr[ee]))[0]
         
-        # Linear 
+        # ...Linear 
         lin_idx = np.where(mgood > bp_arr[ee])[0]
 
         # Find the best-fit parameters for the residual model, and then
-        # subtract it off.
-        # Naming convention...
+        # subtract it off. Naming convention is functional form(s)_regime
         if cfunc=='exp_power_nonsat':
             iidx = np.concatenate((non_idx, lin_idx))
             gpopt, gpcov = curve_fit(T_cte_y_exp_power, mgood[iidx], dy_orig[good_idx][iidx],
@@ -3990,7 +4010,7 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
             starlist_t_cte['y'] -= T_cte_y_exp(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_exp(marr, *gpopt)
 
-        if cfunc=='power15_yline_nonsat':
+        if cfunc=='power_yline_nonsat':
             iidx = np.concatenate((non_idx, lin_idx))
             gpopt, gpcov = curve_fit(T_cte_ym, (mgood[iidx], starlist_t['y'][good_idx][iidx]),
                                      dy_orig[good_idx][iidx], maxfev=100000)
@@ -4006,6 +4026,11 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
             gpopt, gpcov = curve_fit(T_cte_y_poly2, mgood[non_idx], dy_orig[good_idx][non_idx], maxfev=100000)
             starlist_t_cte['y'] -= T_cte_y_poly2(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_poly2(marr, *gpopt)
+
+        if cfunc=='poly3_nonlin':
+            gpopt, gpcov = curve_fit(T_cte_y_poly3, mgood[non_idx], dy_orig[good_idx][non_idx], maxfev=100000)
+            starlist_t_cte['y'] -= T_cte_y_poly3(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y_poly3(marr, *gpopt)
 
         if cfunc=='power_nonlin':
             gpopt, gpcov = curve_fit(T_cte_y, mgood[non_idx], dy_orig[good_idx][non_idx], 
@@ -4024,7 +4049,9 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
         print('Number of nonlinear : ', len(non_idx))
         print('Number of linear : ', len(lin_idx))
 
-        # Stuff for plotting 
+        ###
+        # Stuff for plotting and verbose return
+        ###
         pscale=0.04
         dx = (starlist_t['x'] - starlist_mod['x'])*pscale
         dy = (starlist_t['y'] - starlist_mod['y'])*pscale
@@ -4096,7 +4123,6 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
             ax[3,0].scatter(mref, dyref, color='red', alpha=0.3, s=1)
             ax[3,0].set_ylabel('Res, y (arcsec)')
             ax[3,0].plot(marr, dyarr, 'c-')
-#            ax[3,0].scatter(mbins, binned_dy*pscale, s=7, color='orange') # TEMP
             ax[3,0].set_ylim(-0.01, 0.01)
             ax[3,0].axhline(y=0)
             
@@ -4104,12 +4130,14 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
             ax[4,0].scatter(mref, dxref/xeref, color='red', alpha=0.3, s=1)
             ax[4,0].set_ylabel('Res/Pos Err, x')
             ax[4,0].axhline(y=0)
+            ax[4,0].set_ylim(-10, 10)
             
             ax[5,0].scatter(mgood, dygood/yegood, color='black', alpha=0.3, s=1)
             ax[5,0].scatter(mref, dyref/yeref, color='red', alpha=0.3, s=1)
             ax[5,0].set_xlabel('mag')
             ax[5,0].set_ylabel('Res/Pos Err, y')
             ax[5,0].axhline(y=0)
+            ax[5,0].set_ylim(-10, 10)
 
             # mag vs stuff, corrected
             ax[0,1].scatter(mgood, agood_new, color='black', alpha=0.3, s=1)
@@ -4190,32 +4218,24 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
             ax[5,3].axhline(y=0)
 
             # Denote the saturated, nonlinear, linear regimes 
-            dmag = -3.5            
             for ii in np.arange(6):
                 for jj in np.arange(2):
                     ax[ii, jj].axvline(x=bp_arr[ee], ls = ':')
                     ax[ii, jj].axvline(x=bp_arr[ee] + dmag, ls = ':')
+
+            # Set plotting range of magnitude
+            if plot_regime == 'nonlin':
+                ax[0,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+                ax[0,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
+
+            if plot_regime == 'nonsat':
+                ax[0,0].set_xlim(bp_arr[ee] + dmag, None)
+                ax[0,1].set_xlim(bp_arr[ee] + dmag, None)
             
-            # Axis limits to only show the nonlinear regime
-#            ax[0,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[1,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[2,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[3,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[4,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[5,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#
-#            ax[0,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[1,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[2,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[3,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[4,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-#            ax[5,1].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
-
-            ax[4,0].set_ylim(-10, 10)
-            ax[5,0].set_ylim(-10, 10)
-            ax[4,1].set_ylim(-10, 10)
-            ax[5,1].set_ylim(-10, 10)
-
+            if plot_regime == 'lin':
+                ax[0,0].set_xlim(bp_arr[ee], None)
+                ax[0,1].set_xlim(bp_arr[ee], None)
+            
             plt.suptitle('Epoch ' + str(ee))
             plt.show()
             plt.pause(1)
