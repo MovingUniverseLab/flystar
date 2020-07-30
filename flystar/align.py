@@ -3968,12 +3968,6 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
                                      maxfev=100000, bounds=([0, 0, 1, -10, 17], [np.inf, np.inf, np.inf, 10, 20]))
             starlist_t_cte['y'] -= T_cte_y_exp_power(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_exp_power(marr, *gpopt)
-#            print(gpopt)
-#            A, m0, alpha, m1, mb = gpopt
-#            a = m1 - (A/(alpha - 1))*(mb/m0)**alpha
-#            b = (A*alpha/(alpha-1)) * (mb/m0)**alpha * np.exp(1 - alpha)
-#            c = (alpha - 1)/mb
-#            print(a, b, c)
 
         if cfunc=='poly2_power_nonsat':
             iidx = np.concatenate((non_idx, lin_idx))
@@ -3981,23 +3975,11 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
                                      maxfev=100000, bounds=([0, 0, 1, -10, 17], [np.inf, np.inf, np.inf, 10, 20]))
             starlist_t_cte['y'] -= T_cte_y_poly2_power(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_poly2_power(marr, *gpopt)
-#            print(gpopt)
-#            A, m0, alpha, m1, mb = gpopt
-#            a = m1 + A*(mb/m0)**alpha * (1 - 1.5*alpha + 0.5*alpha**2)
-#            b = (A * alpha/m0) * (2 - alpha) * (mb/m0)**(alpha - 1)
-#            c = A * alpha * (alpha - 1)/(2 * m0**2) * (mb/m0)**(alpha-2)
-#            print(a, b, c)
 
         if cfunc=='power_nonsat':
-#            mbins, binned_dy = bin_data(mgood[lin_idx], dy_orig[good_idx][lin_idx], 20)
-#            guess_gpopt, _ = curve_fit(T_cte_y, mbins, binned_dy, 
-#                                       maxfev=100000)            
-#            print(guess_gpopt)
             iidx = np.concatenate((non_idx, lin_idx))
             gpopt, gpcov = curve_fit(T_cte_y, mgood[iidx], dy_orig[good_idx][iidx], 
                                      maxfev=100000, bounds=([0, 0, 1, -10], [np.inf, np.inf, np.inf, 10]))
-#            gpopt_non, gpcov_non = curve_fit(T_cte_y, mgood[non_idx], dy_orig[good_idx][non_idx], 
-#                                             maxfev=100000, bounds=([0, 0, 1, -10], [np.inf, np.inf, np.inf, 10]))
             starlist_t_cte['y'] -= T_cte_y(starlist_t['m'], *gpopt)
             dyarr = T_cte_y(marr, *gpopt)
 
@@ -4010,10 +3992,6 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
 
         if cfunc=='power15_yline_nonsat':
             iidx = np.concatenate((non_idx, lin_idx))
-#            gpopt_guess, gpcov_guess = curve_fit(T_cte_y, mgood[lin_idx], dy_orig[good_idx][lin_idx], maxfev=100000)
-#            p0 = np.append(gpopt_guess, [1])
-#            gpopt, gpcov = curve_fit(T_cte_ym, (mgood[lin_idx], starlist_t['y'][good_idx][lin_idx]),
-#                                     dy[good_idx][lin_idx], maxfev=100000, p0=p0)
             gpopt, gpcov = curve_fit(T_cte_ym, (mgood[iidx], starlist_t['y'][good_idx][iidx]),
                                      dy_orig[good_idx][iidx], maxfev=100000)
             starlist_t_cte['y'] -= T_cte_ym((starlist_t['m'], starlist_t['y']), *gpopt)
@@ -4041,10 +4019,10 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
             starlist_t_cte['y'] -= T_cte_y_exp(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_exp(marr, *gpopt)
 
-#        print('Time : ', tab['t'][:, ee][0])
-#        print('Number of saturated : ', len(sat_idx))
-#        print('Number of nonlinear : ', len(non_idx))
-#        print('Number of linear : ', len(lin_idx))
+        print('Time : ', tab['t'][:, ee][0])
+        print('Number of saturated : ', len(sat_idx))
+        print('Number of nonlinear : ', len(non_idx))
+        print('Number of linear : ', len(lin_idx))
 
         # Stuff for plotting 
         pscale=0.04
@@ -4212,36 +4190,12 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, retv
             ax[5,3].axhline(y=0)
 
             # Denote the saturated, nonlinear, linear regimes 
-            dmag = -3.5
+            dmag = -3.5            
+            for ii in np.arange(6):
+                for jj in np.arange(2):
+                    ax[ii, jj].axvline(x=bp_arr[ee], ls = ':')
+                    ax[ii, jj].axvline(x=bp_arr[ee] + dmag, ls = ':')
             
-            ax[0,0].axvline(x=bp_arr[ee], ls = ':')
-            ax[1,0].axvline(x=bp_arr[ee], ls = ':')
-            ax[2,0].axvline(x=bp_arr[ee], ls = ':')
-            ax[3,0].axvline(x=bp_arr[ee], ls = ':')
-            ax[4,0].axvline(x=bp_arr[ee], ls = ':')
-            ax[5,0].axvline(x=bp_arr[ee], ls = ':')
-            
-            ax[0,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[1,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[2,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[3,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[4,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[5,0].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            
-            ax[0,1].axvline(x=bp_arr[ee], ls = ':')
-            ax[1,1].axvline(x=bp_arr[ee], ls = ':')
-            ax[2,1].axvline(x=bp_arr[ee], ls = ':')
-            ax[3,1].axvline(x=bp_arr[ee], ls = ':')
-            ax[4,1].axvline(x=bp_arr[ee], ls = ':')
-            ax[5,1].axvline(x=bp_arr[ee], ls = ':')
-            
-            ax[0,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[1,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[2,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[3,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[4,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
-            ax[5,1].axvline(x=bp_arr[ee] + dmag, ls = ':')
-
             # Axis limits to only show the nonlinear regime
 #            ax[0,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
 #            ax[1,0].set_xlim(bp_arr[ee] + dmag, bp_arr[ee])
