@@ -2489,8 +2489,8 @@ def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, plot_re
                 
                 ax[0,ii].scatter(mgood, dxgood, color='black', alpha=0.3, s=1)
                 ax[0,ii].scatter(mref, dxref, color='red', alpha=0.3, s=1)
-                ax[0,ii].set_ylabel('Res, x (arcsec)')
-                ax[0,ii].set_ylim(-0.01, 0.01)
+                ax[0,ii].set_ylabel('Res, x (mas)')
+                ax[0,ii].set_ylim(-5, 5)
                 ax[0,ii].axhline(y=0)
                 
                 ax[1,ii].scatter(mgood, dxgood/xegood, color='black', alpha=0.3, s=1)
@@ -2501,8 +2501,8 @@ def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, plot_re
                 
                 ax[2,ii].scatter(mgood, dygood, color='black', alpha=0.3, s=1)
                 ax[2,ii].scatter(mref, dyref, color='red', alpha=0.3, s=1)
-                ax[2,ii].set_ylabel('Res, y (arcsec)')
-                ax[2,ii].set_ylim(-0.01, 0.01)
+                ax[2,ii].set_ylabel('Res, y (mas)')
+                ax[2,ii].set_ylim(-5, 5)
                 ax[2,ii].axhline(y=0)
                 
                 ax[3,ii].scatter(mgood, dygood/yegood, color='black', alpha=0.3, s=1)
@@ -2517,12 +2517,12 @@ def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, plot_re
                 
                 ax[5,ii].scatter(mgood, rgood, color='black', alpha=0.3, s=1)
                 ax[5,ii].scatter(mref, rref, color='red', alpha=0.3, s=1)
-                ax[5,ii].set_ylabel('Modulus (arcsec)')
+                ax[5,ii].set_ylabel('Modulus (mas)')
                 ax[5,ii].set_yscale('log')
                 if type(rgood) == astropy.table.column.MaskedColumn:
-                    ax[5,ii].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
+                    ax[5,ii].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
                 else:
-                    ax[5,ii].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+                    ax[5,ii].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood, rref])))
                 ax[5,ii].set_xlabel('mag')
             
                 # Denote the saturated, nonlinear, linear regimes  
@@ -2566,7 +2566,7 @@ def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, plot_re
             
             ax[2,ii+1].scatter(mgood, dygood_new, color='black', alpha=0.3, s=1)
             ax[2,ii+1].scatter(mref, dyref_new, color='red', alpha=0.3, s=1)
-            ax[2,ii+1].set_ylim(-0.01, 0.01)
+#            ax[2,ii+1].set_ylim(-5, 5)
             ax[2,ii+1].axhline(y=0)
             
             ax[3,ii+1].scatter(mgood, dygood_new/yegood, color='black', alpha=0.3, s=1)
@@ -2580,9 +2580,9 @@ def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, plot_re
             ax[5,ii+1].scatter(mref, rref_new, color='red', alpha=0.3, s=1)
             ax[5,ii+1].set_yscale('log')
             if type(rgood) == astropy.table.column.MaskedColumn:
-                ax[5,ii].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data, rref_new.data])))
+                ax[5,ii].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood_new.data, rref_new.data])))
             else:
-                ax[5,ii].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new, rref_new])))
+                ax[5,ii].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood_new, rref_new])))
             ax[5,ii+1].set_xlabel('mag')
         
             ax[0,ii+1].axvline(x=bp_arr[ee], ls = ':')
@@ -2611,6 +2611,12 @@ def compare_correction(good, ref, good_new, ref_new, fit_titles, bp_arr, plot_re
                 # Axis limits to only show the linear regime
                 ax[0,ii+1].set_xlim(bp_arr[ee], None)
                 
+        for ax_i in ax:
+            for ax_j in ax_i:
+                for item in ([ax_j.title, ax_j.xaxis.label, ax_j.yaxis.label] +
+                             ax_j.get_xticklabels() + ax_j.get_yticklabels()):
+                    item.set_fontsize(10)
+
         plt.suptitle('Epoch ' + str(ee))
         plt.show()
         plt.pause(1)

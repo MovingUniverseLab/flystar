@@ -3982,6 +3982,32 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
 
         # Find the best-fit parameters for the residual model, and then
         # subtract it off. Naming convention is functional form(s)_regime
+        if cfunc=='yline':
+            pdb.set_trace()
+            gpopt, gpcov= curve_fit(T_cte_yline, 
+                                    starlist_t['y'][good_idx], 
+                                    dy_orig[good_idx]/starlist_t['ye'][good_idx], 
+                                    maxfev=100000)
+            starlist_t_cte['y'][good_idx] -= T_cte_yline(starlist_t['y'][good_idx], *gpopt) * starlist_t['ye'][good_idx]
+            print(gpopt)
+
+            # Try separating them to fit... meh.
+            gpopt1, gpcov1 = curve_fit(T_cte_yline, 
+                                    starlist_t['y'][good_idx][non_idx],
+                                    dy_orig[good_idx][non_idx]/starlist_t['ye'][good_idx][non_idx], 
+                                    maxfev=100000)
+#            starlist_t_cte['y'][good_idx][non_idx] -= T_cte_yline(starlist_t['y'][good_idx][non_idx], *gpopt1) * starlist_t['ye'][good_idx][non_idx]
+            print(gpopt1)
+
+            gpopt2, gpcov2 = curve_fit(T_cte_yline, 
+                                    starlist_t['y'][good_idx][lin_idx],
+                                    dy_orig[good_idx][lin_idx]/starlist_t['ye'][good_idx][lin_idx], 
+                                    maxfev=100000)
+#            starlist_t_cte['y'][good_idx][lin_idx] -= T_cte_yline(starlist_t['y'][good_idx][lin_idx], *gpopt2) * starlist_t['ye'][good_idx][lin_idx]
+            print(gpopt2)
+
+            dyarr = T_cte_yline(yarr, *gpopt2)
+
         if cfunc=='exp_power_nonsat':
             iidx = np.concatenate((non_idx, lin_idx))
             gpopt, gpcov = curve_fit(T_cte_y_exp_power, mgood[iidx], dy_orig[good_idx][iidx],
@@ -4052,7 +4078,7 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
         ###
         # Stuff for plotting and verbose return
         ###
-        pscale=0.04
+        pscale = 40 # mas/pix
         dx = (starlist_t['x'] - starlist_mod['x'])*pscale
         dy = (starlist_t['y'] - starlist_mod['y'])*pscale
         
@@ -4063,9 +4089,9 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
         yref = starlist_t['y'][good_idx][ref_idx]
         
         dxgood = dx[good_idx]
-        dxref = dx[good_idx][ref_idx]
+        dxref = dx[good_idx][ref_idx] 
         
-        dygood = dy[good_idx]
+        dygood = dy[good_idx] 
         dyref = dy[good_idx][ref_idx]
         
         mref = starlist_t['m'][good_idx][ref_idx]
@@ -4093,7 +4119,7 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
         rref_new = np.hypot(dxref, dyref_new)
         
         dyarr *= pscale
-            
+
         if plot:
             # FIXME figsize=(20,18), num=103
             fig, ax = plt.subplots(6, 4, figsize=(12,10), sharex='col', sharey='row', num=ee)
@@ -4106,24 +4132,24 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
 
             ax[1,0].scatter(mgood, rgood, color='black', alpha=0.3, s=1)
             ax[1,0].scatter(mref, rref, color='red', alpha=0.3, s=1)
-            ax[1,0].set_ylabel('Modulus (arcsec)')
+            ax[1,0].set_ylabel('Modulus (mas)')
             ax[1,0].set_yscale('log')
             if type(rgood) == astropy.table.column.MaskedColumn:
-                ax[1,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
+                ax[1,0].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
             else:
-                ax[1,0].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+                ax[1,0].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood, rref])))
 
             ax[2,0].scatter(mgood, dxgood, color='black', alpha=0.3, s=1)
             ax[2,0].scatter(mref, dxref, color='red', alpha=0.3, s=1)
-            ax[2,0].set_ylabel('Res, x (arcsec)')
-            ax[2,0].set_ylim(-0.01, 0.01)
+            ax[2,0].set_ylabel('Res, x (mas)')
+            ax[2,0].set_ylim(-5, 5)
             ax[2,0].axhline(y=0)
 
             ax[3,0].scatter(mgood, dygood, color='black', alpha=0.3, s=1)
             ax[3,0].scatter(mref, dyref, color='red', alpha=0.3, s=1)
-            ax[3,0].set_ylabel('Res, y (arcsec)')
-            ax[3,0].plot(marr, dyarr, 'c-')
-            ax[3,0].set_ylim(-0.01, 0.01)
+            ax[3,0].set_ylabel('Res, y (mas)')
+#            ax[3,0].plot(marr, dyarr, 'c-')
+            ax[3,0].set_ylim(-5, 5)
             ax[3,0].axhline(y=0)
             
             ax[4,0].scatter(mgood, dxgood/xegood, color='black', alpha=0.3, s=1)
@@ -4148,13 +4174,13 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
             ax[1,1].scatter(mref, rref_new, color='red', alpha=0.3, s=1)
             ax[1,1].set_yscale('log')
             if type(rgood) == astropy.table.column.MaskedColumn:
-                ax[1,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data, rref_new.data])))
+                ax[1,1].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood_new.data, rref_new.data])))
             else:
-                ax[1,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new, rref_new])))
+                ax[1,1].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood_new, rref_new])))
 
             ax[3,1].scatter(mgood, dygood_new, color='black', alpha=0.3, s=1)
             ax[3,1].scatter(mref, dyref_new, color='red', alpha=0.3, s=1)
-            ax[3,1].set_ylim(-0.01, 0.01)
+#            ax[3,1].set_ylim(-5, 5)
             ax[3,1].axhline(y=0)
             
             ax[5,1].scatter(mgood, dygood_new/yegood, color='black', alpha=0.3, s=1)
@@ -4171,18 +4197,16 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
             ax[1,2].scatter(yref, rref, color='red', alpha=0.3, s=1)
             ax[1,2].set_yscale('log')
             if type(rgood) == astropy.table.column.MaskedColumn:
-                ax[1,2].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
+                ax[1,2].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood.data, rref.data])))
             else:
-                ax[1,2].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood, rref])))
+                ax[1,2].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood, rref])))
 
             ax[2,2].scatter(ygood, dxgood, color='black', alpha=0.3, s=1)
             ax[2,2].scatter(yref, dxref, color='red', alpha=0.3, s=1)
-            ax[2,2].set_ylim(-0.01, 0.01)
             ax[2,2].axhline(y=0)
 
             ax[3,2].scatter(ygood, dygood, color='black', alpha=0.3, s=1)
             ax[3,2].scatter(yref, dyref, color='red', alpha=0.3, s=1)
-            ax[3,2].set_ylim(-0.01, 0.01)
             ax[3,2].axhline(y=0)
             
             ax[4,2].scatter(ygood, dxgood/xegood, color='black', alpha=0.3, s=1)
@@ -4203,13 +4227,12 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
             ax[1,3].scatter(yref, rref_new, color='red', alpha=0.3, s=1)
             ax[1,3].set_yscale('log')
             if type(rgood) == astropy.table.column.MaskedColumn:
-                ax[1,3].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data, rref.data])))
+                ax[1,3].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood_new.data, rref.data])))
             else:
-                ax[1,3].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new, rref])))
+                ax[1,3].set_ylim(1e-3, 1.1 * np.max(np.concatenate([rgood_new, rref])))
 
             ax[3,3].scatter(ygood, dygood_new, color='black', alpha=0.3, s=1)
             ax[3,3].scatter(yref, dyref_new, color='red', alpha=0.3, s=1)
-            ax[3,3].set_ylim(-0.01, 0.01)
             ax[3,3].axhline(y=0)
             
             ax[5,3].scatter(ygood, dygood_new/yegood, color='black', alpha=0.3, s=1)
@@ -4235,6 +4258,12 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
             if plot_regime == 'lin':
                 ax[0,0].set_xlim(bp_arr[ee], None)
                 ax[0,1].set_xlim(bp_arr[ee], None)
+
+            for ax_i in ax:
+                for ax_j in ax_i:
+                    for item in ([ax_j.title, ax_j.xaxis.label, ax_j.yaxis.label] +
+                                 ax_j.get_xticklabels() + ax_j.get_yticklabels()):
+                        item.set_fontsize(10)
             
             plt.suptitle('Epoch ' + str(ee))
             plt.show()
@@ -4285,6 +4314,9 @@ def T_cte_ym(MY, A, m0, alpha, m1, m2):
     base = m/m0
 
     return m1 + y*m2 + A * np.sign(base) * np.abs(base)**alpha 
+
+def T_cte_yline(y, a, b):
+    return a + b*y
 
 def T_cte_y(m, A, m0, alpha, m1):
     base = m/m0
