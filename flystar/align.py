@@ -3902,10 +3902,14 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
         Array of the breakpoints (linear to nonlinear).
 
     retver : boolean
-        return verbosity (True returns a bunch of stuff, False just returns the new table)
+        return verbosity (True returns a bunch of stuff, False just returns 
+        the new table and the coefficients of the transform)
     """
     # Create the new table.
     tab_cte = copy.deepcopy(tab)
+
+    # Create the coefficient list.
+    cte_coeffs = []
 
     # Create empty lists to store all the verbose return output.
     if retver:
@@ -4022,11 +4026,20 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
             starlist_t_cte['y'] -= T_cte_y_poly2_power(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_poly2_power(marr, *gpopt)
 
+        if cfunc=='poly2_power_nonsat_noAbound':
+            iidx = np.concatenate((non_idx, lin_idx))
+            gpopt, gpcov = curve_fit(T_cte_y_poly2_power, mgood[iidx], dy_orig[good_idx][iidx],
+                                     maxfev=100000, bounds=([-np.inf, 0, 1, -10, 17], [np.inf, np.inf, np.inf, 10, 20]))
+            starlist_t_cte['y'] -= T_cte_y_poly2_power(starlist_t['m'], *gpopt)
+            dyarr = T_cte_y_poly2_power(marr, *gpopt)
+
         if cfunc=='power_nonsat':
             iidx = np.concatenate((non_idx, lin_idx))
             gpopt, gpcov = curve_fit(T_cte_y, mgood[iidx], dy_orig[good_idx][iidx], 
                                      maxfev=100000, bounds=([0, 0, 1, -10], [np.inf, np.inf, np.inf, 10]))
             starlist_t_cte['y'] -= T_cte_y(starlist_t['m'], *gpopt)
+            print(np.max(mgood[iidx]))
+            print(np.min(mgood[iidx]))
             dyarr = T_cte_y(marr, *gpopt)
 
         if cfunc=='exp_nonsat':
@@ -4069,6 +4082,8 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
                                      maxfev=100000)
             starlist_t_cte['y'] -= T_cte_y_exp(starlist_t['m'], *gpopt)
             dyarr = T_cte_y_exp(marr, *gpopt)
+
+        cte_coeffs.append(gpopt)
 
         print('Time : ', tab['t'][:, ee][0])
         print('Number of saturated : ', len(sat_idx))
@@ -4299,7 +4314,7 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
         tab_cte['y'][:,ee] = starlist_t_cte['y']
         
     if not retver:
-        return tab_cte
+        return tab_cte, cte_coeffs
 
     else:
         good = [mgood_arr, agood_arr, rgood_arr, dxgood_arr, dygood_arr, xegood_arr, yegood_arr]
@@ -4307,7 +4322,7 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
         good_new = [agood_new_arr, rgood_new_arr, dygood_new_arr]
         ref_new = [aref_new_arr, rref_new_arr, dyref_new_arr]
 
-        return tab_cte, good, ref, good_new, ref_new
+        return tab_cte, good, ref, good_new, ref_new, cte_coeffs
 
 def T_cte_ym(MY, A, m0, alpha, m1, m2):
     m,y = MY
