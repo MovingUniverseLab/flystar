@@ -23,6 +23,11 @@ motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
                           'ax', 'axe', 'ay', 'aye',
                           't0', 'm0', 'm0e', 'use_in_trans']
 
+# Keep a list of the CTE classes 
+class_CTE = [flystar.transforms.UVIS_CTE_trans_1, 
+             flystar.transforms.UVIS_CTE_trans_2, 
+             flystar.transforms.UVIS_CTE_trans_3]
+
 class MosaicSelfRef(object):
     def __init__(self, list_of_starlists, ref_index=0, iters=2,
                  dr_tol=[1, 1], dm_tol=[2, 1],
@@ -413,7 +418,7 @@ class MosaicSelfRef(object):
                                             mag_trans=self.mag_trans,
                                             trans_class=self.trans_class)
 
-            if (self.trans_class == flystar.transforms.UVIS_CTE_trans_1) or (self.trans_class == flystar.transforms.UVIS_CTE_trans_2):
+            if self.trans_class in class_CTE:
                 star_list_T.transform_xym_CTE(trans)
             else:
                 if self.mag_trans:
@@ -455,11 +460,11 @@ class MosaicSelfRef(object):
             # Derive the best-fit transformation parameters. 
             if self.verbose > 0:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
-            if (self.trans_class == flystar.transforms.UVIS_CTE_trans_1) or (self.trans_class == flystar.transforms.UVIS_CTE_trans_2):
+            if self.trans_class in class_CTE:
                 # Use this as a guess
                 guess = transforms.PolyTransform.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                           ref_list['x'][idx2], ref_list['y'][idx2],
-                                                          **trans_args,
+                                                          trans_args['order'],
                                                           m=star_list['m'][idx1], mref=ref_list['m'][idx2],
                                                           weights=weight, mag_trans=self.mag_trans)                
 
@@ -467,7 +472,7 @@ class MosaicSelfRef(object):
                                                           star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], star_list_orig_trim['m'][idx1], 
                                                           ref_list['x'][idx2], ref_list['y'][idx2], ref_list['m'][idx2], 
                                                           xerr=star_list_orig_trim['xe'][idx1], yerr=star_list_orig_trim['ye'][idx1], merr=star_list_orig_trim['me'][idx1], 
-                                                          weights=weight, init_gx = guess.px.parameters, init_gy = guess.py.parameters)
+                                                          weights='list,std', init_gx = guess.px.parameters, init_gy = guess.py.parameters)
             else:
                 trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                           ref_list['x'][idx2], ref_list['y'][idx2],
@@ -494,7 +499,7 @@ class MosaicSelfRef(object):
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(star_list)
 
-            if (self.trans_class == flystar.transforms.UVIS_CTE_trans_1) or (self.trans_class == flystar.transforms.UVIS_CTE_trans_2):
+            if self.trans_class in class_CTE:
                 star_list_T.transform_xym_CTE(self.trans_list[ii])
             else:
                 if self.mag_trans:
@@ -958,7 +963,8 @@ class MosaicSelfRef(object):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(self.star_lists[ii])
-            if (self.trans_class == flystar.transforms.UVIS_CTE_trans_1) or (self.trans_class == flystar.transforms.UVIS_CTE_trans_2):
+
+            if self.trans_class in class_CTE:
                 star_list_T.transform_xym_CTE(self.trans_list[ii])
             else:
                 if self.mag_trans:
@@ -3570,7 +3576,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         order = 0
     else:
         order = 1
-    if trans_class == flystar.transforms.UVIS_CTE_trans_1:
+    if trans_class in class_CTE:
         # Get the corresponding errors for the matched stars
         # FIXME: Necessary or not???
         idx1 = np.zeros(N, dtype=int)
@@ -3587,29 +3593,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         print('GUESS')
         guess = transforms.PolyTransform.derive_transform(x1m, y1m, x2m, y2m, order=order, weights=None)
         print('TRANS')
-        trans = transforms.UVIS_CTE_trans_1.derive_transform(order, x1m, y1m, m1m, 
-                                                             x2m, y2m, m2m, weights=None,
-                                                             xerr=xe1m, yerr=ye1m, merr=me1m,
-                                                             init_gx = guess.px.parameters, 
-                                                             init_gy = guess.py.parameters)
-    elif trans_class == flystar.transforms.UVIS_CTE_trans_2:
-        # Get the corresponding errors for the matched stars
-        # FIXME: necessary or not???
-        idx1 = np.zeros(N, dtype=int)
-        for ii in range(N):
-            idx = np.where((star_list['x'] == x1m[ii]) & 
-                           (star_list['y'] == y1m[ii]))[0]
-            idx1[ii] = int(idx)
-            if len(idx) != 1:
-                raise RuntimeError('Cannot find the index!')
-
-        xe1m = star_list['xe'][idx1] 
-        ye1m = star_list['xe'][idx1] 
-        me1m = star_list['xe'][idx1]
-        print('GUESS')
-        guess = transforms.PolyTransform.derive_transform(x1m, y1m, x2m, y2m, order=order, weights=None)
-        print('TRANS')
-        trans = transforms.UVIS_CTE_trans_2.derive_transform(order, x1m, y1m, m1m, 
+        trans = trans_class.derive_transform(order, x1m, y1m, m1m, 
                                                              x2m, y2m, m2m, weights=None,
                                                              xerr=xe1m, yerr=ye1m, merr=me1m,
                                                              init_gx = guess.px.parameters, 
@@ -3627,6 +3611,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         
     if verbose:
         print('init guess: ', trans.px.parameters, trans.py.parameters)
+        print('solution: ', trans.px.parameters, trans.py.parameters, trans.pc)
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
         
@@ -3814,7 +3799,7 @@ def get_weighting_scheme(weights, ref_list, star_list):
         if weights == 'ref,std':
             weight = 1.0 / np.sqrt(var_xref + var_yref)
         if weights == 'list,var':
-            weight = 1.0 / (var_xlis, var_ylis)
+            weight = 1.0 / (var_xlis + var_ylis)
         if weights == 'list,std':
             weight = 1.0 / np.sqrt(var_xlis, var_ylis)
     else:
@@ -4011,6 +3996,13 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
             print(gpopt2)
 
             dyarr = T_cte_yline(yarr, *gpopt2)
+
+        if cfunc=='sigmoid_nonsat':
+            iidx = np.concatenate((non_idx, lin_idx))
+            gpopt, gpcov = curve_fit(T_cte_sigmoid, mgood[iidx], dy_orig[good_idx][iidx],
+                                     maxfev=100000)
+            starlist_t_cte['y'] -= T_cte_sigmoid(starlist_t['m'], *gpopt)
+            dyarr = T_cte_sigmoid(marr, *gpopt)
 
         if cfunc=='exp_power_nonsat':
             iidx = np.concatenate((non_idx, lin_idx))
@@ -4323,6 +4315,11 @@ def fit_out_CTE(tab, trans_list, trans_list_inv, cfunc, bp_arr, plot=False, plot
         ref_new = [aref_new_arr, rref_new_arr, dyref_new_arr]
 
         return tab_cte, good, ref, good_new, ref_new, cte_coeffs
+
+def T_cte_sigmoid(m, A1, A2, m0, dm):
+    meff = (m - m0)/dm
+
+    return (A1 - A2)/(1 + np.exp(meff)) + A2
 
 def T_cte_ym(MY, A, m0, alpha, m1, m2):
     m,y = MY

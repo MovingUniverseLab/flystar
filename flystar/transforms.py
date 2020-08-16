@@ -1397,9 +1397,10 @@ class UVIS_CTE_trans_3(PolyTransform):
     """
     Defines a transformation designed to capture the distortions in magnitude 
     and y-position introduced into the HST UVIS detector due to CTE.
+
+    Detector-y is corrected with quadratic polynomial + power law
+    Magnitude is corrected with exponential (m) + polynomial (y)
     """
-#    def __init__(self, order, px, py, pc, pm,
-#                 pxerr=None, pyerr=None, pcerr=None, pmerr=None):
     def __init__(self, order, px, py, pc,
                  pxerr=None, pyerr=None, pcerr=None):
         """
@@ -1423,10 +1424,6 @@ class UVIS_CTE_trans_3(PolyTransform):
         pc : list or array [z1, z2, z3, A, m0, alpha]
             coefficients for the CTE transformations
 
-        pm : float
-            magnitude difference with the reference catalog and CTE corrected catalog,
-            e.g. pm =  mref - mcte. Also referred to as magnitude offset
-
         pxerr : array or list
             array or list of errors of the coefficients to transform input x coordinates 
             into output x' coordinates.
@@ -1438,8 +1435,6 @@ class UVIS_CTE_trans_3(PolyTransform):
         pcerr : array or list
             array or list of errors of the coefficients for the CTE transformation
 
-        pmerr : float
-            error of the magnitude offset 
         """
         self.order = order
         self.poly_order = order
@@ -1466,20 +1461,20 @@ class UVIS_CTE_trans_3(PolyTransform):
             self.py = models.Polynomial2D(self.order, **py_dict)
 
         self.pc = pc    
-#        self.pm = pm
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.pcerr = pcerr
-#        self.pmerr = pmerr
 
         # Break out individual pieces of CTE correction
         # for easy use
-        self.z1 = pc[0] 
-        self.z2 = pc[1]   
-        self.z3 = pc[2] 
-        self.w1 = pc[3] 
-        self.w2 = pc[4] 
-        self.w3 = pc[5] 
+        self.A = pc[0] 
+        self.m0 = pc[1]   
+        self.alpha = pc[2] 
+        self.m1 = pc[3] 
+        self.mb = pc[4] 
+        self.z1 = pc[5] 
+        self.z2 = pc[6] 
+        self.z3 = pc[7] 
 
         return
 
@@ -1507,16 +1502,16 @@ class UVIS_CTE_trans_3(PolyTransform):
         mnew : array
             The transformed magnitudes.
         """
-        ycte = T_cte_y_3(y, m, self.w1, self.w2, self.w3)
+        ycte = T_cte_y_poly2_power(m, self.A, self.m0, self.alpha, self.m1, self.mb)
         mcte = T_cte_m(y, m, self.z1, self.z2, self.z3)
 
         xnew = self.px(x, ycte)
         ynew = self.py(x, ycte)
-#        mnew = mcte + self.pm
         mnew = mcte
 
         return xnew, ynew, mnew 
 
+    # FIXME NEED TO CALCULATE DERIVATIVES 
     def evaluate_error(self, x, y, m, xe, ye, me):
         """
         Transform positional uncertainties. 
@@ -1550,7 +1545,7 @@ class UVIS_CTE_trans_3(PolyTransform):
         dynew_dycte = 0.0
         dynew_dm = 0.0
 
-        ycte = T_cte_y_3(y, m, self.w1, self.w2, self.w3)
+        ycte = T_cte_y_poly2_power(m, self.A, self.m0, self.alpha, self.m1, self.mb)
 
         ###
         # Evaluate the polynomial first.
@@ -1572,8 +1567,17 @@ class UVIS_CTE_trans_3(PolyTransform):
                     dxnew_dycte += Xcoeff * (j) * x**(i-j) * ycte**(j-1)
                     dynew_dycte += Ycoeff * (j) * x**(i-j) * ycte**(j-1)
 
+        # Calculate and define stuff to evaluating dycte_dm
+        b = (self.A * self.alpha/self.m0) * (2 - self.alpha) * (self.mb/self.m0)**(self.alpha - 1)
+        c = self.A * self.alpha * (self.alpha - 1)/(2 * self.m0**2) * (self.mb/self.m0)**(self.alpha-2)
+        base = m/self.m0
+        lin_idx = np.where(m >= self.mb)[0]
+        power_deriv = (self.A * self.alpha/self.m0) * np.sign(base[lin_idx]) * np.abs(base[lin_idx])**(self.alpha-1)
+
         # Evalulate dycte_dm
-        dycte_dm = self.w1 * self.w2 * np.exp(self.w2 * m)
+        dycte_dm = np.piecewise(m,
+                                [m < self.mb, m >= self.mb],
+                                [lambda m: b + 2*c*m, lambda m: power_deriv])
 
         dxnew_dy = dxnew_dycte
         dynew_dy = dynew_dycte
@@ -1602,8 +1606,7 @@ class UVIS_CTE_trans_3(PolyTransform):
                          xref, yref, mref,
                          xerr=None, yerr=None, merr=None,
                          init_gx=None, init_gy=None, 
-                         init_gc=None, init_gm=None,
-                         weights=None):
+                         init_gc=None, weights=None):
 
         # FIGURE OUT HOW TO PROPERLY DEAL WITH THE WEIGHTS
         def res_func(params, order,
@@ -1635,30 +1638,33 @@ class UVIS_CTE_trans_3(PolyTransform):
 
             # Check that the length of params is right
             # 2*n_poly_coeff (2* since x and y)
-            # 6 for CTE parameters, 1 for mag offset
-#            if 2*n_poly_coeff + 6 + 1 != len(params):
-#                raise Exception('Something wrong! Order incorrect or length of params is wrong!')
+            # 8 CTE parameters
+            if 2*n_poly_coeff + 8 != len(params):
+                raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
             try_px = params[:n_poly_coeff]
             try_py = params[n_poly_coeff:2*n_poly_coeff]
-#            try_pc = params[-7:-1]
-#            try_pm = params[-1]
-            try_pc = params[-6:]
+            try_pc = params[-8:]
 
-#            try_trans = UVIS_CTE_trans_2(order, try_px, try_py, try_pc, try_pm)
             try_trans = UVIS_CTE_trans_3(order, try_px, try_py, try_pc)
 
             x_out, y_out, m_out = try_trans.evaluate(x_in, y_in, m_in)
-            xe_out, ye_out, me_out = try_trans.evaluate_error(x_in, y_in, m_in, xe_in, ye_in, me_in)
-
             # Calculate the residuals.
-            x_res = x_out - x_ref 
-            y_res = y_out - y_ref 
-            m_res = m_out - m_ref 
-            if weights is not None:
-                x_res *= weights
-                y_res *= weights
-                m_res *= weights
+            if weights is None:
+                x_res = x_out - x_ref 
+                y_res = y_out - y_ref 
+                m_res = m_out - m_ref 
+            # FIXME can this support the other variants? 
+            # FIXME is this the same as lumping them all together into a single weight term?
+            else:
+                if weights == 'list,var':
+                    x_res = (x_out - x_ref)/xe_in**2
+                    y_res = (y_out - y_ref)/ye_in**2
+                    m_res = (m_out - m_ref)/me_in**2
+                if weights == 'list,std':
+                    x_res = (x_out - x_ref)/xe_in
+                    y_res = (y_out - y_ref)/ye_in
+                    m_res = (m_out - m_ref)/me_in
 
             res = np.concatenate((x_res, y_res, m_res))
 
@@ -1677,25 +1683,8 @@ class UVIS_CTE_trans_3(PolyTransform):
             init_gx = PolyTransform.make_param_dict(init_gx, order, isY=False)
             init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
  
-#        if init_gc is None:
-#            init_gc = [0., 0., 0., 0., np.average(m), 0.]
-#
-#        if init_gm is None:
-#            # Calculate the magnitude offset using a 3-sigma clipped mean
-#            m_resid = mref - m
-#            threshold = 3 * m_resid.std()
-#            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-#            init_gm = np.mean((mref - m)[keepers])
-#            init_gm = [init_gm]
-
         if init_gc is None:
-            m_resid = mref - m
-            threshold = 3 * m_resid.std()
-            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            moff = np.mean((mref - m)[keepers])
-
-            init_gc = [0., 0., 0., 0., 0., 0.]
-
+            init_gc = [0., np.average(m), 0., 0., 19, 0., 0., 0.]
 
         # Need to concatenate everything, but init_gx and init_gy are dictionaries.
         # So we unpack the dictionary into a list in a particular order.
@@ -1720,20 +1709,16 @@ class UVIS_CTE_trans_3(PolyTransform):
         n_poly_coeff = int(binom(order + 2, order))
 
         # Check that the length of params is right
-        # 2*n_poly_coeff (2* since x and y)
-        # 6 for CTE parameters, 1 for mag offset
-#        if 2*n_poly_coeff + 6 + 1 != len(init_param_values):
-#            raise Exception('Something wrong! Order incorrect or length of params is wrong!')
+        if 2*n_poly_coeff + 8 != len(init_param_values):
+            raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
+#        res_func_w = optimize.minpack._wrap_func(res_func, [x, y, m], [xref, yref, mref], weights)
         farg = (order, x, y, m, xref, yref, mref, xerr, yerr, merr, weights)
         pxymc = optimize.least_squares(res_func, init_param_values, args=farg).x
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
-#        pc = pxymc[-7:-1]
-#        pm = pxymc[-1]
-        pc = pxymc[-6:]
+        pc = pxymc[-8:]
         
-#        trans = cls(order, px, py, pc, pm)
         trans = cls(order, px, py, pc)
 
         return trans
@@ -2592,6 +2577,8 @@ def T_cte_y(y, m, A, m0, alpha):
 
     return y + A * np.sign(base) * np.abs(base)**alpha
  
+def T_cte_y_poly2(m, a, b, c):
+    return a + b*m + c*m**2
 
 def T_cte_y_stsci(y, m, w1, w2, w3):
     """
@@ -2608,3 +2595,13 @@ def T_cte_y_3(y, m, w1, w2, w3):
     """
 
     return w1*np.exp(w2*m) + w3*y
+
+def T_cte_y_poly2_power(m, A, m0, alpha, m1, mb):
+    # mb is the breakpoint
+    a = m1 + A*(mb/m0)**alpha * (1 - 1.5*alpha + 0.5*alpha**2)
+    b = (A * alpha/m0) * (2 - alpha) * (mb/m0)**(alpha - 1)
+    c = A * alpha * (alpha - 1)/(2 * m0**2) * (mb/m0)**(alpha-2)
+    return np.piecewise(m,
+                        [m < mb, m >= mb],
+                        [lambda m: T_cte_y_poly2(m, a, b, c), lambda m: T_cte_y(m, A, m0, alpha, m1)])
+

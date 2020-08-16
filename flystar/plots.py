@@ -1777,7 +1777,7 @@ def plot_chi2_dist(tab, Ndetect):
     chi2_x_list = []
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
-    
+
     for ii in range(len(tab['xe'])):
         # Ignore the NaNs 
         fnd = np.where(tab['xe'][ii, :] > 0)[0]
