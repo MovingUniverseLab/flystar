@@ -1657,6 +1657,16 @@ class UVIS_CTE_trans_3(PolyTransform):
             # FIXME can this support the other variants? 
             # FIXME is this the same as lumping them all together into a single weight term?
             else:
+                # If the error is 0, reassign it to have a value of 1E-4.
+                # FIXME: Why are there even stars with x and y positional 
+                # errors of 0???
+                xdx = np.where(xe_in == 0)[0]
+                ydx = np.where(ye_in == 0)[0]
+                mdx = np.where(me_in == 0)[0]
+                xe_in[xdx] = 10**-4
+                ye_in[ydx] = 10**-4
+                me_in[mdx] = 10**-4
+
                 if weights == 'list,var':
                     x_res = (x_out - x_ref)/xe_in**2
                     y_res = (y_out - y_ref)/ye_in**2
@@ -1684,7 +1694,7 @@ class UVIS_CTE_trans_3(PolyTransform):
             init_gy = PolyTransform.make_param_dict(init_gy, order, isY=True)
  
         if init_gc is None:
-            init_gc = [0., np.average(m), 0., 0., 19, 0., 0., 0.]
+            init_gc = [0., np.average(m), 1, 0., 19, 0., 0., 0.]
 
         # Need to concatenate everything, but init_gx and init_gy are dictionaries.
         # So we unpack the dictionary into a list in a particular order.
