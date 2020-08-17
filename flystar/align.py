@@ -418,13 +418,10 @@ class MosaicSelfRef(object):
                                             mag_trans=self.mag_trans,
                                             trans_class=self.trans_class)
 
-            if self.trans_class in class_CTE:
-                star_list_T.transform_xym_CTE(trans)
+            if self.mag_trans:
+                star_list_T.transform_xym(trans) # trimmed, transformed
             else:
-                if self.mag_trans:
-                    star_list_T.transform_xym(trans) # trimmed, transformed
-                else:
-                    star_list_T.transform_xy(trans) 
+                star_list_T.transform_xy(trans) 
                 
             # Match stars between the transformed, trimmed lists.
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -3592,12 +3589,26 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         me1m = star_list['xe'][idx1]
         print('GUESS')
         guess = transforms.PolyTransform.derive_transform(x1m, y1m, x2m, y2m, order=order, weights=None)
+        print('init guess: ', guess.px.parameters, guess.py.parameters)
         print('TRANS')
         trans = trans_class.derive_transform(order, x1m, y1m, m1m, 
                                                              x2m, y2m, m2m, weights=None,
                                                              xerr=xe1m, yerr=ye1m, merr=me1m,
                                                              init_gx = guess.px.parameters, 
                                                              init_gy = guess.py.parameters)
+        print('solution: ', trans.px.parameters, trans.py.parameters, trans.pc)
+
+        m = np.linspace(15, 25)
+        ycte = transforms.T_cte_y_poly2_power(m, trans.pc[0], trans.pc[1], trans.pc[2], trans.pc[3], trans.pc[4])
+        mcte = transforms.T_cte_m(0, m, trans.pc[5], trans.pc[6], trans.pc[7])
+
+        plt.figure(1)
+        plt.clf()
+        plt.plot(m, ycte, '.')
+        plt.xlabel('mag')
+        plt.ylabel('delta y')
+        plt.show()
+
     else:
         trans = transforms.PolyTransform.derive_transform(x1m, y1m, x2m, y2m, order=order, weights=None)
 
@@ -3609,10 +3620,6 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     else:
         trans.mag_offset = 0
         
-    if verbose:
-        print('init guess: ', trans.px.parameters, trans.py.parameters)
-        print('solution: ', trans.px.parameters, trans.py.parameters, trans.pc)
-
     warnings.filterwarnings('default', category=AstropyUserWarning)
         
     return trans
