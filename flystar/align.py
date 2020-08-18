@@ -483,6 +483,15 @@ class MosaicSelfRef(object):
                                                           ref_list['x'][idx2], ref_list['y'][idx2], ref_list['m'][idx2], 
                                                           xerr=star_list_orig_trim['xe'][idx1], yerr=star_list_orig_trim['ye'][idx1], merr=star_list_orig_trim['me'][idx1], 
                                                           weights='list,std', init_gx = guess.px.parameters, init_gy = guess.py.parameters)
+
+                print('Guess')
+                print('px: ', guess.px.parameters)
+                print('py: ', guess.py.parameters)
+                print('Trans')
+                print('px: ', trans.px.parameters)
+                print('py: ', trans.py.parameters)
+                print('pc: ', trans.pc)
+
             else:
                 trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                           ref_list['x'][idx2], ref_list['y'][idx2],
@@ -538,14 +547,14 @@ class MosaicSelfRef(object):
                 else:
                     star_list_T.transform_xy(self.trans_list[ii]) 
 
-            plt.figure()
-            plt.clf()
-            plt.plot(star_list_T['x'], star_list_T['y'], '.')
-            plt.xlim(-100, 100)
-            plt.ylim(-100, 100)
-            plt.axis('equal')
-            plt.show()
-            pdb.set_trace()
+#            plt.figure()
+#            plt.clf()
+#            plt.plot(star_list_T['x'], star_list_T['y'], '.')
+#            plt.xlim(-100, 100)
+#            plt.ylim(-100, 100)
+#            plt.axis('equal')
+#            plt.show()
+#            pdb.set_trace()
             
             if self.verbose > 1:
                 hdr = '{nr:13s} {n:13s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
