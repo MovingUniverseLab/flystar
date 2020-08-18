@@ -1724,9 +1724,9 @@ class UVIS_CTE_trans_3(PolyTransform):
 
 #        res_func_w = optimize.minpack._wrap_func(res_func, [x, y, m], [xref, yref, mref], weights)
         farg = (order, x, y, m, xref, yref, mref, xerr, yerr, merr, weights)
-        pxymc = optimize.least_squares(res_func, init_param_values, args=farg,
-                                       bounds=([-np.inf] * 2 * n_poly_coeff + [0, -np.inf, 0, -0.1, 13, -np.inf, -np.inf, -np.inf],
-                                               [np.inf] * 2 * n_poly_coeff + [5, np.inf, 20, 0, 25, np.inf, np.inf, np.inf])).x
+        pxymc = optimize.least_squares(res_func, init_param_values, args=farg).x
+#        bounds=([-np.inf] * 2 * n_poly_coeff + [0, -np.inf, 0, -0.1, 13, -np.inf, -np.inf, -np.inf],
+#                [np.inf] * 2 * n_poly_coeff + [5, np.inf, 20, 0, 25, np.inf, np.inf, np.inf])
 
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
