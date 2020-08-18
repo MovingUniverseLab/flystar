@@ -1505,9 +1505,9 @@ class UVIS_CTE_trans_3(PolyTransform):
         ycte = T_cte_y_poly2_power(m, self.A, self.m0, self.alpha, self.m1, self.mb)
         mcte = T_cte_m(y, m, self.z1, self.z2, self.z3)
 
-        xnew = self.px(x, ycte)
-        ynew = self.py(x, ycte)
-        mnew = mcte
+        xnew = self.px(x, y + ycte)
+        ynew = self.py(x, y + ycte)
+        mnew = m + mcte
 
         return xnew, ynew, mnew 
 
@@ -1545,7 +1545,7 @@ class UVIS_CTE_trans_3(PolyTransform):
         dynew_dycte = 0.0
         dynew_dm = 0.0
 
-        ycte = T_cte_y_poly2_power(m, self.A, self.m0, self.alpha, self.m1, self.mb)
+        ycte = y + T_cte_y_poly2_power(m, self.A, self.m0, self.alpha, self.m1, self.mb)
 
         ###
         # Evaluate the polynomial first.
@@ -1724,7 +1724,10 @@ class UVIS_CTE_trans_3(PolyTransform):
 
 #        res_func_w = optimize.minpack._wrap_func(res_func, [x, y, m], [xref, yref, mref], weights)
         farg = (order, x, y, m, xref, yref, mref, xerr, yerr, merr, weights)
-        pxymc = optimize.least_squares(res_func, init_param_values, args=farg).x
+        pxymc = optimize.least_squares(res_func, init_param_values, args=farg,
+                                       bounds=([-np.inf] * 2 * n_poly_coeff + [0, -np.inf, 0, -0.1, 13, -np.inf, -np.inf, -np.inf],
+                                               [np.inf] * 2 * n_poly_coeff + [5, np.inf, 20, 0, 25, np.inf, np.inf, np.inf])).x
+
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
         pc = pxymc[-8:]
@@ -2574,10 +2577,9 @@ def T_cte_m(y, m, z1, z2, z3):
     """
     Transformation model for magnitudes due to CTE
     """
-    return m + z1 * np.exp(z2 * m) + z3 * y
+    return z1 * np.exp(z2 * m) + z3 * y
 
-        
-def T_cte_y(y, m, A, m0, alpha):
+def T_cte_y(m, A, m0, alpha, m1):
     """
     Transformation model for detector y-position due to CTE
     y + A * (m/m0)**alpha
@@ -2585,7 +2587,7 @@ def T_cte_y(y, m, A, m0, alpha):
     # Workaround since can't have fractional negative powers...
     base = m/m0
 
-    return y + A * np.sign(base) * np.abs(base)**alpha
+    return m1 + A * np.sign(base) * np.abs(base)**alpha
  
 def T_cte_y_poly2(m, a, b, c):
     return a + b*m + c*m**2
@@ -2614,4 +2616,3 @@ def T_cte_y_poly2_power(m, A, m0, alpha, m1, mb):
     return np.piecewise(m,
                         [m < mb, m >= mb],
                         [lambda m: T_cte_y_poly2(m, a, b, c), lambda m: T_cte_y(m, A, m0, alpha, m1)])
-
