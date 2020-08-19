@@ -1039,8 +1039,6 @@ class UVIS_CTE_trans_2(PolyTransform):
     Defines a transformation designed to capture the distortions in magnitude 
     and y-position introduced into the HST UVIS detector due to CTE.
     """
-#    def __init__(self, order, px, py, pc, pm,
-#                 pxerr=None, pyerr=None, pcerr=None, pmerr=None):
     def __init__(self, order, px, py, pc,
                  pxerr=None, pyerr=None, pcerr=None):
         """
@@ -1107,20 +1105,19 @@ class UVIS_CTE_trans_2(PolyTransform):
             self.py = models.Polynomial2D(self.order, **py_dict)
 
         self.pc = pc    
-#        self.pm = pm
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.pcerr = pcerr
-#        self.pmerr = pmerr
 
         # Break out individual pieces of CTE correction
         # for easy use
-        self.z1 = pc[0] 
-        self.z2 = pc[1]   
-        self.z3 = pc[2] 
-        self.A = pc[3] 
-        self.m0 = pc[4] 
-        self.alpha = pc[5] 
+        self.A = pc[0] 
+        self.m0 = pc[1] 
+        self.alpha = pc[2] 
+        self.m1 = pc[3] 
+        self.z1 = pc[4] 
+        self.z2 = pc[5]   
+        self.z3 = pc[6] 
 
         return
 
@@ -1148,13 +1145,12 @@ class UVIS_CTE_trans_2(PolyTransform):
         mnew : array
             The transformed magnitudes.
         """
-        ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
+        ycte = T_cte_y_poly2(m, self.A, self.m0, self.alpha, self.m1)
         mcte = T_cte_m(y, m, self.z1, self.z2, self.z3)
 
-        xnew = self.px(x, ycte)
-        ynew = self.py(x, ycte)
-#        mnew = mcte + self.pm
-        mnew = mcte
+        xnew = self.px(x, y + ycte)
+        ynew = self.py(x, y + ycte)
+        mnew = m + mcte
 
         return xnew, ynew, mnew 
 
@@ -1191,7 +1187,7 @@ class UVIS_CTE_trans_2(PolyTransform):
         dynew_dycte = 0.0
         dynew_dm = 0.0
 
-        ycte = T_cte_y(y, m, self.A, self.m0, self.alpha)
+        ycte = y + T_cte_y(m, self.A, self.m0, self.alpha, self.m1)
 
         ###
         # Evaluate the polynomial first.
@@ -1402,7 +1398,8 @@ class UVIS_CTE_trans_3(PolyTransform):
     Magnitude is corrected with exponential (m) + polynomial (y)
     """
     def __init__(self, order, px, py, pc,
-                 pxerr=None, pyerr=None, pcerr=None):
+                 pxerr=None, pyerr=None, pcerr=None,
+                 mag_offset=0.0):
         """
         Specify the order of the affine transformation (0th, 1st, 2nd, etc.)
         and the coefficients for the x transformation and y transformation. 
@@ -1435,7 +1432,20 @@ class UVIS_CTE_trans_3(PolyTransform):
         pcerr : array or list
             array or list of errors of the coefficients for the CTE transformation
 
+        mag_offset : float
+            magnitude difference with the reference catalog (mag_ref - mag_cat)
         """
+        # Check input types 
+        inputs = [px, py]
+        for input in inputs:
+            if not ((type(input) == list) or (type(input) == np.ndarray) or (input is None)):
+                raise Exception('px, py, need to be lists or arrays!')
+
+        inputs = [pxerr, pyerr]
+        for input in inputs:
+            if not ((type(input) == list) or (type(input) == np.ndarray) or (input is None)):
+                raise Exception('pxerr, pyerr need to be lists or arrays!')
+
         self.order = order
         self.poly_order = order
 
@@ -1464,6 +1474,7 @@ class UVIS_CTE_trans_3(PolyTransform):
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.pcerr = pcerr
+        self.mag_offset = mag_offset
 
         # Break out individual pieces of CTE correction
         # for easy use
@@ -1731,6 +1742,16 @@ class UVIS_CTE_trans_3(PolyTransform):
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
         pc = pxymc[-8:]
+
+        # FIXME: Can I just add the mag_trans stuff here?? 
+        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
+        if (m is not None) and (mref is not None) and mag_trans:
+            m_resid = mref - m
+            threshold = 3 * m_resid.std()
+            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+            mag_offset = np.mean((mref - m)[keepers])
+        else:
+            mag_offset =  0
         
         trans = cls(order, px, py, pc)
 
@@ -2581,8 +2602,8 @@ def T_cte_m(y, m, z1, z2, z3):
 
 def T_cte_y(m, A, m0, alpha, m1):
     """
-    Transformation model for detector y-position due to CTE
-    y + A * (m/m0)**alpha
+    Transformation model for shift in detector y-position due to CTE
+    m1 + A * (m/m0)**alpha
     """
     # Workaround since can't have fractional negative powers...
     base = m/m0
@@ -2590,26 +2611,34 @@ def T_cte_y(m, A, m0, alpha, m1):
     return m1 + A * np.sign(base) * np.abs(base)**alpha
  
 def T_cte_y_poly2(m, a, b, c):
+    """
+    Transformation model for shift in detector y-position due to CTE
+    """
     return a + b*m + c*m**2
 
 def T_cte_y_stsci(y, m, w1, w2, w3):
     """
-    Transformation model for detector y-position due to CTE
-    from the STSci website
+    Transformation model for shift in detector y-position due to CTE
+    from ISR ACS 2007-04 (Kozhurina-Platais, Goudfrooij, and Puzia 2007 Eq 7)
     """
     return w1 + (w2 * m) + (w3 * y)
-
-        
+ 
 def T_cte_y_3(y, m, w1, w2, w3):
     """
     Transformation model for detector y-position due to CTE
-    y + A * (m/m0)**alpha
+    from ISR ACS 2007-04 (Kozhurina-Platais, Goudfrooij, and Puzia 2007 Eq 7)
     """
-
     return w1*np.exp(w2*m) + w3*y
 
 def T_cte_y_poly2_power(m, A, m0, alpha, m1, mb):
-    # mb is the breakpoint
+    """
+    C^2 continuous function
+
+    mb is the breakpoint of the function
+
+    Fainter than the breakpoint (m > mb) is power,
+    brighter than the breakpoint (m < mb) is quadratic polynomial
+    """
     a = m1 + A*(mb/m0)**alpha * (1 - 1.5*alpha + 0.5*alpha**2)
     b = (A * alpha/m0) * (2 - alpha) * (mb/m0)**(alpha - 1)
     c = A * alpha * (alpha - 1)/(2 * m0**2) * (mb/m0)**(alpha-2)
