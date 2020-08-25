@@ -2216,7 +2216,9 @@ def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,1
         sig[id] = -1.*sig[id] 
         (n, b, p) = plt.hist(sig, bins, histtype='stepfilled', color='b')
         plt.setp(p, 'facecolor', 'b')
-        plt.axis([-7, 7, 0, 8], fontsize=10)
+#        plt.axis([-7, 7, 0, 8], fontsize=10)
+        plt.axis([-7, 7, 0, 8])
+        plt.xticks(fontsize=10)
         plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
         plt.ylabel('N epochs', fontsize=fontsize1)
        
