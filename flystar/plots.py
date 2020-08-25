@@ -1944,8 +1944,8 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
             col = 1 + 2*(i % (Ncols/2))
             row = 1 + 3*(i//(Ncols/2)) 
             
-        ind = (row-1)*Ncols + col
-        
+        ind = int((row-1)*Ncols + col)
+
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, fitLineX, 'b-')
         plt.plot(time, fitLineX + fitSigX, 'b--')
@@ -1972,7 +1972,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
 
 
         col = col + 1
-        ind = (row-1)*Ncols + col
+        ind = int((row-1)*Ncols + col)
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, fitLineY, 'b-')
@@ -1988,7 +1988,9 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
                 plt.plot(xx, yy, '.', color=color)
                 plt.errorbar(xx, yy, ee, color=color)
         rng = plt.axis()
-        plt.axis(dateTicRng + [rng[2], rng[3]], fontsize=fontsize1)
+#        plt.axis(dateTicRng + [rng[2], rng[3]], fontsize=fontsize1)
+        plt.xticks(fontsize=fontsize1)
+        plt.axis(dateTicRng + [rng[2], rng[3]])
         plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
             plt.xlabel('Date (MJD)', fontsize=fontsize1)
@@ -1999,7 +2001,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
 
         row = row + 1
         col = col - 1
-        ind = (row-1)*Ncols + col
+        ind = int((row-1)*Ncols + col)
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, np.zeros(len(time)), 'b-')
@@ -2014,7 +2016,9 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
             for xx, yy, ee, color in zip(time, (x - fitLineX)*1e3, xerr*1e3, time_color):
                 plt.plot(xx, yy, '.', color=color)
                 plt.errorbar(xx, yy, ee, color=color)
-        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+#        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        plt.axis(dateTicRng + resTicRng)
+        plt.xticks(fontsize=fontsize1)
         plt.xlabel('Date (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
             plt.xlabel('Date (MJD)', fontsize=fontsize1)
@@ -2023,7 +2027,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
 
         col = col + 1
-        ind = (row-1)*Ncols + col
+        ind = int((row-1)*Ncols + col)
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, np.zeros(len(time)), 'b-')
@@ -2038,7 +2042,9 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
             for xx, yy, ee, color in zip(time, (y - fitLineY)*1e3, yerr*1e3, time_color):
                 plt.plot(xx, yy, '.', color=color)
                 plt.errorbar(xx, yy, ee, color=color)
-        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+#        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        plt.axis(dateTicRng + resTicRng)
+        plt.xticks(fontsize=fontsize1)
         plt.xlabel('Date (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
             plt.xlabel('Date (MJD)', fontsize=fontsize1)
@@ -2048,7 +2054,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
 
         row = row + 1
         col = col - 1
-        ind = (row-1)*Ncols + col
+        ind = int((row-1)*Ncols + col)
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         if not color_time:
@@ -2072,7 +2078,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         plt.plot(fitLineX, fitLineY, 'b-')    
 
         col = col + 1
-        ind = (row-1)*Ncols + col
+        ind = int((row-1)*Ncols + col)
 
         bins = np.arange(-7.5, 7.5, 1)
         paxes = plt.subplot(Nrows, Ncols, ind)
@@ -2081,7 +2087,9 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         (n, b, p) = plt.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
         plt.setp(p, 'facecolor', 'b')
         (n, b, p) = plt.hist(sigY, bins, histtype='step', color='r', label='Y')
-        plt.axis([-7, 7, 0, 8], fontsize=10)
+#        plt.axis([-7, 7, 0, 8], fontsize=10)
+        plt.axis([-7, 7, 0, 8])
+        plt.xticks(fontsize=10)
         plt.legend(fontsize=10)
         plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
         plt.ylabel('Number of Epochs', fontsize=fontsize1)
