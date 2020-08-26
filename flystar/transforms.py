@@ -1522,7 +1522,6 @@ class UVIS_CTE_trans_3(PolyTransform):
 
         return xnew, ynew, mnew 
 
-    # FIXME NEED TO CALCULATE DERIVATIVES 
     def evaluate_error(self, x, y, m, xe, ye, me):
         """
         Transform positional uncertainties. 
@@ -1620,15 +1619,12 @@ class UVIS_CTE_trans_3(PolyTransform):
                          init_gc=None, weights=None,
                          mag_trans=True):
 
-        # FIGURE OUT HOW TO PROPERLY DEAL WITH THE WEIGHTS
         def res_func(params, order,
                      x_in, y_in, m_in, 
                      x_ref, y_ref, m_ref,
                      xe_in=None, ye_in=None, me_in=None,
                      weights=None):
             """
-            FIX THIS AFTER WRITING
-
             Computes vector of residuals. The minimization is wrt params.
 
             Parameters
@@ -1666,8 +1662,6 @@ class UVIS_CTE_trans_3(PolyTransform):
                 x_res = x_out - x_ref 
                 y_res = y_out - y_ref 
                 m_res = m_out - m_ref 
-            # FIXME can this support the other variants? 
-            # FIXME is this the same as lumping them all together into a single weight term?
             else:
                 # If the error is 0, reassign it to have a value of 1E-4.
                 # FIXME: Why are there even stars with x and y positional 
@@ -1679,6 +1673,7 @@ class UVIS_CTE_trans_3(PolyTransform):
                 ye_in[ydx] = 10**-4
                 me_in[mdx] = 10**-4
 
+                # FIXME is this the same as lumping them all together into a single weight term?
                 if weights == 'list,var':
                     x_res = (x_out - x_ref)/xe_in**2
                     y_res = (y_out - y_ref)/ye_in**2
@@ -1720,7 +1715,6 @@ class UVIS_CTE_trans_3(PolyTransform):
                 init_gy_list.append(init_gy[key])
 
         # FIXME: CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
-#        init_param_values = init_gx_list + init_gy_list + init_gc + init_gm
         init_param_values = init_gx_list + init_gy_list + init_gc
 
         ###
@@ -1734,11 +1728,8 @@ class UVIS_CTE_trans_3(PolyTransform):
         if 2*n_poly_coeff + 8 != len(init_param_values):
             raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
-#        res_func_w = optimize.minpack._wrap_func(res_func, [x, y, m], [xref, yref, mref], weights)
         farg = (order, x, y, m, xref, yref, mref, xerr, yerr, merr, weights)
         pxymc = optimize.least_squares(res_func, init_param_values, args=farg).x
-#        bounds=([-np.inf] * 2 * n_poly_coeff + [0, -np.inf, 0, -0.1, 13, -np.inf, -np.inf, -np.inf],
-#                [np.inf] * 2 * n_poly_coeff + [5, np.inf, 20, 0, 25, np.inf, np.inf, np.inf])
 
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
