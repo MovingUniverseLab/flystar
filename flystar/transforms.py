@@ -1617,7 +1617,8 @@ class UVIS_CTE_trans_3(PolyTransform):
                          xref, yref, mref,
                          xerr=None, yerr=None, merr=None,
                          init_gx=None, init_gy=None, 
-                         init_gc=None, weights=None):
+                         init_gc=None, weights=None,
+                         mag_trans=True):
 
         # FIGURE OUT HOW TO PROPERLY DEAL WITH THE WEIGHTS
         def res_func(params, order,
