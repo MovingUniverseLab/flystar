@@ -1780,7 +1780,8 @@ def plot_chi2_dist(tab, Ndetect):
 
     for ii in range(len(tab['xe'])):
         # Ignore the NaNs 
-        fnd = np.where(tab['xe'][ii, :] > 0)[0]
+        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
+#        fnd = np.where(tab['xe'][ii, :] > 0)[0]
         fnd_list.append(len(fnd))
         
         time = tab['t'][ii, fnd]
@@ -1824,6 +1825,51 @@ def plot_chi2_dist(tab, Ndetect):
 
     return
 
+
+def plot_chi2_dist_mag(tab, Ndetect):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    chi2_m_list = []
+    fnd_list = [] # Number of non-NaN error measurements
+
+    for ii in range(len(tab['me'])):
+        # Ignore the NaNs 
+        fnd = np.argwhere(~np.isnan(tab['me'][ii,:]))
+        fnd_list.append(len(fnd))
+        
+        m = tab['m'][ii, fnd]
+        merr = tab['me'][ii, fnd]
+        m0 = tab['m0'][ii]
+        m0err = tab['m0e'][ii]
+
+        diff_m = m0 - m
+        sig_m = diff_m/merr
+        
+        chi2_m = np.sum(sig_m**2)
+        chi2_m_list.append(chi2_m)
+
+    m = np.array(chi2_m_list)
+    fnd = np.array(fnd_list)
+
+    idx = np.where(fnd == Ndetect)[0]
+    # Fitting mag (straight line) only has 1 DOF
+    Ndof = Ndetect - 1
+    chi2_maxis = np.linspace(0, 40, 100)
+
+    plt.figure(figsize=(6,4))
+    plt.clf()
+    plt.hist(m[idx], bins=np.arange(400), histtype='step', density=True)
+    plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
+             label='$\chi^2$ ' + str(Ndof) + ' dof')
+    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.xlim(0, 40)
+    plt.legend()
+
+    return
+
+
 def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), color_time=False):
     """
     Plot a set of stars positions and residuals over time. 
@@ -1858,7 +1904,9 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         except IndexError:
             print("!! %s is not in this list"%starName)
 
-        fnd = np.where(tab['xe'][ii, :] > 0)[0]
+            # Ignore the NaNs
+#        fnd = np.where(tab['xe'][ii, :] > 0)[0]
+        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
 
         if epoch_array is not None:
             fnd = np.intersect1d(fnd, epoch_array)
@@ -2137,7 +2185,8 @@ def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,1
         except IndexError:
             print("!! %s is not in this list"%starName)
 
-        fnd = np.where(tab['xe'][ii, :] > 0)[0]
+        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
+#        fnd = np.where(tab['xe'][ii, :] > 0)[0]
 
         if epoch_array is not None:
             fnd = np.intersect1d(fnd, epoch_array)
@@ -2152,7 +2201,7 @@ def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,1
         diff = m0 - m
         sig = diff/merr
         
-        chi2 = np.sum(sig)
+        chi2 = np.sum(sig**2)
         dof = len(m) - 1 # horizontal line has only 1 dof right?
         chi2_red = chi2/dof
 
