@@ -477,6 +477,8 @@ class StarList(Table):
                 col8: N_frames
                 col9: ? (left as default)
 
+            Note that an 'me' column will be added if error=True set to 1.0 / snr.
+
         error: boolean (default=True)
             If true, assumes starlist has error columns. This significantly
             changes the order of the columns.
@@ -509,6 +511,7 @@ class StarList(Table):
             t_ref.rename_column(cols[8], 'corr')
             t_ref.rename_column(cols[9], 'N_frames')
             t_ref.rename_column(cols[10], 'flux')
+            t_ref['me'] = 1.0 / t_ref['snr']
         else:
             t_ref.rename_column(cols[5], 'snr')
             t_ref.rename_column(cols[6], 'corr')
