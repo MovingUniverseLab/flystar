@@ -481,8 +481,7 @@ class MosaicSelfRef(object):
                 trans = self.trans_class.derive_transform(trans_args['order'],
                                                           star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], star_list_orig_trim['m'][idx1], 
                                                           ref_list['x'][idx2], ref_list['y'][idx2], ref_list['m'][idx2], 
-                                                          xerr=star_list_orig_trim['xe'][idx1], yerr=star_list_orig_trim['ye'][idx1], merr=star_list_orig_trim['me'][idx1], 
-                                                          weights='list,std', init_gx = guess.px.parameters, init_gy = guess.py.parameters)
+                                                          weights=weight, init_gx = guess.px.parameters, init_gy = guess.py.parameters)
 
                 print('Guess')
                 print('px: ', guess.px.parameters)
@@ -518,8 +517,7 @@ class MosaicSelfRef(object):
                     trans_inv = self.trans_class.derive_transform(trans_args['order'],
                                                                   ref_list['x'][idx2], ref_list['y'][idx2], ref_list['m'][idx2], 
                                                                   star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], star_list_orig_trim['m'][idx1], 
-                                                                  xerr=ref_list['xe'][idx2], yerr=ref_list['ye'][idx2], merr=ref_list['me'][idx2], 
-                                                                  weights='list,std', init_gx = guess_inv.px.parameters, init_gy = guess_inv.py.parameters)
+                                                                  weights=weight, init_gx = guess_inv.px.parameters, init_gy = guess_inv.py.parameters)
 
                 else:
                     trans_inv = self.trans_class.derive_transform(ref_list['x'][idx2], ref_list['y'][idx2],

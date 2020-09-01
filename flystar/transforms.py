@@ -18,6 +18,12 @@ import pdb
 #
 #np.seterr(divide='raise', over='raise', invalid='raise')
 
+np.seterr(invalid='raise')
+
+#import warnings
+#with warnings.catch_warnings():
+#    warnings.filterwarnings("error", "invalid value encountered in double_scalars", RuntimeWarning)
+
 class Transform2D(object):
     '''
     Base class for transformations. It contains the properties common to all
@@ -1578,8 +1584,9 @@ class UVIS_CTE_trans_3(PolyTransform):
                     dynew_dycte += Ycoeff * (j) * x**(i-j) * ycte**(j-1)
 
         # Calculate and define stuff to evaluating dycte_dm
-        b = (self.A * self.alpha/self.m0) * (2 - self.alpha) * (self.mb/self.m0)**(self.alpha - 1)
-        c = self.A * self.alpha * (self.alpha - 1)/(2 * self.m0**2) * (self.mb/self.m0)**(self.alpha-2)
+        mb_m0 = np.abs(self.mb/self.m0)
+        b = (self.A * self.alpha/self.m0) * (2 - self.alpha) * np.sign(mb_m0)*mb_m0**(self.alpha - 1)
+        c = self.A * self.alpha * (self.alpha - 1)/(2 * self.m0**2) * np.sign(mb_m0)*mb_m0**(self.alpha-2)
         base = m/self.m0
         lin_idx = np.where(m >= self.mb)[0]
         power_deriv = (self.A * self.alpha/self.m0) * np.sign(base[lin_idx]) * np.abs(base[lin_idx])**(self.alpha-1)
@@ -1614,7 +1621,6 @@ class UVIS_CTE_trans_3(PolyTransform):
     @classmethod
     def derive_transform(cls, order, x, y, m, 
                          xref, yref, mref,
-                         xerr=None, yerr=None, merr=None,
                          init_gx=None, init_gy=None, 
                          init_gc=None, weights=None,
                          mag_trans=True):
@@ -1622,7 +1628,6 @@ class UVIS_CTE_trans_3(PolyTransform):
         def res_func(params, order,
                      x_in, y_in, m_in, 
                      x_ref, y_ref, m_ref,
-                     xe_in=None, ye_in=None, me_in=None,
                      weights=None):
             """
             Computes vector of residuals. The minimization is wrt params.
@@ -1657,31 +1662,16 @@ class UVIS_CTE_trans_3(PolyTransform):
             try_trans = UVIS_CTE_trans_3(order, try_px, try_py, try_pc)
 
             x_out, y_out, m_out = try_trans.evaluate(x_in, y_in, m_in)
+
             # Calculate the residuals.
             if weights is None:
                 x_res = x_out - x_ref 
                 y_res = y_out - y_ref 
                 m_res = m_out - m_ref 
             else:
-                # If the error is 0, reassign it to have a value of 1E-4.
-                # FIXME: Why are there even stars with x and y positional 
-                # errors of 0???
-                xdx = np.where(xe_in == 0)[0]
-                ydx = np.where(ye_in == 0)[0]
-                mdx = np.where(me_in == 0)[0]
-                xe_in[xdx] = 10**-4
-                ye_in[ydx] = 10**-4
-                me_in[mdx] = 10**-4
-
-                # FIXME is this the same as lumping them all together into a single weight term?
-                if weights == 'list,var':
-                    x_res = (x_out - x_ref)/xe_in**2
-                    y_res = (y_out - y_ref)/ye_in**2
-                    m_res = (m_out - m_ref)/me_in**2
-                if weights == 'list,std':
-                    x_res = (x_out - x_ref)/xe_in
-                    y_res = (y_out - y_ref)/ye_in
-                    m_res = (m_out - m_ref)/me_in
+                x_res = (x_out - x_ref) * np.sqrt(weights)
+                y_res = (y_out - y_ref) * np.sqrt(weights)
+                m_res = (m_out - m_ref) * np.sqrt(weights)
 
             res = np.concatenate((x_res, y_res, m_res))
 
@@ -1728,9 +1718,11 @@ class UVIS_CTE_trans_3(PolyTransform):
         if 2*n_poly_coeff + 8 != len(init_param_values):
             raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
-        farg = (order, x, y, m, xref, yref, mref, xerr, yerr, merr, weights)
-        pxymc = optimize.least_squares(res_func, init_param_values, args=farg).x
+        farg = (order, x, y, m, xref, yref, mref, weights)
+        opt = optimize.least_squares(res_func, init_param_values, args=farg)
+        print('COST: ', opt.cost)
 
+        pxymc = opt.x
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
         pc = pxymc[-8:]
@@ -2631,9 +2623,12 @@ def T_cte_y_poly2_power(m, A, m0, alpha, m1, mb):
     Fainter than the breakpoint (m > mb) is power,
     brighter than the breakpoint (m < mb) is quadratic polynomial
     """
-    a = m1 + A*(mb/m0)**alpha * (1 - 1.5*alpha + 0.5*alpha**2)
-    b = (A * alpha/m0) * (2 - alpha) * (mb/m0)**(alpha - 1)
-    c = A * alpha * (alpha - 1)/(2 * m0**2) * (mb/m0)**(alpha-2)
+    # Workaround since can't have fractional negative powers.
+    base = np.abs(mb/m0)
+
+    a = m1 + A*np.sign(base)*base**alpha * (1 - 1.5*alpha + 0.5*alpha**2)
+    b = (A * alpha/m0) * (2 - alpha) * np.sign(base)*base**(alpha - 1)
+    c = A * alpha * (alpha - 1)/(2 * m0**2) * np.sign(base)*base**(alpha-2)
     return np.piecewise(m,
                         [m < mb, m >= mb],
                         [lambda m: T_cte_y_poly2(m, a, b, c), lambda m: T_cte_y(m, A, m0, alpha, m1)])
