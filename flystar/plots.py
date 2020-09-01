@@ -1825,7 +1825,6 @@ def plot_chi2_dist(tab, Ndetect):
 
     return
 
-
 def plot_chi2_dist_mag(tab, Ndetect):
     """
     tab = flystar table
@@ -1872,7 +1871,7 @@ def plot_chi2_dist_mag(tab, Ndetect):
 
 def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), color_time=False):
     """
-    Plot a set of stars positions and residuals over time. 
+    Plot a set of stars positions, flux and residuals over time. 
 
     epoch_array : None, array
         Array of the epoch indicies to plot. If None, plots all epochs.
@@ -1881,11 +1880,11 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
     print( star_names )
     
     Nstars = len(star_names)
-    Ncols = 2 * np.min([Nstars, NcolMax])
-    if Nstars <= Ncols/2:
+    Ncols = 3 * np.min([Nstars, NcolMax])
+    if Nstars <= Ncols/3:
         Nrows = 3
     else:
-        Nrows = math.ceil(Nstars / (Ncols / 2)) * 3
+        Nrows = math.ceil(Nstars / (Ncols / 3)) * 3
 
     plt.close('all')
     plt.figure(2, figsize=figsize)
@@ -1900,7 +1899,6 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         
         try:
             ii = np.where(tab['name'] == starName)[0][0]
-            print(ii, tab[ii]['name'])
         except IndexError:
             print("!! %s is not in this list"%starName)
 
@@ -1915,8 +1913,10 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         dtime = time.data % 1 
         x = tab['x'][ii, fnd]
         y = tab['y'][ii, fnd]
+        m = tab['m'][ii, fnd]
         xerr = tab['xe'][ii, fnd]
         yerr = tab['ye'][ii, fnd]
+        merr = tab['me'][ii, fnd]
 
         dt = tab['t'][ii, fnd] - tab['t0'][ii]
         fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
@@ -1924,28 +1924,37 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
 
         fitSigX = np.hypot(tab['x0e'][ii], tab['vxe'][ii]*dt)
         fitSigY = np.hypot(tab['y0e'][ii], tab['vye'][ii]*dt)
+
+        fitLineM = np.repeat(tab['m0'][ii], len(dt))
+        fitSigM = np.repeat(tab['m0e'][ii], len(dt))
         
         diffX = x - fitLineX
         diffY = y - fitLineY
+        diffM = m - fitLineM
         diff = np.hypot(diffX, diffY)
         rerr = np.sqrt((diffX*xerr)**2 + (diffY*yerr)**2) / diff
         sigX = diffX / xerr
         sigY = diffY / yerr
+        sigM = diffM / merr
         sig = diff / rerr
 
-        # Determine if there are points that are more than 5 sigma off
+        # Determine if there are points that are more than 4 sigma off
         idxX = np.where(abs(sigX) > 4)
         idxY = np.where(abs(sigY) > 4)
+        idxM = np.where(abs(sigM) > 4)
         idx = np.where(abs(sig) > 4)
 
         # Calculate chi^2 metrics
         chi2_x = np.sum(sigX**2)
         chi2_y = np.sum(sigY**2)
+        chi2_m = np.sum(sigM**2)
 
         dof = len(x) - 2
+        dofM = len(m) - 1
 
         chi2_red_x = chi2_x / dof
         chi2_red_y = chi2_y / dof
+        chi2_red_m = chi2_m / dofM
         
 
         print( 'Star:        ', starName )
@@ -1953,6 +1962,8 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
               (chi2_red_x, chi2_x, dof))
         print( '\tY Chi^2 = %5.2f (%6.2f for %2d dof)' % 
               (chi2_red_y, chi2_y, dof))
+        print( '\tM Chi^2 = %5.2f (%6.2f for %2d dof)' % 
+              (chi2_red_m, chi2_m, dofM))
 
         tmin = time.min()
         tmax = time.max()
@@ -1975,23 +1986,31 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
 
         maxErr = np.array([(diffX-xerr)*1e3, (diffX+xerr)*1e3,
                            (diffY-yerr)*1e3, (diffY+yerr)*1e3]).max()
+        maxErrM = np.array([(diffM - merr), (diffM + merr)]).max()
 
         if maxErr > 2:
             maxErr = 2.0
+        if maxErrM > 1.0:
+            maxErr = 1.0
         resTicRng = [-1.1*maxErr, 1.1*maxErr]
+        resTicRngM = [-1.1*maxErrM, 1.1*maxErrM]
 
         from matplotlib.ticker import FormatStrFormatter
         fmtX = FormatStrFormatter('%5i')
         fmtY = FormatStrFormatter('%6.3f')
+        fmtM = FormatStrFormatter('%5.2f')
         fontsize1 = 10
 
-        if i < (Ncols/2):
-            col = (2*i)+1
+        ##########
+        # X vs time
+        ##########
+        if i < (Ncols/3):
+            col = (3*i)+1
             row = 1
         else:
             col = 1 + 2*(i % (Ncols/2))
             row = 1 + 3*(i//(Ncols/2)) 
-            
+
         ind = int((row-1)*Ncols + col)
 
         paxes = plt.subplot(Nrows, Ncols, ind)
@@ -2008,6 +2027,7 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
                 plt.plot(xx, yy, '.', color=color)
                 plt.errorbar(xx, yy, ee, color=color)
         rng = plt.axis()
+        plt.axis(dateTicRng + [rng[2], rng[3]], fontsize=fontsize1)
         #plt.ylim(np.min(x-xerr)*0.99, np.max(x+xerr)*1.01) 
         plt.xlabel('Date (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
@@ -2016,9 +2036,12 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.yaxis.set_major_formatter(fmtY)
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
-        plt.annotate(starName,xy=(1.0,1.1), xycoords='axes fraction', fontsize=12, color='red')
+        plt.annotate(starName, xy=(1.0,1.1), xycoords='axes fraction', fontsize=12, color='red')
 
 
+        ##########
+        # Y vs time
+        ##########
         col = col + 1
         ind = int((row-1)*Ncols + col)
 
@@ -2045,8 +2068,41 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         plt.ylabel('Y (asec)', fontsize=fontsize1)
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.yaxis.set_major_formatter(fmtY)
-        paxes.tick_params(axis='both', which='major', labelsize=12)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
 
+        ##########
+        # M vs time
+        ##########
+        col = col + 1
+        ind = (row - 1)*Ncols + col
+
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, fitLineM, 'g-')
+        plt.plot(time, fitLineM + fitSigM, 'g--')
+        plt.plot(time, fitLineM - fitSigM, 'g--')
+        if not color_time:
+            plt.errorbar(time, m, yerr=merr, fmt='k.')
+        else:
+            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+            for xx, yy, ee, color in zip(time, m, merr, time_color):
+                plt.plot(xx, yy, '.', color=color)
+                plt.errorbar(xx, yy, ee, color=color)
+        rng = plt.axis()
+        plt.axis(dateTicRng + [rng[2], rng[3]], fontsize=fontsize1)
+        plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('m (mag)', fontsize=fontsize1)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.yaxis.set_major_formatter(fmtM)
+        paxes.tick_params(axis='both', which='major', labelsize=12)
+        
+
+        ##########
+        # X residuals vs time
+        ##########
         row = row + 1
         col = col - 1
         ind = int((row-1)*Ncols + col)
@@ -2074,6 +2130,9 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
 
+        ##########
+        # Y residuals vs time
+        ##########
         col = col + 1
         ind = int((row-1)*Ncols + col)
 
@@ -2100,6 +2159,37 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
 
+        ##########
+        # M residuals vs time
+        ##########
+        col = col + 1
+        ind = (row-1)*Ncols + col
+
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, np.zeros(len(time)), 'g-')
+        plt.plot(time,  fitSigM*1e3, 'g--')
+        plt.plot(time, -fitSigM*1e3, 'g--')
+        if not color_time:
+            plt.errorbar(time, (m - fitLineM), yerr=merr, fmt='k.')
+        else:
+            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+            for xx, yy, ee, color in zip(time, (m - fitLineM), merr, time_color):
+                plt.plot(xx, yy, '.', color=color)
+                plt.errorbar(xx, yy, ee, color=color)
+        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        plt.xlabel('Date (yrs)', fontsize=fontsize1)
+        if time[0] > 50000:
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('m Residuals (mag)', fontsize=fontsize1)
+        paxes.xaxis.set_major_formatter(fmtX)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+
+
+        ##########
+        # X vs. Y
+        ##########
         row = row + 1
         col = col - 1
         ind = int((row-1)*Ncols + col)
@@ -2125,6 +2215,9 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         plt.ylabel('Y (asec)', fontsize=fontsize1)
         plt.plot(fitLineX, fitLineY, 'b-')    
 
+        ##########
+        # X, Y Histogram of Residuals
+        ##########
         col = col + 1
         ind = int((row-1)*Ncols + col)
 
@@ -2141,6 +2234,23 @@ def plot_stars(tab, star_names, NcolMax=3, epoch_array = None, figsize=(15,15), 
         plt.legend(fontsize=10)
         plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
         plt.ylabel('Number of Epochs', fontsize=fontsize1)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+
+        ##########
+        # M Histogram of Residuals
+        ##########
+        col = col + 1
+        ind = (row-1)*Ncols + col
+
+        bins = np.arange(-7.5, 7.5, 1)
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        (n, b, p) = plt.hist(sigM, bins, histtype='stepfilled', color='g', label='m')
+        plt.axis([-7, 7, 0, 8], fontsize=10)
+        plt.legend(fontsize=10)
+        plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
+        plt.ylabel('Number of Epochs', fontsize=fontsize1)
+        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+            
 
     if Nstars == 1:
         plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
