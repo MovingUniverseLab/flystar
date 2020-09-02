@@ -23,14 +23,6 @@ motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
                           'ax', 'axe', 'ay', 'aye',
                           't0', 'm0', 'm0e', 'use_in_trans']
 
-# Keep a list of the CTE classes 
-class_CTE = [flystar.transforms.UVIS_CTE_trans_1, 
-             flystar.transforms.UVIS_CTE_trans_2, 
-             flystar.transforms.UVIS_CTE_trans_3,
-             transforms.UVIS_CTE_trans_1,
-             transforms.UVIS_CTE_trans_2,
-             transforms.UVIS_CTE_trans_3]
-
 class MosaicSelfRef(object):
     def __init__(self, list_of_starlists, ref_index=0, iters=2,
                  dr_tol=[1, 1], dm_tol=[2, 1],
@@ -421,11 +413,10 @@ class MosaicSelfRef(object):
                                             mag_trans=self.mag_trans,
                                             trans_class=self.trans_class)
 
-            if isinstance(trans, (flystar.transforms.UVIS_CTE_trans_1, flystar.transforms.UVIS_CTE_trans_2, flystar.transforms.UVIS_CTE_trans_3)):
-                # FIXME: should mag_trans be supported in UVIS_CTE_trans_* classes?
+            if isinstance(trans, flystar.transforms.UVIS_CTE_trans):
                 if self.mag_trans:
                     star_list_T.transform_xym_CTE(trans)
-#                    star_list_T.transform_m(trans)
+                    star_list_T.transform_m(trans)
                 else:
                     star_list_T.transform_xym_CTE(trans)
                 
@@ -470,7 +461,7 @@ class MosaicSelfRef(object):
             # Derive the best-fit transformation parameters. 
             if self.verbose > 0:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
-            if self.trans_class in [flystar.transforms.UVIS_CTE_trans_1, flystar.transforms.UVIS_CTE_trans_2, flystar.transforms.UVIS_CTE_trans_3]:
+            if self.trans_class == flystar.transforms.UVIS_CTE_trans:
                 # Use this as a guess
                 guess = transforms.PolyTransform.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                           ref_list['x'][idx2], ref_list['y'][idx2],
@@ -506,7 +497,7 @@ class MosaicSelfRef(object):
             if self.calc_trans_inverse:
                 print('Doing inverse')
 
-                if self.trans_class in [flystar.transforms.UVIS_CTE_trans_1, flystar.transforms.UVIS_CTE_trans_2, flystar.transforms.UVIS_CTE_trans_3]:
+                if self.trans_class == flystar.transforms.UVIS_CTE_trans:
                     # Use this as a guess
                     guess_inv = transforms.PolyTransform.derive_transform(ref_list['x'][idx2], ref_list['y'][idx2], 
                                                                           star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
@@ -533,7 +524,7 @@ class MosaicSelfRef(object):
             star_list_T = copy.deepcopy(star_list)
 
             # FIXME: should mag_trans be supported in UVIS_CTE_trans_* classes?
-            if self.trans_class in [flystar.transforms.UVIS_CTE_trans_1, flystar.transforms.UVIS_CTE_trans_2, flystar.transforms.UVIS_CTE_trans_3]:
+            if self.trans_class == flystar.transforms.UVIS_CTE_trans:
                 if self.mag_trans:
                     star_list_T.transform_xym_CTE(self.trans_list[ii])
 #                    star_list_T.transform_m(self.trans_list[ii])
@@ -1011,7 +1002,7 @@ class MosaicSelfRef(object):
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(self.star_lists[ii])
 
-            if self.trans_class in [flystar.transforms.UVIS_CTE_trans_1, flystar.transforms.UVIS_CTE_trans_2, flystar.transforms.UVIS_CTE_trans_3]:
+            if self.trans_class == flystar.transforms.UVIS_CTE_trans:
                 star_list_T.transform_xym_CTE(self.trans_list[ii])
             else:
                 if self.mag_trans:
@@ -3623,7 +3614,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         order = 0
     else:
         order = 1
-    if trans_class in [flystar.transforms.UVIS_CTE_trans_1, flystar.transforms.UVIS_CTE_trans_2, flystar.transforms.UVIS_CTE_trans_3]:
+    if trans_class == flystar.transforms.UVIS_CTE_trans:
         # Get the corresponding errors for the matched stars
         # FIXME: Necessary or not???
         idx1 = np.zeros(N, dtype=int)
