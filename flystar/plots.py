@@ -1333,8 +1333,8 @@ def plot_mag_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx,
     ax[6].scatter(mgood, mgood-m0good, color='black', alpha=0.3, s=2)
     ax[6].scatter(mref, mref-m0ref, color='red', alpha=0.3, s=2)
     ax[6].set_xlabel('mag')
-    ax[6].set_ylabel('Res, m-m0 (mag)')
-    ax[6].set_ylim(-0.5, 0.5)
+    ax[6].set_ylabel('m-m0 (mag)')
+    ax[6].set_ylim(-0.3, 0.3)
     ax[6].axhline(y=0)
 
     ax[0].set_title(title)
@@ -1419,18 +1419,21 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
     ax[4].scatter(yorig[good_idx][ref_idx], xref/xeref, color='red', alpha=0.3, s=2)
     ax[4].set_xlabel('y orig (pix)')
     ax[4].set_ylabel('Res/Pos Err, x')
+    ax[4].set_ylim(-2.5, 2.5)
     ax[4].axhline(y=0)
 
     ax[5].scatter(yorig[good_idx], ygood/yegood, color='black', alpha=0.3, s=2)
     ax[5].scatter(yorig[good_idx][ref_idx], yref/yeref, color='red', alpha=0.3, s=2)
     ax[5].set_xlabel('y orig (pix)')
     ax[5].set_ylabel('Res/Pos Err, y')
+    ax[5].set_ylim(-2.5, 2.5)
     ax[5].axhline(y=0)
 
     ax[6].scatter(yorig[good_idx], mgood-m0good, color='black', alpha=0.3, s=2)
     ax[6].scatter(yorig[good_idx][ref_idx], mref-m0ref, color='red', alpha=0.3, s=2)
     ax[6].set_xlabel('y orig (pix)')
-    ax[6].set_ylabel('Res, m-m0 (mag)')
+    ax[6].set_ylabel('m-m0 (mag)')
+    ax[6].set_ylim(-0.3, 0.3)
     ax[6].axhline(y=0)
 
     ax[0].set_title(title)
