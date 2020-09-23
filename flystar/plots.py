@@ -1823,7 +1823,7 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     return
 
 
-def plot_chi2_dist(tab, Ndetect):
+def plot_chi2_dist(tab, Ndetect, nbins=100, chi2max=40):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -1864,12 +1864,56 @@ def plot_chi2_dist(tab, Ndetect):
     idx = np.where(fnd == Ndetect)[0]
     # Fitting position and velocity... so subtract 2 to get Ndof
     Ndof = Ndetect - 2 
-    chi2_xaxis = np.linspace(0, 40, 100)
+    chi2_xaxis = np.linspace(0, chi2max, nbins*10)
+    chi2_bins = np.linspace(0, chi2max, nbins)
+    
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(x[idx], bins=np.arange(400), histtype='step', label='X', density=True)
-    plt.hist(y[idx], bins=np.arange(400), histtype='step', label='Y', density=True)
+    plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
+    plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
+    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6, 
+             label='$\chi^2$ ' + str(Ndof) + ' dof')
+    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.xlim(0, 40)
+    plt.legend()
+
+    return
+
+def plot_mag_chi2_dist(tab, Ndetect, nbins=100, chi2max=40):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    chi2_m_list = []
+    fnd_list = [] # Number of non-NaN error measurements
+    
+    for ii in range(len(tab['xe'])):
+        # Ignore the NaNs 
+        fnd = np.where(tab['xe'][ii, :] > 0)[0]
+        fnd_list.append(len(fnd))
+        
+        m = tab['m'][ii, fnd]
+        merr = tab['me'][ii, fnd]
+
+        diff = m - tab['m0'][ii]
+        sig = diff / merr
+        
+        chi2_m = np.sum(sig**2)
+        chi2_m_list.append(chi2_m)
+
+    m = np.array(chi2_m_list)
+    fnd = np.array(fnd_list)
+    
+    idx = np.where(fnd == Ndetect)[0]
+    # Fitting mean magnitude... so subtract 1 to get Ndof
+    Ndof = Ndetect - 1
+    chi2_xaxis = np.linspace(0, chi2max, nbins*10)
+    chi2_bins = np.linspace(0, chi2max, nbins)
+
+    plt.figure(figsize=(6,4))
+    plt.clf()
+    plt.hist(m[idx], bins=chi2_bins, histtype='step', label='M', density=True)
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
@@ -2168,8 +2212,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, np.zeros(len(time)), 'g-')
-        plt.plot(time,  fitSigM*1e3, 'g--')
-        plt.plot(time, -fitSigM*1e3, 'g--')
+        plt.plot(time,  fitSigM, 'g--')
+        plt.plot(time, -fitSigM, 'g--')
         if not color_time:
             plt.errorbar(time, (m - fitLineM), yerr=merr, fmt='k.')
         else:
@@ -2179,7 +2223,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
             for xx, yy, ee, color in zip(time, (m - fitLineM), merr, time_color):
                 plt.plot(xx, yy, '.', color=color)
                 plt.errorbar(xx, yy, ee, color=color)
-        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        plt.axis(dateTicRng + resTicRngM, fontsize=fontsize1)
         plt.xlabel('Date (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
             plt.xlabel('Date (MJD)', fontsize=fontsize1)

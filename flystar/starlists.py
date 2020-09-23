@@ -489,34 +489,37 @@ class StarList(Table):
         """
         t_ref = Table.read(filename, format='ascii', delimiter='\s')
 
-
         # Check if this already has column names:
         cols = t_ref.colnames
 
         if cols[0] != 'col1':
             t_ref['name'] = t_ref['name'].astype(str)
-            return cls.from_table(t_ref)
 
-        t_ref.rename_column(cols[0], 'name')
-        t_ref['name'] = t_ref['name'].astype(str)
-        t_ref.rename_column(cols[1], 'm')
-        t_ref.rename_column(cols[2], 't')
-        t_ref.rename_column(cols[3], 'x')
-        t_ref.rename_column(cols[4], 'y')
-
-        if error==True:
-            t_ref.rename_column(cols[5], 'xe')
-            t_ref.rename_column(cols[6], 'ye')
-            t_ref.rename_column(cols[7], 'snr')
-            t_ref.rename_column(cols[8], 'corr')
-            t_ref.rename_column(cols[9], 'N_frames')
-            t_ref.rename_column(cols[10], 'flux')
-            t_ref['me'] = 1.0 / t_ref['snr']
+            t_ref = cls.from_table(t_ref)
+            cols = t_ref.colnames
         else:
-            t_ref.rename_column(cols[5], 'snr')
-            t_ref.rename_column(cols[6], 'corr')
-            t_ref.rename_column(cols[7], 'N_frames')
-            t_ref.rename_column(cols[8], 'flux')
+            t_ref.rename_column(cols[0], 'name')
+            t_ref['name'] = t_ref['name'].astype(str)
+            t_ref.rename_column(cols[1], 'm')
+            t_ref.rename_column(cols[2], 't')
+            t_ref.rename_column(cols[3], 'x')
+            t_ref.rename_column(cols[4], 'y')
+            
+            if error==True:
+                t_ref.rename_column(cols[5], 'xe')
+                t_ref.rename_column(cols[6], 'ye')
+                t_ref.rename_column(cols[7], 'snr')
+                t_ref.rename_column(cols[8], 'corr')
+                t_ref.rename_column(cols[9], 'N_frames')
+                t_ref.rename_column(cols[10], 'flux')
+            else:
+                t_ref.rename_column(cols[5], 'snr')
+                t_ref.rename_column(cols[6], 'corr')
+                t_ref.rename_column(cols[7], 'N_frames')
+                t_ref.rename_column(cols[8], 'flux')
+                
+        if ('me' not in cols) and ('snr' in cols) and (error == True):
+            t_ref['me'] = 1.0 / t_ref['snr']
 
         if fvu_file is not None:
             t_fvu = Table.read(fvu_file, format='ascii.no_header')
