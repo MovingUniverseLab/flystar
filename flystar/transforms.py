@@ -25,6 +25,7 @@ import pdb
 #    warnings.filterwarnings("error", "invalid value encountered in double_scalars", RuntimeWarning)
 
 class Transform2D(object):
+    mag_dep_trans=False
     '''
     Base class for transformations. It contains the properties common to all
     transformation objects.
@@ -202,6 +203,7 @@ class Transform2D(object):
         
     
 class four_paramNW:
+    mag_dep_trans=False
     '''
     defines parameter tranformation between x,y and xref, yref
     does not weight the points
@@ -220,6 +222,7 @@ class four_paramNW:
 
 
 class PolyTransform(Transform2D):
+    mag_dep_trans=False
     """
     Defines a 2D affine polynomial transform between x, y -> xref, yref
     The tranformation is independent for x and y and has the form (for 2nd order fit):
@@ -713,6 +716,8 @@ class UVIS_CTE_trans(PolyTransform):
     Detector-y is corrected with quadratic polynomial + power law
     Magnitude is corrected with exponential (m) + polynomial (y)
     """
+    mag_dep_trans=True
+
     def __init__(self, order, px, py, pc,
                  pxerr=None, pyerr=None, pcerr=None,
                  mag_offset=0.0):
@@ -1081,6 +1086,8 @@ class UVIS_CTE_ACS_ISR_0704_trans(PolyTransform):
     Detector-y is corrected with linear term (m, y)
     Magnitude is corrected with exponential (m) + linear term (y)
     """
+    mag_dep_trans=True
+
     def __init__(self, order, px, py, pc,
                  pxerr=None, pyerr=None, pcerr=None,
                  mag_offset=0.0):
@@ -1426,6 +1433,8 @@ class UVIS_CTE_ACS_ISR_0704_trans(PolyTransform):
 
 
 class UVIS_CTE_2_trans(PolyTransform):
+    mag_dep_trans=True
+
     """
     Defines a transformation designed to capture the distortions in magnitude 
     and y-position introduced into the HST UVIS detector due to CTE.
@@ -1798,6 +1807,8 @@ class UVIS_CTE_2_trans(PolyTransform):
 
 
 class Shift(PolyTransform):
+    mag_dep_trans=False
+
     '''
     Defines shift tranformation between x,y and xref, yref
     Does not weight the points.
@@ -1866,6 +1877,8 @@ class Shift(PolyTransform):
     
     
 class LegTransform(Transform2D):
+    mag_dep_trans=False
+
     def __init__(self, order, px, py, x_domain, y_domain,
                      pxerr=None, pyerr=None, mag_offset=0.0, astropy_order=False):
         """
@@ -2370,6 +2383,7 @@ class LegTransform(Transform2D):
     
 
 class PolyClipTransform(Transform2D):
+    mag_dep_trans=False
 
     def __init__(self,x , y , xref, yref, degree,
                  niter=3, sig_clip =3 , weights=None):
@@ -2422,6 +2436,7 @@ class PolyClipTransform(Transform2D):
         return self.t.evaluate(x,y)
             
 class LegClipTransform(Transform2D):
+    mag_dep_trans=False
 
     def __init__(self,x , y , xref, yref, degree,
                  niter=3, sig_clip =3 , weights=None):
@@ -2478,6 +2493,8 @@ class LegClipTransform(Transform2D):
             
         
 class PolyClipSplineTransform(Transform2D):
+    mag_dep_trans=False
+
     """
     Performs polynomail fit, then a spline fit on the residual
     optionally performs signma clipping, if niter > 0 (default is zero)
@@ -2502,6 +2519,8 @@ class PolyClipSplineTransform(Transform2D):
         return self.spline.evaluate(xev, yev)
         
 class LegClipSplineTransform:
+    mag_dep_trans=False
+
     """
     Performas a Legendre fit, then fits the residual with a spline
     can optinall y perform sigma clipping in the legendre step, by setting niter as > 0 (default to zero)
@@ -2526,7 +2545,7 @@ class LegClipSplineTransform:
               
 
 class SplineTransform(Transform2D):
-
+    mag_dep_trans=False
 
     def __init__(self, x, y, xref, yref,weights=None, kx=None,ky=None):
         
