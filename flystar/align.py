@@ -501,9 +501,9 @@ class MosaicSelfRef(object):
                     # Use this as a guess
                     guess_inv = transforms.PolyTransform.derive_transform(ref_list['x'][idx2], ref_list['y'][idx2], 
                                                                           star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
-                                                                          trans_args['order'],
-                                                                          m=ref_list['m'][idx2], mref=star_list['m'][idx1],
-                                                                          weights=weight, mag_trans=self.mag_trans)                
+                                                                          trans_args['order'], m=ref_list['m'][idx2], 
+                                                                          mref=star_list_orig_trim['m'][idx1], weights=weight, 
+                                                                          mag_trans=self.mag_trans)                
                     
                     trans_inv = self.trans_class.derive_transform(trans_args['order'],
                                                                   ref_list['x'][idx2], ref_list['y'][idx2], ref_list['m'][idx2], 
