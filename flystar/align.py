@@ -535,15 +535,6 @@ class MosaicSelfRef(object):
                     star_list_T.transform_xym(self.trans_list[ii]) # trimmed, transformed
                 else:
                     star_list_T.transform_xy(self.trans_list[ii]) 
-
-#            plt.figure()
-#            plt.clf()
-#            plt.plot(star_list_T['x'], star_list_T['y'], '.')
-#            plt.xlim(-100, 100)
-#            plt.ylim(-100, 100)
-#            plt.axis('equal')
-#            plt.show()
-#            pdb.set_trace()
             
             if self.verbose > 1:
                 hdr = '{nr:13s} {n:13s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
