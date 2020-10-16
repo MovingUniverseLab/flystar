@@ -834,12 +834,12 @@ class UVIS_CTE_trans(PolyTransform):
         mnew : array
             The transformed magnitudes.
         """
-        ycte = T_cte_y_poly2_power(m, self.A, self.m0, self.alpha, self.m1, self.mb)
-        mcte = T_cte_m(y, m, self.z1, self.z2, self.z3)
+        dycte = T_cte_y_poly2_power(m, self.A, self.m0, self.alpha, self.m1, self.mb)
+        dmcte = T_cte_m(y, m, self.z1, self.z2, self.z3)
 
-        xnew = self.px(x, y + ycte)
-        ynew = self.py(x, y + ycte)
-        mnew = m + mcte
+        xnew = self.px(x, y + dycte)
+        ynew = self.py(x, y + dycte)
+        mnew = m + dmcte
 
         return xnew, ynew, mnew 
 
@@ -876,7 +876,8 @@ class UVIS_CTE_trans(PolyTransform):
         dynew_dycte = 0.0
         dynew_dm = 0.0
 
-        ycte = y + T_cte_y_poly2_power(m, self.A, self.m0, self.alpha, self.m1, self.mb)
+        dycte = T_cte_y_poly2_power(m, self.A, self.m0, self.alpha, self.m1, self.mb)
+        ycte = y + dycte
 
         ###
         # Evaluate the polynomial first.
