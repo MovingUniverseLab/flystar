@@ -1297,12 +1297,6 @@ class UVIS_CTE_ACS_ISR_0704_trans(PolyTransform):
                          init_gc=None, weights=None,
                          mag_trans=True):
 
-        # Check input types 
-        inputs = [init_gx_list, init_gy_list, init_gc]
-        for input in inputs:
-            if not ((type(input) == list) or (input is None)):
-                raise Exception('init_gx, init_gy, init_gc, need to be lists!')
-
         def res_func(params, order,
                      x_in, y_in, m_in, 
                      x_ref, y_ref, m_ref,
