@@ -414,11 +414,12 @@ class MosaicSelfRef(object):
                                             trans_class=self.trans_class)
 
             if trans.mag_dep_trans:
-                if self.mag_trans:
-                    star_list_T.transform_xym_CTE(trans)
-                    star_list_T.transform_m(trans)
-                else:
-                    star_list_T.transform_xym_CTE(trans)
+                star_list_T.transform_xym_CTE(trans)
+#                if self.mag_trans:
+#                    star_list_T.transform_xym_CTE(trans)
+#                    star_list_T.transform_m(trans)
+#                else:
+#                    star_list_T.transform_xym_CTE(trans)
                 
             else:
                 if self.mag_trans:
@@ -523,13 +524,13 @@ class MosaicSelfRef(object):
             # do one final match between the two (now transformed) lists.
             star_list_T = copy.deepcopy(star_list)
 
-            # FIXME: should mag_trans be supported in UVIS_CTE_trans_* classes?
             if self.trans_class.mag_dep_trans:
-                if self.mag_trans:
-                    star_list_T.transform_xym_CTE(self.trans_list[ii])
-                    star_list_T.transform_m(self.trans_list[ii])
-                else:
-                    star_list_T.transform_xym_CTE(self.trans_list[ii])
+                star_list_T.transform_xym_CTE(self.trans_list[ii])
+#                if self.mag_trans:
+#                    star_list_T.transform_xym_CTE(self.trans_list[ii])
+#                    star_list_T.transform_m(self.trans_list[ii])
+#                else:
+#                    star_list_T.transform_xym_CTE(self.trans_list[ii])
             else:
                 if self.mag_trans:
                     star_list_T.transform_xym(self.trans_list[ii]) # trimmed, transformed
@@ -994,11 +995,12 @@ class MosaicSelfRef(object):
             star_list_T = copy.deepcopy(self.star_lists[ii])
 
             if self.trans_class.mag_dep_trans:
-                if self.mag_trans:
-                    star_list_T.transform_xym_CTE(self.trans_list[ii])
-                    star_list_T.transform_m(self.trans_list[ii])
-                else:
-                    star_list_T.transform_xym_CTE(self.trans_list[ii])
+                star_list_T.transform_xym_CTE(self.trans_list[ii])
+#                if self.mag_trans:
+#                    star_list_T.transform_xym_CTE(self.trans_list[ii])
+#                    star_list_T.transform_m(self.trans_list[ii])
+#                else:
+#                    star_list_T.transform_xym_CTE(self.trans_list[ii])
 
             else:
                 if self.mag_trans:

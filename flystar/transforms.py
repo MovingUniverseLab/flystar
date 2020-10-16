@@ -1297,6 +1297,12 @@ class UVIS_CTE_ACS_ISR_0704_trans(PolyTransform):
                          init_gc=None, weights=None,
                          mag_trans=True):
 
+        # Check input types 
+        inputs = [init_gx_list, init_gy_list, init_gc]
+        for input in inputs:
+            if not ((type(input) == list) or (input is None)):
+                raise Exception('init_gx, init_gy, init_gc, need to be lists!')
+
         def res_func(params, order,
                      x_in, y_in, m_in, 
                      x_ref, y_ref, m_ref,
@@ -1380,7 +1386,6 @@ class UVIS_CTE_ACS_ISR_0704_trans(PolyTransform):
                 init_gx_list.append(init_gx[key])
                 init_gy_list.append(init_gy[key])
 
-        # FIXME: CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
         init_param_values = init_gx_list + init_gy_list + init_gc
 
         ###
@@ -1395,43 +1400,17 @@ class UVIS_CTE_ACS_ISR_0704_trans(PolyTransform):
             raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
         farg = (order, x, y, m, xref, yref, mref, weights)
-#        pdb.set_trace()
         opt = optimize.least_squares(res_func, init_param_values, args=farg, verbose=1)
-#                                     ftol=1e-09, xtol=1e-09, gtol=1e-09)
 
         pxymc = opt.x
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
         pc = pxymc[-7:]
 
-        # FIXME: SHOULD MAG_TRANS ACT ON MREF AND M? OR ON THE NEW MCTE?
-        # evaluate_mag acts on m... should this have it's own evaluate_mag(mcte)?
-        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
-        if mag_trans:
-            trans = UVIS_CTE_ACS_ISR_0704_trans(order, px, py, pc)
-            xnew, ynew, mnew = trans.evaluate(x, y, m)
-#            replace m with mnew?
-
-#            m_resid = mref - m
-            m_resid = mref - mnew
-            threshold = 3 * m_resid.std()
-            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            mag_offset = np.mean(m_resid[keepers])
-        else:
-            mag_offset =  0
-        
-        trans = cls(order, px, py, pc, mag_offset=mag_offset)
+        # The mag offset here is always zero because it is in the pc term.
+        trans = cls(order, px, py, pc, mag_offset=0.0)
 
         return trans
-
-    #####
-    # I think this should just be inherited... the polynomial 
-    # coefficients don't change. Plus this is just for astropy
-    # polynomial I think...
-    #####
-    # def from_file(cls, trans_file)
-    # def to_file(self, trans_file)
-
 
 class UVIS_CTE_2_trans(PolyTransform):
     mag_dep_trans=True
