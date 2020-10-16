@@ -280,7 +280,7 @@ def test_MosaicSelfRef_vel():
 
     return
 
-def testMosaicToRef_UVIS_CTE_ACS_ISR_0704_trans_order2():
+def test_MosaicToRef_UVIS_CTE_ACS_ISR_0704_trans_order2():
     """
     No velocities.
     """
@@ -295,7 +295,8 @@ def testMosaicToRef_UVIS_CTE_ACS_ISR_0704_trans_order2():
     ref_list['xe'] = 0.1 * np.ones(50)
     ref_list['ye'] = 0.1 * np.ones(50)
     ref_list['me'] = 0.1 * np.ones(50)
-    lis_list = starlists.StarList(name=np.array(name_lis), x=xlis, y=ylis, m=mlis)
+    # Make it backwards just to be sure the aligning is working.
+    lis_list = starlists.StarList(name=np.array(name_lis)[::-1], x=xlis[::-1], y=ylis[::-1], m=mlis[::-1])
     lis_list['t'] = np.ones(50)
     lis_list['xe'] = 0.1 * np.ones(50)
     lis_list['ye'] = 0.1 * np.ones(50)
