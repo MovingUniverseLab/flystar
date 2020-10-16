@@ -3,6 +3,9 @@ import numpy as np
 import pdb
 from astropy.modeling import models, fitting
 
+# Set random seed
+np.random.seed(42)
+
 def test_PolyTransform_init_no_guess():
     px_init = [ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
     py_init = [ 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
@@ -76,6 +79,24 @@ def test_UVIS_CTE_trans_evalulate_1():
 
     return 
 
+def test_UVIS_CTE_ACS_ISR_0704_trans_order2(): 
+    """
+    Instantiate the class and make some fake transformed data.
+    """
+    px_init = [100.0, 0.99, 1e-6, 1e-6, 1e-6, 1e-6]
+    py_init = [100.0, 1e-6, 0.99, 1e-6, 1e-6, 1e-6]
+    pc_init = [1e-6, 1e-2, 1e-2, 1e-2, 1e-6, 1e-2, 1e-2]
+
+    foo = transforms.UVIS_CTE_ACS_ISR_0704_trans(2, px_init, py_init, pc_init)
+
+    xorig = 10 * np.random.rand(50)
+    yorig = 10 * np.random.rand(50)
+    morig = 15 + 2 * np.random.rand(50)
+
+    xtrans, ytrans, mtrans = foo.evaluate(xorig, yorig, morig)
+
+    return xorig, yorig, morig, xtrans, ytrans, mtrans
+    
 def test_UVIS_CTE_trans_evalulate_2():
     px_init = [100.0, 0.99, 1e-6, 1e-6, 1e-6, 1e-6]
     py_init = [100.0, 1e-6, 0.99, 1e-6, 1e-6, 1e-6]

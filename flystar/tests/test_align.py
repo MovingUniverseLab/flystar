@@ -7,6 +7,7 @@ import numpy as np
 import pylab as plt
 import pdb
 import datetime
+import test_transforms
 
 def test_mosaic_lists_shifts():
     """
@@ -278,6 +279,40 @@ def test_MosaicSelfRef_vel():
              'k.', color='black', alpha=0.2)
 
     return
+
+def testMosaicToRef_UVIS_CTE_ACS_ISR_0704_trans_order2():
+    """
+    No velocities.
+    """
+    # Should save out this data.
+    xref, yref, mref, xlis, ylis, mlis = test_transforms.test_UVIS_CTE_ACS_ISR_0704_trans_order2()
+
+    name_ref = ['ref' + str(ii).zfill(2) for ii in range(len(xref))]
+    name_lis = ['lis' + str(ii).zfill(2) for ii in range(len(xref))]
+
+    ref_list = starlists.StarList(name=np.array(name_ref), x=xref, y=yref, m=mref)
+    ref_list['t'] = np.zeros(50)
+    ref_list['xe'] = 0.1 * np.ones(50)
+    ref_list['ye'] = 0.1 * np.ones(50)
+    ref_list['me'] = 0.1 * np.ones(50)
+    lis_list = starlists.StarList(name=np.array(name_lis), x=xlis, y=ylis, m=mlis)
+    lis_list['t'] = np.ones(50)
+    lis_list['xe'] = 0.1 * np.ones(50)
+    lis_list['ye'] = 0.1 * np.ones(50)
+    lis_list['me'] = 0.1 * np.ones(50)
+
+    msc = align.MosaicToRef(ref_list, [lis_list], iters=2,
+                              dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
+                              trans_class=transforms.UVIS_CTE_ACS_ISR_0704_trans,
+                              trans_args={'order': 2}, use_vel=False,
+                              update_ref_orig=False, verbose=False)
+
+    msc.fit()
+
+    tab = msc.ref_table
+
+    return tab
+
 
 def test_MosaicToRef():
     ref_file = 'random_vel_ref.fits'
