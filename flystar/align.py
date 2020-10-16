@@ -3612,40 +3612,15 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         order = 1
 
     if trans_class.mag_dep_trans:
-        # Get the corresponding errors for the matched stars
-        # FIXME: Necessary or not???
-        idx1 = np.zeros(N, dtype=int)
-        for ii in range(N):
-            idx = np.where((star_list['x'] == x1m[ii]) & 
-                           (star_list['y'] == y1m[ii]))[0]
-            idx1[ii] = int(idx)
-            if len(idx) != 1:
-                raise RuntimeError('Cannot find the index!')
-
-        xe1m = star_list['xe'][idx1] 
-        ye1m = star_list['xe'][idx1] 
-        me1m = star_list['xe'][idx1]
         print('GUESS')
         guess = transforms.PolyTransform.derive_transform(x1m, y1m, x2m, y2m, order=order, weights=None)
         print('init guess: ', guess.px.parameters, guess.py.parameters)
         print('TRANS')
         trans = trans_class.derive_transform(order, x1m, y1m, m1m, 
-                                                             x2m, y2m, m2m, weights=None,
-                                                             xerr=xe1m, yerr=ye1m, merr=me1m,
-                                                             init_gx = guess.px.parameters, 
-                                                             init_gy = guess.py.parameters)
+                                             x2m, y2m, m2m, weights=None,
+                                             init_gx = guess.px.parameters, 
+                                             init_gy = guess.py.parameters)
         print('solution: ', trans.px.parameters, trans.py.parameters, trans.pc)
-
-        m = np.linspace(15, 25)
-        ycte = transforms.T_cte_y_poly2_power(m, trans.pc[0], trans.pc[1], trans.pc[2], trans.pc[3], trans.pc[4])
-        mcte = transforms.T_cte_m(0, m, trans.pc[5], trans.pc[6], trans.pc[7])
-
-        plt.figure(1)
-        plt.clf()
-        plt.plot(m, ycte, '.')
-        plt.xlabel('mag')
-        plt.ylabel('delta y')
-        plt.show()
 
     else:
         trans = transforms.PolyTransform.derive_transform(x1m, y1m, x2m, y2m, order=order, weights=None)
