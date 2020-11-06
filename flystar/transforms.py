@@ -10,20 +10,6 @@ import collections
 import re
 import pdb
 
-#import sys
-#if not sys.warnoptions:
-#    import os, warnings
-#    warnings.simplefilter("error") # Change the filter in this process
-#    os.environ["PYTHONWARNINGS"] = "default" # Also affect subprocesses
-#
-#np.seterr(divide='raise', over='raise', invalid='raise')
-
-#np.seterr(invalid='raise')
-
-#import warnings
-#with warnings.catch_warnings():
-#    warnings.filterwarnings("error", "invalid value encountered in double_scalars", RuntimeWarning)
-
 class Transform2D(object):
     mag_dep_trans=False
     '''
