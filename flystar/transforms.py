@@ -693,7 +693,6 @@ class PolyTransform(Transform2D):
 
         return
 
-# FIXME: figure out whether the magnitude transform includes the y dependence 
 class UVIS_CTE_trans(PolyTransform):
     """
     Defines a transformation designed to capture the distortions in magnitude 
@@ -905,12 +904,10 @@ class UVIS_CTE_trans(PolyTransform):
 
         # Calculate partial derivatives for dmnew
         dmnew_dm = 1 + self.z1 * self.z2 * np.exp(self.z2 * m)
-###        dmnew_dy = self.z3
 
         # Take square root for xe/ye/me_new
         xe_new = np.sqrt((dxnew_dx * xe)**2 + (dxnew_dy * ye)**2 + (dxnew_dm * me)**2)
         ye_new = np.sqrt((dynew_dx * xe)**2 + (dynew_dy * ye)**2 + (dynew_dm * me)**2)
-###        me_new = np.sqrt((dmnew_dm * me)**2 + (dmnew_dy * ye)**2)
         # Is this numerically stable?
         me_new = np.sqrt((dmnew_dm * me)**2)
 
@@ -1012,7 +1009,6 @@ class UVIS_CTE_trans(PolyTransform):
                 init_gx_list.append(init_gx[key])
                 init_gy_list.append(init_gy[key])
 
-        # FIXME: CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
         init_param_values = init_gx_list + init_gy_list + init_gc
 
         ###
@@ -1027,42 +1023,17 @@ class UVIS_CTE_trans(PolyTransform):
             raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
         farg = (order, x, y, m, xref, yref, mref, weights)
-#        pdb.set_trace()
-        opt = optimize.least_squares(res_func, init_param_values, args=farg, verbose=1)
-#                                     ftol=1e-09, xtol=1e-09, gtol=1e-09)
+        opt = optimize.least_squares(res_func, init_param_values, args=farg, verbose=0)
 
         pxymc = opt.x
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
         pc = pxymc[-8:]
 
-        # FIXME: SHOULD MAG_TRANS ACT ON MREF AND M? OR ON THE NEW MCTE?
-        # evaluate_mag acts on m... should this have it's own evaluate_mag(mcte)?
-        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
-        if mag_trans:
-            trans = UVIS_CTE_trans(order, px, py, pc)
-            xnew, ynew, mnew = trans.evaluate(x, y, m)
-#            replace m with mnew?
-
-#            m_resid = mref - m
-            m_resid = mref - mnew
-            threshold = 3 * m_resid.std()
-            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            mag_offset = np.mean(m_resid[keepers])
-        else:
-            mag_offset =  0
-        
-        trans = cls(order, px, py, pc, mag_offset=mag_offset)
+        # The mag offset here is always zero because it is in the pc term.
+        trans = cls(order, px, py, pc, mag_offset=0)
 
         return trans
-
-    #####
-    # I think this should just be inherited... the polynomial 
-    # coefficients don't change. Plus this is just for astropy
-    # polynomial I think...
-    #####
-    # def from_file(cls, trans_file)
-    # def to_file(self, trans_file)
 
 
 class UVIS_CTE_ACS_ISR_0704_trans(PolyTransform):
@@ -1380,7 +1351,7 @@ class UVIS_CTE_ACS_ISR_0704_trans(PolyTransform):
             raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
         farg = (order, x, y, m, xref, yref, mref, weights)
-        opt = optimize.least_squares(res_func, init_param_values, args=farg, verbose=1)
+        opt = optimize.least_squares(res_func, init_param_values, args=farg, verbose=0)
 
         pxymc = opt.x
         px = pxymc[:n_poly_coeff]
@@ -1559,7 +1530,6 @@ class UVIS_CTE_2_trans(PolyTransform):
         dynew_dycte = 0.0
  
         dy_cte = dy_cte_poly2_power(m, y, self.A, self.m0, self.alpha, self.m1, self.mb, self.const)
-#        dy_cte = dy_cte_ACS_ISR_0704(m, y, self.d1, self.d2, self.d3)        
         ycte = y + dy_cte
 
         ###
@@ -1596,8 +1566,6 @@ class UVIS_CTE_2_trans(PolyTransform):
                                 [lambda m: b + 2*c*m, lambda m: power_deriv])
 
         dycte_dy = 1 + self.const
-#        dycte_dm = self.d2
-#        dycte_dy = 1 + self.d3
 
         dxnew_dy = dxnew_dycte * dycte_dy
         dynew_dy = dynew_dycte * dycte_dy
@@ -1711,7 +1679,6 @@ class UVIS_CTE_2_trans(PolyTransform):
                 init_gx_list.append(init_gx[key])
                 init_gy_list.append(init_gy[key])
 
-        # FIXME: CHANGE DOCUMENTATION AND REQUIRE ALL OF THESE TO BE LISTS?????
         init_param_values = init_gx_list + init_gy_list + init_gc
 
         ###
@@ -1726,44 +1693,17 @@ class UVIS_CTE_2_trans(PolyTransform):
             raise Exception('Something wrong! Order incorrect or length of params is wrong!')
 
         farg = (order, x, y, m, xref, yref, mref, weights)
-#        pdb.set_trace()
-        opt = optimize.least_squares(res_func, init_param_values, args=farg, verbose=1)
-#                                     ftol=1e-09, xtol=1e-09, gtol=1e-09)
+        opt = optimize.least_squares(res_func, init_param_values, args=farg, verbose=0)
 
         pxymc = opt.x
         px = pxymc[:n_poly_coeff]
         py = pxymc[n_poly_coeff:2*n_poly_coeff]
         pc = pxymc[-10:]
 
-        # FIXME: SHOULD MAG_TRANS ACT ON MREF AND M? OR ON THE NEW MCTE?
-        # evaluate_mag acts on m... should this have it's own evaluate_mag(mcte)?
-        # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
-        if mag_trans:
-            trans = UVIS_CTE_2_trans(order, px, py, pc)
-            xnew, ynew, mnew = trans.evaluate(x, y, m)
-#            replace m with mnew?
-
-#            m_resid = mref - m
-            m_resid = mref - mnew
-            threshold = 3 * m_resid.std()
-            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            mag_offset = np.mean(m_resid[keepers])
-#            if mag_offset > 0.1:
-#                pdb.set_trace()
-        else:
-            mag_offset =  0
-        
-        trans = cls(order, px, py, pc, mag_offset=mag_offset)
+        # The mag offset here is always zero because it is in the pc term.
+        trans = cls(order, px, py, pc, mag_offset=0)
 
         return trans
-
-    #####
-    # I think this should just be inherited... the polynomial 
-    # coefficients don't change. Plus this is just for astropy
-    # polynomial I think...
-    #####
-    # def from_file(cls, trans_file)
-    # def to_file(self, trans_file)
 
 
 class Shift(PolyTransform):
