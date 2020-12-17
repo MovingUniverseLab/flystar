@@ -1878,6 +1878,22 @@ def plot_chi2_dist(tab, Ndetect, nbins=100, chi2max=40):
     plt.xlim(0, 40)
     plt.legend()
 
+    chi2red_x = x / (fnd - 2)
+    chi2red_y = y / (fnd - 2)
+    chi2red_t = (x + y) / (2.0 * (fnd - 2))
+    
+    print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
+    fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
+    med_chi2red_x_f = np.median(chi2red_x[idx])
+    med_chi2red_x_a = np.median(chi2red_x)
+    med_chi2red_y_f = np.median(chi2red_y[idx])
+    med_chi2red_y_a = np.median(chi2red_y)
+    med_chi2red_t_f = np.median(chi2red_t[idx])
+    med_chi2red_t_a = np.median(chi2red_t)
+    print(fmt.format('  X', med_chi2red_x_f, med_chi2red_x_a))
+    print(fmt.format('  Y', med_chi2red_y_f, med_chi2red_y_a))
+    print(fmt.format('Tot', med_chi2red_t_f, med_chi2red_t_a))
+
     return
 
 def plot_mag_chi2_dist(tab, Ndetect, nbins=100, chi2max=40):
@@ -1902,10 +1918,11 @@ def plot_mag_chi2_dist(tab, Ndetect, nbins=100, chi2max=40):
         chi2_m = np.sum(sig**2)
         chi2_m_list.append(chi2_m)
 
-    m = np.array(chi2_m_list)
+    chi2_m = np.array(chi2_m_list)
     fnd = np.array(fnd_list)
     
     idx = np.where(fnd == Ndetect)[0]
+    
     # Fitting mean magnitude... so subtract 1 to get Ndof
     Ndof = Ndetect - 1
     chi2_xaxis = np.linspace(0, chi2max, nbins*10)
@@ -1913,13 +1930,17 @@ def plot_mag_chi2_dist(tab, Ndetect, nbins=100, chi2max=40):
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(m[idx], bins=chi2_bins, histtype='step', label='M', density=True)
+    plt.hist(chi2_m[idx], bins=chi2_bins, histtype='step', label='M', density=True)
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, 40)
     plt.legend()
 
+    print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
+    fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
+    print(fmt.format('M', np.median(chi2_m[idx] / (fnd[idx] - 2)), np.median(chi2_m / (fnd - 2))))
+    
     return
 
 def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False):
