@@ -2083,7 +2083,7 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     return
 
 
-def plot_chi2_dist(tab, Ndetect, nbins=100, chi2max=40):
+def plot_chi2_dist(tab, Ndetect):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
