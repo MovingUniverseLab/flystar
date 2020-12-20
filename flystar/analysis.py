@@ -61,13 +61,12 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     dec = target_coords.dec.degree   # in decimal degrees
     
     cos_dec = np.cos(np.radians(dec))
-
     x = (gaia['ra'] - ra) * cos_dec * 3600.0   # arcsec
     y = (gaia['dec'] - dec) * 3600.0           # arcsec
     xe = gaia['ra_error'] * cos_dec / 1e3      # arcsec
     ye = gaia['dec_error'] / 1e3               # arcsec
 
-    gaia_new = table.Table([gaia['source_id'].data], names=['name'], masked=False)
+    gaia_new = table.Table([gaia['source_id'].data.astype('S19')], names=['name'], masked=False)
 
     gaia_new['x0'] = x * -1.0
     gaia_new['y0'] = y
@@ -81,7 +80,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['vye'] = gaia['pmdec_error'].data / 1e3
     
     gaia_new['t0'] = gaia['ref_epoch'].data
-    gaia_new['source_id'] = gaia['source_id']
+    gaia_new['source_id'] = gaia['source_id'].data.astype('S19')
 
     # Find sources without velocities and fix them up.
     idx = np.where(gaia['pmdec'].mask == True)[0]
