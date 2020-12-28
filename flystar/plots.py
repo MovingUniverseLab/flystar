@@ -1777,14 +1777,15 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
 
     return (dx, dy)
 
-def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, plotlim=None, lower_mag=18):
+def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, plotlim=None, lower_mag=18, upper_mag=13):
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
     n_good = np.zeros(len(tab), dtype=int)
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
 
-    idx = np.where(tab['m0'] < 18)[0]
+    idx = np.where((tab['m0'] < lower_mag) & 
+                   (tab['m0'] > upper_mag))[0]
     tab = tab[idx]
 
     for ee in range(tab['x'].shape[1]):
@@ -2304,6 +2305,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         if epoch_array is not None:
             fnd = np.intersect1d(fnd, epoch_array)
+            fnd = fnd.reshape(len(fnd),1)
 
         time = tab['t'][ii, fnd]
         dtime = time.data % 1 
@@ -2660,267 +2662,6 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     plt.show()
 
     return
-
-
-def plot_stars_mag(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,12), color_time=False):
-    """
-    Plot a set of stars magnitude + error bars over time. 
-
-    epoch_array : None, array
-        Array of the epoch indicies to plot. If None, plots all epochs.
-    """
-    print( 'Creating magnitude plots for star(s):' )
-    print( star_names )
-
-    Nstars = len(star_names)
-    Ncols = np.min([Nstars, NcolMax])
-    if Nstars <= Ncols:
-        Nrows = 2
-    else:
-        Nrows = math.ceil(Nstars/Ncols) * 2
-    
-    plt.close('all')
-    plt.figure(2, figsize=figsize)
-    names = tab['name']
-    
-    for i in range(Nstars):
-        starName = star_names[i]
-
-        try:
-            ii = np.where(tab['name'] == starName)[0][0]
-            print(ii, tab[ii]['name'])
-        except IndexError:
-            print("!! %s is not in this list"%starName)
-            continue
-
-        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
-#        fnd = np.where(tab['xe'][ii, :] > 0)[0]
-
-        if epoch_array is not None:
-            fnd = np.intersect1d(fnd, epoch_array)
-
-        time = tab['t'][ii, fnd]
-        dtime = time.data % 1 
-        m = tab['m'][ii, fnd]
-        merr = tab['me'][ii, fnd]
-        m0 = tab['m0'][ii]
-        m0e = tab['m0e'][ii]
-
-        diff = m0 - m
-        sig = diff/merr
-        
-        chi2 = np.sum(sig**2)
-        dof = len(m) - 1 # horizontal line has only 1 dof right?
-        chi2_red = chi2/dof
-
-        print( 'Star:        ', starName )
-#        print( 'Average mag (unweighted) = {:.3f}'.format(np.average(m)))
-#        print( 'St dev mag (unweighted, millimag) = {:.1f}'.format(1000 * np.std(m)))
-        print( 'Average mag (weighted) = {:.3f}'.format(m0))
-        print( 'Std dev mag (weighted, millimag) = {:.1f}'.format(1000 * m0e))
-
-        tmin = time.min()
-        tmax = time.max()
-
-        dateTicLoc = plt.MultipleLocator(3)
-        dateTicRng = [np.floor(tmin), np.ceil(tmax)]
-        dateTics = np.arange(np.floor(tmin), np.ceil(tmax)+0.1)
-        DateTicsLabel = dateTics
-
-        # See if we are using MJD instead.
-        if time[0] > 50000:
-            print('MJD')
-            dateTicLoc = plt.MultipleLocator(1000)
-            t0 = int(np.round(np.min(time), 50))
-            tO = int(np.round(np.max(time), 50))
-            dateTicRng = [tmin-200, tmax+200]
-            dateTics = np.arange(dateTicRng[0], dateTicRng[-1]+500, 1000)
-            DateTicsLabel = dateTics
-
-        from matplotlib.ticker import FormatStrFormatter
-        fmtX = FormatStrFormatter('%5i')
-        fmtY = FormatStrFormatter('%6.3f')
-        fontsize1 = 10
-
-        paxes = plt.subplot(2*Nrows, Ncols, 2*i+1)
-        plt.plot(time, m0 * np.ones(len(time)), label='m0')
-        if not color_time:
-            plt.errorbar(time, m, yerr=merr.reshape(len(merr),), fmt='k.')
-        else:
-            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
-            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
-            for xx, yy, ee, color in zip(time, m, merr, time_color):
-                plt.plot(xx, yy, '.', color=color)
-                plt.errorbar(xx, yy, ee, color=color)
-        rng = plt.axis()
-        plt.xlabel('Date (yrs)', fontsize=fontsize1)
-        if time[0] > 50000:
-            plt.xlabel('Date (MJD)', fontsize=fontsize1)
-        plt.ylabel('mag', fontsize=fontsize1)
-        paxes.xaxis.set_major_formatter(fmtX)
-        paxes.yaxis.set_major_formatter(fmtY)
-        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
-#        plt.title(starName, fontsize=12, color='red')
-        plt.gca().invert_yaxis()
-        if i == 0:
-            plt.legend()
-        plt.annotate(starName,xy=(1.0, 1.1), xycoords='axes fraction', fontsize=12, color='red')
-
-        bins = np.arange(-7.5, 7.5, 1)
-        paxes = plt.subplot(2*Nrows, Ncols, 2*i+2)
-        id = np.where(diff < 0)[0]
-        sig[id] = -1.*sig[id] 
-        (n, b, p) = plt.hist(sig, bins, histtype='stepfilled', color='b')
-        plt.setp(p, 'facecolor', 'b')
-#        plt.axis([-7, 7, 0, 8], fontsize=10)
-        plt.axis([-7, 7, 0, 8])
-        plt.xticks(fontsize=10)
-        plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
-        plt.ylabel('N epochs', fontsize=fontsize1)
-       
-    if Nstars == 1:
-        plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
-        # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
-    else:
-        plt.subplots_adjust(wspace=0.5, hspace=0.7, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
-        # plt.savefig(rootDir+'plots/plotStar_all.png')
-        plt.show()
-
-    plt.show()
-
-
-def plot_stars_mag_orig(tab, star_names, NcolMax=4, epoch_array = None, figsize=(12,12), color_time=False):
-    """
-    Plot a set of stars magnitude + error bars over time. 
-
-    epoch_array : None, array
-        Array of the epoch indicies to plot. If None, plots all epochs.
-    """
-    print( 'Creating magnitude plots for star(s):' )
-    print( star_names )
-
-    Nstars = len(star_names)
-    Ncols = np.min([Nstars, NcolMax])
-    if Nstars <= Ncols:
-        Nrows = 2
-    else:
-        Nrows = math.ceil(Nstars/Ncols) * 2
-    
-    plt.close('all')
-    plt.figure(2, figsize=figsize)
-    names = tab['name']
-    
-    for i in range(Nstars):
-        starName = star_names[i]
-
-        try:
-            ii = np.where(tab['name'] == starName)[0][0]
-            print(ii, tab[ii]['name'])
-        except IndexError:
-            print("!! %s is not in this list"%starName)
-            continue
-
-        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
-#        fnd = np.where(tab['xe'][ii, :] > 0)[0]
-
-        if epoch_array is not None:
-            fnd = np.intersect1d(fnd, epoch_array)
-
-        time = tab['t'][ii, fnd]
-        dtime = time.data % 1 
-        m = tab['m_orig'][ii, fnd]
-        merr = tab['me_orig'][ii, fnd]
-        
-        flux = 10**(-m / 2.5)
-        flux_err = merr * flux * np.log(10) / 2.5
-        avg_flux = np.average(flux, weights=1/flux_err)
-        m0 = -2.5 * np.log10(avg_flux)
-#        m0 = tab['m0'][ii]
-#        m0e = tab['m0e'][ii]
-
-        diff = m0 - m
-        sig = diff/merr
-        
-#        chi2 = np.sum(sig**2)
-#        dof = len(m) - 1 # horizontal line has only 1 dof right?
-#        chi2_red = chi2/dof
-
-        print( 'Star:        ', starName )
-#        print( 'Average mag (unweighted) = {:.3f}'.format(np.average(m)))
-#        print( 'St dev mag (unweighted, millimag) = {:.1f}'.format(1000 * np.std(m)))
-#        print( 'Average mag (weighted) = {:.3f}'.format(m0))
-#        print( 'Std dev mag (weighted, millimag) = {:.1f}'.format(1000 * m0e))
-
-        tmin = time.min()
-        tmax = time.max()
-
-        dateTicLoc = plt.MultipleLocator(3)
-        dateTicRng = [np.floor(tmin), np.ceil(tmax)]
-        dateTics = np.arange(np.floor(tmin), np.ceil(tmax)+0.1)
-        DateTicsLabel = dateTics
-
-        # See if we are using MJD instead.
-        if time[0] > 50000:
-            print('MJD')
-            dateTicLoc = plt.MultipleLocator(1000)
-            t0 = int(np.round(np.min(time), 50))
-            tO = int(np.round(np.max(time), 50))
-            dateTicRng = [tmin-200, tmax+200]
-            dateTics = np.arange(dateTicRng[0], dateTicRng[-1]+500, 1000)
-            DateTicsLabel = dateTics
-
-        from matplotlib.ticker import FormatStrFormatter
-        fmtX = FormatStrFormatter('%5i')
-        fmtY = FormatStrFormatter('%6.3f')
-        fontsize1 = 10
-
-        paxes = plt.subplot(2*Nrows, Ncols, 2*i+1)
-        plt.plot(time, m0 * np.ones(len(time)), label='m0')
-        if not color_time:
-            plt.errorbar(time, m, yerr=merr.reshape(len(merr),), fmt='k.')
-        else:
-            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-            mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
-            time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
-            for xx, yy, ee, color in zip(time, m, merr, time_color):
-                plt.plot(xx, yy, '.', color=color)
-                plt.errorbar(xx, yy, ee, color=color)
-        rng = plt.axis()
-        plt.xlabel('Date (yrs)', fontsize=fontsize1)
-        if time[0] > 50000:
-            plt.xlabel('Date (MJD)', fontsize=fontsize1)
-        plt.ylabel('mag', fontsize=fontsize1)
-        paxes.xaxis.set_major_formatter(fmtX)
-        paxes.yaxis.set_major_formatter(fmtY)
-        paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
-#        plt.title(starName, fontsize=12, color='red')
-        plt.gca().invert_yaxis()
-        if i == 0:
-            plt.legend()
-        plt.annotate(starName,xy=(1.0, 1.1), xycoords='axes fraction', fontsize=12, color='red')
-
-        bins = np.arange(-7.5, 7.5, 1)
-        paxes = plt.subplot(2*Nrows, Ncols, 2*i+2)
-        id = np.where(diff < 0)[0]
-        sig[id] = -1.*sig[id] 
-        (n, b, p) = plt.hist(sig, bins, histtype='stepfilled', color='b')
-        plt.setp(p, 'facecolor', 'b')
-#        plt.axis([-7, 7, 0, 8], fontsize=10)
-        plt.axis([-7, 7, 0, 8])
-        plt.xticks(fontsize=10)
-        plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
-        plt.ylabel('N epochs', fontsize=fontsize1)
-       
-    if Nstars == 1:
-        plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
-        # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
-    else:
-        plt.subplots_adjust(wspace=0.5, hspace=0.7, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
-        # plt.savefig(rootDir+'plots/plotStar_all.png')
-        plt.show()
-
-    plt.show()
 
 
 def plot_errors_vs_r_m(star_tab):
