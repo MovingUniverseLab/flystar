@@ -402,7 +402,7 @@ class MosaicSelfRef(object):
             if trans is None:
                 # Only use "use_in_trans" reference stars, even for initial guessing.
                 keepers = np.where(ref_list['use_in_trans'] == True)[0]
-                
+
                 trans = trans_initial_guess(ref_list[keepers], star_list_orig_trim, self.trans_args[0],
                                             mode=self.init_guess_mode,
                                             verbose=self.verbose,
@@ -451,7 +451,7 @@ class MosaicSelfRef(object):
             trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
                                                       **trans_args,
-                                                      m=star_list['m'][idx1], mref=ref_list['m'][idx2],
+                                                      m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight, mag_trans=self.mag_trans)
 
             # Save the final transformation.
@@ -500,11 +500,10 @@ class MosaicSelfRef(object):
                                      dm=(star_t['m'] - star_r['m']),
                                      xo=star_s['x'], yo=star_s['y'], mo=star_s['m']))
                     
-
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-
+            
             if self.verbose > 1:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
