@@ -2084,7 +2084,7 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     return
 
 
-def plot_chi2_dist(tab, Ndetect):
+def plot_chi2_dist(tab, Ndetect, xlim=40):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2126,16 +2126,16 @@ def plot_chi2_dist(tab, Ndetect):
     idx = np.where(fnd == Ndetect)[0]
     # Fitting position and velocity... so subtract 2 to get Ndof
     Ndof = Ndetect - 2 
-    chi2_xaxis = np.linspace(0, 40, 100)
+    chi2_xaxis = np.linspace(0, xlim, xlim*3)
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(x[idx], bins=np.arange(400), histtype='step', label='X', density=True)
-    plt.hist(y[idx], bins=np.arange(400), histtype='step', label='Y', density=True)
+    plt.hist(x[idx], bins=np.arange(xlim*10), histtype='step', label='X', density=True)
+    plt.hist(y[idx], bins=np.arange(xlim*10), histtype='step', label='Y', density=True)
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
-    plt.xlim(0, 40)
+    plt.xlim(0, xlim)
     plt.legend()
 
     return
@@ -2195,29 +2195,29 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
         fig, (ax2, ax3) = plt.subplots(1, 2, figsize=(14, 4))
         plt.subplots_adjust(wspace=0.25)
 
-        ax2.plot(m_arr[:, ii], sigX_arr[:, ii], 's', label = 'X', color='tab:blue', alpha=0.7, ms=5)
-        ax2.plot(m_arr[:, ii], sigY_arr[:, ii], 'o', label = 'Y', color='tab:orange', alpha=0.7, ms=5)
+        ax2.plot(m_arr[:, ii], sigX_arr[:, ii], 's', label = 'X', color='tab:blue', alpha=0.4, ms=5)
+        ax2.plot(m_arr[:, ii], sigY_arr[:, ii], 'o', label = 'Y', color='tab:orange', alpha=0.4, ms=5)
         ax2.plot(m_arr[target_idx, ii], sigX_arr[target_idx, ii], 's', color='black', ms=5)
         ax2.plot(m_arr[target_idx, ii], sigY_arr[target_idx, ii], 'o', color='black', ms=5)
         ax2.set_xlim(xlim[0], xlim[1])
         ax2.set_ylim(-5, 5)
-        ax2.axhline(y=0, color='red', alpha=0.3)
+        ax2.axhline(y=0, color='black', alpha=0.9, zorder=1000)
         ax2.set_xlabel('mag')
         ax2.set_ylabel('sigma')
         ax2.set_title('Epoch {0}'.format(ii))
         ax2.legend()
 
         ax3.errorbar(m_arr[:, ii], diffX_arr[:, ii]*1E3, yerr=errX_arr[:, ii]*1E3, 
-                     marker='s', label = 'X', ls='none', color='tab:blue', alpha=0.7, ms=5)
+                     marker='s', label = 'X', ls='none', color='tab:blue', alpha=0.4, ms=5)
         ax3.errorbar(m_arr[:, ii], diffY_arr[:, ii]*1E3, yerr=errY_arr[:, ii]*1E3, 
-                     marker='o', label = 'Y', ls='none', color='tab:orange', alpha=0.7, ms=5)
+                     marker='o', label = 'Y', ls='none', color='tab:orange', alpha=0.4, ms=5)
         ax3.errorbar(m_arr[target_idx, ii], diffX_arr[target_idx, ii]*1E3, yerr=errX_arr[target_idx, ii]*1E3, 
                      marker='s', ls='none', color='black', ms=5)
         ax3.errorbar(m_arr[target_idx, ii], diffY_arr[target_idx, ii]*1E3, yerr=errY_arr[target_idx, ii]*1E3, 
                      marker='o', ls='none', color='black', ms=5)
         ax3.set_xlim(xlim[0], xlim[1])
         ax3.set_ylim(ylim[0], ylim[1])
-        ax3.axhline(y=0, color='red', alpha=0.3)
+        ax3.axhline(y=0, color='black', alpha=0.9, zorder=1000)
         ax3.set_xlabel('mag')
         ax3.set_ylabel('residual (mas)')
 
@@ -2650,6 +2650,407 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         plt.ylabel('Number of Epochs', fontsize=fontsize1)
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
             
+
+    if Nstars == 1:
+        plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
+        # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
+    else:
+        plt.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
+        # plt.savefig(rootDir+'plots/plotStar_all.png')
+        plt.show()
+
+    plt.show()
+
+    return
+
+
+
+def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None, figsize=(15,25), color_time=False):
+    """
+    Plot a set of stars positions, flux and residuals over time. 
+
+    epoch_array : None, array
+        Array of the epoch indicies to plot. If None, plots all epochs.
+    """
+    print( 'Creating residuals plots for star(s):' )
+    print( star_names )
+    
+    Nstars = len(star_names)
+    Ncols = 3 * np.min([Nstars, NcolMax])
+    if Nstars <= Ncols/3:
+        Nrows = 3
+    else:
+        Nrows = math.ceil(Nstars / (Ncols / 3)) * 3
+
+    plt.close('all')
+    plt.figure(2, figsize=figsize)
+    names = tab['name']
+    mag = tab['m0']
+    x = tab['x0']
+    y = tab['y0']
+    r = np.hypot(x, y)
+    
+    for i in range(Nstars):
+        for ea, epoch_array in enumerate(epoch_array_list):
+            color=color_list[ea]
+            starName = star_names[i]
+            
+            try:
+                ii = np.where(tab['name'] == starName)[0][0]
+            except IndexError:
+                print("!! %s is not in this list"%starName)
+                continue
+    
+            # Ignore the NaNs
+            fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
+    
+            if epoch_array is not None:
+                fnd = np.intersect1d(fnd, epoch_array)
+                fnd = fnd.reshape(len(fnd),1)
+    
+            time = tab['t'][ii, fnd]
+            dtime = time.data % 1 
+            x = tab['x'][ii, fnd]
+            y = tab['y'][ii, fnd]
+            m = tab['m'][ii, fnd]
+    
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
+            merr = tab['me'][ii, fnd]
+    
+            dt = tab['t'][ii, fnd] - tab['t0'][ii]
+            fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
+            fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
+    
+            fitSigX = np.hypot(tab['x0e'][ii], tab['vxe'][ii]*dt)
+            fitSigY = np.hypot(tab['y0e'][ii], tab['vye'][ii]*dt)
+    
+            fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
+            fitSigM = np.repeat(tab['m0e'][ii], len(dt)).reshape(len(dt),1)
+    
+            diffX = x - fitLineX
+            diffY = y - fitLineY
+            diffM = m - fitLineM
+            diff = np.hypot(diffX, diffY)
+            rerr = np.sqrt((diffX*xerr)**2 + (diffY*yerr)**2) / diff
+            sigX = diffX / xerr
+            sigY = diffY / yerr
+            sigM = diffM / merr
+            sig = diff / rerr
+    
+            # Determine if there are points that are more than 4 sigma off
+            idxX = np.where(abs(sigX) > 4)
+            idxY = np.where(abs(sigY) > 4)
+            idxM = np.where(abs(sigM) > 4)
+            idx = np.where(abs(sig) > 4)
+        
+            # Calculate chi^2 metrics
+            chi2_x = np.sum(sigX**2)
+            chi2_y = np.sum(sigY**2)
+            chi2_m = np.sum(sigM**2)
+    
+            dof = len(x) - 2
+            dofM = len(m) - 1
+    
+            chi2_red_x = chi2_x / dof
+            chi2_red_y = chi2_y / dof
+            chi2_red_m = chi2_m / dofM
+            
+    
+            print( 'Star:        ', starName )
+            print( '\tX Chi^2 = %5.2f (%6.2f for %2d dof)' % 
+                  (chi2_red_x, chi2_x, dof))
+            print( '\tY Chi^2 = %5.2f (%6.2f for %2d dof)' % 
+                  (chi2_red_y, chi2_y, dof))
+            print( '\tM Chi^2 = %5.2f (%6.2f for %2d dof)' % 
+                  (chi2_red_m, chi2_m, dofM))
+    
+            tmin = time.min()
+            tmax = time.max()
+    
+            dateTicLoc = plt.MultipleLocator(3)
+            dateTicRng = [np.floor(tmin), np.ceil(tmax)]
+            dateTics = np.arange(np.floor(tmin), np.ceil(tmax)+0.1)
+            DateTicsLabel = dateTics
+    
+            # See if we are using MJD instead.
+            if time[0] > 50000:
+                print('MJD')
+                dateTicLoc = plt.MultipleLocator(1000)
+                t0 = int(np.round(np.min(time), 50))
+                tO = int(np.round(np.max(time), 50))
+                dateTicRng = [tmin-200, tmax+200]
+                dateTics = np.arange(dateTicRng[0], dateTicRng[-1]+500, 1000)
+                DateTicsLabel = dateTics
+    
+    
+            maxErr = np.array([(diffX-xerr)*1e3, (diffX+xerr)*1e3,
+                               (diffY-yerr)*1e3, (diffY+yerr)*1e3]).max()
+            maxErrM = np.array([(diffM - merr), (diffM + merr)]).max()
+    
+            if maxErr > 2:
+                maxErr = 2.0
+            if maxErrM > 1.0:
+                maxErr = 1.0
+            resTicRng = [-1.1*maxErr, 1.1*maxErr]
+            resTicRngM = [-1.1*maxErrM, 1.1*maxErrM]
+    
+            from matplotlib.ticker import FormatStrFormatter
+            fmtX = FormatStrFormatter('%5i')
+            fmtY = FormatStrFormatter('%6.3f')
+            fmtM = FormatStrFormatter('%5.2f')
+            fontsize1 = 10
+    
+            ##########
+            # X vs time
+            ##########
+            if i < (Ncols/3):
+                col = (3*i)+1
+                row = 1
+            else:
+                col = 1 + 3*(i % (Ncols/3))
+                row = 1 + 3*(i//(Ncols/3)) 
+    
+            ind = int((row-1)*Ncols + col)
+    
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            plt.plot(time, fitLineX, 'b-')
+            plt.plot(time, fitLineX + fitSigX, 'b--')
+            plt.plot(time, fitLineX - fitSigX, 'b--')
+            if not color_time:
+                plt.errorbar(time, x, yerr=xerr.reshape(len(xerr),), marker='.', color=color, ls='none')
+            else:
+                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+                time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+                for xx, yy, ee, color in zip(time, x, xerr, time_color):
+                    plt.plot(xx, yy, '.', color=color)
+                    plt.errorbar(xx, yy, ee, color=color)
+            rng = plt.axis()
+            plt.axis(dateTicRng + [rng[2], rng[3]])
+            plt.xticks(fontsize=fontsize1)
+            plt.xlabel('Date (yrs)', fontsize=fontsize1)
+            if time[0] > 50000:
+                plt.xlabel('Date (MJD)', fontsize=fontsize1)
+            plt.ylabel('X (asec)', fontsize=fontsize1)
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.yaxis.set_major_formatter(fmtY)
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+            plt.annotate(starName, xy=(1.0,1.1), xycoords='axes fraction', fontsize=12, color='red')
+    
+    
+            ##########
+            # Y vs time
+            ##########
+            col = col + 1
+            ind = int((row-1)*Ncols + col)
+    
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            plt.plot(time, fitLineY, 'b-')
+            plt.plot(time, fitLineY + fitSigY, 'b--')
+            plt.plot(time, fitLineY - fitSigY, 'b--')
+            if not color_time:
+                plt.errorbar(time, y, yerr=yerr.reshape(len(yerr),), marker='.', color=color, ls='none')
+            else:
+                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+                time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+                for xx, yy, ee, color in zip(time, y, yerr, time_color):
+                    plt.plot(xx, yy, '.', color=color)
+                    plt.errorbar(xx, yy, ee, color=color)
+            rng = plt.axis()
+            plt.xticks(fontsize=fontsize1)
+            plt.axis(dateTicRng + [rng[2], rng[3]])
+            plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+            if time[0] > 50000:
+                plt.xlabel('Date (MJD)', fontsize=fontsize1)
+            plt.ylabel('Y (asec)', fontsize=fontsize1)
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.yaxis.set_major_formatter(fmtY)
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+    
+            ##########
+            # M vs time
+            ##########
+            col = col + 1
+            ind = int((row - 1)*Ncols + col)
+    
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            plt.plot(time, fitLineM, 'g-')
+            plt.plot(time, fitLineM + fitSigM, 'g--')
+            plt.plot(time, fitLineM - fitSigM, 'g--')
+            if not color_time:
+                plt.errorbar(time, m, yerr=merr.reshape(len(merr),), marker='.', color=color, ls='none')
+            else:
+                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+                time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+                for xx, yy, ee, color in zip(time, m, merr, time_color):
+                    plt.plot(xx, yy, '.', color=color)
+                    plt.errorbar(xx, yy, ee, color=color)
+            rng = plt.axis()
+            plt.axis(dateTicRng + [rng[2], rng[3]])
+            plt.xticks(fontsize=fontsize1)
+            plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+            if time[0] > 50000:
+                plt.xlabel('Date (MJD)', fontsize=fontsize1)
+            plt.ylabel('m (mag)', fontsize=fontsize1)
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.yaxis.set_major_formatter(fmtM)
+            paxes.tick_params(axis='both', which='major', labelsize=12)
+            
+    
+            ##########
+            # X residuals vs time
+            ##########
+            row = row + 1
+            col = col - 2
+            ind = int((row-1)*Ncols + col)
+    
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            plt.plot(time, np.zeros(len(time)), 'b-')
+            plt.plot(time,  fitSigX*1e3, 'b--')
+            plt.plot(time, -fitSigX*1e3, 'b--')
+            if not color_time:
+                plt.errorbar(time, (x - fitLineX)*1e3, yerr=xerr.reshape(len(xerr),)*1e3, marker='.', color=color, ls='none')
+            else:
+                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+                time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+                for xx, yy, ee, color in zip(time, (x - fitLineX)*1e3, xerr*1e3, time_color):
+                    plt.plot(xx, yy, '.', color=color)
+                    plt.errorbar(xx, yy, ee, color=color)
+            plt.axis(dateTicRng + resTicRng)
+            plt.xticks(fontsize=fontsize1)
+            plt.xlabel('Date (yrs)', fontsize=fontsize1)
+            if time[0] > 50000:
+                plt.xlabel('Date (MJD)', fontsize=fontsize1)
+            plt.ylabel('X Residuals (mas)', fontsize=fontsize1)
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+    
+            ##########
+            # Y residuals vs time
+            ##########
+            col = col + 1
+            ind = int((row-1)*Ncols + col)
+    
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            plt.plot(time, np.zeros(len(time)), 'b-')
+            plt.plot(time,  fitSigY*1e3, 'b--')
+            plt.plot(time, -fitSigY*1e3, 'b--')
+            if not color_time:
+                plt.errorbar(time, (y - fitLineY)*1e3, yerr=yerr.reshape(len(yerr),)*1e3, marker='.', color=color, ls='none')
+            else:
+                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+                time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+                for xx, yy, ee, color in zip(time, (y - fitLineY)*1e3, yerr*1e3, time_color):
+                    plt.plot(xx, yy, '.', color=color)
+                    plt.errorbar(xx, yy, ee, color=color)
+            plt.axis(dateTicRng + resTicRng)
+            plt.xticks(fontsize=fontsize1)
+            plt.xlabel('Date (yrs)', fontsize=fontsize1)
+            if time[0] > 50000:
+                plt.xlabel('Date (MJD)', fontsize=fontsize1)
+            plt.ylabel('Y Residuals (mas)', fontsize=fontsize1)
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+    
+            ##########
+            # M residuals vs time
+            ##########
+            col = col + 1
+            ind = int((row-1)*Ncols + col)
+    
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            plt.plot(time, np.zeros(len(time)), 'g-')
+            plt.plot(time,  fitSigM*1e3, 'g--')
+            plt.plot(time, -fitSigM*1e3, 'g--')
+            if not color_time:
+                plt.errorbar(time, (m - fitLineM), yerr=merr.reshape(len(merr),), marker='.', color=color, ls='none')
+            else:
+                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+                time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+                for xx, yy, ee, color in zip(time, (m - fitLineM), merr, time_color):
+                    plt.plot(xx, yy, '.', color=color)
+                    plt.errorbar(xx, yy, ee, color=color)
+            plt.axis(dateTicRng + resTicRng)
+            plt.xticks(fontsize=fontsize1)
+            plt.xlabel('Date (yrs)', fontsize=fontsize1)
+            if time[0] > 50000:
+                plt.xlabel('Date (MJD)', fontsize=fontsize1)
+            plt.ylabel('m Residuals (mag)', fontsize=fontsize1)
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+    
+    
+            ##########
+            # X vs. Y
+            ##########
+            row = row + 1
+            col = col - 2
+            ind = int((row-1)*Ncols + col)
+    
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            if not color_time:
+                plt.errorbar(x,y, xerr=xerr.reshape(len(xerr),), 
+                             yerr=yerr.reshape(len(yerr),), marker='.', color=color, ls='none')
+            else:
+                sc = plt.scatter(x, y, s=0, c=dtime, vmin=0, vmax=1, cmap='hsv')
+                clb = plt.colorbar(sc)
+                clb.ax.tick_params(labelsize=fontsize1)
+                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+                time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+                for xx, yy, eexx, eeyy, color in zip(x, y, xerr, yerr, time_color):
+                    plt.plot(xx, yy, '.', color=color)
+                    plt.errorbar(xx, yy, eexx, eeyy, color=color)
+            plt.axis('equal')
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+            paxes.yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
+            paxes.xaxis.set_major_formatter(FormatStrFormatter('%.3f'))
+            plt.xlabel('X (asec)', fontsize=fontsize1)
+            plt.ylabel('Y (asec)', fontsize=fontsize1)
+            plt.plot(fitLineX, fitLineY, 'b-')    
+    
+            ##########
+            # X, Y Histogram of Residuals
+            ##########
+            col = col + 1
+            ind = int((row-1)*Ncols + col)
+            
+            bins = np.arange(-7.5, 7.5, 1)
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            id = np.where(diffY < 0)[0]
+            sig[id] = -1.*sig[id] 
+            (n, b, p) = plt.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
+            plt.setp(p, 'facecolor', 'b')
+            (n, b, p) = plt.hist(sigY, bins, histtype='step', color='r', label='Y')
+            plt.axis([-7, 7, 0, 8])
+            plt.xticks(fontsize=10)
+            plt.legend(fontsize=10)
+            plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
+            plt.ylabel('Number of Epochs', fontsize=fontsize1)
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+    
+            ##########
+            # M Histogram of Residuals
+            ##########
+            col = col + 1
+            ind = int((row-1)*Ncols + col)
+            
+            bins = np.arange(-7.5, 7.5, 1)
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            (n, b, p) = plt.hist(sigM, bins, histtype='stepfilled', color='g', label='m')
+            plt.axis([-7, 7, 0, 8])
+            plt.xticks(fontsize=10)
+            plt.legend(fontsize=10)
+            plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
+            plt.ylabel('Number of Epochs', fontsize=fontsize1)
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+                
 
     if Nstars == 1:
         plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
