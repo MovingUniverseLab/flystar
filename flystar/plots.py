@@ -2128,6 +2128,13 @@ def plot_chi2_dist(tab, Ndetect, xlim=40):
     Ndof = Ndetect - 2 
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
 
+    xhi = np.where(x[idx] > 20)[0]
+    yhi = np.where(y[idx] > 20)[0]
+#    print('x')
+#    print(tab['name'][idx][xhi])
+#    print('y')
+#    print(tab['name'][idx][yhi])
+
     plt.figure(figsize=(6,4))
     plt.clf()
     plt.hist(x[idx], bins=np.arange(xlim*10), histtype='step', label='X', density=True)
@@ -2197,8 +2204,9 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
 
         ax2.plot(m_arr[:, ii], sigX_arr[:, ii], 's', label = 'X', color='tab:blue', alpha=0.4, ms=5)
         ax2.plot(m_arr[:, ii], sigY_arr[:, ii], 'o', label = 'Y', color='tab:orange', alpha=0.4, ms=5)
-        ax2.plot(m_arr[target_idx, ii], sigX_arr[target_idx, ii], 's', color='black', ms=5)
-        ax2.plot(m_arr[target_idx, ii], sigY_arr[target_idx, ii], 'o', color='black', ms=5)
+        if target_idx is not None:
+            ax2.plot(m_arr[target_idx, ii], sigX_arr[target_idx, ii], 's', color='black', ms=5)
+            ax2.plot(m_arr[target_idx, ii], sigY_arr[target_idx, ii], 'o', color='black', ms=5)
         ax2.set_xlim(xlim[0], xlim[1])
         ax2.set_ylim(-5, 5)
         ax2.axhline(y=0, color='black', alpha=0.9, zorder=1000)
@@ -2211,10 +2219,11 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
                      marker='s', label = 'X', ls='none', color='tab:blue', alpha=0.4, ms=5)
         ax3.errorbar(m_arr[:, ii], diffY_arr[:, ii]*1E3, yerr=errY_arr[:, ii]*1E3, 
                      marker='o', label = 'Y', ls='none', color='tab:orange', alpha=0.4, ms=5)
-        ax3.errorbar(m_arr[target_idx, ii], diffX_arr[target_idx, ii]*1E3, yerr=errX_arr[target_idx, ii]*1E3, 
-                     marker='s', ls='none', color='black', ms=5)
-        ax3.errorbar(m_arr[target_idx, ii], diffY_arr[target_idx, ii]*1E3, yerr=errY_arr[target_idx, ii]*1E3, 
-                     marker='o', ls='none', color='black', ms=5)
+        if target_idx is not None:
+            ax3.errorbar(m_arr[target_idx, ii], diffX_arr[target_idx, ii]*1E3, yerr=errX_arr[target_idx, ii]*1E3, 
+                         marker='s', ls='none', color='black', ms=5)
+            ax3.errorbar(m_arr[target_idx, ii], diffY_arr[target_idx, ii]*1E3, yerr=errY_arr[target_idx, ii]*1E3, 
+                         marker='o', ls='none', color='black', ms=5)
         ax3.set_xlim(xlim[0], xlim[1])
         ax3.set_ylim(ylim[0], ylim[1])
         ax3.axhline(y=0, color='black', alpha=0.9, zorder=1000)
@@ -2223,7 +2232,7 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
 
     return
 
-def plot_chi2_dist_mag(tab, Ndetect):
+def plot_chi2_dist_mag(tab, Ndetect, xlim=40):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2253,15 +2262,15 @@ def plot_chi2_dist_mag(tab, Ndetect):
     idx = np.where(fnd == Ndetect)[0]
     # Fitting mag (straight line) only has 1 DOF
     Ndof = Ndetect - 1
-    chi2_maxis = np.linspace(0, 40, 100)
+    chi2_maxis = np.linspace(0, xlim, xlim*3)
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(m[idx], bins=np.arange(400), histtype='step', density=True)
+    plt.hist(m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
-    plt.xlim(0, 40)
+    plt.xlim(0, xlim)
     plt.legend()
 
     return
