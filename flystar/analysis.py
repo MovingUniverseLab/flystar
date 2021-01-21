@@ -314,7 +314,7 @@ def pick_good_ref_stars(star_tab, r_cut=None, m_cut=None, p_err_cut=None, pm_err
     return idx
 
 
-def startable_subset(tab, idx):
+def startable_subset(tab, idx, mag_trans=True):
     """
     Input is MosaicToRef table from alignment of multiple filters, such that the astrometry is combined but the photometry is not.
     This function is used to separate out a selected filter from the the combined astrometry + uncombined photometry table.
@@ -353,6 +353,18 @@ def startable_subset(tab, idx):
 
     new_tab.combine_lists('m', weights_col='me', sigma=3, ismag=True)
 
+    if mag_trans:
+        use = np.where(new_tab['use_in_trans'])[0]
+        for ii in np.arange(len(new_tab['m'][0])):
+            # FIXME: sometimes a nan sneaks through, 
+            # which is why I use the np.nan functions.
+            # But the one in transforms.py doesn't... WHY???
+            m_resid = new_tab['m0'][use] - new_tab['m'][use,ii]
+            threshold = 3 * np.nanstd(m_resid)
+            keepers = np.where(np.absolute(m_resid - np.nanmean(m_resid)) < threshold)[0]
+            mag_offset = np.nanmean(m_resid[keepers])
+            new_tab['m'][:,ii] += mag_offset
+    
     return new_tab
 
 
