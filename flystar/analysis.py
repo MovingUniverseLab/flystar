@@ -10,6 +10,7 @@ from astropy.table import Table, Column
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astropy.wcs import WCS
+from astroquery.gaia import Gaia
 from astroquery.mast import Observations, Catalogs
 import pdb, copy
 import math
@@ -20,7 +21,7 @@ from scipy.stats import f
 # the new StarTable and StarList format. 
 ##################################################
 
-def query_gaia(ra, dec, search_radius=30.0):
+def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
     """
     Query the Gaia database at the specified location
     and with the specified search radius
@@ -36,15 +37,19 @@ def query_gaia(ra, dec, search_radius=30.0):
     search_radius : float
         The search radius in arcseconds. 
 
+    Optional Input
+    --------------
+    table_name : string
+        Options are 'gaiadr2' or 'gaiaedr3'
     """
     target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
     ra = target_coords.ra.degree
     dec = target_coords.dec.degree
 
-    search_radius /= 3600.0 # degrees
+    search_radius *= u.arcsec
 
-    query_str = '{0:f} {1:f}'.format(ra, dec)
-    gaia = Catalogs.query_region(query_str, radius=search_radius, catalog="Gaia", version=2)
+    gaia_job = Gaia.cone_search_async(target_coords, search_radius, table_name = table_name + '.gaia_source')
+    gaia = gaia_job.get_results()
 
     return gaia
 

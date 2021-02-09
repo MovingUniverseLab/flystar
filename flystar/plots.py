@@ -2083,7 +2083,7 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     return
 
 
-def plot_chi2_dist(tab, Ndetect):
+def plot_chi2_dist(tab, Ndetect, n_bins=50):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2126,11 +2126,13 @@ def plot_chi2_dist(tab, Ndetect):
     # Fitting position and velocity... so subtract 2 to get Ndof
     Ndof = Ndetect - 2 
     chi2_xaxis = np.linspace(0, 40, 100)
+    chi2_bins = np.linspace(0, 40, n_bins)
 
+    
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(x[idx], bins=np.arange(400), histtype='step', label='X', density=True)
-    plt.hist(y[idx], bins=np.arange(400), histtype='step', label='Y', density=True)
+    plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
+    plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
@@ -2238,7 +2240,7 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
 
     return
 
-def plot_chi2_dist_mag(tab, Ndetect):
+def plot_chi2_dist_mag(tab, Ndetect, n_bins=30):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2270,7 +2272,7 @@ def plot_chi2_dist_mag(tab, Ndetect):
     # Fitting mean magnitude... so subtract 1 to get Ndof
     Ndof = Ndetect - 1
     chi2_maxis = np.linspace(0, 40, 100)
-    chi2_bins = np.arange(0, 40, 0.5)
+    chi2_bins = np.linspace(0, 40, n_bins)
 
     plt.figure(figsize=(6,4))
     plt.clf()
