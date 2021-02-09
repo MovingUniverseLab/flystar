@@ -319,6 +319,57 @@ def pick_good_ref_stars(star_tab, r_cut=None, m_cut=None, p_err_cut=None, pm_err
     return idx
 
 
+def startable_subset(tab, idx, mag_trans=True):
+    """
+    Input is MosaicToRef table from alignment of multiple filters, such that the astrometry is combined but the photometry is not.
+    This function is used to separate out a selected filter from the the combined astrometry + uncombined photometry table.
+    """
+    # Multiples: ['x', 'y', 'm', 'name_in_list', 'xe', 'ye', 'me', 't', 'x_orig', 'y_orig', 'm_orig', 'xe_orig', 'ye_orig', 'me_orig', 'used_in_trans']
+    # Single: ['name', 'm0', 'm0e', 'use_in_trans', 'ref_orig', 'n_detect', 'x0', 'vx', 'y0', 'vy', 'x0e', 'vxe', 'y0e', 'vye', 't0'] 
+    # Don't include n_vfit
+
+    new_tab = startables.StarTable(name=tab['name'].data, 
+                                   x=tab['x'][:,idx].data,
+                                   y=tab['y'][:,idx].data,
+                                   m=tab['m'][:,idx].data,
+                                   xe=tab['xe'][:,idx].data,
+                                   ye=tab['ye'][:,idx].data,
+                                   me=tab['me'][:,idx].data,
+                                   t=tab['t'][:,idx].data,                                
+                                   x_orig=tab['x_orig'][:,idx].data,                                
+                                   y_orig=tab['y_orig'][:,idx].data,                                
+                                   m_orig=tab['m_orig'][:,idx].data,                                
+                                   xe_orig=tab['xe_orig'][:,idx].data,                                
+                                   ye_orig=tab['ye_orig'][:,idx].data,                                
+                                   me_orig=tab['me_orig'][:,idx].data,                                  
+                                   used_in_trans=tab['used_in_trans'][:,idx].data,                                
+                                   m0=tab['m0'].data,
+                                   m0e=tab['m0e'].data,
+                                   use_in_trans=tab['use_in_trans'].data,         
+                                   x0=tab['x0'].data,
+                                   vx=tab['vx'].data,
+                                   y0=tab['y0'].data,
+                                   vy=tab['vy'].data,   
+                                   x0e=tab['x0e'].data,
+                                   vxe=tab['vxe'].data,
+                                   y0e=tab['y0e'].data,
+                                   vye=tab['vye'].data,                                  
+                                   t0=tab['t0'].data)
+
+    new_tab.combine_lists('m', weights_col='me', sigma=3, ismag=True)
+
+    if mag_trans:
+        use = np.where(new_tab['used_in_trans'].mean(axis=1) == 1)[0]
+        for ii in np.arange(len(new_tab['m'][0])):
+            m_resid = new_tab['m0'][use] - new_tab['m'][use,ii]
+            threshold = 3 * np.std(m_resid)
+            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+            mag_offset = np.mean(m_resid[keepers])
+            new_tab['m'][:,ii] += mag_offset
+    
+    return new_tab
+
+
 ##################################################
 # Old codes.
 ##################################################
