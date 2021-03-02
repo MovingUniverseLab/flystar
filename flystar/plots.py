@@ -2278,7 +2278,7 @@ def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
+    plt.hist(chi2_m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
