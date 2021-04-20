@@ -220,10 +220,14 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     t_label.rename_column('col13','r0')
 
     # Convert velocities from mas/yr to arcsec/year
-    t_label['vx'] *= 0.001
-    t_label['vy'] *= 0.001
-    t_label['vxe'] *= 0.001
-    t_label['vye'] *= 0.001
+#    t_label['vx'] *= 0.001
+#    t_label['vy'] *= 0.001
+#    t_label['vxe'] *= 0.001
+#    t_label['vye'] *= 0.001
+    t_label['vx'] = t_label['vx'] * 0.001
+    t_label['vy'] = t_label['vy'] * 0.001
+    t_label['vxe'] = t_label['vxe'] * 0.001
+    t_label['vye'] = t_label['vye'] * 0.001
 
     # propogate to prop_to_time if prop_to_time is given
     if prop_to_time != None:
@@ -477,6 +481,8 @@ class StarList(Table):
                 col8: N_frames
                 col9: ? (left as default)
 
+            Note that an 'me' column will be added if error=True set to 1.0 / snr.
+
         error: boolean (default=True)
             If true, assumes starlist has error columns. This significantly
             changes the order of the columns.
@@ -487,33 +493,37 @@ class StarList(Table):
         """
         t_ref = Table.read(filename, format='ascii', delimiter='\s')
 
-
         # Check if this already has column names:
         cols = t_ref.colnames
 
         if cols[0] != 'col1':
             t_ref['name'] = t_ref['name'].astype(str)
-            return cls.from_table(t_ref)
 
-        t_ref.rename_column(cols[0], 'name')
-        t_ref['name'] = t_ref['name'].astype(str)
-        t_ref.rename_column(cols[1], 'm')
-        t_ref.rename_column(cols[2], 't')
-        t_ref.rename_column(cols[3], 'x')
-        t_ref.rename_column(cols[4], 'y')
-
-        if error==True:
-            t_ref.rename_column(cols[5], 'xe')
-            t_ref.rename_column(cols[6], 'ye')
-            t_ref.rename_column(cols[7], 'snr')
-            t_ref.rename_column(cols[8], 'corr')
-            t_ref.rename_column(cols[9], 'N_frames')
-            t_ref.rename_column(cols[10], 'flux')
+            t_ref = cls.from_table(t_ref)
+            cols = t_ref.colnames
         else:
-            t_ref.rename_column(cols[5], 'snr')
-            t_ref.rename_column(cols[6], 'corr')
-            t_ref.rename_column(cols[7], 'N_frames')
-            t_ref.rename_column(cols[8], 'flux')
+            t_ref.rename_column(cols[0], 'name')
+            t_ref['name'] = t_ref['name'].astype(str)
+            t_ref.rename_column(cols[1], 'm')
+            t_ref.rename_column(cols[2], 't')
+            t_ref.rename_column(cols[3], 'x')
+            t_ref.rename_column(cols[4], 'y')
+            
+            if error==True:
+                t_ref.rename_column(cols[5], 'xe')
+                t_ref.rename_column(cols[6], 'ye')
+                t_ref.rename_column(cols[7], 'snr')
+                t_ref.rename_column(cols[8], 'corr')
+                t_ref.rename_column(cols[9], 'N_frames')
+                t_ref.rename_column(cols[10], 'flux')
+            else:
+                t_ref.rename_column(cols[5], 'snr')
+                t_ref.rename_column(cols[6], 'corr')
+                t_ref.rename_column(cols[7], 'N_frames')
+                t_ref.rename_column(cols[8], 'flux')
+                
+        if ('me' not in cols) and ('snr' in cols) and (error == True):
+            t_ref['me'] = 1.0 / t_ref['snr']
 
         if fvu_file is not None:
             t_fvu = Table.read(fvu_file, format='ascii.no_header')

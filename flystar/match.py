@@ -229,8 +229,9 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     dm_tol : float or None, optional
         How close in delta-magnitude a match has to be to count as a match.
         If None, then any delta-magnitude is allowed.
-    verbose : bool, optional
-        Prints on screen information on the matching
+    verbose : bool or int, optional
+        Prints on screen information on the matching. Higher verbose values 
+        (up to 9) provide more detail.
  
     Returns
     -------
@@ -365,7 +366,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
 
     # Deal with duplicates
     duplicates = [item for item, count in list(Counter(idxs2).items()) if count > 1]
-    if verbose:
+    if verbose > 2:
         print(( '    Found {0:d} duplicates out of {1:d} matches'.format(len(duplicates), len(dm))))
     keep = np.ones(len(idxs1), dtype=bool)
     for dd in range(len(duplicates)):

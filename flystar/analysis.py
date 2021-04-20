@@ -10,6 +10,7 @@ from astropy.table import Table, Column
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astropy.wcs import WCS
+from astroquery.gaia import Gaia
 from astroquery.mast import Observations, Catalogs
 import pdb, copy
 import math
@@ -20,7 +21,7 @@ from scipy.stats import f
 # the new StarTable and StarList format. 
 ##################################################
 
-def query_gaia(ra, dec, search_radius=30.0):
+def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
     """
     Query the Gaia database at the specified location
     and with the specified search radius
@@ -36,15 +37,19 @@ def query_gaia(ra, dec, search_radius=30.0):
     search_radius : float
         The search radius in arcseconds. 
 
+    Optional Input
+    --------------
+    table_name : string
+        Options are 'gaiadr2' or 'gaiaedr3'
     """
     target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
     ra = target_coords.ra.degree
     dec = target_coords.dec.degree
 
-    search_radius /= 3600.0 # degrees
+    search_radius *= u.arcsec
 
-    query_str = '{0:f} {1:f}'.format(ra, dec)
-    gaia = Catalogs.query_region(query_str, radius=search_radius, catalog="Gaia", version=2)
+    gaia_job = Gaia.cone_search_async(target_coords, search_radius, table_name = table_name + '.gaia_source')
+    gaia = gaia_job.get_results()
 
     return gaia
 
@@ -61,13 +66,12 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     dec = target_coords.dec.degree   # in decimal degrees
     
     cos_dec = np.cos(np.radians(dec))
-
     x = (gaia['ra'] - ra) * cos_dec * 3600.0   # arcsec
     y = (gaia['dec'] - dec) * 3600.0           # arcsec
     xe = gaia['ra_error'] * cos_dec / 1e3      # arcsec
     ye = gaia['dec_error'] / 1e3               # arcsec
 
-    gaia_new = table.Table([gaia['source_id'].data], names=['name'], masked=False)
+    gaia_new = table.Table([gaia['source_id'].data.astype('S19')], names=['name'], masked=False)
 
     gaia_new['x0'] = x * -1.0
     gaia_new['y0'] = y
@@ -81,7 +85,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['vye'] = gaia['pmdec_error'].data / 1e3
     
     gaia_new['t0'] = gaia['ref_epoch'].data
-    gaia_new['source_id'] = gaia['source_id']
+    gaia_new['source_id'] = gaia['source_id'].data.astype('S19')
 
     # Find sources without velocities and fix them up.
     idx = np.where(gaia['pmdec'].mask == True)[0]
@@ -313,6 +317,57 @@ def pick_good_ref_stars(star_tab, r_cut=None, m_cut=None, p_err_cut=None, pm_err
     idx = np.where(use == True)[0]
 
     return idx
+
+
+def startable_subset(tab, idx, mag_trans=True):
+    """
+    Input is MosaicToRef table from alignment of multiple filters, such that the astrometry is combined but the photometry is not.
+    This function is used to separate out a selected filter from the the combined astrometry + uncombined photometry table.
+    """
+    # Multiples: ['x', 'y', 'm', 'name_in_list', 'xe', 'ye', 'me', 't', 'x_orig', 'y_orig', 'm_orig', 'xe_orig', 'ye_orig', 'me_orig', 'used_in_trans']
+    # Single: ['name', 'm0', 'm0e', 'use_in_trans', 'ref_orig', 'n_detect', 'x0', 'vx', 'y0', 'vy', 'x0e', 'vxe', 'y0e', 'vye', 't0'] 
+    # Don't include n_vfit
+
+    new_tab = startables.StarTable(name=tab['name'].data, 
+                                   x=tab['x'][:,idx].data,
+                                   y=tab['y'][:,idx].data,
+                                   m=tab['m'][:,idx].data,
+                                   xe=tab['xe'][:,idx].data,
+                                   ye=tab['ye'][:,idx].data,
+                                   me=tab['me'][:,idx].data,
+                                   t=tab['t'][:,idx].data,                                
+                                   x_orig=tab['x_orig'][:,idx].data,                                
+                                   y_orig=tab['y_orig'][:,idx].data,                                
+                                   m_orig=tab['m_orig'][:,idx].data,                                
+                                   xe_orig=tab['xe_orig'][:,idx].data,                                
+                                   ye_orig=tab['ye_orig'][:,idx].data,                                
+                                   me_orig=tab['me_orig'][:,idx].data,                                  
+                                   used_in_trans=tab['used_in_trans'][:,idx].data,                                
+                                   m0=tab['m0'].data,
+                                   m0e=tab['m0e'].data,
+                                   use_in_trans=tab['use_in_trans'].data,         
+                                   x0=tab['x0'].data,
+                                   vx=tab['vx'].data,
+                                   y0=tab['y0'].data,
+                                   vy=tab['vy'].data,   
+                                   x0e=tab['x0e'].data,
+                                   vxe=tab['vxe'].data,
+                                   y0e=tab['y0e'].data,
+                                   vye=tab['vye'].data,                                  
+                                   t0=tab['t0'].data)
+
+    new_tab.combine_lists('m', weights_col='me', sigma=3, ismag=True)
+
+    if mag_trans:
+        use = np.where(new_tab['used_in_trans'].mean(axis=1) == 1)[0]
+        for ii in np.arange(len(new_tab['m'][0])):
+            m_resid = new_tab['m0'][use] - new_tab['m'][use,ii]
+            threshold = 3 * np.std(m_resid)
+            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
+            mag_offset = np.mean(m_resid[keepers])
+            new_tab['m'][:,ii] += mag_offset
+    
+    return new_tab
 
 
 ##################################################
