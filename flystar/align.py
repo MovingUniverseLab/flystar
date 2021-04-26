@@ -298,7 +298,7 @@ class MosaicSelfRef(object):
             if nn > 0:
                 self.reset_ref_values()
 
-            if self.verbose > 1:
+            if self.verbose > 0:
                 print(" ")
                 print("**********")
                 print("**********")
@@ -402,7 +402,7 @@ class MosaicSelfRef(object):
             if trans is None:
                 # Only use "use_in_trans" reference stars, even for initial guessing.
                 keepers = np.where(ref_list['use_in_trans'] == True)[0]
-                
+
                 trans = trans_initial_guess(ref_list[keepers], star_list_orig_trim, self.trans_args[0],
                                             mode=self.init_guess_mode,
                                             verbose=self.verbose,
@@ -417,7 +417,7 @@ class MosaicSelfRef(object):
             idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                              ref_list['x'], ref_list['y'], ref_list['m'],
                                              dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-            if self.verbose > 0:
+            if self.verbose > 1:
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
 
@@ -425,7 +425,7 @@ class MosaicSelfRef(object):
             if outlier_tol != None:
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
                                                           outlier_tol)
-                if self.verbose > 0:
+                if self.verbose > 1:
                     print( '  Rejected ', len(idx1) - len(keepers), ' outliers.' )
                     
                 idx1 = idx1[keepers]
@@ -435,7 +435,7 @@ class MosaicSelfRef(object):
             if 'use_in_trans' in ref_list.colnames:
                 keepers = np.where(ref_list[idx2]['use_in_trans'] == True)[0]
                 
-                if self.verbose > 0:
+                if self.verbose > 1:
                     print( '  Rejected ', len(idx1) - len(keepers), ' with use_in_trans=False.' )
                     
                 idx1 = idx1[keepers]
@@ -446,12 +446,12 @@ class MosaicSelfRef(object):
             weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
 
             # Derive the best-fit transformation parameters. 
-            if self.verbose > 0:
+            if self.verbose > 1:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
             trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
                                                       **trans_args,
-                                                      m=star_list['m'][idx1], mref=ref_list['m'][idx2],
+                                                      m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight, mag_trans=self.mag_trans)
 
             # Save the final transformation.
@@ -476,7 +476,7 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
 
-            if self.verbose > 1:
+            if self.verbose > 7:
                 hdr = '{nr:13s} {n:13s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
                 hdr += '{dx:7s} {dy:7s} {dm:6s} {xo:9s} {yo:9s} {mo:6s}'
                 print(hdr.format(nr='name_ref', n='name_lis',
@@ -500,12 +500,11 @@ class MosaicSelfRef(object):
                                      dm=(star_t['m'] - star_r['m']),
                                      xo=star_s['x'], yo=star_s['y'], mo=star_s['m']))
                     
-
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-
-            if self.verbose > 0:
+            
+            if self.verbose > 1:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
                 
@@ -789,7 +788,9 @@ class MosaicSelfRef(object):
         ### Add the unmatched stars and grow the size of the reference table.
         self.ref_table, idx_lis_new, idx_ref_new = add_rows_for_new_stars(self.ref_table, star_list, idx_lis)
         if len(idx_ref_new) > 0:
-            print('    Adding {0:d} new stars to the reference table.'.format(len(idx_ref_new)))
+            if self.verbose > 0:
+                print('    Adding {0:d} new stars to the reference table.'.format(len(idx_ref_new)))
+                
             copy_over_values(self.ref_table, star_list, star_list_T, ii, idx_ref_new, idx_lis_new)
 
             # Copy the single-epoch values to the aggregate (only for new stars).
@@ -943,8 +944,9 @@ class MosaicSelfRef(object):
             idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    xref, yref, mref,
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-            if self.verbose:
-                print('Matched {0:d} out of {1:d} stars in list {2:d}'.format(len(idx_lis), len(star_list_T), ii))
+            if self.verbose > 0:
+                fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} +/- {4:6.4f}, dm = {5:5.2f} +/- {6:4.2f}'
+                print(fmt.format(len(idx_lis), len(star_list_T), ii, dr.mean(), dr.std(), dm.mean(), dm.std()))
 
             copy_over_values(self.ref_table, self.star_lists[ii], star_list_T, ii, idx_ref, idx_lis)
 
@@ -1517,24 +1519,26 @@ class MosaicToRef(MosaicSelfRef):
         # Create a log file of the parameters used in the fit.
         with open('MosaicToRef_input_params.log', 'w',) as _log:
             logger(_log, 'Parameters used for fit: ')
-            logger(_log, 'dr_tol = ' + str(self.dr_tol))
-            logger(_log, 'dm_tol = ' + str(self.dm_tol))
-            logger(_log, 'outlier_tol = ' + str(self.outlier_tol))
-            logger(_log, 'trans_args = ' + str(self.trans_args))
-            logger(_log, 'mag_trans = ' + str(self.mag_trans))
-            logger(_log, 'mag_lim = ' + str(self.mag_lim))
-            logger(_log, 'ref_mag_lim = ' + str(self.ref_mag_lim))
-            logger(_log, 'weights = ' + str(self.weights))
-            logger(_log, 'n_boot = ' + str(self.n_boot))
-            logger(_log, 'boot_epochs_min = ' + str(self.boot_epochs_min))
-            logger(_log, 'trans_input = ' + str(self.trans_input))
-            logger(_log, 'trans_class = ' + str(self.trans_class))
-            logger(_log, 'calc_trans_inverse = ' + str(self.calc_trans_inverse))
-            logger(_log, 'use_ref_new = ' + str(self.use_ref_new))
-            logger(_log, 'use_vel = ' + str(self.use_vel))
-            logger(_log, 'update_ref_orig = ' + str(self.update_ref_orig))
-            logger(_log, 'init_guess_mode = ' + str(self.init_guess_mode))
-            logger(_log, 'iter_callback = ' + str(self.iter_callback))
+            logger(_log, '------------------------- ')
+            logger(_log, '  dr_tol = ' + str(self.dr_tol))
+            logger(_log, '  dm_tol = ' + str(self.dm_tol))
+            logger(_log, '  outlier_tol = ' + str(self.outlier_tol))
+            logger(_log, '  trans_args = ' + str(self.trans_args))
+            logger(_log, '  mag_trans = ' + str(self.mag_trans))
+            logger(_log, '  mag_lim = ' + str(self.mag_lim))
+            logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim))
+            logger(_log, '  weights = ' + str(self.weights))
+            logger(_log, '  n_boot = ' + str(self.n_boot))
+            logger(_log, '  boot_epochs_min = ' + str(self.boot_epochs_min))
+            logger(_log, '  trans_input = ' + str(self.trans_input))
+            logger(_log, '  trans_class = ' + str(self.trans_class))
+            logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse))
+            logger(_log, '  use_ref_new = ' + str(self.use_ref_new))
+            logger(_log, '  use_vel = ' + str(self.use_vel))
+            logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig))
+            logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode))
+            logger(_log, '  iter_callback = ' + str(self.iter_callback))
+            logger(_log, '-------------------------\n') 
 
         ##########
         # Setup a reference table to store data. It will contain:
@@ -1567,7 +1571,7 @@ class MosaicToRef(MosaicSelfRef):
             if nn > 0:
                 self.reset_ref_values()
 
-            if self.verbose:
+            if self.verbose > 0:
                 print(" ")
                 print("**********")
                 print("**********")
@@ -1587,7 +1591,8 @@ class MosaicToRef(MosaicSelfRef):
 
             ### Drop all stars that have 0 detections.
             idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
-            print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+            if self.verbose > 0:
+                print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
             if self.iter_callback != None:
@@ -1600,7 +1605,8 @@ class MosaicToRef(MosaicSelfRef):
         #        First rest the reference table 2D values. 
         ##########
         self.reset_ref_values(exclude=['used_in_trans'])
-        if self.verbose:
+
+        if self.verbose > 0:
             print("**********")
             print("Final Matching")
             print("**********")
@@ -1623,7 +1629,7 @@ class MosaicToRef(MosaicSelfRef):
         # 
         ##########
         # Find where stars are detected.
-        if self.verbose:
+        if self.verbose > 0:
             print('')
             print('   Preparing the reference table...')
             
@@ -3532,7 +3538,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     err_msg = 'Failed to find more than '+str(n_req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
     assert len(x1m) > n_req_match, err_msg
-    if verbose:
+    if verbose > 1:
         print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
     # Calculate position transformation based on matches
@@ -3550,7 +3556,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     else:
         trans.mag_offset = 0
         
-    if verbose:
+    if verbose > 1:
         print('init guess: ', trans.px.parameters, trans.py.parameters)
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
@@ -3656,7 +3662,7 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
     threshold = outlier_tol * resid_on_old_trans.std()
     keepers = np.where(resid_on_old_trans < threshold)[0]
 
-    if verbose:
+    if verbose > 0:
         msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
         print(msg.format(len(keepers), len(resid_on_old_trans)))
         

@@ -576,10 +576,7 @@ class PolyTransform(Transform2D):
         
         # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
         if (m is not None) and (mref is not None) and mag_trans:
-            m_resid = mref - m
-            threshold = 3 * m_resid.std()
-            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            mag_offset = np.mean((mref - m)[keepers])
+            mag_offset = np.mean(mref - m)
         else:
             mag_offset =  0
         
@@ -695,8 +692,8 @@ class Shift(PolyTransform):
         px_dict = Shift.make_param_dict(px, 1, isY=False)
         py_dict = Shift.make_param_dict(py, 1, isY=True)
         
-        self.px = models.Polynomial2D(order, **px_dict, fixed={'c1_0', 'c1_1'})
-        self.py = models.Polynomial2D(order, **py_dict, fixed={'c1_0', 'c1_1'})
+        self.px = models.Polynomial2D(order, **px_dict, fixed={'c0_0': False, 'c1_0': True})
+        self.py = models.Polynomial2D(order, **py_dict, fixed={'c0_0': False, 'c1_0': True})
         self.pxerr = pxerr
         self.pyerr = pyerr
         self.order = 0

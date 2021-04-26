@@ -280,6 +280,8 @@ def test_MosaicSelfRef_vel():
     return
 
 def test_MosaicToRef():
+    make_fake_starlists_poly1_vel()
+    
     ref_file = 'random_vel_ref.fits'
     list_files = ['random_vel_0.fits',
                   'random_vel_1.fits',
@@ -792,4 +794,37 @@ def test_transform_xym():
 
     print('Done mag_trans = True case')
    
+    return
+
+def test_MosaicToRef_mag_bug():
+    """
+    Bug found by Tuan Do on 2020-04-12.
+    """
+    make_fake_starlists_poly1_vel()
+
+    ref_list = starlists.StarList.from_lis_file('random_0.lis', error=False)
+    lists = [ref_list]
+
+    msc = align.MosaicToRef(ref_list, lists, 
+                              mag_trans=True,
+                              iters=1,                              
+                              dr_tol=[0.2], dm_tol=[1],
+                              outlier_tol=None,
+                              trans_class=transforms.PolyTransform,
+                              trans_args=[{'order': 1}],
+                              use_vel=False,
+                              use_ref_new=False,
+                              update_ref_orig=False,
+                              verbose=True)
+
+    msc.fit()
+
+    out_tab = msc.ref_table
+
+    # The issue is that in the initial guess with
+    #   mag_trans = True
+    # somehow the transformed magnitudes are nan.
+    # This causes zero matches to occur.
+    assert len(out_tab) == len(ref_list)
+
     return
