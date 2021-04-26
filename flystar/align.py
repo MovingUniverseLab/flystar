@@ -511,8 +511,8 @@ class MosaicSelfRef(object):
                 
             ## Make plot, if desired
             plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                  fileName='{0}'.format(star_list_T['t'][0]))                
-
+                                  fileName='{0}'.format(star_list_T['t'][0]))
+            
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
             
@@ -894,7 +894,7 @@ class MosaicSelfRef(object):
             if self.weights == 'ref,std':
                 weight = 1.0 / np.sqrt(var_xref + var_yref)
             if self.weights == 'list,var':
-                weight = 1.0 / (var_xlis, var_ylis)
+                weight = 1.0 / (var_xlis + var_ylis)
             if self.weights == 'list,std':
                 weight = 1.0 / np.sqrt(var_xlis, var_ylis)
         else:
@@ -1196,6 +1196,7 @@ class MosaicSelfRef(object):
                 xe_trans_arr[:,ii,jj] = starlist_T['xe']
                 ye_trans_arr[:,ii,jj] = starlist_T['ye']
                 me_trans_arr[:,ii,jj] = starlist_T['me']
+ 
             t2 = time.time()
             #print('=================================================')
             #print('Time to do {0} epochs: {1}s'.format(n_epochs,  t2-t1))
@@ -1591,7 +1592,6 @@ class MosaicToRef(MosaicSelfRef):
 
             if self.iter_callback != None:
                 self.iter_callback(self.ref_table, nn)
-            
 
         ##########
         #
@@ -1600,7 +1600,6 @@ class MosaicToRef(MosaicSelfRef):
         #        First rest the reference table 2D values. 
         ##########
         self.reset_ref_values(exclude=['used_in_trans'])
-
         if self.verbose:
             print("**********")
             print("Final Matching")
@@ -1608,7 +1607,7 @@ class MosaicToRef(MosaicSelfRef):
 
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
         self.update_ref_table_aggregates()
-        
+
         # Calculate bootstrap transformation errors and proper motion
         # errors, if desired.
         #=============#
@@ -1637,7 +1636,6 @@ class MosaicToRef(MosaicSelfRef):
 
         if self.iter_callback != None:
             self.iter_callback(self.ref_table, nn)
-
         return
 
 
