@@ -695,6 +695,110 @@ def test_MosaicToRef_hst_me():
 
     return
 
+def test_bootstrap():
+    """
+    Test to make sure calc_bootstrap_error() call is working 
+    properly (e.g., only called when user calls calc_bootstrap_error,
+    n_boot param for calc_bootstrap_error only)
+    """
+    # Read in starlists for MosaicToRef
+    ref = Table.read('ref.lis', format='ascii')
+    list1 = Table.read('E.lis', format='ascii')
+    list2 = Table.read('F.lis', format='ascii')
+
+    list1 = starlists.StarList.from_table(list1)
+    list2 = starlists.StarList.from_table(list2)
+        
+    # Set parameters for alignment
+    transModel = transforms.PolyTransform
+    trans_args = {'order':2}
+    N_loop = 1
+    dr_tol = 0.08
+    dm_tol = 99
+    outlier_tol = None
+    mag_lim = None
+    ref_mag_lim = None
+    weights = 'both,var'
+    mag_trans = False
+
+    n_boot = 15
+    boot_epochs_min=-1
+
+    # Run FLYSTAR, no bootstraps yet!
+    match1 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
+                                  trans_class=transModel,
+                                  trans_args=trans_args,
+                                  mag_trans=mag_trans,
+                                  mag_lim=mag_lim,
+                                  ref_mag_lim=ref_mag_lim,
+                                  weights=weights,
+                                  use_vel=True,
+                                  use_ref_new=False,
+                                  update_ref_orig=False,
+                                  init_guess_mode='name',
+                                  verbose=False)
+    match1.fit()
+
+    # Make sure no bootstrap columns exist
+    assert 'xe_boot' not in match1.ref_table.keys()
+    assert 'ye_boot' not in match1.ref_table.keys()
+    assert 'vxe_boot' not in match1.ref_table.keys()
+    assert 'vye_boot' not in match1.ref_table.keys()
+
+    # Run bootstrap: no boot_epochs_min
+    match1.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min)
+
+    # Make sure columns exist, and none of them are nan values
+    assert np.sum(np.isnan(match1.ref_table['xe_boot'])) == 0
+    assert np.sum(np.isnan(match1.ref_table['ye_boot'])) == 0
+    assert np.sum(np.isnan(match1.ref_table['vxe_boot'])) == 0
+    assert np.sum(np.isnan(match1.ref_table['vye_boot'])) == 0
+
+    # Test 2: make sure boot_epochs_min is working
+    # Eliminate some rows to list2, so some stars are only in 1 epoch.
+    # Rerun align. Some stars should only be detected in 1 epoch
+    list3 = list2[0:60]
+
+    match2 = align.MosaicToRef(ref, [list1, list3], iters=N_loop, dr_tol=dr_tol,
+                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
+                                  trans_class=transModel,
+                                  trans_args=trans_args,
+                                  mag_trans=mag_trans,
+                                  mag_lim=mag_lim,
+                                  ref_mag_lim=ref_mag_lim,
+                                  weights=weights,
+                                  use_vel=True,
+                                  use_ref_new=False,
+                                  update_ref_orig=False,
+                                  init_guess_mode='name',
+                                  verbose=False)
+    match2.fit()
+
+    # Now run_calc_bootstrap_error, with boot_epochs_min engaged
+    boot_epochs_min2 = 2
+    match2.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min2)
+
+    # Make sure boot_epochs_min cut worked as intended
+    out = match2.ref_table
+    bad = np.where(out['n_detect'] == 1)
+    good = np.where(out['n_detect'] == 2)
+
+    # For "good" stars: all bootstrap vals should be present
+    assert np.sum(np.isnan(out['xe_boot'][good])) == 0
+    assert np.sum(np.isnan(out['ye_boot'][good])) == 0
+    assert np.sum(np.isnan(out['vxe_boot'][good])) == 0
+    assert np.sum(np.isnan(out['vye_boot'][good])) == 0
+
+    # For "bad" stars, all bootstrap vals should be nans
+    assert np.sum(np.isnan(out['xe_boot'][bad])) == len(bad[0])
+    assert np.sum(np.isnan(out['ye_boot'][bad])) == len(bad[0])
+    assert np.sum(np.isnan(out['vxe_boot'][bad])) == len(bad[0])
+    assert np.sum(np.isnan(out['vye_boot'][bad])) == len(bad[0])
+    
+    pdb.set_trace()
+    return
+
 def test_transform_xym():
     """
     Test to make sure transforms are being done to mags only
