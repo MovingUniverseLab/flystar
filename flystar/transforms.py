@@ -576,10 +576,7 @@ class PolyTransform(Transform2D):
         
         # Calculate the magnitude offset using a 3-sigma clipped mean (optional)
         if (m is not None) and (mref is not None) and mag_trans:
-            m_resid = mref - m
-            threshold = 3 * m_resid.std()
-            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            mag_offset = np.mean((mref - m)[keepers])
+            mag_offset = np.mean(mref - m)
         else:
             mag_offset =  0
         

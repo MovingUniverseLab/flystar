@@ -1,4 +1,4 @@
-from . import analysis
+from flystar import analysis
 import pylab as py
 import pylab as plt
 import numpy as np

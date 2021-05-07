@@ -220,10 +220,14 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     t_label.rename_column('col13','r0')
 
     # Convert velocities from mas/yr to arcsec/year
-    t_label['vx'] *= 0.001
-    t_label['vy'] *= 0.001
-    t_label['vxe'] *= 0.001
-    t_label['vye'] *= 0.001
+#    t_label['vx'] *= 0.001
+#    t_label['vy'] *= 0.001
+#    t_label['vxe'] *= 0.001
+#    t_label['vye'] *= 0.001
+    t_label['vx'] = t_label['vx'] * 0.001
+    t_label['vy'] = t_label['vy'] * 0.001
+    t_label['vxe'] = t_label['vxe'] * 0.001
+    t_label['vye'] = t_label['vye'] * 0.001
 
     # propogate to prop_to_time if prop_to_time is given
     if prop_to_time != None:
