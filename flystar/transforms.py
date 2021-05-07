@@ -704,7 +704,7 @@ class Shift(PolyTransform):
         return
 
     @classmethod
-    def derive_transform(cls, x, y, xref, yref, m=None, mref=None, weights=None, **kwargs):
+    def derive_transform(cls, x, y, xref, yref, order=0, m=None, mref=None, weights=None, **kwargs):
         dx = xref - x
         dy = yref - y
         
@@ -722,7 +722,7 @@ class Shift(PolyTransform):
         
         trans = Shift(xshift, yshift,
                           xshift_err=xshift_err, yshift_err=yshift_err)
-
+        
         return trans
 
     def evaluate_error(self, x, y, xe, ye):
