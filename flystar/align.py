@@ -2298,7 +2298,7 @@ def initial_align(table1, table2, briteN=100,
     print( 'Begin initial match')
 
     N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(x1, y1, m1, x2, y2, m2, briteN)
-    #assert len(x1m) > req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
+    #assert len(x1m) >= req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
     print(( '{0} stars matched between starlist1 and starlist2'.format(N)))
 
     # Calculate transformation based on matches
@@ -3484,7 +3484,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
     return
 
 def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
-                        ignore_contains='star', verbose=True, n_req_match=2,
+                        ignore_contains='star', verbose=True, n_req_match=3,
                             mag_trans=True):
     """
     Take two starlists and perform an initial matching and transformation.
@@ -3537,7 +3537,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         
     err_msg = 'Failed to find more than '+str(n_req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
-    assert len(x1m) > n_req_match, err_msg
+    assert len(x1m) >= n_req_match, err_msg
     if verbose > 1:
         print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
