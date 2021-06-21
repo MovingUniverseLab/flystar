@@ -48,6 +48,7 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
 
     search_radius *= u.arcsec
 
+    Gaia.ROW_LIMIT = 50000
     gaia_job = Gaia.cone_search_async(target_coords, search_radius, table_name = table_name + '.gaia_source')
     gaia = gaia_job.get_results()
 
@@ -106,7 +107,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['vy'][idx] = 0.0
     gaia_new['vye'][idx] = 0.0
 
-    gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
+    # gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
 
     if targets_dict != None:
         for targ_name, targ_coo in targets_dict.items():
