@@ -1391,7 +1391,7 @@ class LegClipSplineTransform:
 
         '''
         '''
-        self.leg = LegClipTransform(x, y, xref, yref, degree, weights=weights, niter=niter, sigma=sigma)
+        self.leg = LegClipTransform(x, y, xref, yref, degree, weights=weights, niter=niter, sig_clip=sigma)
         xev, yev = self.leg.evaluate(x[self.leg.s_bool], y[self.leg.s_bool])
 
         
