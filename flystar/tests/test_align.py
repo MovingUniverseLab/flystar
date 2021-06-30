@@ -2,6 +2,7 @@ from flystar import align
 from flystar import starlists
 from flystar import startables
 from flystar import transforms
+from flystar import analysis
 from astropy.table import Table
 import numpy as np
 import pylab as plt
@@ -826,5 +827,61 @@ def test_MosaicToRef_mag_bug():
     # somehow the transformed magnitudes are nan.
     # This causes zero matches to occur.
     assert len(out_tab) == len(ref_list)
+
+    return
+
+def test_masked_cols():
+    """
+    Test to make sure analysis.prepare_gaia_for_flystar
+    produces an astropy.table.Table, NOT a masked column 
+    table. MosaicToRef cannot handle masked column tables.
+
+    Also make sure this example works, since we use it for the examples
+    jupyter notebook.
+    """
+    # Get gaia reference stars using analysis.py
+    # around a test location.
+    target = 'ob150029'
+    ra = '17:59:46.60'
+    dec = '-28:38:41.8'
+
+    # Coordinates are arcsecs offset +x to the East.
+    targets_dict = {'ob150029':   [0.0, 0.0],
+                'S11_15_3.9': [ 1.13982, 3.73524],
+                'S13_13_4.5': [-4.42878, 0.03100]
+               }
+
+    # Get gaia catalog stars. Note that this produces a masked column table
+    search_rad = 10.0   # arcsec
+    gaia = analysis.query_gaia(ra, dec, search_radius=search_rad)
+    my_gaia = analysis.prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=targets_dict)
+
+    assert isinstance(my_gaia, Table)
+
+    # Let's make sure the entire align runs, just to be safe
+    
+    # Get starlists to align to gaia
+    epochs = ['15jun07','16jul14', '17may21']
+
+    list_of_starlists = []
+
+    for ee in range(len(epochs)):
+        lis_file = 'mag' + epochs[ee] + '_ob150029_kp_rms_named.lis'
+        lis = starlists.StarList.from_lis_file(lis_file)
+    
+        list_of_starlists.append(lis)
+
+    # Run the align
+    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=2,
+                        dr_tol=[0.2, 0.1], dm_tol=[1, 1],
+                        trans_class=transforms.PolyTransform,
+                        trans_args=[{'order': 1}, {'order': 1}], 
+                        use_vel=True,
+                        use_ref_new=False,
+                        update_ref_orig=False, 
+                        mag_trans=True,
+                        init_guess_mode='name', verbose=True)
+
+    msc.fit()
 
     return
