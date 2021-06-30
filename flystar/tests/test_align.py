@@ -630,12 +630,14 @@ def test_bootstrap():
 
     return
 
-def test_use_vel():
+def test_use_vel_pm_and_bootstrap():
     """
-    Make sure PMs are calculated for use_vel=False option
-    in MosaicToRef. use_vel only refers to whether or not you use proper motions
-    in reference list to propagate reference stars. So,
-    should still calculate proper motions across the starlists here.
+    Default behavior is that no PMs are calculated if use_vel=False
+    for MosaicToRef. If user wants to fit PMs with use_vel=False,
+    then they call fit_velocities() on the output startable object after the fact.
+    Make sure this is what happens.
+
+    Also check behavior of calc_bootstrap_error in this scenario. 
     """
     # Define match parameters
     ref_no_vel = Table.read('ref.lis', format='ascii')
@@ -677,14 +679,25 @@ def test_use_vel():
                                   verbose=False)
     match.fit()
 
-    # Make sure velocities are calculated
+    # Test to see that PMs are not calculated here
+    ref_tab = match.ref_table
+    assert 'vx' not in ref_tab.keys()
 
-
-
-    # Make sure calc_boostrap still works with this use case
-
+    # Run calc_bootstrap_error function.
+    n_boot = 50
+    match.calc_bootstrap_errors(n_boot=n_boot)
     pdb.set_trace()
 
+    # Now, if user wants PMs, can call fit_velocities() on output startable object
+    ref_tab.fit_velocities()
+    assert 'vx' in ref_tab.keys()
+
+    
+    
+    ref_tab
+
+    pdb.set_trace()
+    
     return
 
 def test_transform_xym():
