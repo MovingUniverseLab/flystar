@@ -630,17 +630,18 @@ def test_bootstrap():
 
     return
 
-def test_use_vel_pm_and_bootstrap():
+def test_calc_vel_in_bootstrap():
     """
-    Default behavior is that no PMs are calculated if use_vel=False
-    for MosaicToRef. If user wants to fit PMs with use_vel=False,
-    then they call fit_velocities() on the output startable object after the fact.
-    Make sure this is what happens.
+    Check calc_vel_in_bootstrap performance in calc_bootstrap_errors()
+    
+    Only calculate velocity bootstrap (e.g., bootstrap over epochs and 
+    calculating proper motions) if calc_vel_in_bootstrap=True.
 
-    Also check behavior of calc_bootstrap_error in this scenario. 
     """
+    import copy
+    
     # Define match parameters
-    ref_no_vel = Table.read('ref.lis', format='ascii')
+    ref = Table.read('ref_vel.lis', format='ascii')
 
     list1 = Table.read('E.lis', format='ascii')
     list2 = Table.read('F.lis', format='ascii')
@@ -663,8 +664,8 @@ def test_use_vel_pm_and_bootstrap():
     n_boot = 15
     boot_epochs_min=-1
 
-    # Run align with use_vel=False.
-    match = align.MosaicToRef(ref_no_vel, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+    # Run match
+    match = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
                                   dm_tol=dm_tol, outlier_tol=outlier_tol,
                                   trans_class=transModel,
                                   trans_args=trans_args,
@@ -672,31 +673,33 @@ def test_use_vel_pm_and_bootstrap():
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
                                   weights=weights,
-                                  use_vel=False,
+                                  use_vel=True,
                                   use_ref_new=False,
                                   update_ref_orig=False,
                                   init_guess_mode='name',
                                   verbose=False)
     match.fit()
 
-    # Test to see that PMs are not calculated here
-    ref_tab = match.ref_table
-    assert 'vx' not in ref_tab.keys()
+    # Make 2 copies of match object: one to test
+    # each case of calc_vel_in_bootstrap
+    match_vel = copy.deepcopy(match)
 
-    # Run calc_bootstrap_error function.
+    # Run calc_bootstrap_error function with calc_vel_in_bootstrap=True.
+    # Make sure bootstrap velocity errors are calculated and valid
     n_boot = 50
-    match.calc_bootstrap_errors(n_boot=n_boot)
-    pdb.set_trace()
+    match_vel.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=True)
 
-    # Now, if user wants PMs, can call fit_velocities() on output startable object
-    ref_tab.fit_velocities()
-    assert 'vx' in ref_tab.keys()
+    assert 'xe_boot' in match_vel.ref_table.keys()
+    assert np.sum(np.isnan(match_vel.ref_table['xe_boot'])) == 0
+    assert 'vxe_boot' in match_vel.ref_table.keys()
+    assert np.sum(np.isnan(match_vel.ref_table['vxe_boot'])) == 0
 
-    
-    
-    ref_tab
+    # Run without calc_vel_in_bootstrap, make sure velocities are NOT calculated
+    match.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=False)
 
-    pdb.set_trace()
+    assert 'xe_boot' in match.ref_table.keys()
+    assert np.sum(np.isnan(match.ref_table['xe_boot'])) == 0
+    assert 'vxe_boot' not in match.ref_table.keys()
     
     return
 
