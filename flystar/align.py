@@ -441,7 +441,8 @@ class MosaicSelfRef(object):
             # If desired, calculate and save the inverse transformation
             # NOTE: We will not recalculate weights here
             if self.calc_trans_inverse:
-                print('Doing inverse')
+                if self.verbose > 1:
+                    print('Doing inverse')
                 trans_inv = self.trans_class.derive_transform(ref_list['x'][idx2], ref_list['y'][idx2],
                                                               star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
                                                               trans_args['order'], m=ref_list['m'][idx2],
@@ -458,7 +459,7 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xy(self.trans_list[ii])
 
             if self.verbose > 7:
-                hdr = '{nr:13s} {n:13s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
+                hdr = '{nr:20s} {n:20s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
                 hdr += '{dx:7s} {dy:7s} {dm:6s} {xo:9s} {yo:9s} {mo:6s}'
                 print(hdr.format(nr='name_ref', n='name_lis',
                                      xl='x_lis_T', xr='x_ref',
@@ -467,7 +468,7 @@ class MosaicSelfRef(object):
                                      dx='dx_mpix', dy='dy_mpix', dm='dm',
                                      xo='x_orig', yo='y_orig', mo='m_orig'))
                 
-                fmt = '{nr:13s} {n:13s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
+                fmt = '{nr:20s} {n:20s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
                 fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
                 for foo in range(len(idx1)):
                     star_s = star_list_orig_trim[idx1[foo]]
@@ -1517,25 +1518,26 @@ class MosaicToRef(MosaicSelfRef):
         """
         # Create a log file of the parameters used in the fit.
         with open('MosaicToRef_input_params.log', 'w',) as _log:
-            logger(_log, 'Parameters used for fit: ')
-            logger(_log, '------------------------- ')
-            logger(_log, '  dr_tol = ' + str(self.dr_tol))
-            logger(_log, '  dm_tol = ' + str(self.dm_tol))
-            logger(_log, '  outlier_tol = ' + str(self.outlier_tol))
-            logger(_log, '  trans_args = ' + str(self.trans_args))
-            logger(_log, '  mag_trans = ' + str(self.mag_trans))
-            logger(_log, '  mag_lim = ' + str(self.mag_lim))
-            logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim))
-            logger(_log, '  weights = ' + str(self.weights))
-            logger(_log, '  trans_input = ' + str(self.trans_input))
-            logger(_log, '  trans_class = ' + str(self.trans_class))
-            logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse))
-            logger(_log, '  use_ref_new = ' + str(self.use_ref_new))
-            logger(_log, '  use_vel = ' + str(self.use_vel))
-            logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig))
-            logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode))
-            logger(_log, '  iter_callback = ' + str(self.iter_callback))
-            logger(_log, '-------------------------\n') 
+            logger(_log, 'Parameters used for fit: ', self.verbose)
+            logger(_log, '------------------------- ', self.verbose)
+            logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
+            logger(_log, '  dm_tol = ' + str(self.dm_tol), self.verbose)
+            logger(_log, '  outlier_tol = ' + str(self.outlier_tol), self.verbose)
+            logger(_log, '  trans_args = ' + str(self.trans_args), self.verbose)
+            logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
+            logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
+            logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
+            logger(_log, '  weights = ' + str(self.weights), self.verbose)
+            logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
+            logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
+            logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
+            logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
+            logger(_log, '  use_vel = ' + str(self.use_vel), self.verbose)
+            logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
+            logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
+            logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
+            logger(_log, '-------------------------\n', self.verbose)
+
 
         ##########
         # Setup a reference table to store data. It will contain:
@@ -2285,7 +2287,7 @@ def initial_align(table1, table2, briteN=100,
     print( 'Begin initial match')
 
     N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(x1, y1, m1, x2, y2, m2, briteN)
-    #assert len(x1m) > req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
+    #assert len(x1m) >= req_match, 'Failed to find at least '+str(req_match)+' (only ' + str(len(x1m)) + ') matches, giving up'
     print(( '{0} stars matched between starlist1 and starlist2'.format(N)))
 
     # Calculate transformation based on matches
@@ -3471,7 +3473,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
     return
 
 def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
-                        ignore_contains='star', verbose=True, n_req_match=2,
+                        ignore_contains='star', verbose=True, n_req_match=3,
                             mag_trans=True):
     """
     Take two starlists and perform an initial matching and transformation.
@@ -3501,7 +3503,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         y2m = ref_list['y'][idx_r][ndx_r]
         m2m = ref_list['m'][idx_r][ndx_r]
         N = len(x1m)
-        
+
     else:
         # Default is miracle match.
         briteN = min(50, len(star_list))
@@ -3524,7 +3526,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         
     err_msg = 'Failed to find more than '+str(n_req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
-    assert len(x1m) > n_req_match, err_msg
+    assert len(x1m) >= n_req_match, err_msg
     if verbose > 1:
         print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
@@ -3773,7 +3775,8 @@ def get_pos_at_time(t, starlist, use_vel=True):
         
     return (x, y)
 
-def logger(logfile, message):
-    print(message)
+def logger(logfile, message, verbose = 9):
+    if verbose > 4:
+        print(message)
     logfile.write(message + '\n')
     return

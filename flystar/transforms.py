@@ -184,7 +184,7 @@ class Transform2D(object):
         
         
     
-class four_paramNW:
+class four_paramNW(Transform2D):
     '''
     defines parameter tranformation between x,y and xref, yref
     does not weight the points
@@ -199,7 +199,37 @@ class four_paramNW:
     def evaluate(self, x, y):
         xn = self.px[0] + self.px[1]*x + self.px[2]*y
         yn = self.py[0] + self.py[1]*x + self.py[2]*y
-        return xn, yn 
+        return xn, yn
+
+    def evaluate_error(self, x, y):
+
+        """
+        Transform positional uncertainties. 
+
+        Parameters: 
+        ----------
+        x : numpy array
+            The original x coordinates to be used in the transformation.
+        y : numpy array
+            The original y coordinates to be used in the transformation.
+        xe : numpy array
+            The raw x errors to be transformed.
+        ye : numpy array
+            The raw y errors to be transformed.
+
+        Returns:
+        ----------
+        xe' : array
+            The transformed x errors.
+        ye' : array
+            The transformed y errors. 
+
+        """
+        xe_new = np.hypot(self.px[1] * xe, self.px[2] * ye)
+        xe_new = np.hpyot(self.px[1] * xe, self.px[2] * ye)
+                
+
+        return xe_new, ye_new
         
 
 class PolyTransform(Transform2D):
@@ -701,7 +731,7 @@ class Shift(PolyTransform):
         return
 
     @classmethod
-    def derive_transform(cls, x, y, xref, yref, m=None, mref=None, weights=None, **kwargs):
+    def derive_transform(cls, x, y, xref, yref, order=0, m=None, mref=None, weights=None, **kwargs):
         dx = xref - x
         dy = yref - y
         
@@ -719,7 +749,7 @@ class Shift(PolyTransform):
         
         trans = Shift(xshift, yshift,
                           xshift_err=xshift_err, yshift_err=yshift_err)
-
+        
         return trans
 
     def evaluate_error(self, x, y, xe, ye):
@@ -1391,7 +1421,7 @@ class LegClipSplineTransform:
 
         '''
         '''
-        self.leg = LegClipTransform(x, y, xref, yref, degree, weights=weights, niter=niter, sigma=sigma)
+        self.leg = LegClipTransform(x, y, xref, yref, degree, weights=weights, niter=niter, sig_clip=sigma)
         xev, yev = self.leg.evaluate(x[self.leg.s_bool], y[self.leg.s_bool])
 
         
