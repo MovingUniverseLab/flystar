@@ -6,6 +6,7 @@ import warnings
 import collections
 import pdb
 import time
+import copy
 
 
 class StarTable(Table):
@@ -431,8 +432,8 @@ class StarTable(Table):
         A flag can be stored in the metadata to record if the average was
         weighted or not.
         """
-        # Get the array we are going to combine. 
-        val_2d = self[col_name_in].data
+        # Get the array we are going to combine.  Make a copy so we don't mod it.
+        val_2d = copy.deepcopy( self[col_name_in].data )
 
         if ismag:
             # Convert to flux.

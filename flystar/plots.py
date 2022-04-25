@@ -1055,6 +1055,64 @@ def plot_mag_error(tab):
 
     return
 
+def plot_mean_residuals_by_epoch(tab):
+    """
+    Plot mean position and magnitude residuals vs. epoch.
+    Note we are plotting the mean( |dx} ) to see
+    the size of the mean residual.
+    """
+    # Predicted model positions at each epoch
+    dt = tab['t'] - tab['t0'][:, np.newaxis]
+    xt_mod = tab['x0'][:, np.newaxis] + tab['vx'][:, np.newaxis] * dt
+    yt_mod = tab['y0'][:, np.newaxis] + tab['vy'][:, np.newaxis] * dt
+
+    # Residuals
+    dx = tab['x'] - xt_mod
+    dy = tab['y'] - yt_mod
+    dm = tab['m'] - tab['m0'][:, np.newaxis]
+
+    dx = np.abs(dx)
+    dy = np.abs(dy)
+    dm = np.abs(dm)
+
+    # Mask non-detections in each epoch.
+    non_detect = np.isfinite(tab['x']) == False
+    dx = np.ma.masked_where(non_detect, dx)
+    dy = np.ma.masked_where(non_detect, dy)
+    dm = np.ma.masked_where(non_detect, dm)
+
+    # is_ref = np.where((tab['used_in_trans'] == True) & (not non_detect))
+
+    dx_mean = dx.mean(axis=0)
+    dy_mean = dy.mean(axis=0)
+    dm_mean = dm.mean(axis=0)
+    dx_std = dx.std(axis=0)
+    dy_std = dy.std(axis=0)
+    dm_std = dm.std(axis=0)
+
+    plt.close(2)
+    plt.figure(2, figsize=(6, 6))
+    plt.subplots_adjust(wspace=0.4)
+
+    ax1 = plt.subplot(2, 1, 1)
+    plt.errorbar(tab['t'][0, :], dx_mean, yerr=dx_std,
+                     marker='s', linestyle='none', color='blue', ecolor='blue', label='X')
+    plt.errorbar(tab['t'][0, :], dy_mean, yerr=dy_std,
+                     marker='x', linestyle='none', color='red', ecolor='red', label='Y')
+    plt.axhline(0, ls='--', color='black')
+    plt.legend()
+    plt.xlabel('Time (yr)')
+    plt.ylabel('Pos Residuals')
+
+    plt.subplot(2, 1, 2, sharex=ax1)
+    plt.errorbar(tab['t'][0, :], dm_mean, yerr=dm_std,
+                     marker='o', linestyle='none', color='black', ecolor='black')
+    plt.axhline(0, ls='--', color='black')
+    plt.xlabel('Time (yr)')
+    plt.ylabel('Mag Residuals')
+    
+    return
+
 def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=None):
 
     # Keep track of the residuals for averaging.
@@ -2278,11 +2336,11 @@ def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(chi2_m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
+    plt.hist(chi2_m[idx], bins=np.arange(mlim*10), histtype='step', density=True)
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
-    plt.xlim(0, xlim)
+    plt.xlim(0, mlim)
     plt.legend()
 
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
@@ -2690,12 +2748,16 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
 
 
-def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None, figsize=(15,25), color_time=False):
+def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None,
+                         figsize=(15,25), color_time=False, resTicRng=None):
     """
     Plot a set of stars positions, flux and residuals over time. 
 
     epoch_array : None, array
         Array of the epoch indicies to plot. If None, plots all epochs.
+
+    resTicRng : None, array len=2
+        2 element array with the lower and upper axis range for residuals plots.
     """
     print( 'Creating residuals plots for star(s):' )
     print( star_names )
@@ -2817,7 +2879,8 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
                 maxErr = 2.0
             if maxErrM > 1.0:
                 maxErr = 1.0
-            resTicRng = [-1.1*maxErr, 1.1*maxErr]
+            if resTicRng == None:
+                resTicRng = [-1.1*maxErr, 1.1*maxErr]
             resTicRngM = [-1.1*maxErrM, 1.1*maxErrM]
     
             from matplotlib.ticker import FormatStrFormatter
@@ -3090,7 +3153,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     return
 
 
-def plot_errors_vs_r_m(star_tab):
+def plot_errors_vs_r_m(star_tab, vmax_perr=0.75, vmax_pmerr=0.75):
     """
     Plot the positional errors and the proper motion errors as a function of radius 
     and magnitude. The positional an proper motion errors will be the mean in the 
@@ -3105,13 +3168,13 @@ def plot_errors_vs_r_m(star_tab):
     plt.subplots_adjust(wspace=0.4)
     
     plt.subplot(1, 2, 1)
-    plt.scatter(star_tab['m0'], r, c=p_err, s=8, vmin=0, vmax=0.75)
+    plt.scatter(star_tab['m0'], r, c=p_err, s=8, vmin=0, vmax=vmax_perr)
     plt.colorbar(label='Pos Err (mas)')
     plt.xlabel('Mag')
     plt.ylabel('Radius (")')
 
     plt.subplot(1, 2, 2)
-    plt.scatter(star_tab['m0'], r, c=pm_err, s=8, vmin=0, vmax=0.75)
+    plt.scatter(star_tab['m0'], r, c=pm_err, s=8, vmin=0, vmax=vmax_pmerr)
     plt.colorbar(label='PM Err (mas/yr)')
     plt.xlabel('Mag')
     plt.ylabel('Radius (")')

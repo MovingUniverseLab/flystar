@@ -61,6 +61,17 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     and shift such that the origin is centered on the target of interest. 
     Convert everything into arcseconds and name columns such that they are 
     ready for FlyStar input.
+
+    Inputs
+    ------------
+    gaia : astropy table
+        Gaia Catalog from query_gaia()
+
+    ra : float
+        Units = hourangle
+
+    dec : float
+        Units = degree
     """
     target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
     ra = target_coords.ra.degree     # in decimal degrees
@@ -322,13 +333,17 @@ def pick_good_ref_stars(star_tab, r_cut=None, m_cut=None, p_err_cut=None, pm_err
     return idx
 
 
-def startable_subset(tab, idx, mag_trans=True):
+def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
     """
-    Input is MosaicToRef table from alignment of multiple filters, such that the astrometry is combined but the photometry is not.
-    This function is used to separate out a selected filter from the the combined astrometry + uncombined photometry table.
+    Input is MosaicToRef table from alignment of multiple filters, 
+    such that the astrometry is combined but the photometry is not.
+    This function is used to separate out a selected filter from the 
+    combined astrometry + uncombined photometry table.
     """
-    # Multiples: ['x', 'y', 'm', 'name_in_list', 'xe', 'ye', 'me', 't', 'x_orig', 'y_orig', 'm_orig', 'xe_orig', 'ye_orig', 'me_orig', 'used_in_trans']
-    # Single: ['name', 'm0', 'm0e', 'use_in_trans', 'ref_orig', 'n_detect', 'x0', 'vx', 'y0', 'vy', 'x0e', 'vxe', 'y0e', 'vye', 't0'] 
+    # Multiples: ['x', 'y', 'm', 'name_in_list', 'xe', 'ye', 'me', 't',
+    #     'x_orig', 'y_orig', 'm_orig', 'xe_orig', 'ye_orig', 'me_orig', 'used_in_trans']
+    # Single: ['name', 'm0', 'm0e', 'use_in_trans', 'ref_orig', 'n_detect',
+    #     'x0', 'vx', 'y0', 'vy', 'x0e', 'vxe', 'y0e', 'vye', 't0'] 
     # Don't include n_vfit
 
     new_tab = startables.StarTable(name=tab['name'].data, 
@@ -365,10 +380,15 @@ def startable_subset(tab, idx, mag_trans=True):
         use = np.where(new_tab['used_in_trans'].mean(axis=1) == 1)[0]
         for ii in np.arange(len(new_tab['m'][0])):
             m_resid = new_tab['m0'][use] - new_tab['m'][use,ii]
-            threshold = 3 * np.std(m_resid)
-            keepers = np.where(np.absolute(m_resid - np.mean(m_resid)) < threshold)[0]
-            mag_offset = np.mean(m_resid[keepers])
+            threshold = 3 * np.nanstd(m_resid)
+            keepers = np.where(np.absolute(m_resid - np.nanmean(m_resid)) < threshold)[0]
+            mag_offset = np.nanmean(m_resid[keepers])
             new_tab['m'][:,ii] += mag_offset
+            print(f'mag_offset: {ii:d} dm = {mag_offset:7.4f}')
+
+            # Update the original table.
+            if mag_trans_orig:
+                tab['m'][:,idx[ii]] += mag_offset
     
     return new_tab
 
