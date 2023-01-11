@@ -19,8 +19,8 @@ from astropy.io import ascii
 ####################################################
 
 
-def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, fileName=None, 
-                    root='./'):
+def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, fileName=None,
+                        equal_axis=True, root='./'):
     """
     Plot positions of stars in reference list and the transformed starlist,
     in reference list coordinates. Stars used in the transformation are
@@ -48,6 +48,9 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
 
     ylim: None or list/array [ymin, ymax]
         If not None, sets the ymin and ymax limit of the plot    
+
+    equal_axis: boolean
+        If true, make axes equal. True by default
     
     """
     py.figure(figsize=(10,10))
@@ -64,7 +67,8 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
     py.title('Label.dat Positions After Transformation')
     if xlim != None:
         py.axis([xlim[0], xlim[1], ylim[0], ylim[1]])
-    py.axis('equal')
+    if equal_axis:
+        py.axis('equal')
     if fileName!=None:
         #py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
         py.savefig(root + 'Transformed_positions_{0}'.format(fileName) + '.png')
