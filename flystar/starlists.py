@@ -1,5 +1,5 @@
 import numpy as np
-from astropy.table import Table, Column
+from astropy.table import Table, Column, MaskedColumn
 import astropy.table
 import warnings
 import pdb
@@ -449,7 +449,12 @@ class StarList(Table):
                 if arg in ['name', 'x', 'y', 'm']:
                     continue
                 if arg in kwargs:
-                    self.add_column(Column(data=kwargs[arg], name=arg))
+                    # 2022-08-25: Need to explicitly add MaskedColumn if
+                    # data is masked
+                    if isinstance(kwargs[arg], MaskedColumn):
+                        self.add_column(MaskedColumn(data=kwargs[arg], name=arg))
+                    else:
+                        self.add_column(Column(data=kwargs[arg], name=arg))
         
         return
 
