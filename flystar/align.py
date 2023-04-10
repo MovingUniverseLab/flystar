@@ -1084,7 +1084,8 @@ class MosaicSelfRef(object):
 
         ref_table = copy.deepcopy(self.ref_table)
         n_epochs = len(ref_table['x'][0])
-        t_arr = ref_table['t'][np.where(ref_table['n_detect'] == np.max(ref_table['n_detect']))[0][0]]
+        t_arr = get_all_epochs(ref_table)
+        #t_arr = ref_table['t'][np.where(ref_table['n_detect'] == np.max(ref_table['n_detect']))[0][0]]
         t0_arr = ref_table['t0']
 
         # Identify reference stars. If desired, trim ref_table to only stars to only
@@ -1633,6 +1634,29 @@ class MosaicToRef(MosaicSelfRef):
             self.iter_callback(self.ref_table, nn)
         return
 
+def get_all_epochs(t):
+    """
+    Helper function to get times of all epochs from a ref table.
+    This is required because our previous approach 
+    of simply taking the time array of the star with the most detections 
+    fails for mosaicked catalogs, because it is then possible that 
+    no star is detected in all fields.
+    """
+    nepochs = len(t['t'][0])
+
+    # Loop through each time entry and get year
+    # from a non-masked source
+    all_epochs = []
+    for ii in range(nepochs):
+        tcol = t['t'][:,ii]
+
+        good = np.where(np.isfinite(tcol))[0][0]
+
+        all_epochs.append(t['t'][good,ii])
+
+    all_epochs = np.array(all_epochs)
+    return all_epochs
+    
 
 def setup_ref_table_from_starlist(star_list):
     """ 
