@@ -25,7 +25,6 @@ class MosaicSelfRef(object):
                  outlier_tol=[None, None],
                  trans_args=[{'order': 2}, {'order': 2}],
                  mag_trans=True, mag_lim=None, weights=None,
-                 n_boot=0, boot_epochs_min=-1,                  
                  trans_input=None, trans_class=transforms.PolyTransform,
                  use_vel=False, calc_trans_inverse=False,
                  init_guess_mode='miracle', iter_callback=None,
@@ -95,16 +94,6 @@ class MosaicSelfRef(object):
             to weight by the positional uncertainties (variances) in the individual starlists, or also with
             the uncertainties in the reference frame itself.  Note weighting only works when there
             are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
-
-        n_boot: int or 0
-            Number of bootstrap iterations when calculating the proper motion. If n_boot = 0, then
-            no bootstrap will be used. Bootstrap calculation is only done for final proper motion
-            calculation (e.g., not for each iteration of the starlist for matching)
-
-        boot_epochs_min: int or -1
-            In order to be included in bootstrap analysis, non-reference stars must be detected in 
-            at least boot_epochs_min epochs. If boot_epochs_min = -1, then all stars will 
-            be included in the analysis, regardless of the number of epochs detected.
 
         trans_input : array or list of transform objects
             def = None. If not None, then this should contain an array or list of transform
@@ -188,8 +177,6 @@ class MosaicSelfRef(object):
         self.mag_trans = mag_trans
         self.mag_lim = mag_lim
         self.weights = weights
-        self.n_boot = n_boot
-        self.boot_epochs_min = boot_epochs_min        
         self.trans_input = trans_input
         self.trans_class = trans_class
         self.calc_trans_inverse = calc_trans_inverse        
@@ -341,12 +328,6 @@ class MosaicSelfRef(object):
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
         self.update_ref_table_aggregates()
 
-        # Calculate bootstrap transformation errors and proper motion
-        # errors, if desired. 
-        if self.n_boot >= 0:
-            self.calc_bootstrap_errors()
-
-            
         ##########
         # Clean up output table.
         # 
@@ -1043,7 +1024,7 @@ class MosaicSelfRef(object):
 
         return
     
-    def calc_bootstrap_errors(self):
+    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True):
         """
         Function to calculate bootstrap errors for the transformations as well
         as the proper motions. For each iteration, this will:
@@ -1051,8 +1032,9 @@ class MosaicSelfRef(object):
         1) Draw full-size bootstrap w/replacement sample from reference stars in 
         ref_table and re-calculate the transformations for each epoch
         2) Apply transformation to all stars in each epoch
-        3) For each star, draw full-size boostrap sample w/replacement from data points
-        4) Calculate proper motion for each star
+        If calc_vel_in_bootstraps:
+            3) For each star, draw full-size boostrap sample w/replacement from epochs
+            4) Calculate proper motion for each star using resampled epochs
     
         The saved outputs will be: x_trans, y_trans, m_trans (transformed postions/mags),
         as well as the proper motion fit parameters.
@@ -1066,6 +1048,23 @@ class MosaicSelfRef(object):
         mosaic_object: MosaicToRef object
             MosaicToRef object after the complete match_and_transform process
 
+       n_boot: int, must be greater than 0
+            Number of bootstrap iterations when calculating transformations and the proper motion. 
+            PM bootstrap is only done for final proper motion
+            calculation (e.g., not for each iteration of the starlist for matching)
+
+        boot_epochs_min: int or -1
+            In order to be included in bootstrap analysis, non-reference stars must be detected in 
+            at least boot_epochs_min epochs. If boot_epochs_min = -1, then all stars will 
+            be included in the analysis, regardless of the number of epochs detected.
+            For stars that fail boot_epochs_min criteria, np.nan is used
+
+        calc_vel_in_bootstrap: boolean
+           If true, do bootstrap sample w/ replacement over the epochs and calculate 
+           stellar proper motions, as well as the bootstrap over reference stars
+           to calculate positional alignment errors. If false, only 
+           calculate position alignment errors.
+
         Output:
         ------
         Seven new columns will be added to self.ref_table:
@@ -1073,6 +1072,7 @@ class MosaicSelfRef(object):
         'ye_boot', 2D column: bootstrap y pos uncertainties due to transformation for each epoch
         'me_boot', 2D column: bootstrap mag uncertainties due to transformation for each epoch
         
+        If calc_vel_in_bootstrap:
         'x0e_boot', 1D column: bootstrap uncertainties in x0 for PM fit
         'y0e_boot', 1D column: bootstrap uncertainties in y0 for PM fit
         'vxe_boot', 1D column: bootstrap uncertainties in vx for PM fit
@@ -1080,16 +1080,19 @@ class MosaicSelfRef(object):
 
         For stars that fail boot_epochs_min criteria, np.nan is used
         """
-        n_boot = self.n_boot
+        # First, assert than n_boot > 0
+        assert n_boot > 0
+
         ref_table = copy.deepcopy(self.ref_table)
         n_epochs = len(ref_table['x'][0])
-        t_arr = ref_table['t'][np.where(ref_table['n_detect'] == np.max(ref_table['n_detect']))[0][0]]
+        t_arr = get_all_epochs(ref_table)
+        #t_arr = ref_table['t'][np.where(ref_table['n_detect'] == np.max(ref_table['n_detect']))[0][0]]
         t0_arr = ref_table['t0']
 
         # Identify reference stars. If desired, trim ref_table to only stars to only
         # reference stars and those that pass boot_epochs_min criteria
-        if self.boot_epochs_min > 0:
-            idx_good = np.where( (ref_table['n_detect'] >= self.boot_epochs_min) | (ref_table['use_in_trans']) )
+        if boot_epochs_min > 0:
+            idx_good = np.where( (ref_table['n_detect'] >= boot_epochs_min) | (ref_table['use_in_trans']) )
             ref_table = ref_table[idx_good]
             t0_arr = t0_arr[idx_good]
         else:
@@ -1103,10 +1106,11 @@ class MosaicSelfRef(object):
         xe_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
         ye_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
         me_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        x0_arr = np.ones((len(ref_table['x']), n_boot)) * -999
-        y0_arr = np.ones((len(ref_table['x']), n_boot)) * -999
-        vx_arr = np.ones((len(ref_table['x']), n_boot)) * -999
-        vy_arr = np.ones((len(ref_table['x']), n_boot)) * -999
+        if calc_vel_in_bootstrap:
+            x0_arr = np.ones((len(ref_table['x']), n_boot)) * -999
+            y0_arr = np.ones((len(ref_table['x']), n_boot)) * -999
+            vx_arr = np.ones((len(ref_table['x']), n_boot)) * -999
+            vy_arr = np.ones((len(ref_table['x']), n_boot)) * -999
 
         ### IF MEMORY PROBLEMS HERE:
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
@@ -1207,54 +1211,59 @@ class MosaicSelfRef(object):
             #print('=================================================')
             
             # Finally, calculate proper motions for this bootstrap iteration
-            # for each star. Draw a full-sample bootstrap for each star, and then
-            # run it through the startable fit_velocities machinery
-            boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
-            t_boot = t_arr[boot_idx]
+            # for each star, if desired. Draw a full-sample bootstrap over the epochs
+            # for each star, and then run it through the startable fit_velocities machinery
+            if calc_vel_in_bootstrap:
+                boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
+                t_boot = t_arr[boot_idx]
             
-            star_table = StarTable(name=ref_table['name'],
-                                       x=x_trans_arr[:,ii,boot_idx],
-                                       y=y_trans_arr[:,ii,boot_idx],
-                                       m=m_trans_arr[:,ii,boot_idx],
-                                       xe=xe_trans_arr[:,ii,boot_idx],
-                                       ye=ye_trans_arr[:,ii,boot_idx],
-                                       me=me_trans_arr[:,ii,boot_idx],
-                                       t=np.tile(t_boot, (len(ref_table),1)) )
+                star_table = StarTable(name=ref_table['name'],
+                                        x=x_trans_arr[:,ii,boot_idx],
+                                        y=y_trans_arr[:,ii,boot_idx],
+                                        m=m_trans_arr[:,ii,boot_idx],
+                                        xe=xe_trans_arr[:,ii,boot_idx],
+                                        ye=ye_trans_arr[:,ii,boot_idx],
+                                        me=me_trans_arr[:,ii,boot_idx],
+                                        t=np.tile(t_boot, (len(ref_table),1)) )
 
-            # Now, do proper motion calculation, making sure to fix t0 to the
-            # orig value (so we can get a reasonable error on x0, y0)
-            star_table.fit_velocities(fixed_t0=t0_arr)
+                # Now, do proper motion calculation, making sure to fix t0 to the
+                # orig value (so we can get a reasonable error on x0, y0)
+                star_table.fit_velocities(fixed_t0=t0_arr)
 
-            # Save proper motion fit results to output arrays
-            x0_arr[:,ii] = star_table['x0']
-            y0_arr[:,ii] = star_table['y0']
-            vx_arr[:,ii] = star_table['vx']
-            vy_arr[:,ii] = star_table['vy']
+                # Save proper motion fit results to output arrays
+                x0_arr[:,ii] = star_table['x0']
+                y0_arr[:,ii] = star_table['y0']
+                vx_arr[:,ii] = star_table['vx']
+                vy_arr[:,ii] = star_table['vy']
 
-            # Quick check to make sure bootstrap calc was valid: output t0 should be
-            # same as input t0_arr, since we used fixed_t0 option
-            assert np.sum(abs(star_table['t0'] - t0_arr) == 0)
+                # Quick check to make sure bootstrap calc was valid: output t0 should be
+                # same as input t0_arr, since we used fixed_t0 option
+                assert np.sum(abs(star_table['t0'] - t0_arr) == 0)
 
-            #t3 = time.time()
-            #print('=================================================')
-            #print('Time to calc proper motions: {0}s'.format(t3-t2))
-            #print('=================================================')
+                #t3 = time.time()
+                #print('=================================================')
+                #print('Time to calc proper motions: {0}s'.format(t3-t2))
+                #print('=================================================')
 
         # Calculate the bootstrap error values.
         x_err_b = np.std(x_trans_arr, ddof=1, axis=1)
         y_err_b = np.std(y_trans_arr, ddof=1, axis=1)
         m_err_b = np.std(m_trans_arr, ddof=1, axis=1)
-        
-        x0_err_b = np.std(x0_arr, ddof=1, axis=1)
-        y0_err_b = np.std(y0_arr, ddof=1, axis=1)
-        vx_err_b = np.std(vx_arr, ddof=1, axis=1)
-        vy_err_b = np.std(vy_arr, ddof=1, axis=1)
+
+        if calc_vel_in_bootstrap:
+            x0_err_b = np.std(x0_arr, ddof=1, axis=1)
+            y0_err_b = np.std(y0_arr, ddof=1, axis=1)
+            vx_err_b = np.std(vx_arr, ddof=1, axis=1)
+            vy_err_b = np.std(vy_arr, ddof=1, axis=1)
+        else:
+            x0_err_b = np.nan
+            y0_err_b = np.nan
+            vx_err_b = np.nan
+            vy_err_b = np.nan
 
         # Add summary statistics to *original* ref_table, i.e. ref_table
         # hanging off of mosaic object.
         col_heads_2D = ['xe_boot', 'ye_boot', 'me_boot']
-        col_heads_1D = [ 'x0e_boot', 'y0e_boot', 'vxe_boot', 'vye_boot']
-
         data_dict = {'xe_boot': x_err_b, 'ye_boot': y_err_b, 'me_boot': m_err_b,
                          'x0e_boot': x0_err_b, 'y0e_boot': y0_err_b,
                          'vxe_boot': vx_err_b, 'vye_boot': vy_err_b}
@@ -1265,16 +1274,20 @@ class MosaicSelfRef(object):
             
             col[idx_good] = data_dict[ff]
             self.ref_table.add_column(col)
+
+        # Now handle the velocities, if they were calculated
+        if calc_vel_in_bootstrap:
+            col_heads_1D = [ 'x0e_boot', 'y0e_boot', 'vxe_boot', 'vye_boot']
             
-        for ff in col_heads_1D:
-            col = Column(np.ones(len(self.ref_table)), name=ff)
-            col.fill(np.nan)
-            
-            col[idx_good] = data_dict[ff]
-            self.ref_table.add_column(col)
+            for ff in col_heads_1D:
+                col = Column(np.ones(len(self.ref_table)), name=ff)
+                col.fill(np.nan)
+                
+                col[idx_good] = data_dict[ff]
+                self.ref_table.add_column(col)
 
         print('===============================')
-        print('Done with bootstrap test')
+        print('Done with bootstrap')
         print('===============================')
         
         return
@@ -1287,8 +1300,6 @@ class MosaicToRef(MosaicSelfRef):
                  trans_args=[{'order': 2}, {'order': 2}],
                  mag_trans=True, mag_lim=None, ref_mag_lim=None,
                  weights=None,
-                 n_boot=0,
-                 boot_epochs_min=-1,
                  trans_input=None,
                  trans_class=transforms.PolyTransform,
                  calc_trans_inverse=False,
@@ -1362,16 +1373,6 @@ class MosaicToRef(MosaicSelfRef):
             to weight by the positional uncertainties (variances) in the individual starlists, or also with
             the uncertainties in the reference frame itself.  Note weighting only works when there
             are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
-
-        n_boot: int or 0
-            Number of bootstrap iterations when calculating the proper motion. If n_boot = 0, then
-            no bootstrap will be used. Bootstrap calculation is only done for final proper motion
-            calculation (e.g., not for each iteration of the starlist for matching)
-
-        boot_epochs_min: int or -1
-            In order to be included in bootstrap analysis, non-reference stars must be detected in 
-            at least boot_epochs_min epochs. If boot_epochs_min = -1, then all stars will 
-            be included in the analysis, regardless of the number of epochs detected
 
         trans_input : array or list of transform objects
             def = None. If not None, then this should contain an array or list of transform
@@ -1465,7 +1466,6 @@ class MosaicToRef(MosaicSelfRef):
                          dr_tol=dr_tol, dm_tol=dm_tol,
                          outlier_tol=outlier_tol, trans_args=trans_args,
                          mag_trans=mag_trans, mag_lim=mag_lim, weights=weights,
-                         n_boot=n_boot, boot_epochs_min=boot_epochs_min,
                          trans_input=trans_input, trans_class=trans_class,
                          calc_trans_inverse=calc_trans_inverse, use_vel=use_vel,
                          init_guess_mode=init_guess_mode,
@@ -1530,8 +1530,6 @@ class MosaicToRef(MosaicSelfRef):
             logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
             logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
             logger(_log, '  weights = ' + str(self.weights), self.verbose)
-            logger(_log, '  n_boot = ' + str(self.n_boot), self.verbose)
-            logger(_log, '  boot_epochs_min = ' + str(self.boot_epochs_min), self.verbose)
             logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
             logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
             logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
@@ -1541,6 +1539,7 @@ class MosaicToRef(MosaicSelfRef):
             logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
             logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
             logger(_log, '-------------------------\n', self.verbose)
+
 
         ##########
         # Setup a reference table to store data. It will contain:
@@ -1616,16 +1615,6 @@ class MosaicToRef(MosaicSelfRef):
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
         self.update_ref_table_aggregates()
 
-        # Calculate bootstrap transformation errors and proper motion
-        # errors, if desired.
-        #=============#
-        # mwhosek, 3/19/2020: we have pulled calc_bootstrap_errors outside the fit()
-        # function, so if the user wants it, they can call it on the Mosaic object
-        # after fit()
-        #if self.n_boot >= 0:
-        #    self.calc_bootstrap_errors()
-                        
-
         ##########
         # Clean up output table.
         # 
@@ -1646,6 +1635,29 @@ class MosaicToRef(MosaicSelfRef):
             self.iter_callback(self.ref_table, nn)
         return
 
+def get_all_epochs(t):
+    """
+    Helper function to get times of all epochs from a ref table.
+    This is required because our previous approach 
+    of simply taking the time array of the star with the most detections 
+    fails for mosaicked catalogs, because it is then possible that 
+    no star is detected in all fields.
+    """
+    nepochs = len(t['t'][0])
+
+    # Loop through each time entry and get year
+    # from a non-masked source
+    all_epochs = []
+    for ii in range(nepochs):
+        tcol = t['t'][:,ii]
+
+        good = np.where(np.isfinite(tcol))[0][0]
+
+        all_epochs.append(t['t'][good,ii])
+
+    all_epochs = np.array(all_epochs)
+    return all_epochs
+    
 
 def setup_ref_table_from_starlist(star_list):
     """ 

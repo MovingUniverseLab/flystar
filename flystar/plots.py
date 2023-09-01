@@ -8,6 +8,7 @@ from matplotlib import colors
 import matplotlib.cm as cm
 from scipy.stats import chi2
 from scipy.optimize import curve_fit
+from scipy.stats import norm
 import pdb
 import math
 import astropy
@@ -19,8 +20,8 @@ from astropy.io import ascii
 ####################################################
 
 
-def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, fileName=None, 
-                    root='./'):
+def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, fileName=None,
+                        equal_axis=True, root='./'):
     """
     Plot positions of stars in reference list and the transformed starlist,
     in reference list coordinates. Stars used in the transformation are
@@ -48,6 +49,9 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
 
     ylim: None or list/array [ymin, ymax]
         If not None, sets the ymin and ymax limit of the plot    
+
+    equal_axis: boolean
+        If true, make axes equal. True by default
     
     """
     py.figure(figsize=(10,10))
@@ -64,7 +68,8 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
     py.title('Label.dat Positions After Transformation')
     if xlim != None:
         py.axis([xlim[0], xlim[1], ylim[0], ylim[1]])
-    py.axis('equal')
+    if equal_axis:
+        py.axis('equal')
     if fileName!=None:
         #py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
         py.savefig(root + 'Transformed_positions_{0}'.format(fileName) + '.png')
@@ -242,15 +247,15 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     py.figure(figsize=(10,10))
     py.clf()
     n_x, bins_x, p = py.hist(ratio_x, histtype='step', bins=bins, color='blue',
-                             label='X', normed=True, linewidth=2)
+                             label='X', density=True, linewidth=2)
     n_y, bins_y, p = py.hist(ratio_y, histtype='step', bins=bins, color='red',
-                             label='Y', normed=True, linewidth=2)
+                             label='Y', density=True, linewidth=2)
 
     # Overplot a Gaussian, as well
     mean = 0
     sigma = 1
     x = np.arange(-6, 6, 0.1)
-    py.plot(x, mlab.normpdf(x,mean,sigma), 'g-', linewidth=2)
+    py.plot(x, norm.pdf(x,mean,sigma), 'g-', linewidth=2)
     
     # Annotate reduced chi-sqared values in plot: with outliers
     xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
@@ -532,18 +537,18 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     py.figure(figsize=(20,10))
     py.subplot(121)
     py.subplots_adjust(left=0.1)
-    py.hist(ratio_vx, bins=xbins, histtype='step', color='black', normed=True,
+    py.hist(ratio_vx, bins=xbins, histtype='step', color='black', density=True,
             linewidth=2)
-    py.plot(x, mlab.normpdf(x,mean,sigma), 'r-', linewidth=2)
+    py.plot(x, norm.pdf(x,mean,sigma), 'r-', linewidth=2)
     py.xlabel('(Ref Vx - Trans Vx) / Vxe')
     py.ylabel('N_stars')
     py.title('Vx Residuals, Matched')
     if vxlim != None:
         py.xlim([vxlim[0], vxlim[1]])
     py.subplot(122)
-    py.hist(ratio_vy, bins=ybins, histtype='step', color='black', normed=True,
+    py.hist(ratio_vy, bins=ybins, histtype='step', color='black', density=True,
             linewidth=2)
-    py.plot(x, mlab.normpdf(x,mean,sigma), 'r-', linewidth=2)
+    py.plot(x, norm.pdf(x,mean,sigma), 'r-', linewidth=2)
     py.xlabel('(Ref Vy - Trans Vy) / Vye')
     py.ylabel('N_stars')
     py.title('Vy Residuals, Matched')

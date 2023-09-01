@@ -226,7 +226,7 @@ class StarTable(Table):
 
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if isinstance(self.meta[tab_key], collections.Iterable) and (len(self.meta[tab_key]) == self.meta['n_lists']):
+            if isinstance(self.meta[tab_key], collections.abc.Iterable) and (len(self.meta[tab_key]) == self.meta['n_lists']):
 
                 # If we find the key in the starlists' meta argument, then add the new values.
                 # Otherwise, add "None".
@@ -283,7 +283,7 @@ class StarTable(Table):
         for key in self.meta.keys():
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if isinstance(self.meta[key], collections.Iterable) and (len(self.meta[key]) == self.meta['n_lists']):
+            if isinstance(self.meta[key], collections.abc.Iterable) and (len(self.meta[key]) == self.meta['n_lists']):
                 # If we find the key is the passed in meta argument, then add the new values.
                 # Otherwise, add "None".
                 if 'meta' in kwargs:
@@ -788,7 +788,7 @@ class StarTable(Table):
         elif N_good == 2:
             # Note nough epochs to fit a velocity.
             self['x0'][ss] = np.average(x, weights=1.0/xe**2)
-            self['y0'][ss] = np.average(y, weights=1.0/ye)
+            self['y0'][ss] = np.average(y, weights=1.0/ye**2)
             
             dx = np.diff(x)[0]
             dy = np.diff(y)[0]

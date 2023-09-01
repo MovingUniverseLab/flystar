@@ -1,5 +1,5 @@
 import numpy as np
-from astropy.table import Table, Column
+from astropy.table import Table, Column, MaskedColumn
 import astropy.table
 import warnings
 import pdb
@@ -258,6 +258,132 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
 
     return t_label
 
+def read_label_accel(labelFile, prop_to_time=None, flipX=True):
+    """
+    Read in a label.dat file, rename columns with standard
+    names. Use velocities to convert positions into epoch
+    t0, and then flip x positions and velocities such that
+    +x is to the west.
+
+    Update values in columns of position and velocity
+
+    Parameters:
+    ----------
+    labelFile: text file. containing
+        col1: name
+        col2: mag
+        col3: x0 (arcsec)
+        col4: y0 (arcsec)
+        col5: x0err
+        col6: y0err
+        col7: vx (mas/yr)
+        col8: vy (mas/yr)
+        col9: vxerr
+        col10: vyerr
+        col7: ax (mas/yr)
+        col8: ay (mas/yr)
+        col9: axerr
+        col10: ayerr
+        col11: t0
+        col12: use
+        col13: r0 (arcsec)
+
+    prop_to_time: None or float (default = None)
+        If float, use velocities to propogate positions to defined time.
+
+    flipX: boolean (default = True)
+         If true, multiply the x positions and velocities by -1.0. This is
+         useful when label.dat has +x to the east, while reference starlist
+         has +x to the west.
+         
+    #OLD# tref: reference epoch that label.dat is converted to.
+
+    Output:
+    ------
+    labelFile: astropy.table.
+    containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r0,
+    (if prop_to_time: x, y, xe, ye, t)
+    
+    x and y is in arcsec,
+    converted to tref epoch,
+    *(-1) so it increases to west
+    
+    vx, vy, vxe, vye is converted to arcsec/yr
+
+    """
+    t_label = Table.read(labelFile, format='ascii.no_header')
+    t_label.rename_column('col1', 'name')
+    t_label.rename_column('col2', 'm')
+    t_label.rename_column('col3', 'x0')
+    t_label.rename_column('col4', 'y0')
+    t_label.rename_column('col5', 'x0e')
+    t_label.rename_column('col6', 'y0e')
+    t_label.rename_column('col7', 'vx')
+    t_label.rename_column('col8', 'vy')
+    t_label.rename_column('col9', 'vxe')
+    t_label.rename_column('col10','vye')
+    t_label.rename_column('col11', 'ax')
+    t_label.rename_column('col12', 'ay')
+    t_label.rename_column('col13', 'axe')
+    t_label.rename_column('col14','aye')
+    t_label.rename_column('col15','t0')
+    t_label.rename_column('col16','use')
+    t_label.rename_column('col17','r0')
+
+    # Convert velocities from mas/yr to arcsec/year
+#    t_label['vx'] *= 0.001
+#    t_label['vy'] *= 0.001
+#    t_label['vxe'] *= 0.001
+#    t_label['vye'] *= 0.001
+    t_label['vx'] = t_label['vx'] * 0.001
+    t_label['vy'] = t_label['vy'] * 0.001
+    t_label['vxe'] = t_label['vxe'] * 0.001
+    t_label['vye'] = t_label['vye'] * 0.001
+
+    t_label['ax'] = t_label['ax'] * 0.001
+    t_label['ay'] = t_label['ay'] * 0.001
+    t_label['axe'] = t_label['axe'] * 0.001
+    t_label['aye'] = t_label['aye'] * 0.001
+
+    # propogate to prop_to_time if prop_to_time is given
+    if prop_to_time != None:
+        x0 = t_label['x0']
+        x0e = t_label['x0e']
+        vx = t_label['vx']
+        vxe = t_label['vxe']
+        ax = t_label['ax']
+        axe = t_label['axe']
+        y0 = t_label['y0']
+        y0e = t_label['y0e']
+        vy = t_label['vy']
+        vye = t_label['vye']
+        ay = t_label['ay']
+        aye = t_label['aye']
+        t0 = t_label['t0']
+
+        t_label['x'] = x0 + vx*(prop_to_time - t0) + 0.5*ax*(prop_to_time - t0)**2
+        t_label['y'] = y0 + vy*(prop_to_time - t0) + 0.5*ay*(prop_to_time - t0)**2
+        t_label['xe'] = np.sqrt(x0e**2 + (prop_to_time - t0)**2 * vxe**2 + 0.5*(prop_to_time - t0)**2 * axe**2)
+        t_label['ye'] = np.sqrt(y0e**2 + (prop_to_time - t0)**2 * vye**2 + 0.5*(prop_to_time - t0)**2 * aye**2)
+        t_label['x'].format = '.5f'
+        t_label['y'].format = '.5f'
+        t_label['xe'].format = '.5f'
+        t_label['ye'].format = '.5f'
+
+#    for j in range(len(t_label['xe'])):
+#        print (j,t_label['name'][j],t_label['xe'][j],t_label['ye'][j])
+
+    # flip the x axis if flipX is True
+    if flipX == True:
+        t_label['x0'] = t_label['x0'] * (-1.0)
+        t_label['vx'] = t_label['vx'] * (-1.0)
+        if prop_to_time != None:
+            t_label['x'] = t_label['x'] * (-1.0)
+
+    return t_label
+
+
+
 
 def read_starlist(starlistFile, error=True):
     """
@@ -449,7 +575,12 @@ class StarList(Table):
                 if arg in ['name', 'x', 'y', 'm']:
                     continue
                 if arg in kwargs:
-                    self.add_column(Column(data=kwargs[arg], name=arg))
+                    # 2022-08-25: Need to explicitly add MaskedColumn if
+                    # data is masked
+                    if isinstance(kwargs[arg], MaskedColumn):
+                        self.add_column(MaskedColumn(data=kwargs[arg], name=arg))
+                    else:
+                        self.add_column(Column(data=kwargs[arg], name=arg))
         
         return
 
@@ -678,3 +809,29 @@ class StarList(Table):
             self['me'] = me_T
     
         return
+
+
+def write_starlist(list, outfile):
+
+    formats = {'name': '%-13s',
+               'm': '%8.4f',
+               'year': '%10.3f',
+               'x': '%15.7f',
+               'y': '%15.7f',
+               'xe': '%15.7f',
+               'ye': '%15.7f',
+                      'snr': '%10.4f',
+               'corr': '%5.2f',
+               'nimg': '%3i',
+                      'flux': '%10.1f'}
+
+
+    new_name_hdr = '#name        '
+    list.rename_column('name', new_name_hdr)
+    formats[new_name_hdr] = '%-13s'
+    list.write(outfile, format='ascii.fixed_width', formats=formats, delimiter='', bookend=False)
+    list.rename_column(new_name_hdr, 'name')
+
+    return outfile
+
+
