@@ -3298,13 +3298,13 @@ def plot_sky(stars_tab,
 
         if plot_errors:
             (line, foo1, foo2) = py.errorbar(x, y, xerr=xe, yerr=ye,
-                                            color=colorList[ee], fmt='k^',
+                                            color=colorList[ee], fmt='^',
                                             markeredgecolor=colorList[ee],
                                             markerfacecolor=colorList[ee],
                                             label=label, picker=4)
         else:
             (line, foo1, foo2) = py.errorbar(x, y, xerr=None, yerr=None,
-                                            color=colorList[ee], fmt='k^',
+                                            color=colorList[ee], fmt='^',
                                             markeredgecolor=colorList[ee],
                                             markerfacecolor=colorList[ee],
                                             label=label, picker=4)
