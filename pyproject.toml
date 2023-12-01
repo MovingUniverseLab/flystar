@@ -1,5 +1,18 @@
-[build-system]
+[project]
+name = "flystar"
+description = "FlyStar Astromeric Analysis Package"
+readme = "README.rst"
+authors = [{name="Jessica Lu", email="jlu.astro@berkeley.edu"},
+           {name="Matt Hosek", email="mwhosek@astro.ucla.edu"}]
+license = {text="BSD 3-Clause License"}
+dependencies = ["numpy", "astropy>=3.2"]
+#dynamic = ["version"]
+version = "0.1"
 
+[project.urls]
+homepage = "https://github.com/MovingUniverseLab/flystar"
+
+[build-system]
 requires = ["setuptools",
             "setuptools_scm",
             "wheel",
