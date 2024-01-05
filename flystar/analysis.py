@@ -276,6 +276,9 @@ def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, d
     idx_lab, idx_star, dr, dm = match.match(x_lab, y_lab, m_lab, 
                                             star_tab['x0'], star_tab['y0'], star_tab['m0'],
                                             dr_tol=dr_tol, dm_tol=dm_tol, verbose=verbose)
+    #print('idx_lab:')
+    #for iii in range(len(idx_lab)):
+    #    print(label_tab["name"][idx_lab[iii]], star_tab["name"][idx_star[iii]])
 
     print('Renaming {0:d} out of {1:d} stars'.format(len(idx_lab), len(star_tab)))
     

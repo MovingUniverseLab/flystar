@@ -279,8 +279,11 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     idxs2 = np.ones(x1.size, dtype=int) * -1
 
     # The matching will be done using a KDTree.
-    kdt = KDT(coords2, balanced_tree=False)
-
+    #kdt = KDT(coords2, balanced_tree=False)
+    #KDTree handling of NaNs throws error in scipy v1.10.1 and newer.
+    #Replace NaNs in coords2 with zero (0). -SKT
+    kdt = KDT(np.where(np.isfinite(coords2), coords2, 0), balanced_tree=False)
+    
     # This returns the number of neighbors within the specified
     # radius. We will use this to find those stars that have no or one
     # match and deal with them easily. The more complicated conflict

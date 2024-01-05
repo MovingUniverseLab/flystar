@@ -304,7 +304,7 @@ class MosaicSelfRef(object):
             self.ref_table.detections()
 
             ### Drop all stars that have 0 detections.
-            idx = np.where(self.ref_table['n_detect'] == 0)[0]
+            idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
             print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
@@ -340,7 +340,7 @@ class MosaicSelfRef(object):
         self.ref_table.detections()
 
         ### Drop all stars that have 0 detections.
-        idx = np.where(self.ref_table['n_detect'] == 0)[0]
+        idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
         print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
 
@@ -1585,7 +1585,7 @@ class MosaicToRef(MosaicSelfRef):
             self.match_and_transform(self.ref_mag_lim,
                                      self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
                                      self.trans_args[nn])
-
+                                     
             # Clean up the reference table
             # Find where stars are detected.
             self.ref_table.detections()
@@ -1627,7 +1627,7 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table.detections()
 
         ### Drop all stars that have 0 detections.
-        idx = np.where(self.ref_table['n_detect'] == 0)[0]
+        idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
         print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
 
@@ -2445,7 +2445,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
 
     # calculate weights from *transformed* coords. This is where we use the
     # transformation object
-    if (table1_trans != None) and ('xe' in table1_trans.colnames):
+    if (table1_trans is not None) and ('xe' in table1_trans.colnames):
         x1e = table1_trans['xe']
         y1e = table1_trans['ye']
 

@@ -2361,6 +2361,10 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     epoch_array : None, array
         Array of the epoch indicies to plot. If None, plots all epochs.
     """
+    
+    def rs(x):
+        return x.reshape(len(x))
+    
     print( 'Creating residuals plots for star(s):' )
     print( star_names )
     
@@ -2505,7 +2509,12 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         plt.plot(time, fitLineX + fitSigX, 'b--')
         plt.plot(time, fitLineX - fitSigX, 'b--')
         if not color_time:
-            plt.errorbar(time, x, yerr=xerr.reshape(len(xerr),), fmt='k.')
+            #print('x:',x)
+            #print('xerr:',xerr)
+            #print('xerr_reshaped:', xerr.reshape(len(xerr),))
+            #plt.errorbar(time, x, yerr=xerr.reshape(len(xerr)), fmt='k.')
+            plt.errorbar(rs(time), rs(x), yerr=rs(xerr), fmt='k.')
+            #plt.errorbar(time, x, yerr=xerr, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2537,7 +2546,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         plt.plot(time, fitLineY + fitSigY, 'b--')
         plt.plot(time, fitLineY - fitSigY, 'b--')
         if not color_time:
-            plt.errorbar(time, y, yerr=yerr.reshape(len(yerr),), fmt='k.')
+            plt.errorbar(rs(time), rs(y), yerr=rs(yerr), fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2567,7 +2576,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         plt.plot(time, fitLineM + fitSigM, 'g--')
         plt.plot(time, fitLineM - fitSigM, 'g--')
         if not color_time:
-            plt.errorbar(time, m, yerr=merr.reshape(len(merr),), fmt='k.')
+            plt.errorbar(rs(time), rs(m), yerr=rs(merr), fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2599,7 +2608,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         plt.plot(time,  fitSigX*1e3, 'b--')
         plt.plot(time, -fitSigX*1e3, 'b--')
         if not color_time:
-            plt.errorbar(time, (x - fitLineX)*1e3, yerr=xerr.reshape(len(xerr),)*1e3, fmt='k.')
+            plt.errorbar(rs(time), rs(x - fitLineX)*1e3, yerr=rs(xerr)*1e3, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2627,7 +2636,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         plt.plot(time,  fitSigY*1e3, 'b--')
         plt.plot(time, -fitSigY*1e3, 'b--')
         if not color_time:
-            plt.errorbar(time, (y - fitLineY)*1e3, yerr=yerr.reshape(len(yerr),)*1e3, fmt='k.')
+            plt.errorbar(rs(time), rs(y - fitLineY)*1e3, yerr=rs(yerr)*1e3, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2655,7 +2664,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         plt.plot(time,  fitSigM*1e3, 'g--')
         plt.plot(time, -fitSigM*1e3, 'g--')
         if not color_time:
-            plt.errorbar(time, (m - fitLineM), yerr=merr.reshape(len(merr),), fmt='k.')
+            plt.errorbar(rs(time), rs(m - fitLineM), yerr=rs(merr), fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2682,8 +2691,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         if not color_time:
-            plt.errorbar(x,y, xerr=xerr.reshape(len(xerr),), 
-                         yerr=yerr.reshape(len(yerr),), fmt='k.')
+            plt.errorbar(rs(x),rs(y), xerr=rs(xerr),
+                         yerr=rs(yerr), fmt='k.')
         else:
             sc = plt.scatter(x, y, s=0, c=dtime, vmin=0, vmax=1, cmap='hsv')
             clb = plt.colorbar(sc)
