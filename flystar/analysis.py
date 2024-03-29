@@ -21,7 +21,7 @@ from scipy.stats import f
 # the new StarTable and StarList format. 
 ##################################################
 
-def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
+def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
     """
     Query the Gaia database at the specified location
     and with the specified search radius
@@ -83,7 +83,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     xe = gaia['ra_error'] * cos_dec / 1e3      # arcsec
     ye = gaia['dec_error'] / 1e3               # arcsec
 
-    gaia_new = table.Table([gaia['source_id'].data.astype('S19')], names=['name'], masked=False)
+    gaia_new = table.Table([gaia['SOURCE_ID'].data.astype('S19')], names=['name'], masked=False)
 
     gaia_new['x0'] = x * -1.0
     gaia_new['y0'] = y
@@ -97,7 +97,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['vye'] = gaia['pmdec_error'].data / 1e3
     
     gaia_new['t0'] = gaia['ref_epoch'].data
-    gaia_new['source_id'] = gaia['source_id'].data.astype('S19')
+    gaia_new['SOURCE_ID'] = gaia['SOURCE_ID'].data.astype('S19')
 
     # Find sources without velocities and fix them up.
     idx = np.where(gaia['pmdec'].mask == True)[0]
@@ -218,7 +218,7 @@ def project_gaia(gaia, epoch, ra, dec):
     ye_now = np.hypot(y0e, vye*dt)
     
     # Format as a starlist
-    gaia_lis = starlists.StarList(name=gaia['source_id'], 
+    gaia_lis = starlists.StarList(name=gaia['SOURCE_ID'], 
                                   x=x_now, y=y_now, m=gaia['phot_g_mean_mag'],
                                   xe=xe_now, ye=ye_now, me=1.0/gaia['phot_g_mean_flux_over_error'])
     
