@@ -52,6 +52,9 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
     gaia_job = Gaia.cone_search_async(target_coords, search_radius, table_name = table_name + '.gaia_source')
     gaia = gaia_job.get_results()
 
+    #Change new 'SOURCE_ID' column header back to lowercase 'source_id' so all subsequent functions still work:
+    gaia['SOURCE_ID'].name = 'source_id'
+
     return gaia
 
 
@@ -83,7 +86,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     xe = gaia['ra_error'] * cos_dec / 1e3      # arcsec
     ye = gaia['dec_error'] / 1e3               # arcsec
 
-    gaia_new = table.Table([gaia['SOURCE_ID'].data.astype('S19')], names=['name'], masked=False)
+    gaia_new = table.Table([gaia['source_id'].data.astype('S19')], names=['name'], masked=False)
 
     gaia_new['x0'] = x * -1.0
     gaia_new['y0'] = y
@@ -97,7 +100,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['vye'] = gaia['pmdec_error'].data / 1e3
     
     gaia_new['t0'] = gaia['ref_epoch'].data
-    gaia_new['SOURCE_ID'] = gaia['SOURCE_ID'].data.astype('S19')
+    gaia_new['source_id'] = gaia['source_id'].data.astype('S19')
 
     # Find sources without velocities and fix them up.
     idx = np.where(gaia['pmdec'].mask == True)[0]
@@ -218,7 +221,7 @@ def project_gaia(gaia, epoch, ra, dec):
     ye_now = np.hypot(y0e, vye*dt)
     
     # Format as a starlist
-    gaia_lis = starlists.StarList(name=gaia['SOURCE_ID'], 
+    gaia_lis = starlists.StarList(name=gaia['source_id'], 
                                   x=x_now, y=y_now, m=gaia['phot_g_mean_mag'],
                                   xe=xe_now, ye=ye_now, me=1.0/gaia['phot_g_mean_flux_over_error'])
     
