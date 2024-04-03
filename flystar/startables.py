@@ -1,6 +1,7 @@
 from astropy.table import Table, Column
 from astropy.stats import sigma_clipping
 from scipy.optimize import curve_fit
+from tqdm import tqdm
 import numpy as np
 import warnings
 import collections
@@ -526,11 +527,14 @@ class StarTable(Table):
         return
 
     
-    def fit_velocities(self, bootstrap=0, fixed_t0=False, verbose=False,
+    def fit_velocities(self, weighting='var', bootstrap=0, fixed_t0=False, verbose=False,
                        mask_val=None, mask_lists=False):
         """
         Fit velocities for all stars in the table. 
         """
+        if weighting not in ['var', 'std']:
+            raise ValueError(f"Weighting must either be 'var' or 'std', not {weighting}!")
+        
         if ('t' not in self.colnames) and ('list_times' not in self.meta):
             raise RuntimeError('fit_velocities: Failed to time values.')
 
@@ -591,9 +595,9 @@ class StarTable(Table):
 
         # STARS LOOP through the stars and work on them 1 at a time.
         # This is slow; but robust.
-        for ss in range(N_stars):
+        for ss in tqdm(range(N_stars)):
             self.fit_velocity_for_star(ss, bootstrap=bootstrap, fixed_t0=fixed_t0,
-                                       mask_val=mask_val, mask_lists=mask_lists)
+                                       mask_val=mask_val, mask_lists=mask_lists, weighting=weighting)
 
         if verbose:
             stop_time = time.time()
@@ -602,7 +606,7 @@ class StarTable(Table):
         return
 
     def fit_velocity_for_star(self, ss, bootstrap=False, fixed_t0=False,
-                              mask_val=None, mask_lists=False):
+                              mask_val=None, mask_lists=False, weighting='var'):
         def poly_model(time, *params):
             pos = np.polynomial.polynomial.polyval(time, params)
             return pos
@@ -613,6 +617,12 @@ class StarTable(Table):
         if mask_val:
             x = np.ma.masked_values(x, mask_val)
             y = np.ma.masked_values(y, mask_val)
+            # If no mask, convert x.mask to list
+            if not np.ma.is_masked(x):
+                x.mask = np.zeros_like(x.data, dtype=bool)
+            if not np.ma.is_masked(y):
+                y.mask = np.zeros_like(y.data, dtype=bool)
+                
         
         if mask_lists is not False:
             # Remove a list
@@ -655,6 +665,11 @@ class StarTable(Table):
         if mask_val:
             xe = np.ma.masked_values(xe, mask_val)
             ye = np.ma.masked_values(ye, mask_val)
+            # If no mask, convert xe.mask to list
+            if not np.ma.is_masked(xe):
+                xe.mask = np.zeros_like(xe.data, dtype=bool)
+            if not np.ma.is_masked(ye):
+                ye.mask = np.zeros_like(ye.data, dtype=bool)
             
         if mask_lists is not False:
             # Remove a list
@@ -675,6 +690,8 @@ class StarTable(Table):
 
         if mask_val:
             t = np.ma.masked_values(t, mask_val)
+            if not np.ma.is_masked(t):
+                t.mask = np.zeros_like(t.data, dtype=bool)
             
         if mask_lists is not False:
             # Remove a list
@@ -685,11 +702,13 @@ class StarTable(Table):
             # Throw a warning if mask_lists is not a list
             if not isinstance(mask_lists, list):
                 raise RuntimeError('mask_lists needs to be a list.')    
-
+        
+        # For inconsistent masks, mask the star if any of the values are masked.
+        new_mask = np.logical_or.reduce((t.mask, x.mask, y.mask, xe.mask, ye.mask))
         # Figure out where we have detections (as indicated by error columns)
         good = np.where((xe != 0) & (ye != 0) &
                         np.isfinite(xe) & np.isfinite(ye) &
-                        np.isfinite(x) & np.isfinite(y))[0]
+                        np.isfinite(x) & np.isfinite(y) & ~new_mask)[0]
 
         N_good = len(good)
 
@@ -721,8 +740,12 @@ class StarTable(Table):
 
         # Catch the case where all the times are identical
         if (dt == dt[0]).all():
-            wgt_x = (1.0/xe)**2
-            wgt_y = (1.0/ye)**2
+            if weighting == 'var':
+                wgt_x = (1.0/xe)**2
+                wgt_y = (1.0/ye)**2
+            elif weighting == 'std':
+                wgt_x = 1./np.abs(xe)
+                wgt_y = 1./np.abs(ye)
 
             self['x0'][ss] = np.average(x, weights=wgt_x)
             self['y0'][ss] = np.average(y, weights=wgt_y)
@@ -739,9 +762,16 @@ class StarTable(Table):
         # Catch the case where we have enough measurements to actually
         # fit a velocity!
         if N_good > 2:
-            vx_opt, vx_cov = curve_fit(poly_model, dt.compressed(), x.compressed(), p0=p0x, sigma=xe.compressed(),
-                                           absolute_sigma=True)
-            vy_opt, vy_cov = curve_fit(poly_model, dt.compressed(), y.compressed(), p0=p0y, sigma=ye.compressed(),
+            if weighting == 'var':
+                sigma_x = xe
+                sigma_y = ye
+            elif weighting == 'std':
+                sigma_x = np.abs(xe)**0.5
+                sigma_y = np.abs(ye)**0.5
+            
+            vx_opt, vx_cov = curve_fit(poly_model, dt, x, p0=p0x, sigma=sigma_x,
+                                        absolute_sigma=True)
+            vy_opt, vy_cov = curve_fit(poly_model, dt, y, p0=p0y, sigma=sigma_y,
                                            absolute_sigma=True)
 
             self['x0'][ss] = vx_opt[0]
@@ -760,10 +790,16 @@ class StarTable(Table):
             
                 for bb in range(bootstrap):
                     bdx = np.random.choice(edx, N_good)
-
-                    vx_opt_b, vx_cov_b = curve_fit(poly_model, dt[bdx].compressed(), x[bdx].compressed(), p0=vx_opt, sigma=xe[bdx].compressed(),
+                    if weighting == 'var':
+                        sigma_x = xe[bdx]
+                        sigma_y = ye[bdx]
+                    elif weighting == 'std':
+                        sigma_x = xe[bdx]**0.5
+                        sigma_y = ye[bdx]**0.5
+                    
+                    vx_opt_b, vx_cov_b = curve_fit(poly_model, dt[bdx], x[bdx], p0=vx_opt, sigma=sigma_x,
                                                        absolute_sigma=True)
-                    vy_opt_b, vy_cov_b = curve_fit(poly_model, dt[bdx].compressed(), y[bdx].compressed(), p0=vy_opt, sigma=ye[bdx].compressed(),
+                    vy_opt_b, vy_cov_b = curve_fit(poly_model, dt[bdx], y[bdx], p0=vy_opt, sigma=sigma_y,
                                                        absolute_sigma=True)
 
                     fit_x0_b[bb] = vx_opt_b[0]
@@ -786,9 +822,13 @@ class StarTable(Table):
                 self['vye'][ss] = vy_err[1]
 
         elif N_good == 2:
-            # Note nough epochs to fit a velocity.
-            self['x0'][ss] = np.average(x, weights=1.0/xe**2)
-            self['y0'][ss] = np.average(y, weights=1.0/ye**2)
+            # Not nough epochs to fit a velocity.
+            if weighting == 'var':
+                self['x0'][ss] = np.average(x, weights=1.0/xe**2)
+                self['y0'][ss] = np.average(y, weights=1.0/ye**2)
+            elif weighting == 'std':
+                self['x0'][ss] = np.average(x, weights=1.0/np.abs(xe))
+                self['y0'][ss] = np.average(y, weights=1.0/np.abs(ye))
             
             dx = np.diff(x)[0]
             dy = np.diff(y)[0]
