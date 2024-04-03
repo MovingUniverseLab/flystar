@@ -772,8 +772,8 @@ class StarTable(Table):
             vx_opt, vx_cov = curve_fit(poly_model, dt, x, p0=p0x, sigma=sigma_x,
                                         absolute_sigma=True)
             vy_opt, vy_cov = curve_fit(poly_model, dt, y, p0=p0y, sigma=sigma_y,
-                                           absolute_sigma=True)
-
+                                        absolute_sigma=True)
+            
             self['x0'][ss] = vx_opt[0]
             self['vx'][ss] = vx_opt[1]
             self['y0'][ss] = vy_opt[0]
@@ -822,7 +822,7 @@ class StarTable(Table):
                 self['vye'][ss] = vy_err[1]
 
         elif N_good == 2:
-            # Not nough epochs to fit a velocity.
+            # Not enough epochs to fit a velocity.
             if weighting == 'var':
                 self['x0'][ss] = np.average(x, weights=1.0/xe**2)
                 self['y0'][ss] = np.average(y, weights=1.0/ye**2)
