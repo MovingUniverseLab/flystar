@@ -398,7 +398,7 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xy(trans) 
                 
             # Match stars between the transformed, trimmed lists.
-            idx1, idx2, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
+            idx1, idx2, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                              ref_list['x'], ref_list['y'], ref_list['m'],
                                              dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
             if self.verbose > 1:
@@ -519,6 +519,7 @@ class MosaicSelfRef(object):
                 dm_u = np.abs(self.ref_table['m'][used_good, ii] - ref_list['m'][used_good])
                 print(msg1.format('dr', 'trans stars', dr_u.mean(), dr_u.std()))
                 print(msg1.format('dm', 'trans stars', dm_u.mean(), dm_u.std()))
+                print('    Used {0:d} trans ref stars.'.format(len(used)))
                 print('    Dropped {0:d} matches after transform.'.format(len(used) - len(used_good)))
 
         return
@@ -925,7 +926,7 @@ class MosaicSelfRef(object):
             xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table, use_vel=self.use_vel)  # optional velocity propogation.
             mref = self.ref_table['m0']
 
-            idx_lis, idx_ref, dm, dr = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
+            idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    xref, yref, mref,
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
             if self.verbose > 0:
