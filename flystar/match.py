@@ -531,7 +531,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
         raise TypeError("The second catalog has to be a StarList")
     
     #  Find the initial transformation
-    if init_mode is 'triangle': #  Blind triangles method
+    if init_mode == 'triangle': #  Blind triangles method
         
         #  Prepare the reduced starlists for matching
         sl1_cut = copy.deepcopy(sl1)
@@ -548,13 +548,13 @@ def generic_match(sl1, sl2, init_mode='triangle',
         transf = align.initial_align(sl1_cut, sl2_cut, briteN=n_bright,
                                      transformModel=model, order=order_dr[0]) #order_dr[i_loop][0] ?
         
-    elif init_mode is 'match_name': #  Name match
+    elif init_mode == 'match_name': #  Name match
         sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(sl1, sl2)
         transf = model(sl2['x'][sl2_idx_init], sl2['y'][sl2_idx_init],
                        sl1['x'][sl1_idx_init], sl1['y'][sl1_idx_init],
                        order=int(order_dr[0][0]))
         
-    elif init_mode is 'load': #  Load a transformation file
+    elif init_mode == 'load': #  Load a transformation file
         transf = transforms.Transform2D.from_file(kwargs['transf_file'])
         
     else: #  None of the above
