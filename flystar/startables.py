@@ -1,7 +1,7 @@
-from astropy.table import Table, Column
+from astropy.table import Table, Column, hstack
 from astropy.stats import sigma_clipping
 from scipy.optimize import curve_fit
-from flystar.fit_velocity import linear_fit, calc_chi2, linear
+from flystar.fit_velocity import linear_fit, calc_chi2, linear, fit_velocity
 from tqdm import tqdm
 import numpy as np
 import warnings
@@ -566,7 +566,7 @@ class StarTable(Table):
         if ('t' not in self.colnames) and ('list_times' not in self.meta):
             raise KeyError("fit_velocities: Failed to time values. No 't' column in table, no 'list_times' in meta.")
 
-        N_stars, N_epochs = self['x'].shape
+        N_stars = len(self)
 
         if verbose:
             start_time = time.time()
@@ -582,6 +582,8 @@ class StarTable(Table):
         if 'vxe' in self.colnames: self.remove_column('vxe')
         if 'y0e' in self.colnames: self.remove_column('y0e')
         if 'vye' in self.colnames: self.remove_column('vye')
+        if 'chi2_vx' in self.colnames: self.remove_column('chi2_vx')
+        if 'chi2_vy' in self.colnames: self.remove_column('chi2_vy')
         if 't0' in self.colnames: self.remove_column('t0')
         if 'n_vfit' in self.colnames: self.remove_column('n_vfit')
         
@@ -920,3 +922,91 @@ class StarTable(Table):
                 self['y0e'] = ye
 
         return
+    
+    
+    def fit_velocities_all_epochs(self, weighting='var', use_scipy=False, absolute_sigma=False, epoch_cols='all', mask_val=None, art_star=False, return_result=False):
+        """Fit velocities for stars detected in all epochs specified by epoch_cols. 
+        Criterion: xe/ye error > 0 and finite, x/y not masked.
+
+        Parameters
+        ----------
+        weighting : str, optional
+            Variance weighting('var') or standard deviation weighting ('std'), by default 'var'
+        use_scipy : bool, optional
+            Use scipy.curve_fit or flystar.fit_velocity.fit_velocity, by default False
+        absolute_sigma : bool, optional
+            Absolute sigma or rescaled sigma, by default False
+        epoch_cols : str or list of intergers, optional
+            List of epoch column indices used for fitting velocity, by default 'all'
+        mask_val : float, optional
+            Values in x, y to be masked
+        art_star : bool, optional
+            Artificial star or observation star catalog. If artificial star, use 'det' column to select stars detected in all epochs, by default False
+        return_result : bool, optional
+            Return the velocity results or not, by default False
+        
+        Returns
+        -------
+        vel_result : astropy Table
+            Astropy Table with velocity results
+        """
+        
+        N_stars = len(self)
+        
+        if epoch_cols == 'all':
+            epoch_cols = np.arange(np.shape(self['x'])[1])
+            
+        # Artificial Star
+        if art_star:
+            detected_in_all_epochs = np.all(self['det'][:, epoch_cols], axis=1)
+        
+        # Observation Star
+        else:
+            valid_xe = np.all(self['xe'][:, epoch_cols]!=0, axis=1) & np.all(np.isfinite(self['xe'][:, epoch_cols]), axis=1)
+            valid_ye = np.all(self['ye'][:, epoch_cols]!=0, axis=1) & np.all(np.isfinite(self['ye'][:, epoch_cols]), axis=1)
+            
+            if mask_val:
+                x = np.ma.masked_values(self['x'][:, epoch_cols], mask_val)
+                y = np.ma.masked_values(self['y'][:, epoch_cols], mask_val)
+                
+                # If no mask, convert x.mask to list
+                if not np.ma.is_masked(x):
+                    x.mask = np.zeros_like(self['x'][:, epoch_cols].data, dtype=bool)
+                if not np.ma.is_masked(y):
+                    y.mask = np.zeros_like(self['y'][:, epoch_cols].data, dtype=bool)
+                
+                valid_x = ~np.any(x.mask, axis=1)
+                valid_y = ~np.any(y.mask, axis=1)
+                detected_in_all_epochs = np.logical_and.reduce((
+                    valid_x, valid_y, valid_xe, valid_ye
+                ))
+            else:
+                detected_in_all_epochs = np.logical_and(valid_xe, valid_ye)
+        
+        
+        # Fit velocities        
+        vel_result = fit_velocity(self[detected_in_all_epochs], weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, epoch_cols=epoch_cols, art_star=art_star)
+        vel_result = Table.from_pandas(vel_result)
+        
+        
+        # Add n_vfit
+        n_vfit = len(epoch_cols)
+        vel_result['n_vfit'] = n_vfit
+        
+        # Clean/remove up old arrays.
+        columns = [*vel_result.keys(), 'n_vfit']
+        for column in columns:
+            if column in self.colnames: self.remove_column(column)
+        
+        # Update self
+        for column in columns:
+            column_array = np.ma.zeros(N_stars)
+            column_array[detected_in_all_epochs] = vel_result[column]
+            column_array[~detected_in_all_epochs] = np.nan
+            column_array.mask = ~detected_in_all_epochs
+            self[column] = column_array
+        
+        if return_result:
+            return vel_result
+        else:
+            return

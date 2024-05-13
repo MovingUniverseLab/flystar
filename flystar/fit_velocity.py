@@ -1,4 +1,4 @@
-import tqdm
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 
@@ -64,8 +64,9 @@ def calc_chi2(x, y, sigma, slope, intercept):
     return residual.T @ W @ residual
 
     
-def fit_velocity(startable, weighting='var', absolute_sigma=True, epoch_cols=None):
+def fit_velocity(startable, weighting='var', use_scipy=False, absolute_sigma=True, epoch_cols='all', art_star=False):
     """Fit proper motion with weighted linear regression equations (see https://en.wikipedia.org/wiki/Weighted_least_squares#Solution).
+    Assumes that all data are valid.
 
     Parameters
     ----------
@@ -73,9 +74,13 @@ def fit_velocity(startable, weighting='var', absolute_sigma=True, epoch_cols=Non
         StarTable object
     weighting : str, optional
         Weighting by variance (1/ye**2) or standard deviation (1/ye), by default 'var'
-    epoch_cols : list, optional
-        Choose which columns to use. If None, use all columns, by default None
-
+    use_scipy : bool, optional
+        Use scipy.curve_fit or flystar.fit_velocity.linear_fit, by default False
+    epoch_cols : str or list of intergers, optional
+        List of indicies of columns to use. If 'all', use all columns, by default 'all'
+    art_star : bool, optional
+        Artificial star catalog or not. If True, use startable['x'][:, epoch_ols, 1] as the location, by default False.
+    
     Returns
     -------
     result : pd.DataFrame
@@ -92,51 +97,91 @@ def fit_velocity(startable, weighting='var', absolute_sigma=True, epoch_cols=Non
         epoch_cols = np.arange(len(startable.meta['YEARS'])) # use all cols if not specified
     
     N = len(startable)
-    x0  = np.zeros(N)
-    x0e = np.zeros(N)
-    y0  = np.zeros(N)
-    y0e = np.zeros(N)
-    
     vx  = np.zeros(N)
-    vxe = np.zeros(N)
     vy  = np.zeros(N)
+    vxe = np.zeros(N)
     vye = np.zeros(N)
+    x0  = np.zeros(N)
+    y0  = np.zeros(N)
+    x0e = np.zeros(N)
+    y0e = np.zeros(N)
+    chi2_vx = np.zeros(N)
+    chi2_vy = np.zeros(N)
+    t0 = np.zeros(N)
 
     time = np.array(startable.meta['YEARS'])[epoch_cols]
     
+    if not art_star:
+        x_arr = startable['x'][:, epoch_cols]
+        y_arr = startable['y'][:, epoch_cols]
+    else:
+        x_arr = startable['x'][:, epoch_cols, 1]
+        y_arr = startable['y'][:, epoch_cols, 1]
+    
+    xe_arr = startable['xe'][:, epoch_cols]
+    ye_arr = startable['ye'][:, epoch_cols]
+    
+    if weighting=='std':
+        sigma_x_arr = np.abs(xe_arr)**0.5
+        sigma_y_arr = np.abs(ye_arr)**0.5
+    elif weighting=='var':
+        sigma_x_arr = xe_arr
+        sigma_y_arr = ye_arr
+
+    # For each star
     for i in tqdm(range(len(startable))):
-        x = startable['x'][i, epoch_cols]
-        y = startable['y'][i, epoch_cols]
-        xe = startable['xe'][i, epoch_cols]
-        ye = startable['ye'][i, epoch_cols]
+        x = x_arr[i]
+        y = y_arr[i]
+        xe = xe_arr[i]
+        ye = ye_arr[i]
+        sigma_x = sigma_x_arr[i]
+        sigma_y = sigma_y_arr[i]
         
         t_weight = 1. / np.hypot(xe, ye)
-        t0 = np.average(time, weights=t_weight)
-        dt = time - t0
+        t0[i] = np.average(time, weights=t_weight)
+        dt = time - t0[i]
         
-        if weighting == 'var':
-            vx_result = linear_fit(dt, x, xe, absolute_sigma=absolute_sigma)
-        elif weighting == 'std':
-            vx_result = linear_fit(dt, x, np.abs(xe)**0.5)
-        vx[i]   = vx_result['slope']
-        vxe[i]  = vx_result['e_slope']
-        x0[i]   = vx_result['intercept']
-        x0e[i]  = vx_result['e_intercept']
+        if use_scipy:
+            p0x = np.array([0., x.mean()])
+            p0y = np.array([0., y.mean()])
+            
+            # Use scipy.curve_fit to fit for velocity
+            vx_opt, vx_cov = curve_fit(linear, dt, x, p0=p0x, sigma=sigma_x, absolute_sigma=absolute_sigma)
+            vy_opt, vy_cov = curve_fit(linear, dt, y, p0=p0y, sigma=sigma_y, absolute_sigma=absolute_sigma)
+            
+            vx[i] = vx_opt[0]
+            vy[i] = vy_opt[0]
+            x0[i] = vx_opt[1]
+            y0[i] = vy_opt[1]
+            vxe[i], x0e[i] = np.sqrt(vx_cov.diagonal())
+            vye[i], y0e[i] = np.sqrt(vy_cov.diagonal())
+            chi2_vx[i] = calc_chi2(dt, x, sigma_x, *vx_opt)
+            chi2_vy[i] = calc_chi2(dt, y, sigma_y, *vy_opt)
         
-        if weighting == 'var':
-            vy_result = linear_fit(dt, y, ye)
-        elif weighting == 'std':
-            vy_result = linear_fit(dt, y, np.abs(ye)**0.5, absolute_sigma=absolute_sigma)
-        vy[i]   = vy_result['slope']
-        vye[i]  = vy_result['e_slope']
-        y0[i]   = vy_result['intercept']
-        y0e[i]  = vy_result['e_intercept']
+        else:
+            vx_result = linear_fit(dt, x, sigma=sigma_x, absolute_sigma=absolute_sigma)
+            vy_result = linear_fit(dt, y, sigma=sigma_y, absolute_sigma=absolute_sigma)
+            
+            vx[i]   = vx_result['slope']
+            vxe[i]  = vx_result['e_slope']
+            x0[i]   = vx_result['intercept']
+            x0e[i]  = vx_result['e_intercept']
+            chi2_vx[i]  = vx_result['chi2']
+            
+            vy[i]   = vy_result['slope']
+            vye[i]  = vy_result['e_slope']
+            y0[i]   = vy_result['intercept']
+            y0e[i]  = vy_result['e_intercept']
+            chi2_vy[i] = vy_result['chi2']
     
     result = pd.DataFrame({
-        'vx': vx, 'vxe': vxe,
-        'vy': vy, 'vye': vye,
-        'x0': x0, 'x0e': x0e,
-        'y0': y0, 'y0e': y0e
+        'vx': vx,   'vy': vy, 
+        'vxe': vxe, 'vye': vye, 
+        'x0': x0,   'y0': y0, 
+        'x0e': x0e, 'y0e': y0e, 
+        'chi2_vx': chi2_vx, 
+        'chi2_vy': chi2_vy, 
+        't0': t0
     })
     return result
 
