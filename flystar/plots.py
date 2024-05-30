@@ -13,6 +13,8 @@ import pdb
 import math
 import astropy
 from astropy.io import ascii
+from astropy.coordinates import SkyCoord
+from astropy import units as u
 
 ####################################################
 # Code for making diagnostic plots for astrometry
@@ -2221,23 +2223,23 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
     return
 
 
-def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0):
+def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_idx = 0):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
     """
-    diffX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    diffY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    errX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    errY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    sigX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    sigY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    m_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    diffX_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    diffY_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    errX_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    errY_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    sigX_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    sigY_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    m_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
 
     for ii in range(len(tab['xe'])):
         # Ignore the NaNs 
         fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
-        if len(fnd) == Ndetect:            
+        if len(fnd) == Ndetect and tab['use_in_trans'][ii]:            
             time = tab['t'][ii, fnd]
             x = tab['x'][ii, fnd]
             y = tab['y'][ii, fnd]
@@ -2280,14 +2282,17 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
         if target_idx is not None:
             ax2.plot(m_arr[target_idx, ii], sigX_arr[target_idx, ii], 's', color='black', ms=5)
             ax2.plot(m_arr[target_idx, ii], sigY_arr[target_idx, ii], 'o', color='black', ms=5)
-        ax2.set_xlim(xlim[0], xlim[1])
+        ax2.set_xlim(mlim[0], mlim[1])
         ax2.set_ylim(-5, 5)
         ax2.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax2.axhline(y=np.nanmean(sigX_arr[:, ii]), color='tab:blue', alpha=0.9,linestyle='dotted', zorder=1001)
+        ax2.axhline(y=np.nanmean(sigY_arr[:, ii]), color='tab:orange', alpha=0.9,linestyle='dotted', zorder=1002)
         ax2.set_xlabel('mag')
         ax2.set_ylabel('sigma')
         ax2.set_title('Epoch {0}'.format(ii))
         ax2.legend()
 
+        #print(errX_arr[:, ii])
         ax3.errorbar(m_arr[:, ii], diffX_arr[:, ii]*1E3, yerr=errX_arr[:, ii]*1E3, 
                      marker='s', label = 'X', ls='none', color='tab:blue', alpha=0.4, ms=5)
         ax3.errorbar(m_arr[:, ii], diffY_arr[:, ii]*1E3, yerr=errY_arr[:, ii]*1E3, 
@@ -2297,12 +2302,133 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
                          marker='s', ls='none', color='black', ms=5)
             ax3.errorbar(m_arr[target_idx, ii], diffY_arr[target_idx, ii]*1E3, yerr=errY_arr[target_idx, ii]*1E3, 
                          marker='o', ls='none', color='black', ms=5)
-        ax3.set_xlim(xlim[0], xlim[1])
+        ax3.set_xlim(mlim[0], mlim[1])
         ax3.set_ylim(ylim[0], ylim[1])
         ax3.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax3.axhline(y=np.nanmean(diffX_arr[:, ii]*1E3), color='tab:blue', alpha=0.9,linestyle='dotted', zorder=1001)
+        ax3.axhline(y=np.nanmean(diffY_arr[:, ii]*1E3), color='tab:orange', alpha=0.9,linestyle='dotted', zorder=1002)
         ax3.set_xlabel('mag')
         ax3.set_ylabel('residual (mas)')
 
+    return
+    
+def plot_chi2_ecliptic_per_epoch(tab, Ndetect,ra,dec, mlim=[14,21], ylim = [-1, 1], target_idx = 0):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    diffX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    diffY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    errX_arr = 99 * np.ones((len(tab['xe']), Ndetect))
+    errY_arr = 99 * np.ones((len(tab['xe']), Ndetect))
+    sigX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    sigY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    m_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    
+    rad_to_as = 180/np.pi * 60 * 60
+    deg_to_as = 60 * 60
+    def eq_to_ec(ra,dec):
+        e = 23.446 * np.pi/180
+        sinb = np.sin(dec)*np.cos(e) - np.cos(dec)*np.sin(e)*np.sin(ra)
+        cosb = np.cos(np.arcsin(sinb))
+        cosg = np.cos(ra)*np.cos(dec)/cosb
+        sing = (np.sin(dec)*np.sin(e) + np.cos(dec)*np.cos(e)*np.sin(ra))/cosb
+        g,b = np.arctan2(sing,cosg)*180/np.pi,np.arcsin(sinb)*180/np.pi
+        g = 360+g
+        return g*deg_to_as,b*deg_to_as
+    coord0 = SkyCoord(ra=ra,dec=dec,unit=(u.hourangle, u.deg),frame='icrs')
+
+    for ii in range(len(tab['xe'])):
+        # Ignore the NaNs
+        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
+        if len(fnd) == Ndetect and tab['use_in_trans'][ii]:
+            time = tab['t'][ii, fnd]
+            x = tab['x'][ii, fnd]
+            y = tab['y'][ii, fnd]
+            m = tab['m'][ii, fnd]
+            vx = tab['vx'][ii]
+            vy = tab['vy'][ii]
+            lambda_0,beta_0 = eq_to_ec((coord0.ra - tab['x0'][ii]*u.arcsec).radian,
+                                        (coord0.dec + tab['y0'][ii]*u.arcsec).radian)
+            x1 = coord0.ra - u.arcsec*x
+            y1 = coord0.dec + u.arcsec*y
+            ra_rad,dec_rad = x1.radian, y1.radian
+            lambda_obs,beta_obs = eq_to_ec(ra_rad,dec_rad)
+            x2 = coord0.ra - tab['x0'][ii]*u.arcsec - (time-tab['t0'][ii])*vx*u.arcsec
+            y2 = coord0.dec + tab['y0'][ii]*u.arcsec + (time-tab['t0'][ii])*vy*u.arcsec
+            ra_rad,dec_rad = x2.radian, y2.radian
+            lambda_pm,beta_pm = eq_to_ec(ra_rad,dec_rad)
+
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
+
+            dt = tab['t'][ii, fnd] - tab['t0'][ii]
+            fitLineX = lambda_pm
+            fitLineY = beta_pm
+            
+            diffX = lambda_obs - fitLineX
+            diffY = beta_obs - fitLineY
+            sigX = diffX / xerr
+            sigY = diffY / yerr
+
+            diffX_arr[ii] = diffX.reshape(Ndetect,)
+            diffY_arr[ii] = diffY.reshape(Ndetect,)
+            errX_arr[ii] = xerr.reshape(Ndetect,)
+            errY_arr[ii] = yerr.reshape(Ndetect,)
+            sigX_arr[ii] = sigX.reshape(Ndetect,)
+            sigY_arr[ii] = sigY.reshape(Ndetect,)
+            m_arr[ii] = m.reshape(Ndetect,)
+
+    ts_folded = tab['t'][0]%1
+    i_sort = np.argsort(ts_folded)
+    print(ts_folded,i_sort)
+    for ii in i_sort:
+#        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 4),
+#                                            gridspec_kw={'width_ratios': [1, 2, 2]})
+#        plt.subplots_adjust(wspace=0.5)
+#        ax1.hist(sigX_arr[:, ii], label = 'X', histtype='step', bins=np.linspace(-10, 10))
+#        ax1.hist(sigY_arr[:, ii], label = 'Y', histtype='step', bins=np.linspace(-10, 10))
+#        ax1.set_xlabel('sigma')
+#        ax1.legend()
+
+        fig, (ax2, ax3) = plt.subplots(1, 2, figsize=(14, 4))
+        plt.subplots_adjust(wspace=0.25)
+
+        '''ax2.plot(m_arr[:, ii], sigX_arr[:, ii], 's', label = 'lambda', color='tab:blue', alpha=0.4, ms=5)
+        ax2.plot(m_arr[:, ii], sigY_arr[:, ii], 'o', label = 'beta', color='tab:orange', alpha=0.4, ms=5)
+        if target_idx is not None:
+            ax2.plot(m_arr[target_idx, ii], sigX_arr[target_idx, ii], 's', color='black', ms=5)
+            ax2.plot(m_arr[target_idx, ii], sigY_arr[target_idx, ii], 'o', color='black', ms=5)
+        ax2.set_xlim(mlim[0], mlim[1])
+        ax2.set_ylim(-5, 5)
+        ax2.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax2.set_xlabel('mag')
+        ax2.set_ylabel('sigma')'''
+        ax2.set_title('Epoch {0}'.format(ii)+', phase='+str(tab['t'][0][ii]%1)[:5])
+
+        #print(errX_arr[:, ii])
+        ax2.errorbar(m_arr[:, ii], diffX_arr[:, ii]*1E3, yerr=errX_arr[:, ii]*1E3,
+                     marker='s', label = 'lambda', ls='none', color='tab:blue', alpha=0.4, ms=5)
+        ax3.errorbar(m_arr[:, ii], diffY_arr[:, ii]*1E3, yerr=errY_arr[:, ii]*1E3,
+                     marker='o', label = 'beta', ls='none', color='tab:orange', alpha=0.4, ms=5)
+        if target_idx is not None:
+            #print('target',m_arr[target_idx, ii],diffX_arr[target_idx, ii]*1E3,diffY_arr[target_idx, ii]*1E3)
+            ax2.errorbar(m_arr[target_idx, ii], diffX_arr[target_idx, ii]*1E3, yerr=errX_arr[target_idx, ii]*1E3,
+                         marker='s', ls='none', color='black', ms=5)
+            ax3.errorbar(m_arr[target_idx, ii], diffY_arr[target_idx, ii]*1E3, yerr=errY_arr[target_idx, ii]*1E3,
+                         marker='o', ls='none', color='black', ms=5)
+        ax2.legend()
+        ax3.legend()
+        ax2.set_xlim(mlim[0], mlim[1])
+        ax3.set_xlim(mlim[0], mlim[1])
+        ax2.set_ylim(ylim[0], ylim[1])
+        ax3.set_ylim(ylim[0], ylim[1])
+        ax2.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax3.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax2.set_xlabel('mag')
+        ax2.set_ylabel('residual (mas)')
+        ax3.set_xlabel('mag')
+        ax3.set_ylabel('residual (mas)')
     return
 
 def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
@@ -2759,8 +2885,6 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     plt.show()
 
     return
-
-
 
 def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None,
                          figsize=(15,25), color_time=False, resTicRng=None):
@@ -3319,7 +3443,7 @@ def plot_sky(stars_tab,
                                             label=label, picker=4)
 
         #for legend
-        if label is not '_nolegend_':
+        if label != '_nolegend_':
             line.set_label(str(label))
             epochs_legend.append(line)
 
