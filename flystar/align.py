@@ -24,6 +24,7 @@ class MosaicSelfRef(object):
                  dr_tol=[1, 1], dm_tol=[2, 1],
                  outlier_tol=[None, None],
                  trans_args=[{'order': 2}, {'order': 2}],
+                 init_order=1,
                  mag_trans=True, mag_lim=None, weights=None,
                  trans_input=None, trans_class=transforms.PolyTransform,
                  use_vel=False, calc_trans_inverse=False,
@@ -174,6 +175,7 @@ class MosaicSelfRef(object):
         self.dm_tol = dm_tol
         self.outlier_tol = outlier_tol
         self.trans_args = trans_args
+        self.init_order = init_order
         self.mag_trans = mag_trans
         self.mag_lim = mag_lim
         self.weights = weights
@@ -386,6 +388,7 @@ class MosaicSelfRef(object):
 
                 trans = trans_initial_guess(ref_list[keepers], star_list_orig_trim, self.trans_args[0],
                                             mode=self.init_guess_mode,
+                                            order=self.init_order,
                                             verbose=self.verbose,
                                             mag_trans=self.mag_trans)
 
@@ -421,7 +424,6 @@ class MosaicSelfRef(object):
                     
                 idx1 = idx1[keepers]
                 idx2 = idx2[keepers]
-
 
             # Determine weights in the fit.
             weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
@@ -489,7 +491,7 @@ class MosaicSelfRef(object):
             if self.verbose > 1:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
-                
+
             ## Make plot, if desired
             plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
                                   fileName='{0}'.format(star_list_T['t'][0]))
@@ -1298,6 +1300,7 @@ class MosaicToRef(MosaicSelfRef):
                  dr_tol=[1, 1], dm_tol=[2, 1],
                  outlier_tol=[None, None],
                  trans_args=[{'order': 2}, {'order': 2}],
+                 init_order=1,
                  mag_trans=True, mag_lim=None, ref_mag_lim=None,
                  weights=None,
                  trans_input=None,
@@ -1388,6 +1391,10 @@ class MosaicToRef(MosaicSelfRef):
             then the transformation argument (i.e. order) will be changed for every iteration in
             iters.
 
+        init_order: int
+            Polynomial transformation order to use for initial guess transformation.
+            Order=1 should be used in most cases, but sometimes higher order is needed
+
         calc_trans_inverse: boolean
             If true, then calculate the inverse transformation (from reference to starlist)
             in addition to the normal transformation (from starlist to reference). The inverse
@@ -1465,6 +1472,7 @@ class MosaicToRef(MosaicSelfRef):
         super().__init__(list_of_starlists, ref_index=-1, iters=iters,
                          dr_tol=dr_tol, dm_tol=dm_tol,
                          outlier_tol=outlier_tol, trans_args=trans_args,
+                         init_order=init_order,
                          mag_trans=mag_trans, mag_lim=mag_lim, weights=weights,
                          trans_input=trans_input, trans_class=trans_class,
                          calc_trans_inverse=calc_trans_inverse, use_vel=use_vel,
@@ -1825,7 +1833,7 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis):
             elif ref_table[col_name].dtype == np.dtype('bool'):
                 new_col_empty = False
             else:
-                new_col_empty = None
+                new_col_empty = np.nan
             
             if len(ref_table[col_name].shape) == 1:
                 new_col_shape = len(idx_lis_new)
@@ -3499,7 +3507,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
 
 def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
                         ignore_contains='star', verbose=True, n_req_match=3,
-                            mag_trans=True):
+                            mag_trans=True, order=1):
     """
     Take two starlists and perform an initial matching and transformation.
 
@@ -3514,7 +3522,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         # the "ignore_contains" string.
         idx_r = np.flatnonzero(np.char.find(ref_list['name'], ignore_contains) == -1)
         idx_s = np.flatnonzero(np.char.find(star_list['name'], ignore_contains) == -1)
-        
+
         # Match the star names
         name_matches, ndx_r, ndx_s = np.intersect1d(ref_list['name'][idx_r],
                                                     star_list['name'][idx_s],
@@ -3559,7 +3567,8 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     if ('order' in trans_args) and (trans_args['order'] == 0):
         order = 0
     else:
-        order = 1
+        order = order
+
     trans = transforms.PolyTransform.derive_transform(x1m, y1m ,x2m, y2m, order=order, weights=None)
 
     # Calculate flux transformation based on matches. If desired, should be applied as

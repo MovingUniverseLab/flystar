@@ -52,6 +52,9 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
     gaia_job = Gaia.cone_search_async(target_coords, search_radius, table_name = table_name + '.gaia_source')
     gaia = gaia_job.get_results()
 
+    #Change new 'SOURCE_ID' column header back to lowercase 'source_id' so all subsequent functions still work:
+    gaia['SOURCE_ID'].name = 'source_id'
+
     return gaia
 
 def check_gaia_parallaxes(ra,dec,search_radius=10.0,table_name='gaiadr3',target='(unnamed)',
