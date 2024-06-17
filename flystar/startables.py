@@ -850,17 +850,17 @@ class StarTable(Table):
                     
                     if use_scipy:
                         vx_opt_b, vx_cov_b = curve_fit(linear, dt[bdx], x[bdx], p0=vx_opt, sigma=sigma_x_b,
-                                                        absolute_sigma=True)
+                                                        absolute_sigma=absolute_sigma)
                         vy_opt_b, vy_cov_b = curve_fit(linear, dt[bdx], y[bdx], p0=vy_opt, sigma=sigma_y_b,
-                                                        absolute_sigma=True)
+                                                        absolute_sigma=absolute_sigma)
                         vx_b[bb] = vx_opt_b[0]
                         x0_b[bb] = vx_opt_b[1]
                         vy_b[bb] = vy_opt_b[0]
                         y0_b[bb] = vy_opt_b[1]
                         
                     else:
-                        result_vx_b = linear_fit(dt[bdx], x[bdx], sigma=sigma_x_b)
-                        result_vy_b = linear_fit(dt[bdx], y[bdx], sigma=sigma_y_b)
+                        result_vx_b = linear_fit(dt[bdx], x[bdx], sigma=sigma_x_b, absolute_sigma=absolute_sigma)
+                        result_vy_b = linear_fit(dt[bdx], y[bdx], sigma=sigma_y_b, absolute_sigma=absolute_sigma)
                         vx_b[bb] = result_vx_b['slope']
                         x0_b[bb] = result_vx_b['intercept']
                         vy_b[bb] = result_vy_b['slope']
