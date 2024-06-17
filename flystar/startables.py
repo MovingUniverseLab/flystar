@@ -924,7 +924,7 @@ class StarTable(Table):
         return
     
     
-    def fit_velocities_all_epochs(self, weighting='var', use_scipy=False, absolute_sigma=False, epoch_cols='all', mask_val=None, art_star=False, return_result=False):
+    def fit_velocities_all_detected(self, weighting='var', use_scipy=False, absolute_sigma=False, epoch_cols='all', mask_val=None, art_star=False, return_result=False):
         """Fit velocities for stars detected in all epochs specified by epoch_cols. 
         Criterion: xe/ye error > 0 and finite, x/y not masked.
 
