@@ -1,6 +1,7 @@
-from astropy.table import Table, Column
+from astropy.table import Table, Column, hstack
 from astropy.stats import sigma_clipping
 from scipy.optimize import curve_fit
+from flystar.fit_velocity import linear_fit, calc_chi2, linear, fit_velocity
 from tqdm import tqdm
 import numpy as np
 import warnings
@@ -527,18 +528,45 @@ class StarTable(Table):
         return
 
     
-    def fit_velocities(self, weighting='var', bootstrap=0, fixed_t0=False, verbose=False,
-                       mask_val=None, mask_lists=False):
-        """
-        Fit velocities for all stars in the table. 
+    def fit_velocities(self, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=0, fixed_t0=False, verbose=False,
+                       mask_val=None, mask_lists=False, show_progress=True):
+        """Fit velocities for all stars in the table and add to the columns 'vx', 'vxe', 'vy', 'vye', 'x0', 'x0e', 'y0', 'y0e'.
+
+        Parameters
+        ----------
+        weighting : str, optional
+            Weight by variance 'var' or standard deviation 'std', by default 'var'
+        use_scipy : bool, optional
+            Use scipy.curve_fit (recommended for large number of epochs, but may return inf or nan) or analytic fitting from flystar.fit_velocity.linear_fit (recommended for a few epochs), by default True
+        absolute_sigma : bool, optional
+            Absolute sigma or not. See https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html for details, by default True
+        bootstrap : int, optional
+            Calculate uncertain using bootstraping or not, by default 0
+        fixed_t0 : bool or array-like, optional
+            Fix the t0 in dt = time - t0 if user provides an array with the same length of the table, or automatically calculate t0 = np.average(time, weights=1/np.hypot(xe, ye)) if False, by default False
+        verbose : bool, optional
+            Output verbose information or not, by default False
+        mask_val : float, optional
+            Value that needs to be masked in the data, e.g. -100000, by default None
+        mask_lists : list, optional
+            Columns that needs to be masked, by default False
+        show_progress : bool, optional
+            Show progress bar or not, by default True
+
+        Raises
+        ------
+        ValueError
+            If weighting is neither 'var' or 'std'
+        KeyError
+            If there's not time information in the table
         """
         if weighting not in ['var', 'std']:
-            raise ValueError(f"Weighting must either be 'var' or 'std', not {weighting}!")
+            raise ValueError(f"fit_velocities: Weighting must either be 'var' or 'std', not {weighting}!")
         
         if ('t' not in self.colnames) and ('list_times' not in self.meta):
-            raise RuntimeError('fit_velocities: Failed to time values.')
+            raise KeyError("fit_velocities: Failed to time values. No 't' column in table, no 'list_times' in meta.")
 
-        N_stars, N_epochs = self['x'].shape
+        N_stars = len(self)
 
         if verbose:
             start_time = time.time()
@@ -554,6 +582,8 @@ class StarTable(Table):
         if 'vxe' in self.colnames: self.remove_column('vxe')
         if 'y0e' in self.colnames: self.remove_column('y0e')
         if 'vye' in self.colnames: self.remove_column('vye')
+        if 'chi2_vx' in self.colnames: self.remove_column('chi2_vx')
+        if 'chi2_vy' in self.colnames: self.remove_column('chi2_vy')
         if 't0' in self.colnames: self.remove_column('t0')
         if 'n_vfit' in self.colnames: self.remove_column('n_vfit')
         
@@ -562,11 +592,14 @@ class StarTable(Table):
         self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vx'))
         self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'y0'))
         self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vy'))
-
+        
         self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'x0e'))
         self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vxe'))
         self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'y0e'))
         self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vye'))
+        
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'chi2_vx'))
+        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'chi2_vy'))
         
         self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 't0'))
         self.add_column(Column(data = np.zeros(N_stars, dtype=int), name = 'n_vfit'))
@@ -595,21 +628,22 @@ class StarTable(Table):
 
         # STARS LOOP through the stars and work on them 1 at a time.
         # This is slow; but robust.
-        for ss in tqdm(range(N_stars)):
-            self.fit_velocity_for_star(ss, bootstrap=bootstrap, fixed_t0=fixed_t0,
-                                       mask_val=mask_val, mask_lists=mask_lists, weighting=weighting)
-
+        if show_progress:
+            for ss in tqdm(range(N_stars)):
+                self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, bootstrap=bootstrap, fixed_t0=fixed_t0,
+                                    mask_val=mask_val, mask_lists=mask_lists)
+        else:
+            for ss in range(N_stars):
+                self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, bootstrap=bootstrap, fixed_t0=fixed_t0,
+                                        mask_val=mask_val, mask_lists=mask_lists, )
         if verbose:
             stop_time = time.time()
             print('startable.fit_velocities runtime = {0:.0f} s for {1:d} stars'.format(stop_time - start_time, N_stars))
         
         return
 
-    def fit_velocity_for_star(self, ss, bootstrap=False, fixed_t0=False,
-                              mask_val=None, mask_lists=False, weighting='var'):
-        def poly_model(time, *params):
-            pos = np.polynomial.polynomial.polyval(time, params)
-            return pos
+    def fit_velocity_for_star(self, ss, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=False, fixed_t0=False,
+                              mask_val=None, mask_lists=False):
 
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
         x = np.ma.masked_invalid(self['x'][ss, :].data)
@@ -723,9 +757,9 @@ class StarTable(Table):
         xe = xe[good]
         ye = ye[good]
 
-        # np.polynomial ordering
-        p0x = np.array([x.mean(), 0.0])
-        p0y = np.array([y.mean(), 0.0])
+        # slope, intercept
+        p0x = np.array([0., x.mean()])
+        p0y = np.array([0., y.mean()])
         
         # Unless t0 is fixed, calculate the t0 for the stars.
         if fixed_t0 is False:
@@ -769,77 +803,113 @@ class StarTable(Table):
                 sigma_x = np.abs(xe)**0.5
                 sigma_y = np.abs(ye)**0.5
             
-            vx_opt, vx_cov = curve_fit(poly_model, dt, x, p0=p0x, sigma=sigma_x,
-                                        absolute_sigma=True)
-            vy_opt, vy_cov = curve_fit(poly_model, dt, y, p0=p0y, sigma=sigma_y,
-                                        absolute_sigma=True)
+            if use_scipy:
+                vx_opt, vx_cov = curve_fit(linear, dt, x, p0=p0x, sigma=sigma_x, absolute_sigma=absolute_sigma)
+                vy_opt, vy_cov = curve_fit(linear, dt, y, p0=p0y, sigma=sigma_y, absolute_sigma=absolute_sigma)
+                vx = vx_opt[0]
+                x0 = vx_opt[1]
+                vy = vy_opt[0]
+                y0 = vy_opt[1]
+                chi2_vx = calc_chi2(dt, x, sigma_x, *vx_opt)
+                chi2_vy = calc_chi2(dt, y, sigma_y, *vy_opt)
             
-            self['x0'][ss] = vx_opt[0]
-            self['vx'][ss] = vx_opt[1]
-            self['y0'][ss] = vy_opt[0]
-            self['vy'][ss] = vy_opt[1]
-
+            else:
+                result_vx = linear_fit(dt, x, sigma_x, absolute_sigma=absolute_sigma)
+                result_vy = linear_fit(dt, y, sigma_y, absolute_sigma=absolute_sigma)
+                vx = result_vx['slope']
+                x0 = result_vx['intercept']
+                vy = result_vy['slope']
+                y0 = result_vy['intercept']
+                chi2_vx = result_vx['chi2']
+                chi2_vy = result_vy['chi2']
+            
+            self['vx'][ss] = vx
+            self['x0'][ss] = x0
+            self['vy'][ss] = vy
+            self['y0'][ss] = y0
+            self['chi2_vx'][ss] = chi2_vx
+            self['chi2_vy'][ss] = chi2_vy
+            
             # Run the bootstrap
             if bootstrap > 0:
                 edx = np.arange(N_good, dtype=int)
 
-                fit_x0_b = np.zeros(bootstrap, dtype=float)
-                fit_vx_b = np.zeros(bootstrap, dtype=float)
-                fit_y0_b = np.zeros(bootstrap, dtype=float)
-                fit_vy_b = np.zeros(bootstrap, dtype=float)
+                vx_b = np.zeros(bootstrap, dtype=float)
+                x0_b = np.zeros(bootstrap, dtype=float)
+                vy_b = np.zeros(bootstrap, dtype=float)
+                y0_b = np.zeros(bootstrap, dtype=float)
             
                 for bb in range(bootstrap):
                     bdx = np.random.choice(edx, N_good)
                     if weighting == 'var':
-                        sigma_x = xe[bdx]
-                        sigma_y = ye[bdx]
+                        sigma_x_b = xe[bdx]
+                        sigma_y_b = ye[bdx]
                     elif weighting == 'std':
-                        sigma_x = xe[bdx]**0.5
-                        sigma_y = ye[bdx]**0.5
+                        sigma_x_b = xe[bdx]**0.5
+                        sigma_y_b = ye[bdx]**0.5
                     
-                    vx_opt_b, vx_cov_b = curve_fit(poly_model, dt[bdx], x[bdx], p0=vx_opt, sigma=sigma_x,
-                                                       absolute_sigma=True)
-                    vy_opt_b, vy_cov_b = curve_fit(poly_model, dt[bdx], y[bdx], p0=vy_opt, sigma=sigma_y,
-                                                       absolute_sigma=True)
-
-                    fit_x0_b[bb] = vx_opt_b[0]
-                    fit_vx_b[bb] = vx_opt_b[1]
-                    fit_y0_b[bb] = vy_opt_b[0]
-                    fit_vy_b[bb] = vy_opt_b[1]
-
+                    if use_scipy:
+                        vx_opt_b, vx_cov_b = curve_fit(linear, dt[bdx], x[bdx], p0=vx_opt, sigma=sigma_x_b,
+                                                        absolute_sigma=absolute_sigma)
+                        vy_opt_b, vy_cov_b = curve_fit(linear, dt[bdx], y[bdx], p0=vy_opt, sigma=sigma_y_b,
+                                                        absolute_sigma=absolute_sigma)
+                        vx_b[bb] = vx_opt_b[0]
+                        x0_b[bb] = vx_opt_b[1]
+                        vy_b[bb] = vy_opt_b[0]
+                        y0_b[bb] = vy_opt_b[1]
+                        
+                    else:
+                        result_vx_b = linear_fit(dt[bdx], x[bdx], sigma=sigma_x_b, absolute_sigma=absolute_sigma)
+                        result_vy_b = linear_fit(dt[bdx], y[bdx], sigma=sigma_y_b, absolute_sigma=absolute_sigma)
+                        vx_b[bb] = result_vx_b['slope']
+                        x0_b[bb] = result_vx_b['intercept']
+                        vy_b[bb] = result_vy_b['slope']
+                        y0_b[bb] = result_vy_b['intercept']
+                
                 # Save the errors from the bootstrap
-                self['x0e'][ss] = fit_x0_b.std()
-                self['vxe'][ss] = fit_vx_b.std()
-                self['y0e'][ss] = fit_y0_b.std()
-                self['vye'][ss] = fit_vy_b.std()
+                self['vxe'][ss] = vx_b.std()
+                self['x0e'][ss] = x0_b.std()
+                self['vye'][ss] = vy_b.std()
+                self['y0e'][ss] = y0_b.std()
+                
             else:
-                vx_err = np.sqrt(vx_cov.diagonal())
-                vy_err = np.sqrt(vy_cov.diagonal())
-
-                self['x0e'][ss] = vx_err[0]
-                self['vxe'][ss] = vx_err[1]
-                self['y0e'][ss] = vy_err[0]
-                self['vye'][ss] = vy_err[1]
+                if use_scipy:
+                    vxe, x0e = np.sqrt(vx_cov.diagonal())
+                    vye, y0e = np.sqrt(vy_cov.diagonal())
+                else:
+                    vxe = result_vx['e_slope']
+                    x0e = result_vx['e_intercept']
+                    vye = result_vy['e_slope']
+                    y0e = result_vy['e_intercept']
+                    
+                self['vxe'][ss] = vxe
+                self['x0e'][ss] = x0e
+                self['vye'][ss] = vye
+                self['y0e'][ss] = y0e
 
         elif N_good == 2:
-            # Not enough epochs to fit a velocity.
-            if weighting == 'var':
-                self['x0'][ss] = np.average(x, weights=1.0/xe**2)
-                self['y0'][ss] = np.average(y, weights=1.0/ye**2)
-            elif weighting == 'std':
-                self['x0'][ss] = np.average(x, weights=1.0/np.abs(xe))
-                self['y0'][ss] = np.average(y, weights=1.0/np.abs(ye))
-            
+            # Not enough epochs to fit a velocity.            
             dx = np.diff(x)[0]
             dy = np.diff(y)[0]
             dt_diff = np.diff(dt)[0]
             
+            if weighting == 'var':
+                sigma_x = 1./xe**2
+                sigma_y = 1./ye**2
+            elif weighting == 'std':
+                sigma_x = 1./np.abs(xe)
+                sigma_y = 1./np.abs(ye)
+            
+            self['x0'][ss] = np.average(x, weights=sigma_x)
+            self['y0'][ss] = np.average(y, weights=sigma_y)
             self['x0e'][ss] = np.abs(dx) / 2**0.5
             self['y0e'][ss] = np.abs(dy) / 2**0.5
             self['vx'][ss] = dx / dt_diff
             self['vy'][ss] = dy / dt_diff
             self['vxe'][ss] = 0.0
             self['vye'][ss] = 0.0
+            self['chi2_vx'][ss] = calc_chi2(dt, x, sigma_x, self['vx'][ss], self['x0'][ss])
+            self['chi2_vy'][ss] = calc_chi2(dt, y, sigma_y, self['vy'][ss], self['y0'][ss])
             
         else:
             # N_good == 1 case
@@ -852,10 +922,91 @@ class StarTable(Table):
                 self['y0e'] = ye
 
         return
+    
+    
+    def fit_velocities_all_detected(self, weighting='var', use_scipy=False, absolute_sigma=False, epoch_cols='all', mask_val=None, art_star=False, return_result=False):
+        """Fit velocities for stars detected in all epochs specified by epoch_cols. 
+        Criterion: xe/ye error > 0 and finite, x/y not masked.
 
+        Parameters
+        ----------
+        weighting : str, optional
+            Variance weighting('var') or standard deviation weighting ('std'), by default 'var'
+        use_scipy : bool, optional
+            Use scipy.curve_fit or flystar.fit_velocity.fit_velocity, by default False
+        absolute_sigma : bool, optional
+            Absolute sigma or rescaled sigma, by default False
+        epoch_cols : str or list of intergers, optional
+            List of epoch column indices used for fitting velocity, by default 'all'
+        mask_val : float, optional
+            Values in x, y to be masked
+        art_star : bool, optional
+            Artificial star or observation star catalog. If artificial star, use 'det' column to select stars detected in all epochs, by default False
+        return_result : bool, optional
+            Return the velocity results or not, by default False
+        
+        Returns
+        -------
+        vel_result : astropy Table
+            Astropy Table with velocity results
+        """
+        
+        N_stars = len(self)
+        
+        if epoch_cols == 'all':
+            epoch_cols = np.arange(np.shape(self['x'])[1])
+            
+        # Artificial Star
+        if art_star:
+            detected_in_all_epochs = np.all(self['det'][:, epoch_cols], axis=1)
+        
+        # Observation Star
+        else:
+            valid_xe = np.all(self['xe'][:, epoch_cols]!=0, axis=1) & np.all(np.isfinite(self['xe'][:, epoch_cols]), axis=1)
+            valid_ye = np.all(self['ye'][:, epoch_cols]!=0, axis=1) & np.all(np.isfinite(self['ye'][:, epoch_cols]), axis=1)
+            
+            if mask_val:
+                x = np.ma.masked_values(self['x'][:, epoch_cols], mask_val)
+                y = np.ma.masked_values(self['y'][:, epoch_cols], mask_val)
+                
+                # If no mask, convert x.mask to list
+                if not np.ma.is_masked(x):
+                    x.mask = np.zeros_like(self['x'][:, epoch_cols].data, dtype=bool)
+                if not np.ma.is_masked(y):
+                    y.mask = np.zeros_like(self['y'][:, epoch_cols].data, dtype=bool)
+                
+                valid_x = ~np.any(x.mask, axis=1)
+                valid_y = ~np.any(y.mask, axis=1)
+                detected_in_all_epochs = np.logical_and.reduce((
+                    valid_x, valid_y, valid_xe, valid_ye
+                ))
+            else:
+                detected_in_all_epochs = np.logical_and(valid_xe, valid_ye)
         
         
-
+        # Fit velocities        
+        vel_result = fit_velocity(self[detected_in_all_epochs], weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, epoch_cols=epoch_cols, art_star=art_star)
+        vel_result = Table.from_pandas(vel_result)
         
         
+        # Add n_vfit
+        n_vfit = len(epoch_cols)
+        vel_result['n_vfit'] = n_vfit
         
+        # Clean/remove up old arrays.
+        columns = [*vel_result.keys(), 'n_vfit']
+        for column in columns:
+            if column in self.colnames: self.remove_column(column)
+        
+        # Update self
+        for column in columns:
+            column_array = np.ma.zeros(N_stars)
+            column_array[detected_in_all_epochs] = vel_result[column]
+            column_array[~detected_in_all_epochs] = np.nan
+            column_array.mask = ~detected_in_all_epochs
+            self[column] = column_array
+        
+        if return_result:
+            return vel_result
+        else:
+            return

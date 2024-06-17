@@ -12,6 +12,7 @@ from scipy.stats import norm
 import pdb
 import math
 import astropy
+from astropy.table import Table
 from astropy.io import ascii
 
 ####################################################
@@ -2157,13 +2158,12 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
 
-    for ii in range(len(tab['xe'])):
+    for ii in range(len(tab)):
         # Ignore the NaNs 
         fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
 #        fnd = np.where(tab['xe'][ii, :] > 0)[0]
         fnd_list.append(len(fnd))
         
-        time = tab['t'][ii, fnd]
         x = tab['x'][ii, fnd]
         y = tab['y'][ii, fnd]
         xerr = tab['xe'][ii, fnd]
@@ -3311,7 +3311,7 @@ def plot_sky(stars_tab,
                                             label=label, picker=4)
 
         #for legend
-        if label is not '_nolegend_':
+        if label != '_nolegend_':
             line.set_label(str(label))
             epochs_legend.append(line)
 
