@@ -4,6 +4,7 @@ from flystar import transforms
 from flystar import plots
 from flystar.starlists import StarList
 from flystar.startables import StarTable
+from flystar.motion_model import motion_model_col_names
 from astropy.table import Table, Column, vstack
 import datetime
 import copy
@@ -12,12 +13,6 @@ import pdb
 import time
 import warnings
 from astropy.utils.exceptions import AstropyUserWarning
-
-# Keep a list of columns that are "aggregated" motion model terms.
-motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
-                          'vx', 'vxe', 'vy', 'vye',
-                          'ax', 'axe', 'ay', 'aye',
-                          't0', 'm0', 'm0e', 'use_in_trans']
 
 class MosaicSelfRef(object):
     def __init__(self, list_of_starlists, ref_index=0, iters=2,

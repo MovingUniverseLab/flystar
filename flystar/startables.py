@@ -7,7 +7,7 @@ import collections
 import pdb
 import time
 import copy
-import motion_model
+from flystar import motion_model
 
 
 class StarTable(Table):
@@ -166,7 +166,7 @@ class StarTable(Table):
                     if arg == 'motion_model':
                         self['motion_model'] = self['motion_model'].astype('U20')
             if 'motion_model' not in kwargs:
-                self['motion_model'] = np.repeat(motion_model_default, len(self['names']))
+                self['motion_model'] = np.repeat(motion_model_default, len(self['name']))
 
         return
     
@@ -549,31 +549,18 @@ class StarTable(Table):
             msg = 'Starting startable.fit_velocities for {0:d} stars with n={1:d} bootstrap'
             print(msg.format(N_stars, bootstrap))
 
+        col_list_float = ['x0','vx','y0','vy','x0e','vxe','y0e','vye','t0']
+        col_list_int = ['n_vfit']
+        col_list = col_list_float+col_list_int
         # Clean/remove up old arrays.
-        if 'x0' in self.colnames: self.remove_column('x0')
-        if 'vx' in self.colnames: self.remove_column('vx')
-        if 'y0' in self.colnames: self.remove_column('y0')
-        if 'vy' in self.colnames: self.remove_column('vy')
-        if 'x0e' in self.colnames: self.remove_column('x0e')
-        if 'vxe' in self.colnames: self.remove_column('vxe')
-        if 'y0e' in self.colnames: self.remove_column('y0e')
-        if 'vye' in self.colnames: self.remove_column('vye')
-        if 't0' in self.colnames: self.remove_column('t0')
-        if 'n_vfit' in self.colnames: self.remove_column('n_vfit')
+        for col in col_list:
+            if col in self.colnames: self.remove_column(col)
         
         # Define output arrays for the best-fit parameters.
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'x0'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vx'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'y0'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vy'))
-
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'x0e'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vxe'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'y0e'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vye'))
-        
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 't0'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=int), name = 'n_vfit'))
+        for col in col_list_float:
+            self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = col))
+        for col in col_list_int:
+            self.add_column(Column(data = np.zeros(N_stars, dtype=int), name = col))
 
         self.meta['n_vfit_bootstrap'] = bootstrap
 
@@ -708,10 +695,6 @@ class StarTable(Table):
         t = t[good]
         xe = xe[good]
         ye = ye[good]
-
-        # np.polynomial ordering
-        p0x = np.array([x.mean(), 0.0])
-        p0y = np.array([y.mean(), 0.0])
         
         # Unless t0 is fixed, calculate the t0 for the stars.
         if fixed_t0 is False:
@@ -720,9 +703,8 @@ class StarTable(Table):
         elif fixed_t0 is True:
             t0 = self.t0
         else:
-            t0 = fixed_t0
+            t0 = fixed_t0[ss]
         dt = t - t0
-
         self['t0'][ss] = t0
         self['n_vfit'][ss] = N_good
         

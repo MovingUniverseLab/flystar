@@ -2,6 +2,13 @@ from astropy.modeling import models, fitting
 import numpy as np
 from abc import ABC
 
+# Keep a list of columns that are "aggregated" motion model terms.
+motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
+                          'vx', 'vxe', 'vy', 'vye',
+                          'ax', 'axe', 'ay', 'aye',
+                          't0', 'm0', 'm0e',
+                          'motion_model', 'use_in_trans']
+
 class MotionModel(ABC):
     # Fit paramters: Shared fit parameters
     fitter_param_names = []
@@ -111,7 +118,7 @@ class Linear(MotionModel):
 
         return x, y
 
-    def fit_motion_model(self, dt, x, y, xe, ye, update=False, bootstrap=False):
+    def fit_motion_model(self, dt, x, y, xe, ye, update=False, bootstrap=0):
         fitter = fitting.LevMarLSQFitter()
 
         # Handle 2-data point case
@@ -136,14 +143,14 @@ class Linear(MotionModel):
         py_new = fitter(self.py, dt, y, weights=1/ye)
         py_cov = fitter.fit_info['param_cov']
 
-        x0 = px.c0
-        vx = px.c1
-        y0 = py.c0
-        vy = py.c1
+        x0 = px_new.c0.value
+        vx = px_new.c1.value
+        y0 = py_new.c0.value
+        vy = py_new.c1.value
         
         # Run the bootstrap
         if bootstrap > 0:
-            edx = np.arange(N_good, dtype=int)
+            edx = np.arange(len(x), dtype=int)
 
             fit_x0_b = np.zeros(bootstrap, dtype=float)
             fit_vx_b = np.zeros(bootstrap, dtype=float)
@@ -151,17 +158,17 @@ class Linear(MotionModel):
             fit_vy_b = np.zeros(bootstrap, dtype=float)
         
             for bb in range(bootstrap):
-                bdx = np.random.choice(edx, N_good)
+                bdx = np.random.choice(edx, len(x))
                 
                 px_b = fitter(self.px, dt[bdx], x[bdx], weights=1/xe[bdx])
                 px_b_cov = fitter.fit_info['param_cov']
                 py_b = fitter(self.py, dt[bdx], y[bdx], weights=1/ye[bdx])
                 py_b_cov = fitter.fit_info['param_cov']
 
-                fit_x0_b[bb] = px_b.c0
-                fit_vx_b[bb] = px_b.c1
-                fit_y0_b[bb] = py_b.c0
-                fit_vy_b[bb] = py_b.c1
+                fit_x0_b[bb] = px_b.c0.value
+                fit_vx_b[bb] = px_b.c1.value
+                fit_y0_b[bb] = py_b.c0.value
+                fit_vy_b[bb] = py_b.c1.value
         
             # Save the errors from the bootstrap
             x0e = fit_x0_b.std()
@@ -171,19 +178,19 @@ class Linear(MotionModel):
         else:
             px_param_errs = dict(zip(self.px.param_names, np.diag(px_cov)**0.5))
             py_param_errs = dict(zip(self.py.param_names, np.diag(py_cov)**0.5))
-            x0e = px_param_errors['c0']
-            vxe = px_param_errors['c1']
-            y0e = py_param_errors['c0']
-            vye = py_param_errors['c1']
+            x0e = px_param_errs['c0']
+            vxe = px_param_errs['c1']
+            y0e = py_param_errs['c0']
+            vye = py_param_errs['c1']
         
         if update:
             self.px = px_new
             self.py = py_new
 
-            self.x0 = self.px.c0
-            self.vx = self.px.c1
-            self.y0 = self.py.c0
-            self.vy = self.py.c1
+            self.x0 = self.px.c0.value
+            self.vx = self.px.c1.value
+            self.y0 = self.py.c0.value
+            self.vy = self.py.c1.value
 
         params = [x0, vx, y0, vy]
         param_errors = [x0e, vxe, y0e, vye]
