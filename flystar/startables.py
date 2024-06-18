@@ -7,6 +7,7 @@ import collections
 import pdb
 import time
 import copy
+import motion_model
 
 
 class StarTable(Table):
@@ -29,6 +30,9 @@ class StarTable(Table):
 
     Optional table columns (input as keywords):
     -------------------------
+    motion_model : 1D numpy.array with shape = N_stars
+        string indicating motion model type for each star
+        
     xe : 2D numpy.array with shape = (N_stars, N_lists)
         Position uncertainties of N_stars in each of N_lists in the x dimension.
 
@@ -67,7 +71,7 @@ class StarTable(Table):
     print(t['name'][0:10])  # print the first 10 star names
     print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
     """
-    def __init__(self, *args, ref_list=0, **kwargs):
+    def __init__(self, *args, ref_list=0, motion_model_default='linear', **kwargs):
         """
         """
         
@@ -159,6 +163,10 @@ class StarTable(Table):
                     self.add_column(Column(data=kwargs[arg], name=arg))
                     if arg == 'name_in_list':
                         self['name_in_list'] = self['name_in_list'].astype('U20')
+                    if arg == 'motion_model':
+                        self['motion_model'] = self['motion_model'].astype('U20')
+            if 'motion_model' not in kwargs:
+                self['motion_model'] = np.repeat(motion_model_default, len(self['names']))
 
         return
     
@@ -603,9 +611,6 @@ class StarTable(Table):
 
     def fit_velocity_for_star(self, ss, bootstrap=False, fixed_t0=False,
                               mask_val=None, mask_lists=False):
-        def poly_model(time, *params):
-            pos = np.polynomial.polynomial.polyval(time, params)
-            return pos
 
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
         x = np.ma.masked_invalid(self['x'][ss, :].data)
@@ -712,104 +717,52 @@ class StarTable(Table):
         if fixed_t0 is False:
             t_weight = 1.0 / np.hypot(xe, ye)
             t0 = np.average(t, weights=t_weight)
+        elif fixed_t0 is True:
+            t0 = self.t0
         else:
-            t0 = fixed_t0[ss]
+            t0 = fixed_t0
         dt = t - t0
 
         self['t0'][ss] = t0
         self['n_vfit'][ss] = N_good
+        
+        # OK next, we need to decide which motion_model to fit.
+        motion_model_assigned = self['motion_model'][ss]
+        if motion_model_assigned=='fixed' or N_good==1 or (dt == dt[0]).all():
+            # Either 'fixed' is selected, or is required because
+            # of no time-domain data
+            motion_model_use = 'fixed'
+        elif motion_model_assigned=='linear' and N_good>1:
+            # If 'linear' is selected and enough data exists
+            # to model linear motion
+            motion_model_use = 'linear'
+        self['motion_model'][ss] = motion_model_use
 
-        # Catch the case where all the times are identical
-        if (dt == dt[0]).all():
-            wgt_x = (1.0/xe)**2
-            wgt_y = (1.0/ye)**2
-
-            self['x0'][ss] = np.average(x, weights=wgt_x)
-            self['y0'][ss] = np.average(y, weights=wgt_y)
-            self['x0e'][ss] = np.sqrt(np.average((x - self['x0'][ss])**2, weights=wgt_x))
-            self['y0e'][ss] = np.sqrt(np.average((y - self['y0'][ss])**2, weights=wgt_x))
-            
+        if motion_model_use=='fixed':
+            mod = motion_model.Fixed(x[0],y[0],t[0])
+            params,param_errs = mod.fit_motion_model(dt, x, y, xe, ye)
+            self['x0'][ss] = params[0]
+            self['y0'][ss] = params[1]
+            self['x0e'][ss] = param_errs[0]
+            self['y0e'][ss] = param_errs[1]
             self['vx'][ss] = 0.0
             self['vy'][ss] = 0.0
             self['vxe'][ss] = 0.0
             self['vye'][ss] = 0.0
 
-            return
-
-        # Catch the case where we have enough measurements to actually
-        # fit a velocity!
-        if N_good > 2:
-            vx_opt, vx_cov = curve_fit(poly_model, dt.compressed(), x.compressed(), p0=p0x, sigma=xe.compressed(),
-                                           absolute_sigma=True)
-            vy_opt, vy_cov = curve_fit(poly_model, dt.compressed(), y.compressed(), p0=p0y, sigma=ye.compressed(),
-                                           absolute_sigma=True)
-
-            self['x0'][ss] = vx_opt[0]
-            self['vx'][ss] = vx_opt[1]
-            self['y0'][ss] = vy_opt[0]
-            self['vy'][ss] = vy_opt[1]
-
-            # Run the bootstrap
-            if bootstrap > 0:
-                edx = np.arange(N_good, dtype=int)
-
-                fit_x0_b = np.zeros(bootstrap, dtype=float)
-                fit_vx_b = np.zeros(bootstrap, dtype=float)
-                fit_y0_b = np.zeros(bootstrap, dtype=float)
-                fit_vy_b = np.zeros(bootstrap, dtype=float)
-            
-                for bb in range(bootstrap):
-                    bdx = np.random.choice(edx, N_good)
-
-                    vx_opt_b, vx_cov_b = curve_fit(poly_model, dt[bdx].compressed(), x[bdx].compressed(), p0=vx_opt, sigma=xe[bdx].compressed(),
-                                                       absolute_sigma=True)
-                    vy_opt_b, vy_cov_b = curve_fit(poly_model, dt[bdx].compressed(), y[bdx].compressed(), p0=vy_opt, sigma=ye[bdx].compressed(),
-                                                       absolute_sigma=True)
-
-                    fit_x0_b[bb] = vx_opt_b[0]
-                    fit_vx_b[bb] = vx_opt_b[1]
-                    fit_y0_b[bb] = vy_opt_b[0]
-                    fit_vy_b[bb] = vy_opt_b[1]
-
-                # Save the errors from the bootstrap
-                self['x0e'][ss] = fit_x0_b.std()
-                self['vxe'][ss] = fit_vx_b.std()
-                self['y0e'][ss] = fit_y0_b.std()
-                self['vye'][ss] = fit_vy_b.std()
-            else:
-                vx_err = np.sqrt(vx_cov.diagonal())
-                vy_err = np.sqrt(vy_cov.diagonal())
-
-                self['x0e'][ss] = vx_err[0]
-                self['vxe'][ss] = vx_err[1]
-                self['y0e'][ss] = vy_err[0]
-                self['vye'][ss] = vy_err[1]
-
-        elif N_good == 2:
-            # Note nough epochs to fit a velocity.
-            self['x0'][ss] = np.average(x, weights=1.0/xe**2)
-            self['y0'][ss] = np.average(y, weights=1.0/ye**2)
-            
-            dx = np.diff(x)[0]
-            dy = np.diff(y)[0]
-            dt_diff = np.diff(dt)[0]
-            
-            self['x0e'][ss] = np.abs(dx) / 2**0.5
-            self['y0e'][ss] = np.abs(dy) / 2**0.5
-            self['vx'][ss] = dx / dt_diff
-            self['vy'][ss] = dy / dt_diff
-            self['vxe'][ss] = 0.0
-            self['vye'][ss] = 0.0
-            
-        else:
-            # N_good == 1 case
-            self['n_vfit'][ss] = 1
-            self['x0'][ss] = x
-            self['y0'][ss] = y
-            
-            if 'xe' in self.colnames:
-                self['x0e'] = xe
-                self['y0e'] = ye
+        elif motion_model_use=='linear':
+            mod = motion_model.Linear(x[0], (x[-1]-x[0])/(t[-1]-t[0]),
+                                      y[0], (y[-1]-y[0])/(t[-1]-t[0]),
+                                      t[0])
+            params,param_errs = mod.fit_motion_model(dt, x, y, xe, ye, bootstrap=bootstrap)
+            self['x0'][ss] = params[0]
+            self['vx'][ss] = params[1]
+            self['y0'][ss] = params[2]
+            self['vy'][ss] = params[3]
+            self['x0e'][ss] = param_errs[0]
+            self['vxe'][ss] = param_errs[1]
+            self['y0e'][ss] = param_errs[2]
+            self['vye'][ss] = param_errs[3]
 
         return
 
