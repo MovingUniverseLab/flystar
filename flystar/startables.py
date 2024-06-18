@@ -708,7 +708,7 @@ class StarTable(Table):
         self['t0'][ss] = t0
         self['n_vfit'][ss] = N_good
         
-        # OK next, we need to decide which motion_model to fit.
+        # Decide which motion_model to fit.
         motion_model_assigned = self['motion_model'][ss]
         if motion_model_assigned=='fixed' or N_good==1 or (dt == dt[0]).all():
             # Either 'fixed' is selected, or is required because
