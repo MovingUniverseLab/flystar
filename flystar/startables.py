@@ -1,6 +1,8 @@
-from astropy.table import Table, Column
+from astropy.table import Table, Column, hstack
 from astropy.stats import sigma_clipping
 from scipy.optimize import curve_fit
+from flystar.fit_velocity import linear_fit, calc_chi2, linear, fit_velocity
+from tqdm import tqdm
 import numpy as np
 import warnings
 import collections
@@ -534,22 +536,52 @@ class StarTable(Table):
         return
 
     
-    def fit_velocities(self, bootstrap=0, fixed_t0=False, verbose=False,
-                       mask_val=None, mask_lists=False):
-        """
-        Fit velocities for all stars in the table. 
-        """
-        if ('t' not in self.colnames) and ('list_times' not in self.meta):
-            raise RuntimeError('fit_velocities: Failed to time values.')
+    def fit_velocities(self, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=0, fixed_t0=False, verbose=False,
+                       mask_val=None, mask_lists=False, show_progress=True):
+        """Fit velocities for all stars in the table and add to the columns 'vx', 'vxe', 'vy', 'vye', 'x0', 'x0e', 'y0', 'y0e'.
 
-        N_stars, N_epochs = self['x'].shape
+        Parameters
+        ----------
+        weighting : str, optional
+            Weight by variance 'var' or standard deviation 'std', by default 'var'
+        use_scipy : bool, optional
+            Use scipy.curve_fit (recommended for large number of epochs, but may return inf or nan) or analytic fitting from flystar.fit_velocity.linear_fit (recommended for a few epochs), by default True
+        absolute_sigma : bool, optional
+            Absolute sigma or not. See https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html for details, by default True
+        bootstrap : int, optional
+            Calculate uncertain using bootstraping or not, by default 0
+        fixed_t0 : bool or array-like, optional
+            Fix the t0 in dt = time - t0 if user provides an array with the same length of the table, or automatically calculate t0 = np.average(time, weights=1/np.hypot(xe, ye)) if False, by default False
+        verbose : bool, optional
+            Output verbose information or not, by default False
+        mask_val : float, optional
+            Value that needs to be masked in the data, e.g. -100000, by default None
+        mask_lists : list, optional
+            Columns that needs to be masked, by default False
+        show_progress : bool, optional
+            Show progress bar or not, by default True
+
+        Raises
+        ------
+        ValueError
+            If weighting is neither 'var' or 'std'
+        KeyError
+            If there's not time information in the table
+        """
+        if weighting not in ['var', 'std']:
+            raise ValueError(f"fit_velocities: Weighting must either be 'var' or 'std', not {weighting}!")
+        
+        if ('t' not in self.colnames) and ('list_times' not in self.meta):
+            raise KeyError("fit_velocities: Failed to time values. No 't' column in table, no 'list_times' in meta.")
+
+        N_stars = len(self)
 
         if verbose:
             start_time = time.time()
             msg = 'Starting startable.fit_velocities for {0:d} stars with n={1:d} bootstrap'
             print(msg.format(N_stars, bootstrap))
 
-        col_list_float = ['x0','vx','y0','vy','x0e','vxe','y0e','vye','t0']
+        col_list_float = ['x0','vx','y0','vy','x0e','vxe','y0e','vye','chi2_vx','chi2_vy','t0']
         col_list_int = ['n_vfit']
         col_list = col_list_float+col_list_int
         # Clean/remove up old arrays.
@@ -586,17 +618,21 @@ class StarTable(Table):
 
         # STARS LOOP through the stars and work on them 1 at a time.
         # This is slow; but robust.
-        for ss in range(N_stars):
-            self.fit_velocity_for_star(ss, bootstrap=bootstrap, fixed_t0=fixed_t0,
-                                       mask_val=mask_val, mask_lists=mask_lists)
-
+        if show_progress:
+            for ss in tqdm(range(N_stars)):
+                self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, bootstrap=bootstrap, fixed_t0=fixed_t0,
+                                    mask_val=mask_val, mask_lists=mask_lists)
+        else:
+            for ss in range(N_stars):
+                self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, bootstrap=bootstrap, fixed_t0=fixed_t0,
+                                        mask_val=mask_val, mask_lists=mask_lists, )
         if verbose:
             stop_time = time.time()
             print('startable.fit_velocities runtime = {0:.0f} s for {1:d} stars'.format(stop_time - start_time, N_stars))
         
         return
 
-    def fit_velocity_for_star(self, ss, bootstrap=False, fixed_t0=False,
+    def fit_velocity_for_star(self, ss, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=False, fixed_t0=False,
                               mask_val=None, mask_lists=False):
 
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
@@ -605,6 +641,12 @@ class StarTable(Table):
         if mask_val:
             x = np.ma.masked_values(x, mask_val)
             y = np.ma.masked_values(y, mask_val)
+            # If no mask, convert x.mask to list
+            if not np.ma.is_masked(x):
+                x.mask = np.zeros_like(x.data, dtype=bool)
+            if not np.ma.is_masked(y):
+                y.mask = np.zeros_like(y.data, dtype=bool)
+                
         
         if mask_lists is not False:
             # Remove a list
@@ -647,6 +689,11 @@ class StarTable(Table):
         if mask_val:
             xe = np.ma.masked_values(xe, mask_val)
             ye = np.ma.masked_values(ye, mask_val)
+            # If no mask, convert xe.mask to list
+            if not np.ma.is_masked(xe):
+                xe.mask = np.zeros_like(xe.data, dtype=bool)
+            if not np.ma.is_masked(ye):
+                ye.mask = np.zeros_like(ye.data, dtype=bool)
             
         if mask_lists is not False:
             # Remove a list
@@ -667,6 +714,8 @@ class StarTable(Table):
 
         if mask_val:
             t = np.ma.masked_values(t, mask_val)
+            if not np.ma.is_masked(t):
+                t.mask = np.zeros_like(t.data, dtype=bool)
             
         if mask_lists is not False:
             # Remove a list
@@ -677,11 +726,13 @@ class StarTable(Table):
             # Throw a warning if mask_lists is not a list
             if not isinstance(mask_lists, list):
                 raise RuntimeError('mask_lists needs to be a list.')    
-
+        
+        # For inconsistent masks, mask the star if any of the values are masked.
+        new_mask = np.logical_or.reduce((t.mask, x.mask, y.mask, xe.mask, ye.mask))
         # Figure out where we have detections (as indicated by error columns)
         good = np.where((xe != 0) & (ye != 0) &
                         np.isfinite(xe) & np.isfinite(ye) &
-                        np.isfinite(x) & np.isfinite(y))[0]
+                        np.isfinite(x) & np.isfinite(y) & ~new_mask)[0]
 
         N_good = len(good)
 
@@ -731,6 +782,7 @@ class StarTable(Table):
             self['vy'][ss] = 0.0
             self['vxe'][ss] = 0.0
             self['vye'][ss] = 0.0
+            return
 
         elif motion_model_use=='linear':
             mod = motion_model.Linear(x[0], (x[-1]-x[0])/(t[-1]-t[0]),
@@ -745,12 +797,92 @@ class StarTable(Table):
             self['vxe'][ss] = param_errs[1]
             self['y0e'][ss] = param_errs[2]
             self['vye'][ss] = param_errs[3]
-
         return
+    
+    
+    def fit_velocities_all_detected(self, weighting='var', use_scipy=False, absolute_sigma=False, epoch_cols='all', mask_val=None, art_star=False, return_result=False):
+        """Fit velocities for stars detected in all epochs specified by epoch_cols. 
+        Criterion: xe/ye error > 0 and finite, x/y not masked.
 
+        Parameters
+        ----------
+        weighting : str, optional
+            Variance weighting('var') or standard deviation weighting ('std'), by default 'var'
+        use_scipy : bool, optional
+            Use scipy.curve_fit or flystar.fit_velocity.fit_velocity, by default False
+        absolute_sigma : bool, optional
+            Absolute sigma or rescaled sigma, by default False
+        epoch_cols : str or list of intergers, optional
+            List of epoch column indices used for fitting velocity, by default 'all'
+        mask_val : float, optional
+            Values in x, y to be masked
+        art_star : bool, optional
+            Artificial star or observation star catalog. If artificial star, use 'det' column to select stars detected in all epochs, by default False
+        return_result : bool, optional
+            Return the velocity results or not, by default False
+        
+        Returns
+        -------
+        vel_result : astropy Table
+            Astropy Table with velocity results
+        """
+        
+        N_stars = len(self)
+        
+        if epoch_cols == 'all':
+            epoch_cols = np.arange(np.shape(self['x'])[1])
+            
+        # Artificial Star
+        if art_star:
+            detected_in_all_epochs = np.all(self['det'][:, epoch_cols], axis=1)
+        
+        # Observation Star
+        else:
+            valid_xe = np.all(self['xe'][:, epoch_cols]!=0, axis=1) & np.all(np.isfinite(self['xe'][:, epoch_cols]), axis=1)
+            valid_ye = np.all(self['ye'][:, epoch_cols]!=0, axis=1) & np.all(np.isfinite(self['ye'][:, epoch_cols]), axis=1)
+            
+            if mask_val:
+                x = np.ma.masked_values(self['x'][:, epoch_cols], mask_val)
+                y = np.ma.masked_values(self['y'][:, epoch_cols], mask_val)
+                
+                # If no mask, convert x.mask to list
+                if not np.ma.is_masked(x):
+                    x.mask = np.zeros_like(self['x'][:, epoch_cols].data, dtype=bool)
+                if not np.ma.is_masked(y):
+                    y.mask = np.zeros_like(self['y'][:, epoch_cols].data, dtype=bool)
+                
+                valid_x = ~np.any(x.mask, axis=1)
+                valid_y = ~np.any(y.mask, axis=1)
+                detected_in_all_epochs = np.logical_and.reduce((
+                    valid_x, valid_y, valid_xe, valid_ye
+                ))
+            else:
+                detected_in_all_epochs = np.logical_and(valid_xe, valid_ye)
         
         
-
+        # Fit velocities        
+        vel_result = fit_velocity(self[detected_in_all_epochs], weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, epoch_cols=epoch_cols, art_star=art_star)
+        vel_result = Table.from_pandas(vel_result)
         
         
+        # Add n_vfit
+        n_vfit = len(epoch_cols)
+        vel_result['n_vfit'] = n_vfit
         
+        # Clean/remove up old arrays.
+        columns = [*vel_result.keys(), 'n_vfit']
+        for column in columns:
+            if column in self.colnames: self.remove_column(column)
+        
+        # Update self
+        for column in columns:
+            column_array = np.ma.zeros(N_stars)
+            column_array[detected_in_all_epochs] = vel_result[column]
+            column_array[~detected_in_all_epochs] = np.nan
+            column_array.mask = ~detected_in_all_epochs
+            self[column] = column_array
+        
+        if return_result:
+            return vel_result
+        else:
+            return
