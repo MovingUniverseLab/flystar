@@ -9,6 +9,7 @@ import collections
 import pdb
 import time
 import copy
+from flystar import motion_model
 
 
 class StarTable(Table):
@@ -31,6 +32,9 @@ class StarTable(Table):
 
     Optional table columns (input as keywords):
     -------------------------
+    motion_model : 1D numpy.array with shape = N_stars
+        string indicating motion model type for each star
+        
     xe : 2D numpy.array with shape = (N_stars, N_lists)
         Position uncertainties of N_stars in each of N_lists in the x dimension.
 
@@ -69,7 +73,7 @@ class StarTable(Table):
     print(t['name'][0:10])  # print the first 10 star names
     print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
     """
-    def __init__(self, *args, ref_list=0, **kwargs):
+    def __init__(self, *args, ref_list=0, motion_model_default='linear', **kwargs):
         """
         """
         
@@ -161,6 +165,10 @@ class StarTable(Table):
                     self.add_column(Column(data=kwargs[arg], name=arg))
                     if arg == 'name_in_list':
                         self['name_in_list'] = self['name_in_list'].astype('U20')
+                    if arg == 'motion_model':
+                        self['motion_model'] = self['motion_model'].astype('U20')
+            if 'motion_model' not in kwargs:
+                self['motion_model'] = np.repeat(motion_model_default, len(self['name']))
 
         return
     
@@ -573,36 +581,18 @@ class StarTable(Table):
             msg = 'Starting startable.fit_velocities for {0:d} stars with n={1:d} bootstrap'
             print(msg.format(N_stars, bootstrap))
 
+        col_list_float = ['x0','vx','y0','vy','x0e','vxe','y0e','vye','chi2_vx','chi2_vy','t0']
+        col_list_int = ['n_vfit']
+        col_list = col_list_float+col_list_int
         # Clean/remove up old arrays.
-        if 'x0' in self.colnames: self.remove_column('x0')
-        if 'vx' in self.colnames: self.remove_column('vx')
-        if 'y0' in self.colnames: self.remove_column('y0')
-        if 'vy' in self.colnames: self.remove_column('vy')
-        if 'x0e' in self.colnames: self.remove_column('x0e')
-        if 'vxe' in self.colnames: self.remove_column('vxe')
-        if 'y0e' in self.colnames: self.remove_column('y0e')
-        if 'vye' in self.colnames: self.remove_column('vye')
-        if 'chi2_vx' in self.colnames: self.remove_column('chi2_vx')
-        if 'chi2_vy' in self.colnames: self.remove_column('chi2_vy')
-        if 't0' in self.colnames: self.remove_column('t0')
-        if 'n_vfit' in self.colnames: self.remove_column('n_vfit')
+        for col in col_list:
+            if col in self.colnames: self.remove_column(col)
         
         # Define output arrays for the best-fit parameters.
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'x0'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vx'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'y0'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vy'))
-        
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'x0e'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vxe'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'y0e'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'vye'))
-        
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'chi2_vx'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 'chi2_vy'))
-        
-        self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = 't0'))
-        self.add_column(Column(data = np.zeros(N_stars, dtype=int), name = 'n_vfit'))
+        for col in col_list_float:
+            self.add_column(Column(data = np.zeros(N_stars, dtype=float), name = col))
+        for col in col_list_int:
+            self.add_column(Column(data = np.zeros(N_stars, dtype=int), name = col))
 
         self.meta['n_vfit_bootstrap'] = bootstrap
 
@@ -756,171 +746,57 @@ class StarTable(Table):
         t = t[good]
         xe = xe[good]
         ye = ye[good]
-
-        # slope, intercept
-        p0x = np.array([0., x.mean()])
-        p0y = np.array([0., y.mean()])
         
         # Unless t0 is fixed, calculate the t0 for the stars.
         if fixed_t0 is False:
             t_weight = 1.0 / np.hypot(xe, ye)
             t0 = np.average(t, weights=t_weight)
+        elif fixed_t0 is True:
+            t0 = self.t0
         else:
             t0 = fixed_t0[ss]
         dt = t - t0
-
         self['t0'][ss] = t0
         self['n_vfit'][ss] = N_good
+        
+        # Decide which motion_model to fit.
+        motion_model_assigned = self['motion_model'][ss]
+        if motion_model_assigned=='fixed' or N_good==1 or (dt == dt[0]).all():
+            # Either 'fixed' is selected, or is required because
+            # of no time-domain data
+            motion_model_use = 'fixed'
+        elif motion_model_assigned=='linear' and N_good>1:
+            # If 'linear' is selected and enough data exists
+            # to model linear motion
+            motion_model_use = 'linear'
+        self['motion_model'][ss] = motion_model_use
 
-        # Catch the case where all the times are identical
-        if (dt == dt[0]).all():
-            if weighting == 'var':
-                wgt_x = (1.0/xe)**2
-                wgt_y = (1.0/ye)**2
-            elif weighting == 'std':
-                wgt_x = 1./np.abs(xe)
-                wgt_y = 1./np.abs(ye)
-
-            self['x0'][ss] = np.average(x, weights=wgt_x)
-            self['y0'][ss] = np.average(y, weights=wgt_y)
-            self['x0e'][ss] = np.sqrt(np.average((x - self['x0'][ss])**2, weights=wgt_x))
-            self['y0e'][ss] = np.sqrt(np.average((y - self['y0'][ss])**2, weights=wgt_x))
-            
+        if motion_model_use=='fixed':
+            mod = motion_model.Fixed(x[0],y[0],t[0])
+            params,param_errs = mod.fit_motion_model(dt, x, y, xe, ye)
+            self['x0'][ss] = params[0]
+            self['y0'][ss] = params[1]
+            self['x0e'][ss] = param_errs[0]
+            self['y0e'][ss] = param_errs[1]
             self['vx'][ss] = 0.0
             self['vy'][ss] = 0.0
             self['vxe'][ss] = 0.0
             self['vye'][ss] = 0.0
-
             return
 
-        # Catch the case where we have enough measurements to actually
-        # fit a velocity!
-        if N_good > 2:
-            if weighting == 'var':
-                sigma_x = xe
-                sigma_y = ye
-            elif weighting == 'std':
-                sigma_x = np.abs(xe)**0.5
-                sigma_y = np.abs(ye)**0.5
-            
-            if use_scipy:
-                vx_opt, vx_cov = curve_fit(linear, dt, x, p0=p0x, sigma=sigma_x, absolute_sigma=absolute_sigma)
-                vy_opt, vy_cov = curve_fit(linear, dt, y, p0=p0y, sigma=sigma_y, absolute_sigma=absolute_sigma)
-                vx = vx_opt[0]
-                x0 = vx_opt[1]
-                vy = vy_opt[0]
-                y0 = vy_opt[1]
-                chi2_vx = calc_chi2(dt, x, sigma_x, *vx_opt)
-                chi2_vy = calc_chi2(dt, y, sigma_y, *vy_opt)
-            
-            else:
-                result_vx = linear_fit(dt, x, sigma_x, absolute_sigma=absolute_sigma)
-                result_vy = linear_fit(dt, y, sigma_y, absolute_sigma=absolute_sigma)
-                vx = result_vx['slope']
-                x0 = result_vx['intercept']
-                vy = result_vy['slope']
-                y0 = result_vy['intercept']
-                chi2_vx = result_vx['chi2']
-                chi2_vy = result_vy['chi2']
-            
-            self['vx'][ss] = vx
-            self['x0'][ss] = x0
-            self['vy'][ss] = vy
-            self['y0'][ss] = y0
-            self['chi2_vx'][ss] = chi2_vx
-            self['chi2_vy'][ss] = chi2_vy
-            
-            # Run the bootstrap
-            if bootstrap > 0:
-                edx = np.arange(N_good, dtype=int)
-
-                vx_b = np.zeros(bootstrap, dtype=float)
-                x0_b = np.zeros(bootstrap, dtype=float)
-                vy_b = np.zeros(bootstrap, dtype=float)
-                y0_b = np.zeros(bootstrap, dtype=float)
-            
-                for bb in range(bootstrap):
-                    bdx = np.random.choice(edx, N_good)
-                    if weighting == 'var':
-                        sigma_x_b = xe[bdx]
-                        sigma_y_b = ye[bdx]
-                    elif weighting == 'std':
-                        sigma_x_b = xe[bdx]**0.5
-                        sigma_y_b = ye[bdx]**0.5
-                    
-                    if use_scipy:
-                        vx_opt_b, vx_cov_b = curve_fit(linear, dt[bdx], x[bdx], p0=vx_opt, sigma=sigma_x_b,
-                                                        absolute_sigma=absolute_sigma)
-                        vy_opt_b, vy_cov_b = curve_fit(linear, dt[bdx], y[bdx], p0=vy_opt, sigma=sigma_y_b,
-                                                        absolute_sigma=absolute_sigma)
-                        vx_b[bb] = vx_opt_b[0]
-                        x0_b[bb] = vx_opt_b[1]
-                        vy_b[bb] = vy_opt_b[0]
-                        y0_b[bb] = vy_opt_b[1]
-                        
-                    else:
-                        result_vx_b = linear_fit(dt[bdx], x[bdx], sigma=sigma_x_b, absolute_sigma=absolute_sigma)
-                        result_vy_b = linear_fit(dt[bdx], y[bdx], sigma=sigma_y_b, absolute_sigma=absolute_sigma)
-                        vx_b[bb] = result_vx_b['slope']
-                        x0_b[bb] = result_vx_b['intercept']
-                        vy_b[bb] = result_vy_b['slope']
-                        y0_b[bb] = result_vy_b['intercept']
-                
-                # Save the errors from the bootstrap
-                self['vxe'][ss] = vx_b.std()
-                self['x0e'][ss] = x0_b.std()
-                self['vye'][ss] = vy_b.std()
-                self['y0e'][ss] = y0_b.std()
-                
-            else:
-                if use_scipy:
-                    vxe, x0e = np.sqrt(vx_cov.diagonal())
-                    vye, y0e = np.sqrt(vy_cov.diagonal())
-                else:
-                    vxe = result_vx['e_slope']
-                    x0e = result_vx['e_intercept']
-                    vye = result_vy['e_slope']
-                    y0e = result_vy['e_intercept']
-                    
-                self['vxe'][ss] = vxe
-                self['x0e'][ss] = x0e
-                self['vye'][ss] = vye
-                self['y0e'][ss] = y0e
-
-        elif N_good == 2:
-            # Not enough epochs to fit a velocity.            
-            dx = np.diff(x)[0]
-            dy = np.diff(y)[0]
-            dt_diff = np.diff(dt)[0]
-            
-            if weighting == 'var':
-                sigma_x = 1./xe**2
-                sigma_y = 1./ye**2
-            elif weighting == 'std':
-                sigma_x = 1./np.abs(xe)
-                sigma_y = 1./np.abs(ye)
-            
-            self['x0'][ss] = np.average(x, weights=sigma_x)
-            self['y0'][ss] = np.average(y, weights=sigma_y)
-            self['x0e'][ss] = np.abs(dx) / 2**0.5
-            self['y0e'][ss] = np.abs(dy) / 2**0.5
-            self['vx'][ss] = dx / dt_diff
-            self['vy'][ss] = dy / dt_diff
-            self['vxe'][ss] = 0.0
-            self['vye'][ss] = 0.0
-            self['chi2_vx'][ss] = calc_chi2(dt, x, sigma_x, self['vx'][ss], self['x0'][ss])
-            self['chi2_vy'][ss] = calc_chi2(dt, y, sigma_y, self['vy'][ss], self['y0'][ss])
-            
-        else:
-            # N_good == 1 case
-            self['n_vfit'][ss] = 1
-            self['x0'][ss] = x
-            self['y0'][ss] = y
-            
-            if 'xe' in self.colnames:
-                self['x0e'] = xe
-                self['y0e'] = ye
-
+        elif motion_model_use=='linear':
+            mod = motion_model.Linear(x[0], (x[-1]-x[0])/(t[-1]-t[0]),
+                                      y[0], (y[-1]-y[0])/(t[-1]-t[0]),
+                                      t[0])
+            params,param_errs = mod.fit_motion_model(dt, x, y, xe, ye, bootstrap=bootstrap)
+            self['x0'][ss] = params[0]
+            self['vx'][ss] = params[1]
+            self['y0'][ss] = params[2]
+            self['vy'][ss] = params[3]
+            self['x0e'][ss] = param_errs[0]
+            self['vxe'][ss] = param_errs[1]
+            self['y0e'][ss] = param_errs[2]
+            self['vye'][ss] = param_errs[3]
         return
     
     
