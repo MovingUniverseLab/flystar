@@ -301,6 +301,7 @@ def test_fit_velocities():
     tab2 = tab[10000:10100]
     tab3 = tab[-100:]
     tab = table.vstack((tab1, tab2, tab3))
+    tab.meta = tab1.meta
 
     tab.fit_velocities(verbose=True)
 
@@ -359,6 +360,7 @@ def test_fit_velocities():
     # Test bootstrap
     ##########
     tab_b = table.vstack((tab1, tab2, tab3))
+    tab_b.meta = tab1.meta
     tab_b.fit_velocities(verbose=True, bootstrap=50)
     
     assert tab_b.meta['n_vfit_bootstrap'] == 50
@@ -418,6 +420,7 @@ def test_fit_velocities_1epoch():
     tab2 = tab[10000:10100]
     tab3 = tab[-100:]
     tab_1 = table.vstack((tab1, tab2, tab3))
+    tab_1.meta = tab1.meta
     
     tab_1.fit_velocities(verbose=False)
 
@@ -461,6 +464,7 @@ def test_fit_velocities_2epoch():
     tab2 = tab[10000:10100]
     tab3 = tab[-100:]
     tab_2 = table.vstack((tab1, tab2, tab3))
+    tab_2.meta=tab1.meta
 
     tab_2.fit_velocities(verbose=False)
 

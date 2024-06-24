@@ -854,14 +854,14 @@ class StarTable(Table):
                 valid_x = ~np.any(x.mask, axis=1)
                 valid_y = ~np.any(y.mask, axis=1)
                 detected_in_all_epochs = np.logical_and.reduce((
-                    valid_x, valid_y, valid_xe, valid_ye
-                ))
+                    valid_x, valid_y, valid_xe, valid_ye))
             else:
                 detected_in_all_epochs = np.logical_and(valid_xe, valid_ye)
         
         
         # Fit velocities        
-        vel_result = fit_velocity(self[detected_in_all_epochs], weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, epoch_cols=epoch_cols, art_star=art_star)
+        vel_result = fit_velocity(self[detected_in_all_epochs], weighting=weighting, use_scipy=use_scipy,
+                                    absolute_sigma=absolute_sigma, epoch_cols=epoch_cols, art_star=art_star)
         vel_result = Table.from_pandas(vel_result)
         
         
