@@ -437,7 +437,55 @@ class MosaicSelfRef(object):
                                                       m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight, mag_trans=self.mag_trans)
 
-            # Save the final transformation.
+            # Outlier rejection: ref stars in final transformation, if desired
+            if outlier_tol != None:
+                # Apply transformation to starlist, run match between starlist and ref_list
+                star_list_T = copy.deepcopy(star_list)
+                if self.mag_trans:
+                    star_list_T.transform_xym(trans)
+                else:
+                    star_list_T.transform_xy(trans)
+
+                idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                                                   ref_list['x'], ref_list['y'], ref_list['m'],
+                                                   dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
+                
+                # Let's look at just the ref stars used in the transformation, which are idx1 and idx2
+                keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
+                                                          outlier_tol)
+
+                if self.verbose > 1:
+                    print( '  Rejected ', len(idx2) - len(keepers), ' outliers, final trans.' )
+
+                # If at least 1 ref star was eliminated, redo transformation
+                if len(keepers) < len(idx2):
+                    # Return print statment if verbose high enough
+                    if self.verbose > 7:
+                        print('=========================')
+                        print('OUTLIER FOUND: list {0}'.format(star_list['t'][0]))
+                        outlier_names = np.setdiff1d(ref_list['name'][idx2], ref_list['name'][idx2][keepers])
+                        print('Outliers:')
+                        for jj in outlier_names:
+                            print('{0}'.format(jj))
+                        print('=========================')
+                    
+                    # Update set of ref stars (indices are idx1, idx2 here, to be compatible downstream)
+                    idx1 = idx1[keepers]
+                    idx2 = idx2[keepers]
+
+                    # Determine weights in the fit.
+                    weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
+
+                    # Redo transformation
+                    if self.verbose > 1:
+                        print( 'Recalculating trans after outlier reject. Using ', len(idx1), ' stars in transformation.' )
+                    trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
+                                                      ref_list['x'][idx2], ref_list['y'][idx2],
+                                                      **trans_args,
+                                                      m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
+                                                      weights=weight, mag_trans=self.mag_trans)
+
+            # Save the final transformation
             self.trans_list[ii] = trans
 
             # If desired, calculate and save the inverse transformation
@@ -487,65 +535,7 @@ class MosaicSelfRef(object):
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-
-            # Outlier rejection: ref stars in final transformation
-            if outlier_tol != None:                
-                # Let's look at just the ref stars used in the transformation, which are idx1 and idx2
-                keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
-                                                          outlier_tol)
-                if self.verbose > 1:
-                    print( '  Rejected ', len(idx2) - len(keepers), ' outliers, final trans.' )
-
-                # If at least 1 ref star was eliminated, redo transformation
-                if len(keepers) < len(idx2):
-                    print('=========================')
-                    print('OUTLIER FOUND: list {0}'.format(star_list['t'][0]))
-                    outlier_names = np.setdiff1d(ref_list['name'][idx2], ref_list['name'][idx2][keepers])
-                    print('Outliers:')
-                    for jj in outlier_names:
-                        print('{0}'.format(jj))
-                    print('=========================')
-                    
-                    # Update set of ref stars (indices are idx1, idx2 here, to be compatible downstream)
-                    idx1 = idx1[keepers]
-                    idx2 = idx2[keepers]
-
-                    # Determine weights in the fit.
-                    weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
-
-                    # Redo transformation and update trans_list
-                    if self.verbose > 1:
-                        print( 'Recalculating trans after outlier reject. Using ', len(idx1), ' stars in transformation.' )
-                    trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
-                                                      ref_list['x'][idx2], ref_list['y'][idx2],
-                                                      **trans_args,
-                                                      m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
-                                                      weights=weight, mag_trans=self.mag_trans)
-                    self.trans_list[ii] = trans
-
-                # Recalculate inverse trans, if desired
-                if self.calc_trans_inverse:
-                    if self.verbose > 1:
-                        print('Doing inverse')
-                        trans_inv = self.trans_class.derive_transform(ref_list['x'][idx2], ref_list['y'][idx2],
-                                                              star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
-                                                              trans_args['order'], m=ref_list['m'][idx2],
-                                                              mref=star_list_orig_trim['m'][idx1], weights=weight,
-                                                              mag_trans=self.mag_trans)
-                        self.trans_list_inverse[ii] = trans_inv
-
-
-                # Redo matching with updated trans
-                star_list_T = copy.deepcopy(star_list)
-                if self.mag_trans:
-                    star_list_T.transform_xym(self.trans_list[ii])
-                else:
-                    star_list_T.transform_xy(self.trans_list[ii])
-
-                idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                                   ref_list['x'], ref_list['y'], ref_list['m'],
-                                                   dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-            
+                
             if self.verbose > 1:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
