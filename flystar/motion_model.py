@@ -199,7 +199,6 @@ class Linear(MotionModel):
         
         return params, param_errors
 
-        
 
 def get_motion_model_param_names(motion_model_list, with_errors=False):
     return list_of_parameters
