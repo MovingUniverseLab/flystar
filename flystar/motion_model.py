@@ -52,6 +52,7 @@ class Fixed(MotionModel):
     A non-moving motion model for a star on the sky.
     """
     fitter_param_names = ['x0','y0']
+    fixed_param_names = ['t0']
     
     def __init__(self, x0, y0, t0):
         self.x0 = x0
@@ -92,8 +93,9 @@ class Linear(MotionModel):
     A 2D linear motion model for a star on the sky.
     """
     fitter_param_names = ['x0', 'vx', 'y0', 'vy']
+    fixed_param_names = ['t0']
     
-    def __init__(self, x0, vx, y0, vy, t0):
+    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025):
         self.x0 = x0
         self.vx = vx
         self.y0 = y0
@@ -199,7 +201,11 @@ class Linear(MotionModel):
 
         
 
-        
+def get_motion_model_param_names(motion_model_list, with_errors=False):
+    return list_of_parameters
+
+def get_all_motion_model_param_names(with_errors=False):
+    return list_of_parameters
     
         
         

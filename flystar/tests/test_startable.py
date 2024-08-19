@@ -308,45 +308,45 @@ def test_fit_velocities():
     # Test creation of new variables
     assert len(tab['vx']) == len(tab)
     assert len(tab['vy']) == len(tab)
-    assert len(tab['vxe']) == len(tab)
-    assert len(tab['vye']) == len(tab)
-    assert len(tab['n_vfit']) == len(tab)
-    assert tab.meta['n_vfit_bootstrap'] == 0
+    assert len(tab['vx_err']) == len(tab)
+    assert len(tab['vy_err']) == len(tab)
+    assert len(tab['n_fit']) == len(tab)
+    assert tab.meta['n_fit_bootstrap'] == 0
 
     # Test no-fit for stars with N<2 epochs.
     n_epochs = (tab['x'] >= 0).sum(axis=1)
     idx = np.where(n_epochs < 2)[0]
     assert (tab['vx'][idx] == 0).all()
-    assert (tab['vxe'][idx] == 0).all()
-    assert (tab['n_vfit'][idx] == 2).all()
+    assert (tab['vx_err'][idx] == 0).all()
+    assert (tab['n_fit'][idx] == 2).all()
 
     # Test that the velocity errors were calculated.
-    assert (tab['vxe'][0:100] > 0).all()
-    assert (tab['x0e'][0:100] > 0).all()
-    assert (tab['vye'][0:100] > 0).all()
-    assert (tab['y0e'][0:100] > 0).all()
+    assert (tab['vx_err'][0:100] > 0).all()
+    assert (tab['x0_err'][0:100] > 0).all()
+    assert (tab['vy_err'][0:100] > 0).all()
+    assert (tab['y0_err'][0:100] > 0).all()
     assert np.isfinite(tab['x0']).all()
     assert np.isfinite(tab['vx']).all()
     assert np.isfinite(tab['y0']).all()
     assert np.isfinite(tab['vy']).all()
-    assert np.isfinite(tab['x0e']).all()
-    assert np.isfinite(tab['vxe']).all()
-    assert np.isfinite(tab['y0e']).all()
-    assert np.isfinite(tab['vye']).all()
+    assert np.isfinite(tab['x0_err']).all()
+    assert np.isfinite(tab['vx_err']).all()
+    assert np.isfinite(tab['y0_err']).all()
+    assert np.isfinite(tab['vy_err']).all()
 
     ##########
     # Test running a second time. We should get the same results.
     ##########
     vx_orig = tab['vx']
     x0_orig = tab['x0']
-    vxe_orig = tab['vxe']
-    x0e_orig = tab['x0e']
+    vxe_orig = tab['vx_err']
+    x0e_orig = tab['x0_err']
     tab.fit_velocities(verbose=False)
 
     assert (vx_orig == tab['vx']).all()
     assert (x0_orig == tab['x0']).all()
-    assert (vxe_orig == tab['vxe']).all()
-    assert (x0e_orig == tab['x0e']).all()
+    assert (vxe_orig == tab['vx_err']).all()
+    assert (x0e_orig == tab['x0_err']).all()
 
     ##########
     # Test fixed_t0 functionality
@@ -363,27 +363,27 @@ def test_fit_velocities():
     tab_b.meta = tab1.meta
     tab_b.fit_velocities(verbose=True, bootstrap=50)
     
-    assert tab_b.meta['n_vfit_bootstrap'] == 50
-    assert tab_b['x0e'][0] > tab['x0e'][0]
-    assert tab_b['vxe'][0] > tab['vxe'][0]
-    assert tab_b['y0e'][0] > tab['y0e'][0]
-    assert tab_b['vye'][0] > tab['vye'][0]
+    assert tab_b.meta['n_fit_bootstrap'] == 50
+    assert tab_b['x0_err'][0] > tab['x0_err'][0]
+    assert tab_b['vx_err'][0] > tab['vx_err'][0]
+    assert tab_b['y0_err'][0] > tab['y0_err'][0]
+    assert tab_b['vy_err'][0] > tab['vy_err'][0]
 
     ##########
     # Test what happens with no velocity errors
     ##########
-    tab.remove_columns(['xe', 'ye', 'x0', 'y0', 'x0e', 'y0e', 'vx', 'vy', 'vxe', 'vye', 'n_vfit'])
+    tab.remove_columns(['xe', 'ye', 'x0', 'y0', 'x0_err', 'y0_err', 'vx', 'vy', 'vx_err', 'vy_err', 'n_fit'])
     tab.fit_velocities(verbose=False)
 
     assert len(tab['vx']) == len(tab)
     assert len(tab['vy']) == len(tab)
-    assert len(tab['vxe']) == len(tab)
-    assert len(tab['vye']) == len(tab)
-    assert len(tab['n_vfit']) == len(tab)
-    assert (tab['vxe'][0:100] > 0).all()
-    assert (tab['x0e'][0:100] > 0).all()
-    assert (tab['vye'][0:100] > 0).all()
-    assert (tab['y0e'][0:100] > 0).all()
+    assert len(tab['vx_err']) == len(tab)
+    assert len(tab['vy_err']) == len(tab)
+    assert len(tab['n_fit']) == len(tab)
+    assert (tab['vx_err'][0:100] > 0).all()
+    assert (tab['x0_err'][0:100] > 0).all()
+    assert (tab['vy_err'][0:100] > 0).all()
+    assert (tab['y0_err'][0:100] > 0).all()
 
     #########
     # Test mask_list
@@ -392,12 +392,12 @@ def test_fit_velocities():
     tt.fit_velocities(bootstrap=0, verbose=False, mask_lists=[1])
     assert np.arange(2.25, 48, 5) == pytest.approx(tt['x0'].data)
     assert np.arange(2.25, 48, 5) == pytest.approx(tt['y0'].data)
-    assert np.zeros(10) == pytest.approx(tt['x0e'].data)
-    assert np.zeros(10) == pytest.approx(tt['y0e'].data)
+    assert np.full(10, 0.05) == pytest.approx(tt['x0_err'].data)
+    assert np.full(10, 0.05) == pytest.approx(tt['y0_err'].data)
     assert np.ones(10) == pytest.approx(tt['vx'].data)
     assert np.ones(10) == pytest.approx(tt['vy'].data)
-    assert np.zeros(10) == pytest.approx(tt['vxe'].data)
-    assert np.zeros(10) == pytest.approx(tt['vye'].data)
+    assert np.full(10, 0.03380617) == pytest.approx(tt['vx_err'].data)
+    assert np.full(10, 0.03380617) == pytest.approx(tt['vy_err'].data)
     assert 2017.25 * np.ones(10) == pytest.approx(tt['t0'].data)
 
     # Test 5b: Things that should break the code.
@@ -424,30 +424,29 @@ def test_fit_velocities_1epoch():
     
     tab_1.fit_velocities(verbose=False)
 
-    assert 'n_vfit' in tab_1.colnames
+    assert 'n_fit' in tab_1.colnames
     assert 't0' in tab_1.colnames
     assert 'x0' in tab_1.colnames
     assert 'y0' in tab_1.colnames
     assert 'vx' in tab_1.colnames
     assert 'vy' in tab_1.colnames
-    assert 'x0e' in tab_1.colnames
-    assert 'y0e' in tab_1.colnames
-    assert 'vxe' in tab_1.colnames
-    assert 'vye' in tab_1.colnames
+    assert 'x0_err' in tab_1.colnames
+    assert 'y0_err' in tab_1.colnames
+    assert 'vx_err' in tab_1.colnames
+    assert 'vy_err' in tab_1.colnames
 
-    
     assert (tab_1['x0'] == tab_1['x'][:,0]).all()
     assert (tab_1['y0'] == tab_1['y'][:,0]).all()
-    assert (tab_1['x0e'] == tab_1['xe'][:,0]).all()
-    assert (tab_1['y0e'] == tab_1['ye'][:,0]).all()
+    assert (tab_1['x0_err'] == tab_1['xe'][:,0]).all()
+    assert (tab_1['y0_err'] == tab_1['ye'][:,0]).all()
 
-    assert(tab_1['vx'] == 0).all()
-    assert(tab_1['vy'] == 0).all()
-    assert(tab_1['vxe'] == 0).all()
-    assert(tab_1['vye'] == 0).all()
+    assert(np.isnan(tab_1['vx'])).all()
+    assert(np.isnan(tab_1['vy'])).all()
+    assert(np.isnan(tab_1['vx_err'])).all()
+    assert(np.isnan(tab_1['vy_err'])).all()
     
     assert(tab_1['t0'] == 2001.0).all()
-    assert(tab_1['n_vfit'] == 1).all()
+    assert(tab_1['n_fit'] == 1).all()
     
     return
 
@@ -468,28 +467,28 @@ def test_fit_velocities_2epoch():
 
     tab_2.fit_velocities(verbose=False)
 
-    assert 'n_vfit' in tab_2.colnames
+    assert 'n_fit' in tab_2.colnames
     assert 't0' in tab_2.colnames
     assert 'x0' in tab_2.colnames
     assert 'y0' in tab_2.colnames
     assert 'vx' in tab_2.colnames
     assert 'vy' in tab_2.colnames
-    assert 'x0e' in tab_2.colnames
-    assert 'y0e' in tab_2.colnames
-    assert 'vxe' in tab_2.colnames
-    assert 'vye' in tab_2.colnames
+    assert 'x0_err' in tab_2.colnames
+    assert 'y0_err' in tab_2.colnames
+    assert 'vx_err' in tab_2.colnames
+    assert 'vy_err' in tab_2.colnames
 
     # 2 detections
     np.testing.assert_almost_equal(tab_2['x0'][0], tab_2['x'][0,0], 1)
-    assert tab_2['n_vfit'][0] == 2
+    assert tab_2['n_fit'][0] == 2
     
     # 1 detection
     assert tab_2['x0'][100] == tab_2['x'][100, 0]
-    assert tab_2['n_vfit'][100] == 1
+    assert tab_2['n_fit'][100] == 1
     
     # 0 detections
-    assert tab_2['x0'][-1] == 0
-    assert tab_2['n_vfit'][-1] == 0
+    assert np.isnan(tab_2['x0'][-1])
+    assert tab_2['n_fit'][-1] == 0
     
     return
 
