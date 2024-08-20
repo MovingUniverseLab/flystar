@@ -100,22 +100,23 @@ def test_MosaicSelfRef_vel_tconst():
     msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
                               dr_tol=[3, 3], dm_tol=[1, 1],
                               trans_class=transforms.PolyTransform,
-                              trans_args={'order': 2}, use_vel=True,
+                              trans_args={'order': 2},
+                              use_motion=True, default_motion_model='Linear',
                               verbose=False)
 
     msc.fit()
     
     # Check some of the output quantities on the final table.
     assert 'x0' in msc.ref_table.colnames
-    assert 'x0e' in msc.ref_table.colnames
+    assert 'x0_err' in msc.ref_table.colnames
     assert 'y0' in msc.ref_table.colnames
-    assert 'y0e' in msc.ref_table.colnames
+    assert 'y0_err' in msc.ref_table.colnames
     assert 'm0' in msc.ref_table.colnames
-    assert 'm0e' in msc.ref_table.colnames
+    assert 'm0_err' in msc.ref_table.colnames
     assert 'vx' in msc.ref_table.colnames
-    assert 'vxe' in msc.ref_table.colnames
+    assert 'vx_err' in msc.ref_table.colnames
     assert 'vy' in msc.ref_table.colnames
-    assert 'vye' in msc.ref_table.colnames
+    assert 'vy_err' in msc.ref_table.colnames
     assert 't0' in msc.ref_table.colnames
 
     # Check that we have some matched stars... should be at least 35 stars
@@ -124,9 +125,9 @@ def test_MosaicSelfRef_vel_tconst():
     assert len(idx) > 35 
 
     # Check that the transformation error isn't too big
-    assert (msc.ref_table['x0e'] < 3.0).all() # less than 1 pix
-    assert (msc.ref_table['y0e'] < 3.0).all()
-    assert (msc.ref_table['m0e'] < 1.0).all() # less than 0.5 mag
+    assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0_err'] < 3.0).all()
+    assert (msc.ref_table['m0_err'] < 1.0).all() # less than 0.5 mag
     
     # Check that the transformation lists aren't too wacky
     for ii in range(4):

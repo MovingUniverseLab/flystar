@@ -11,7 +11,6 @@ import time
 import copy
 from flystar import motion_model
 
-
 class StarTable(Table):
     """
     A StarTable is an astropy.Table with stars matched from multiple starlists.
@@ -73,7 +72,7 @@ class StarTable(Table):
     print(t['name'][0:10])  # print the first 10 star names
     print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
     """
-    def __init__(self, *args, ref_list=0, motion_model_default='Linear', **kwargs):
+    def __init__(self, *args, ref_list=0, **kwargs):
         """
         """
         
@@ -167,8 +166,8 @@ class StarTable(Table):
                         self['name_in_list'] = self['name_in_list'].astype('U20')
                     if arg == 'motion_model':
                         self['motion_model'] = self['motion_model'].astype('U20')
-            if 'motion_model' not in kwargs:
-                self['motion_model'] = np.repeat(motion_model_default, len(self['name']))
+            '''if 'motion_model' not in kwargs:
+                self['motion_model'] = np.repeat(default_motion_model, len(self['name']))'''
 
         return
     
@@ -537,7 +536,7 @@ class StarTable(Table):
 
     
     def fit_velocities(self, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=0, fixed_t0=False, verbose=False,
-                       mask_val=None, mask_lists=False, show_progress=True):
+                       mask_val=None, mask_lists=False, show_progress=True, default_motion_model='Linear'):
         """Fit velocities for all stars in the table and add to the columns 'vx', 'vxe', 'vy', 'vye', 'x0', 'x0e', 'y0', 'y0e'.
 
         Parameters
@@ -585,34 +584,17 @@ class StarTable(Table):
         # Fill table with all possible motion model parameter names as new
         # columns. Make everything empty for now.
         #
-        all_motion_models = np.unique(self['motion_model']).tolist()
-        if 'Fixed' not in all_motion_models:
-            all_motion_models.append('Fixed')
-        if 'Linear' not in all_motion_models:
-            all_motion_models.append('Linear')
-
-        new_col_list = []
-        for aa in range(len(all_motion_models)):
-            mmod = getattr(motion_model, all_motion_models[aa])
-
-            # Add fit parameters and errors.
-            param_names = mmod.fitter_param_names
-            param_err_names = [par + '_err' for par in param_names]
-
-            new_col_list += param_names
-            new_col_list += param_err_names
-
+        if 'motion_model' not in self.colnames:
+            self['motion_model'] = default_motion_model
+        all_motion_models = np.unique(self['motion_model'].tolist() + ['Fixed','Linear']).tolist()
+        new_col_list = motion_model.get_motion_model_param_names(all_motion_models, with_errors=True)
         # Append goodness of fit metrics and t0.
-        new_col_list += ['chi2_x', 'chi2_y', 't0']
-
-        # Remove repeat column names. Returns a numpy array.
-        new_col_list = np.unique(new_col_list)
+        new_col_list += ['chi2_x', 'chi2_y']
 
         # Define output arrays for the best-fit parameters.
         for col in new_col_list:
             # Clean/remove up old arrays.
             if col in self.colnames: self.remove_column(col)
-
             # Add column
             self.add_column(Column(data = np.full(N_stars, np.nan, dtype=float), name = col))
 
@@ -625,7 +607,7 @@ class StarTable(Table):
         # (FIXME: Do we need to catch the case where there's a single *unmasked* epoch?)
         # Catch the case when there is only a single epoch. Just return 0 velocity
         # and the same input position for the x0/y0.
-        if self['x'].shape[1] == 1:
+        if (self['x'].shape[1] == 1):
             self['motion_model'] = 'Fixed'
             self['x0'] = self['x'][:,0]
             self['y0'] = self['y'][:,0]

@@ -4,7 +4,7 @@ from flystar import transforms
 from flystar import plots
 from flystar.starlists import StarList
 from flystar.startables import StarTable
-from flystar.motion_model import motion_model_col_names
+from flystar import motion_model
 from astropy.table import Table, Column, vstack
 import datetime
 import copy
@@ -22,7 +22,9 @@ class MosaicSelfRef(object):
                  init_order=1,
                  mag_trans=True, mag_lim=None, weights=None,
                  trans_input=None, trans_class=transforms.PolyTransform,
-                 use_vel=False, calc_trans_inverse=False,
+                 #TODO if we use both keywords, add a check for compatibility
+                 use_motion=False, default_motion_model='Fixed',
+                 calc_trans_inverse=False,
                  init_guess_mode='miracle', iter_callback=None,
                  verbose=True):
 
@@ -75,7 +77,7 @@ class MosaicSelfRef(object):
             magnitudes in each list to bring them into a common magnitude system. This is 
             essential for matching (with finite dm_tol) starlists of different filters or 
             starlists that are not photometrically calibrated. Note that the final_table columns 
-            of 'm', 'm0', and 'm0e' will contain the transformed magnitudes while the 
+            of 'm', 'm0', and 'm0_err' will contain the transformed magnitudes while the
             final_table column 'm_orig' will contain the original un-transformed magnitudes. 
             If mag_trans = False, then no such zeropoint offset it applied at any point. 
 
@@ -105,8 +107,9 @@ class MosaicSelfRef(object):
             then the transformation argument (i.e. order) will be changed for every iteration in
             iters.
 
-        use_vel : boolean
-            If velocities are present in the reference list and use_vel == True, then during
+        TODO: update when decided
+        use_motion : boolean
+            If velocities are present in the reference list and use_motion == True, then during
             each iteration of the alignment, the reference list will be propogated in time
             using the velocity information. So all transformations will be derived w.r.t. 
             the propogated positions. See also update_vel.
@@ -177,7 +180,8 @@ class MosaicSelfRef(object):
         self.trans_input = trans_input
         self.trans_class = trans_class
         self.calc_trans_inverse = calc_trans_inverse        
-        self.use_vel = use_vel
+        self.use_motion = use_motion
+        self.default_motion_model = default_motion_model
         self.init_guess_mode = init_guess_mode
         self.iter_callback = iter_callback
         self.verbose = verbose
@@ -252,10 +256,10 @@ class MosaicSelfRef(object):
         x0e
         y0e
         m0e
-        vx  (only if use_vel=True)
-        vy  (only if use_vel=True)
-        vxe (only if use_vel=True)
-        vye (only if use_vel=True)
+        vx  (only if use_motion=True)
+        vy  (only if use_motion=True)
+        vxe (only if use_motion=True)
+        vye (only if use_motion=True)
 
         """
         ##########
@@ -560,6 +564,7 @@ class MosaicSelfRef(object):
         array in the original reference star list.
         """
         col_arrays = {}
+        motion_model_col_names = motion_model.get_all_motion_model_param_names(with_errors=True)
         for col_name in star_list.colnames:
             if col_name == 'name':
                 # The "name" column will be 1D; but we will also add a "name_in_list" column.
@@ -612,7 +617,7 @@ class MosaicSelfRef(object):
         # just fill these tables with zeros. We need something
         # in these columns in order for the error propagation to
         # work later on.
-        new_err_cols = ['x0e', 'y0e', 'm0e']
+        new_err_cols = ['x0_err', 'y0_err', 'm0_err']
         orig_err_cols = ['xe', 'ye', 'me']
         for ii in range(len(new_err_cols)):
             # If the orig col name (e.g. xe) is in the ref_table, but the new col name
@@ -801,52 +806,35 @@ class MosaicSelfRef(object):
         # In certain cases, we will NOT update these.
         if not self.update_ref_orig:
             ref_orig_idx = np.where(self.ref_table['ref_orig'] == True)[0]
-            x0_orig = self.ref_table['x0'][ref_orig_idx]
-            y0_orig = self.ref_table['y0'][ref_orig_idx]
-            m0_orig = self.ref_table['m0'][ref_orig_idx]
-            x0e_orig = self.ref_table['x0e'][ref_orig_idx]
-            y0e_orig = self.ref_table['y0e'][ref_orig_idx]
-            m0e_orig = self.ref_table['m0e'][ref_orig_idx]
-
-            if self.use_vel:
-                vx_orig = self.ref_table['vx'][ref_orig_idx]
-                vy_orig = self.ref_table['vy'][ref_orig_idx]
-                vxe_orig = self.ref_table['vxe'][ref_orig_idx]
-                vye_orig = self.ref_table['vye'][ref_orig_idx]
-                t0_orig = self.ref_table['t0'][ref_orig_idx]
+            vals_orig = {}
+            vals_orig['m0'] = self.ref_table['m0'][ref_orig_idx]
+            vals_orig['m0_err'] = self.ref_table['m0_err'][ref_orig_idx]
+            motion_model_col_names = motion_model.get_motion_model_param_names(self.ref_table['motion_model'][ref_orig_idx], with_errors=True)
+            for mm in motion_model_col_names:
+                vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
                 
-        if self.use_vel:
+        #if self.use_motion:
             # Combine positions with a velocity fit.
-            self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose)
-    
-            # Combine (transformed) magnitudes
-            if 'me' in self.ref_table.colnames:
-                weights_col = None
-            else:
-                weights_col = 'me'
-                
-            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
+        self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose, default_motion_model=self.default_motion_model)
+
+        # Combine (transformed) magnitudes
+        # TODO: how does this work?
+        if 'me' in self.ref_table.colnames:
+            weights_col = None
         else:
+            weights_col = 'me'
+            
+        self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
+        '''else:
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
     
-            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
+            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)'''
 
         # Replace the originals if we are supposed to keep them fixed.
         if not self.update_ref_orig:
-            self.ref_table['x0'][ref_orig_idx] = x0_orig
-            self.ref_table['y0'][ref_orig_idx] = y0_orig
-            self.ref_table['m0'][ref_orig_idx] = m0_orig
-            self.ref_table['x0e'][ref_orig_idx] = x0e_orig
-            self.ref_table['y0e'][ref_orig_idx] = y0e_orig
-            self.ref_table['m0e'][ref_orig_idx] = m0e_orig
-
-            if self.use_vel:
-                self.ref_table['vx'][ref_orig_idx] = vx_orig
-                self.ref_table['vy'][ref_orig_idx] = vy_orig
-                self.ref_table['vxe'][ref_orig_idx] = vxe_orig
-                self.ref_table['vye'][ref_orig_idx] = vye_orig
-                self.ref_table['t0'][ref_orig_idx] = t0_orig
+            for val in vals_orig.keys():
+                self.ref_table[val][ref_orig_idx] = vals_orig[val]
 
         return
     
@@ -918,7 +906,7 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
             
-            xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table, use_vel=self.use_vel)  # optional velocity propogation.
+            xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table, use_motion=self.use_motion)  # optional velocity propogation.
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -950,36 +938,36 @@ class MosaicSelfRef(object):
         # Reference stars will be named. 
         name = self.ref_table['name']
 
-        if self.use_vel and ('vx' in self.ref_table.colnames):
+        if self.use_motion and ('vx' in self.ref_table.colnames):
             # First check if we should use velocities and if they exist.
             dt = epoch - self.ref_table['t0']
             x = self.ref_table['x0'] + (self.ref_table['vx'] * dt)
             y = self.ref_table['y0'] + (self.ref_table['vy'] * dt)
             
-            xe = np.hypot(self.ref_table['x0e'], self.ref_table['vxe']*dt)
-            ye = np.hypot(self.ref_table['y0e'], self.ref_table['vye']*dt)
+            xe = np.hypot(self.ref_table['x0_err'], self.ref_table['vxe']*dt)
+            ye = np.hypot(self.ref_table['y0_err'], self.ref_table['vye']*dt)
 
             idx = np.where(np.isfinite(self.ref_table['vx']) == False)[0]
             x[idx] = self.ref_table['x0'][idx]
             y[idx] = self.ref_table['y0'][idx]
-            xe[idx] = self.ref_table['x0e'][idx]
-            ye[idx] = self.ref_table['y0e'][idx]
+            xe[idx] = self.ref_table['x0_err'][idx]
+            ye[idx] = self.ref_table['y0_err'][idx]
         else:
             # No velocities... just used average positions.
             x = self.ref_table['x0']
             y = self.ref_table['y0']
             
-            if 'x0e' in self.ref_table.colnames:
-                xe = self.ref_table['x0e']
-                ye = self.ref_table['y0e']
+            if 'x0_err' in self.ref_table.colnames:
+                xe = self.ref_table['x0_err']
+                ye = self.ref_table['y0_err']
             else:
                 xe = None
                 ye = None
 
         m = self.ref_table['m0']
         
-        if 'm0e' in self.ref_table.colnames:
-            me = self.ref_table['m0e']
+        if 'm0_err' in self.ref_table.colnames:
+            me = self.ref_table['m0_err']
         else:
             me = None
 
@@ -1221,11 +1209,11 @@ class MosaicSelfRef(object):
                                         xe=xe_trans_arr[:,ii,boot_idx],
                                         ye=ye_trans_arr[:,ii,boot_idx],
                                         me=me_trans_arr[:,ii,boot_idx],
-                                        t=np.tile(t_boot, (len(ref_table),1)) )
+                                        t=np.tile(t_boot, (len(ref_table),1)))
 
                 # Now, do proper motion calculation, making sure to fix t0 to the
                 # orig value (so we can get a reasonable error on x0, y0)
-                star_table.fit_velocities(fixed_t0=t0_arr)
+                star_table.fit_velocities(fixed_t0=t0_arr, default_motion_model=self.default_motion_model)
 
                 # Save proper motion fit results to output arrays
                 x0_arr[:,ii] = star_table['x0']
@@ -1302,7 +1290,8 @@ class MosaicToRef(MosaicSelfRef):
                  trans_class=transforms.PolyTransform,
                  calc_trans_inverse=False,
                  use_ref_new=False,
-                 use_vel=False, update_ref_orig=False,
+                 use_motion=False, default_motion_model='Fixed',
+                 update_ref_orig=False,
                  init_guess_mode='miracle',
                  iter_callback=None,
                  verbose=True):
@@ -1352,7 +1341,7 @@ class MosaicToRef(MosaicSelfRef):
             magnitudes in each list to bring them into a common magnitude system. This is 
             essential for matching (with finite dm_tol) starlists of different filters or 
             starlists that are not photometrically calibrated. Note that the final_table columns 
-            of 'm', 'm0', and 'm0e' will contain the transformed magnitudes while the 
+            of 'm', 'm0', and 'm0_err' will contain the transformed magnitudes while the
             final_table column 'm_orig' will contain the original un-transformed magnitudes. 
             If mag_trans = False, then no such zeropoint offset it applied at any point. 
 
@@ -1417,8 +1406,8 @@ class MosaicToRef(MosaicSelfRef):
             If False, then the new stars will be carried, but not used in the transformation.
             We determine which stars to use through setting a boolean use_in_trans flag. 
 
-        use_vel : boolean
-            If velocities are present in the reference list and use_vel == True, then during
+        use_motion : boolean
+            If velocities are present in the reference list and use_motion == True, then during
             each iteration of the alignment, the reference list will be propogated in time
             using the velocity information. So all transformations will be derived w.r.t. 
             the propogated positions. See also update_vel.
@@ -1439,7 +1428,7 @@ class MosaicToRef(MosaicSelfRef):
                                 outlier_tol=[None], mag_lim=[13, 21],
                                 trans_class=transforms.PolyTransform,
                                 trans_args=[{'order': 1}],
-                                use_vel=True,
+                                use_motion=True,
                                 use_ref_new=False,
                                 update_ref_orig=False,
                                 mag_trans=False,
@@ -1470,7 +1459,7 @@ class MosaicToRef(MosaicSelfRef):
                          init_order=init_order,
                          mag_trans=mag_trans, mag_lim=mag_lim, weights=weights,
                          trans_input=trans_input, trans_class=trans_class,
-                         calc_trans_inverse=calc_trans_inverse, use_vel=use_vel,
+                         calc_trans_inverse=calc_trans_inverse, use_motion=use_motion,
                          init_guess_mode=init_guess_mode,
                          iter_callback=iter_callback,
                          verbose=verbose)
@@ -1484,13 +1473,13 @@ class MosaicToRef(MosaicSelfRef):
         if ('x' not in self.ref_list.colnames) and ('x0' in self.ref_list.colnames):
             self.ref_list['x'] = self.ref_list['x0']
             self.ref_list['y'] = self.ref_list['y0']
-        if ('xe' not in self.ref_list.colnames) and ('x0e' in self.ref_list.colnames):
-            self.ref_list['xe'] = self.ref_list['x0e']
-            self.ref_list['ye'] = self.ref_list['y0e']
+        if ('xe' not in self.ref_list.colnames) and ('x0_err' in self.ref_list.colnames):
+            self.ref_list['xe'] = self.ref_list['x0_err']
+            self.ref_list['ye'] = self.ref_list['y0_err']
         if ('m' not in self.ref_list.colnames) and ('m0' in self.ref_list.colnames):
             self.ref_list['m'] = self.ref_list['m0']
-        if ('me' not in self.ref_list.colnames) and ('m0e' in self.ref_list.colnames):
-            self.ref_list['me'] = self.ref_list['m0e']
+        if ('me' not in self.ref_list.colnames) and ('m0_err' in self.ref_list.colnames):
+            self.ref_list['me'] = self.ref_list['m0_err']
         if ('t' not in self.ref_list.colnames) and ('t0' in self.ref_list.colnames):
             self.ref_list['t'] = self.ref_list['t0']
 
@@ -1515,10 +1504,10 @@ class MosaicToRef(MosaicSelfRef):
         x0e
         y0e
         m0e
-        vx  (only if use_vel=True)
-        vy  (only if use_vel=True)
-        vxe (only if use_vel=True)
-        vye (only if use_vel=True)
+        vx  (only if use_motion=True)
+        vy  (only if use_motion=True)
+        vxe (only if use_motion=True)
+        vye (only if use_motion=True)
 
         """
         # Create a log file of the parameters used in the fit.
@@ -1537,7 +1526,8 @@ class MosaicToRef(MosaicSelfRef):
             logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
             logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
             logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
-            logger(_log, '  use_vel = ' + str(self.use_vel), self.verbose)
+            logger(_log, '  use_motion = ' + str(self.use_motion), self.verbose)
+            logger(_log, '  default_motion_model = ' + str(self.default_motion_model), self.verbose)
             logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
             logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
             logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
@@ -1670,6 +1660,7 @@ def setup_ref_table_from_starlist(star_list):
     array in the original reference star list.
     """
     col_arrays = {}
+    motion_model_col_names = motion_model.get_all_motion_model_param_names(with_errors=True)
     for col_name in star_list.colnames:
         if col_name == 'name':
             # The "name" column will be 1D; but we will also add a "name_in_list" column.
@@ -1704,7 +1695,7 @@ def setup_ref_table_from_starlist(star_list):
     # Make sure ref_table has the necessary x0, y0, m0 and associated
     # error columns. If they don't exist, then add them as a copy of
     # the original x,y,m etc columns. 
-    new_cols_arr = ['x0', 'x0e', 'y0', 'y0e', 'm0', 'm0e']
+    new_cols_arr = ['x0', 'x0_err', 'y0', 'y0_err', 'm0', 'm0_err']
     orig_cols_arr = ['x', 'xe', 'y', 'ye', 'm', 'me']
     assert len(new_cols_arr) == len(orig_cols_arr)
     ref_cols = ref_table.keys()
@@ -1888,7 +1879,7 @@ def run_align_iter(catalog, trans_order=1, poly_deg=1, ref_mag_lim=19, ref_radiu
     calc_mag_avg_all_stars(d)
     
     tdx = np.where((d['name_0'] == 'OB120169') | (d['name_0'] == 'OB120169_L'))[0]
-    print(d[tdx]['name_0', 't0', 'mag', 'x0', 'vx', 'x0e', 'vxe', 'chi2x', 'y0', 'vy', 'y0e', 'vye', 'chi2y', 'dof'])
+    print(d[tdx]['name_0', 't0', 'mag', 'x0', 'vx', 'x0_err', 'vxe', 'chi2x', 'y0', 'vy', 'y0_err', 'vye', 'chi2y', 'dof'])
 
     ##########
     # Second iteration -- align everything to reference positions derived from iteration 1
@@ -2005,8 +1996,8 @@ def calc_transform_ref_poly(d, target_name, poly_deg, ref_mag_lim, ref_radius_li
     m_ref = d['mag']
     x_ref = d['x0']
     y_ref = d['y0']
-    xe_ref = d['x0e']
-    ye_ref = d['y0e']    
+    xe_ref = d['x0_err']
+    ye_ref = d['y0_err']
     
     # Calculate some quanitites we use for selecting reference stars.
     r_ref = np.hypot(x_ref - x_ref[tdx], y_ref - y_ref[tdx])
@@ -2198,8 +2189,8 @@ def calc_polyfit_all_stars(d, poly_deg, init_fig_idx=0):
     if poly_deg >= 0:
         d['x0'] = px_all[:, -1]
         d['y0'] = py_all[:, -1]
-        d['x0e'] = pxe_all[:, -1]
-        d['y0e'] = pye_all[:, -1]
+        d['x0_err'] = pxe_all[:, -1]
+        d['y0_err'] = pye_all[:, -1]
         
     if poly_deg >= 1:
         d['vx'] = px_all[:, -2]
@@ -2735,8 +2726,8 @@ def transform_from_file(starlist, transFile):
     if vel:
         x0_orig = starlist['x0']
         y0_orig = starlist['y0']
-        x0e_orig = starlist['x0e']
-        y0e_orig = starlist['y0e']
+        x0e_orig = starlist['x0_err']
+        y0e_orig = starlist['y0_err']
         
         vx_orig = starlist['vx']
         vy_orig = starlist['vy']
@@ -2847,8 +2838,8 @@ def transform_from_file(starlist, transFile):
     if vel:
         starlist_f['x0'] = x0_new
         starlist_f['y0'] = y0_new
-        starlist_f['x0e'] = x0e_new
-        starlist_f['y0e'] = y0e_new
+        starlist_f['x0_err'] = x0e_new
+        starlist_f['y0_err'] = y0e_new
         starlist_f['vx'] = vx_new
         starlist_f['vy'] = vy_new
         starlist_f['vxe'] = vxe_new
@@ -2899,8 +2890,8 @@ def transform_from_object(starlist, transform):
     if vel:
         x0 = starlist_f['x0']
         y0 = starlist_f['y0']
-        x0e = starlist_f['x0e']
-        y0e = starlist_f['y0e']
+        x0e = starlist_f['x0_err']
+        y0e = starlist_f['y0_err']
         vx = starlist_f['vx']
         vy = starlist_f['vy']
         vxe = starlist_f['vxe']
@@ -2927,8 +2918,8 @@ def transform_from_object(starlist, transform):
     if vel:
         starlist_f['x0'] = x0_new
         starlist_f['y0'] = y0_new
-        starlist_f['x0e'] = x0e_new
-        starlist_f['y0e'] = y0e_new
+        starlist_f['x0_err'] = x0e_new
+        starlist_f['y0_err'] = y0e_new
         starlist_f['vx'] = vx_new
         starlist_f['vy'] = vy_new
         starlist_f['vxe'] = vxe_new
@@ -3621,13 +3612,13 @@ def copy_and_rename_for_ref(star_list):
 
     if 'xe' in star_list.colnames:
         old_cols += ['xe']
-        new_cols += ['x0e']
+        new_cols += ['x0_err']
     if 'ye' in star_list.colnames:
         old_cols += ['ye']
-        new_cols += ['y0e']
+        new_cols += ['y0_err']
     if 'me' in star_list.colnames:
         old_cols += ['me']
-        new_cols += ['m0e']
+        new_cols += ['m0_err']
     if 'w' in star_list.colnames:
         old_cols += ['w']
         new_cols += ['w']
@@ -3776,7 +3767,7 @@ def get_weighting_scheme(weights, ref_list, star_list):
 
     return weight
 
-def get_pos_at_time(t, starlist, use_vel=True):
+def get_pos_at_time(t, starlist, use_motion=True):
     """
     Take a starlist, check to see if it has velocity columns.
     If it does, then propogate the positions forward in time 
@@ -3790,7 +3781,7 @@ def get_pos_at_time(t, starlist, use_vel=True):
         but it should be in the same units
         as the 't0' column in starlist.
     """
-    if use_vel and ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
+    if use_motion and ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
         dt = t - starlist['t0']
         x = starlist['x0'] + (starlist['vx'] * dt)
         y = starlist['y0'] + (starlist['vy'] * dt)

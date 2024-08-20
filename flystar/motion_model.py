@@ -2,13 +2,6 @@ from astropy.modeling import models, fitting
 import numpy as np
 from abc import ABC
 
-# Keep a list of columns that are "aggregated" motion model terms.
-motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
-                          'vx', 'vxe', 'vy', 'vye',
-                          'ax', 'axe', 'ay', 'aye',
-                          't0', 'm0', 'm0e',
-                          'motion_model', 'use_in_trans']
-
 class MotionModel(ABC):
     # Fit paramters: Shared fit parameters
     fitter_param_names = []
@@ -54,7 +47,7 @@ class Fixed(MotionModel):
     fitter_param_names = ['x0','y0']
     fixed_param_names = ['t0']
     
-    def __init__(self, x0, y0, t0):
+    def __init__(self, x0=0, y0=0, t0=2025.0):
         self.x0 = x0
         self.y0 = y0
         self.t0 = t0
@@ -68,7 +61,7 @@ class Fixed(MotionModel):
     def get_pos_at_time(self,t):
         return self.x0, self.y0
             
-    def fit_motion_model(self, dt, x, y, xe, ye, update=False, fixed_t0=False):
+    def fit_motion_model(self, dt, x, y, xe, ye, update=False, bootstrap=0):
         # Handle single data point case
         if len(x)==1:
             return [x[0],y[0]],[xe[0],ye[0]]
@@ -95,7 +88,7 @@ class Linear(MotionModel):
     fitter_param_names = ['x0', 'vx', 'y0', 'vy']
     fixed_param_names = ['t0']
     
-    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025):
+    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0):
         self.x0 = x0
         self.vx = vx
         self.y0 = y0
@@ -124,7 +117,7 @@ class Linear(MotionModel):
         fitter = fitting.LevMarLSQFitter()
 
         # Handle 2-data point case
-        # TODO is this the best way to handle this case ?
+        # TODO: is this the best way to handle this case ?
         if len(x)==2:
             x0 = np.average(x, weights=1.0/xe**2)
             y0 = np.average(y, weights=1.0/ye**2)
@@ -141,7 +134,6 @@ class Linear(MotionModel):
 
         px_new = fitter(self.px, dt, x, weights=1/xe)
         px_cov = fitter.fit_info['param_cov']
-        
         py_new = fitter(self.py, dt, y, weights=1/ye)
         py_cov = fitter.fit_info['param_cov']
 
@@ -201,10 +193,34 @@ class Linear(MotionModel):
 
 
 def get_motion_model_param_names(motion_model_list, with_errors=False):
-    return list_of_parameters
+    list_of_parameters = []
+    all_motion_models = [eval(mm) for mm in np.unique(motion_model_list).tolist()]
+    for aa in range(len(all_motion_models)):
+        param_names = getattr(all_motion_models[aa], 'fitter_param_names')
+        param_fixed_names = getattr(all_motion_models[aa], 'fixed_param_names')
+        param_err_names = [par + '_err' for par in param_names]
+
+        list_of_parameters += param_names
+        list_of_parameters += param_fixed_names
+        if with_errors:
+            list_of_parameters += param_err_names
+    
+    return np.unique(list_of_parameters).tolist()
 
 def get_all_motion_model_param_names(with_errors=False):
-    return list_of_parameters
+    list_of_parameters = []
+    all_motion_models = MotionModel.__subclasses__()
+    for aa in range(len(all_motion_models)):
+        param_names = getattr(all_motion_models[aa], 'fitter_param_names')
+        param_fixed_names = getattr(all_motion_models[aa], 'fixed_param_names')
+        param_err_names = [par + '_err' for par in param_names]
+
+        list_of_parameters += param_names
+        list_of_parameters += param_fixed_names
+        if with_errors:
+            list_of_parameters += param_err_names
+    
+    return np.unique(list_of_parameters).tolist()
     
         
         
