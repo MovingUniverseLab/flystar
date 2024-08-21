@@ -1,8 +1,12 @@
 from astropy.modeling import models, fitting
 import numpy as np
 from abc import ABC
+import pdb
 
 class MotionModel(ABC):
+    # Number of data points required to fit model
+    n_pts_req = 0
+
     # Fit paramters: Shared fit parameters
     fitter_param_names = []
 
@@ -18,6 +22,7 @@ class MotionModel(ABC):
     def __init__(self, *args, **kwargs):
         # Check that required phot_params are proper arrays.
         # If not, then make them arrays of len(1).
+        # TODO: do we need this?
         for param in self.fitter_param_names:
             param_var = getattr(self, param)
             if not isinstance(param_var, (list, np.ndarray)):
@@ -27,6 +32,14 @@ class MotionModel(ABC):
 
     def get_pos_at_time(self, t):
         #return x, y
+        pass
+        
+    def get_pos_err_at_time(self, t):
+        #return x_err, y_err
+        pass
+        
+    def get_batch_pos_at_time(self, t):
+        #return x, y, x_err, y_err
         pass
 
     def fit_motion_model(self, t, x, y, xe, ye, update=True):
@@ -44,14 +57,18 @@ class Fixed(MotionModel):
     """
     A non-moving motion model for a star on the sky.
     """
+    n_pts_req = 1
     fitter_param_names = ['x0','y0']
     fixed_param_names = ['t0']
     
-    def __init__(self, x0=0, y0=0, t0=2025.0):
+    def __init__(self, x0=0, y0=0, t0=2025.0,
+                        x0_err=0, y0_err=0):
         self.x0 = x0
         self.y0 = y0
         self.t0 = t0
-
+        self.x0_err = x0_err
+        self.y0_err = y0_err
+        
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
@@ -60,6 +77,15 @@ class Fixed(MotionModel):
         
     def get_pos_at_time(self,t):
         return self.x0, self.y0
+        
+    def get_pos_err_at_time(self,t):
+        return self.x0_err, self.y0_err
+        
+    def get_batch_pos_at_time(self,t,
+                                x0=[],y0=[],t0=[],
+                                x0_err=[], y0_err=[]):
+        return x0,y0,x0_err,y0_err
+        
             
     def fit_motion_model(self, dt, x, y, xe, ye, update=False, bootstrap=0):
         # Handle single data point case
@@ -78,6 +104,8 @@ class Fixed(MotionModel):
         if update:
             self.x0 = x0
             self.y0 = y0
+            self.x0_err = x0e
+            self.y0_err = y0e
         
         return params, param_errors
     
@@ -85,16 +113,22 @@ class Linear(MotionModel):
     """
     A 2D linear motion model for a star on the sky.
     """
+    n_pts_req = 2
     fitter_param_names = ['x0', 'vx', 'y0', 'vy']
     fixed_param_names = ['t0']
     
-    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0):
+    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0,
+                            x0_err=0, vx_err=0, y0_err=0, vy_err=0):
         self.x0 = x0
         self.vx = vx
         self.y0 = y0
         self.vy = vy
         self.t0 = t0
-
+        self.x0_err = x0_err
+        self.vx_err = vx_err
+        self.y0_err = y0_err
+        self.vy_err = vy_err
+        
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
@@ -112,6 +146,24 @@ class Linear(MotionModel):
         y = self.py(dt)
 
         return x, y
+        
+    def get_pos_err_at_time(self, t):
+        dt = t - self.t0
+        
+        x_err = np.hypot(self.x0_err, self.vx_err)
+        y_err = np.hypot(self.y0_err, self.vy_err)
+
+        return x_err, y_err
+        
+    def get_batch_pos_at_time(self,t,
+                                x0=[],vx=[], y0=[],vy=[], t0=[],
+                                x0_err=[],vx_err=[], y0_err=[],vy_err=[]):
+        dt = t-t0
+        x = x0 + dt*vx
+        y = y0 + dt*vy
+        x_err = np.hypot(x0_err, vx_err*dt)
+        y_err = np.hypot(y0_err, vy_err*dt)
+        return x,y,x_err,y_err
 
     def fit_motion_model(self, dt, x, y, xe, ye, update=False, bootstrap=0):
         fitter = fitting.LevMarLSQFitter()
@@ -181,10 +233,15 @@ class Linear(MotionModel):
             self.px = px_new
             self.py = py_new
 
-            self.x0 = self.px.c0.value
-            self.vx = self.px.c1.value
-            self.y0 = self.py.c0.value
-            self.vy = self.py.c1.value
+            self.x0 = x0
+            self.vx = vx
+            self.y0 = y0
+            self.vy = vy
+            
+            self.x0_err = x0e
+            self.vx_err = vxe
+            self.y0_err = y0e
+            self.vy_err = vye
 
         params = [x0, vx, y0, vy]
         param_errors = [x0e, vxe, y0e, vye]
@@ -192,7 +249,15 @@ class Linear(MotionModel):
         return params, param_errors
 
 
-def get_motion_model_param_names(motion_model_list, with_errors=False):
+def get_one_motion_model_param_names(motion_model_name, with_errors=True):
+    mod = eval(motion_model_name)
+    list_of_parameters = getattr(mod, 'fitter_param_names')
+    list_of_parameters += getattr(mod, 'fixed_param_names')
+    if with_errors:
+        list_of_parameters += [par + '_err' for par in getattr(mod, 'fitter_param_names')]
+    return list_of_parameters
+
+def get_list_motion_model_param_names(motion_model_list, with_errors=True):
     list_of_parameters = []
     all_motion_models = [eval(mm) for mm in np.unique(motion_model_list).tolist()]
     for aa in range(len(all_motion_models)):
@@ -207,7 +272,7 @@ def get_motion_model_param_names(motion_model_list, with_errors=False):
     
     return np.unique(list_of_parameters).tolist()
 
-def get_all_motion_model_param_names(with_errors=False):
+def get_all_motion_model_param_names(with_errors=True):
     list_of_parameters = []
     all_motion_models = MotionModel.__subclasses__()
     for aa in range(len(all_motion_models)):

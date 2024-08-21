@@ -277,6 +277,9 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     # have matches.
     idxs1 = np.ones(x1.size, dtype=int) * -1
     idxs2 = np.ones(x1.size, dtype=int) * -1
+    
+    print(coords2)
+    pdb.set_trace()
 
     # The matching will be done using a KDTree.
     kdt = KDT(coords2, balanced_tree=False)

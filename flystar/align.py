@@ -22,8 +22,9 @@ class MosaicSelfRef(object):
                  init_order=1,
                  mag_trans=True, mag_lim=None, weights=None,
                  trans_input=None, trans_class=transforms.PolyTransform,
-                 #TODO if we use both keywords, add a check for compatibility
-                 use_motion=False, default_motion_model='Fixed',
+                 # TODO: consider deleting use_vel fulll, for now I'm putting in
+                 # a fallback so people can still use old code for now
+                 use_vel=None, default_motion_model='Fixed',
                  calc_trans_inverse=False,
                  init_guess_mode='miracle', iter_callback=None,
                  verbose=True):
@@ -107,9 +108,9 @@ class MosaicSelfRef(object):
             then the transformation argument (i.e. order) will be changed for every iteration in
             iters.
 
-        TODO: update when decided
-        use_motion : boolean
-            If velocities are present in the reference list and use_motion == True, then during
+        # TODO: update when decided
+        use_vel : boolean
+            If velocities are present in the reference list and use_vel == True, then during
             each iteration of the alignment, the reference list will be propogated in time
             using the velocity information. So all transformations will be derived w.r.t. 
             the propogated positions. See also update_vel.
@@ -179,9 +180,15 @@ class MosaicSelfRef(object):
         self.weights = weights
         self.trans_input = trans_input
         self.trans_class = trans_class
-        self.calc_trans_inverse = calc_trans_inverse        
-        self.use_motion = use_motion
-        self.default_motion_model = default_motion_model
+        self.calc_trans_inverse = calc_trans_inverse
+        # TODO: consider whether we want this fallback
+        if use_vel is None:
+            self.default_motion_model = default_motion_model
+        else:
+            if use_vel:
+                self.default_motion_model = 'Linear'
+            else:
+                self.default_motion_model = 'Fixed'
         self.init_guess_mode = init_guess_mode
         self.iter_callback = iter_callback
         self.verbose = verbose
@@ -771,7 +778,8 @@ class MosaicSelfRef(object):
         self.ref_table['used_in_trans'][idx_ref_in_trans, ii] = True
 
         ### Add the unmatched stars and grow the size of the reference table.
-        self.ref_table, idx_lis_new, idx_ref_new = add_rows_for_new_stars(self.ref_table, star_list, idx_lis)
+        self.ref_table, idx_lis_new, idx_ref_new = add_rows_for_new_stars(self.ref_table, star_list, idx_lis,
+                                                        default_motion_model=self.default_motion_model)
         if len(idx_ref_new) > 0:
             if self.verbose > 0:
                 print('    Adding {0:d} new stars to the reference table.'.format(len(idx_ref_new)))
@@ -809,7 +817,7 @@ class MosaicSelfRef(object):
             vals_orig = {}
             vals_orig['m0'] = self.ref_table['m0'][ref_orig_idx]
             vals_orig['m0_err'] = self.ref_table['m0_err'][ref_orig_idx]
-            motion_model_col_names = motion_model.get_motion_model_param_names(self.ref_table['motion_model'][ref_orig_idx], with_errors=True)
+            motion_model_col_names = motion_model.get_list_motion_model_param_names(self.ref_table['motion_model'][ref_orig_idx], with_errors=True)
             for mm in motion_model_col_names:
                 vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
                 
@@ -906,7 +914,7 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
             
-            xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table, use_motion=self.use_motion)  # optional velocity propogation.
+            xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table) #, use_motion=self.use_motion)  # optional velocity propogation.
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -938,20 +946,8 @@ class MosaicSelfRef(object):
         # Reference stars will be named. 
         name = self.ref_table['name']
 
-        if self.use_motion and ('vx' in self.ref_table.colnames):
-            # First check if we should use velocities and if they exist.
-            dt = epoch - self.ref_table['t0']
-            x = self.ref_table['x0'] + (self.ref_table['vx'] * dt)
-            y = self.ref_table['y0'] + (self.ref_table['vy'] * dt)
-            
-            xe = np.hypot(self.ref_table['x0_err'], self.ref_table['vxe']*dt)
-            ye = np.hypot(self.ref_table['y0_err'], self.ref_table['vye']*dt)
-
-            idx = np.where(np.isfinite(self.ref_table['vx']) == False)[0]
-            x[idx] = self.ref_table['x0'][idx]
-            y[idx] = self.ref_table['y0'][idx]
-            xe[idx] = self.ref_table['x0_err'][idx]
-            ye[idx] = self.ref_table['y0_err'][idx]
+        if ('motion_model' in self.ref_table.colnames):
+            x,y,xe,ye = self.ref_table.get_star_positions_at_time(epoch)
         else:
             # No velocities... just used average positions.
             x = self.ref_table['x0']
@@ -1290,7 +1286,7 @@ class MosaicToRef(MosaicSelfRef):
                  trans_class=transforms.PolyTransform,
                  calc_trans_inverse=False,
                  use_ref_new=False,
-                 use_motion=False, default_motion_model='Fixed',
+                 use_vel=None, default_motion_model='Fixed',
                  update_ref_orig=False,
                  init_guess_mode='miracle',
                  iter_callback=None,
@@ -1459,7 +1455,8 @@ class MosaicToRef(MosaicSelfRef):
                          init_order=init_order,
                          mag_trans=mag_trans, mag_lim=mag_lim, weights=weights,
                          trans_input=trans_input, trans_class=trans_class,
-                         calc_trans_inverse=calc_trans_inverse, use_motion=use_motion,
+                         calc_trans_inverse=calc_trans_inverse, use_vel=use_vel,
+                         default_motion_model = default_motion_model,
                          init_guess_mode=init_guess_mode,
                          iter_callback=iter_callback,
                          verbose=verbose)
@@ -1526,7 +1523,7 @@ class MosaicToRef(MosaicSelfRef):
             logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
             logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
             logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
-            logger(_log, '  use_motion = ' + str(self.use_motion), self.verbose)
+            #logger(_log, '  use_vel = ' + str(self.use_vel), self.verbose)
             logger(_log, '  default_motion_model = ' + str(self.default_motion_model), self.verbose)
             logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
             logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
@@ -1774,7 +1771,7 @@ def reset_ref_values(ref_table):
                 
     return
 
-def add_rows_for_new_stars(ref_table, star_list, idx_lis):
+def add_rows_for_new_stars(ref_table, star_list, idx_lis, default_motion_model='Fixed'):
     """
     For each star that is in star_list and NOT in idx_list, make a 
     new row in the reference table. The values will be empty (None, NAN, etc.). 
@@ -1818,6 +1815,8 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis):
                 new_col_empty = -1
             elif ref_table[col_name].dtype == np.dtype('bool'):
                 new_col_empty = False
+            elif col_name=='motion_model':
+                new_col_empty = default_motion_model
             else:
                 new_col_empty = np.nan
             
@@ -3767,7 +3766,8 @@ def get_weighting_scheme(weights, ref_list, star_list):
 
     return weight
 
-def get_pos_at_time(t, starlist, use_motion=True):
+# TODO: Are starlists supposed to hold velocities? We'll need to add a motion_model column if so
+def get_pos_at_time(t, starlist,use_motion=True):
     """
     Take a starlist, check to see if it has velocity columns.
     If it does, then propogate the positions forward in time 

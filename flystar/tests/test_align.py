@@ -8,7 +8,7 @@ import numpy as np
 import pylab as plt
 import pdb
 import datetime
-
+import pytest
 
 def test_MosaicSelfRef():
     """
@@ -101,7 +101,7 @@ def test_MosaicSelfRef_vel_tconst():
                               dr_tol=[3, 3], dm_tol=[1, 1],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2},
-                              use_motion=True, default_motion_model='Linear',
+                              default_motion_model='Linear',
                               verbose=False)
 
     msc.fit()
