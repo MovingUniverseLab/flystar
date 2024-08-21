@@ -30,11 +30,11 @@ def test_MosaicSelfRef():
     
     # Check some of the output quantities on the final table.
     assert 'x0' in msc.ref_table.colnames
-    assert 'x0e' in msc.ref_table.colnames
+    assert 'x0_err' in msc.ref_table.colnames
     assert 'y0' in msc.ref_table.colnames
-    assert 'y0e' in msc.ref_table.colnames
+    assert 'y0_err' in msc.ref_table.colnames
     assert 'm0' in msc.ref_table.colnames
-    assert 'm0e' in msc.ref_table.colnames
+    assert 'm0_err' in msc.ref_table.colnames
     assert 'use_in_trans' in msc.ref_table.colnames
     assert 'used_in_trans' in msc.ref_table.colnames
     assert 'ref_orig' in msc.ref_table.colnames
@@ -46,13 +46,14 @@ def test_MosaicSelfRef():
     # Check that we have some matched stars... should be at least 35 stars
     # that are detected in all 4 starlists.
     idx = np.where(msc.ref_table['n_detect'] == 4)[0]
+    print(len(idx))
     assert len(idx) > 35 
 
     # Check that the transformation error isn't too big
-    assert (msc.ref_table['x0e'] < 3.0).all() # less than 1 pix
-    assert (msc.ref_table['y0e'] < 3.0).all()
-    #assert (msc.ref_table['m0e'] < 1.0).all() # less than 0.5 mag
-    assert (msc.ref_table['m0e'] < 1.5).all() # less than 0.5 mag
+    assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0_err'] < 3.0).all()
+    #assert (msc.ref_table['m0_err'] < 1.0).all() # less than 0.5 mag
+    assert (msc.ref_table['m0_err'] < 1.5).all() # less than 0.5 mag
     
     # Check that the transformation lists aren't too wacky
     for ii in range(4):
@@ -62,8 +63,8 @@ def test_MosaicSelfRef():
     # We didn't do any velocity fitting, so make sure nothing got created.
     assert 'vx' not in msc.ref_table.colnames
     assert 'vy' not in msc.ref_table.colnames
-    assert 'vxe' not in msc.ref_table.colnames
-    assert 'vye' not in msc.ref_table.colnames
+    assert 'vx_err' not in msc.ref_table.colnames
+    assert 'vy_err' not in msc.ref_table.colnames
 
     plt.clf()
     plt.plot(msc.ref_table['x'][:, 0],
@@ -141,8 +142,8 @@ def test_MosaicSelfRef_vel_tconst():
 
     assert (msc.ref_table['vx'] == 0).all()
     assert (msc.ref_table['vy'] == 0).all()
-    assert (msc.ref_table['vxe'] == 0).all()
-    assert (msc.ref_table['vye'] == 0).all()
+    assert (msc.ref_table['vx_err'] == 0).all()
+    assert (msc.ref_table['vy_err'] == 0).all()
 
     return
 
@@ -181,15 +182,15 @@ def test_MosaicSelfRef_vel():
     
     # Check some of the output quantities on the final table.
     assert 'x0' in msc.ref_table.colnames
-    assert 'x0e' in msc.ref_table.colnames
+    assert 'x0_err' in msc.ref_table.colnames
     assert 'y0' in msc.ref_table.colnames
-    assert 'y0e' in msc.ref_table.colnames
+    assert 'y0_err' in msc.ref_table.colnames
     assert 'm0' in msc.ref_table.colnames
-    assert 'm0e' in msc.ref_table.colnames
+    assert 'm0_err' in msc.ref_table.colnames
     assert 'vx' in msc.ref_table.colnames
-    assert 'vxe' in msc.ref_table.colnames
+    assert 'vx_err' in msc.ref_table.colnames
     assert 'vy' in msc.ref_table.colnames
-    assert 'vye' in msc.ref_table.colnames
+    assert 'vy_err' in msc.ref_table.colnames
     assert 't0' in msc.ref_table.colnames
 
     # Check that we have some matched stars... should be at least 35 stars
@@ -198,9 +199,9 @@ def test_MosaicSelfRef_vel():
     assert len(idx) > 35 
 
     # Check that the transformation error isn't too big
-    assert (msc.ref_table['x0e'] < 3.0).all() # less than 1 pix
-    assert (msc.ref_table['y0e'] < 3.0).all()
-    assert (msc.ref_table['m0e'] < 1.0).all() # less than 0.5 mag
+    assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0_err'] < 3.0).all()
+    assert (msc.ref_table['m0_err'] < 1.0).all() # less than 0.5 mag
     
     # Check that the transformation lists aren't too wacky
     for ii in range(4):
@@ -230,8 +231,8 @@ def test_MosaicToRef():
     # Convert velocities to arcsec/yr
     ref_list['vx'] *= 1e-3
     ref_list['vy'] *= 1e-3
-    ref_list['vxe'] *= 1e-3
-    ref_list['vye'] *= 1e-3
+    ref_list['vx_err'] *= 1e-3
+    ref_list['vy_err'] *= 1e-3
 
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
@@ -290,8 +291,8 @@ def test_MosaicToRef_acc():
     # Convert velocities to arcsec/yr
     ref_list['vx'] *= 1e-3
     ref_list['vy'] *= 1e-3
-    ref_list['vxe'] *= 1e-3
-    ref_list['vye'] *= 1e-3
+    ref_list['vx_err'] *= 1e-3
+    ref_list['vy_err'] *= 1e-3
 
     # Convert accelerations to arcsec/yr**2
     ref_list['ax'] *= 1e-3
@@ -476,8 +477,8 @@ def make_fake_starlists_poly1_vel(seed=-1):
 
     # Make an StarList
     lis = starlists.StarList([name, m0, m0e, x0, x0e, y0, y0e, vx, vxe, vy, vye, t0],
-                             names = ('name', 'm0', 'm0e', 'x0', 'x0e', 'y0', 'y0e',
-                                          'vx', 'vxe', 'vy', 'vye', 't0'))
+                             names = ('name', 'm0', 'm0_err', 'x0', 'x0_err', 'y0', 'y0_err',
+                                          'vx', 'vx_err', 'vy', 'vy_err', 't0'))
     
     sdx = np.argsort(m0)
     lis = lis[sdx]
@@ -511,8 +512,8 @@ def make_fake_starlists_poly1_vel(seed=-1):
         # Convert into pixels
         xp = (x / -scale) + shift[0]  # -1 from switching to increasing to West (right)
         yp = (y /  scale) + shift[1]
-        xpe = lis['x0e'] / scale
-        ype = lis['y0e'] / scale
+        xpe = lis['x0_err'] / scale
+        ype = lis['y0_err'] / scale
 
         # Distort the positions
         trans = transforms.PolyTransform(1, xy_trans[ss][0], xy_trans[ss][1], mag_offset=mag_trans[ss])
@@ -525,7 +526,7 @@ def make_fake_starlists_poly1_vel(seed=-1):
         md += np.random.randn(N_stars) * 0.02
         xde = xpe
         yde = ype
-        mde = lis['m0e']
+        mde = lis['m0_err']
 
         # Save the new list as a starlist.
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
@@ -575,9 +576,9 @@ def make_fake_starlists_poly1_acc(seed=-1):
                               vx, vxe, vy, vye,
                               ax, axe, ay, aye,
                               t0],
-                             names = ('name', 'm0', 'm0e',
-                                      'x0', 'x0e', 'y0', 'y0e',
-                                      'vx', 'vxe', 'vy', 'vye',
+                             names = ('name', 'm0', 'm0_err',
+                                      'x0', 'x0_err', 'y0', 'y0_err',
+                                      'vx', 'vx_err', 'vy', 'vy_err',
                                       'ax', 'axe', 'ay', 'aye',
                                       't0'))
     
@@ -613,8 +614,8 @@ def make_fake_starlists_poly1_acc(seed=-1):
         # Convert into pixels
         xp = (x / -scale) + shift[0]  # -1 from switching to increasing to West (right)
         yp = (y /  scale) + shift[1]
-        xpe = lis['x0e'] / scale
-        ype = lis['y0e'] / scale
+        xpe = lis['x0_err'] / scale
+        ype = lis['y0_err'] / scale
 
         # Distort the positions
         trans = transforms.PolyTransform(1, xy_trans[ss][0], xy_trans[ss][1], mag_offset=mag_trans[ss])
@@ -627,7 +628,7 @@ def make_fake_starlists_poly1_acc(seed=-1):
         md += np.random.randn(N_stars) * 0.02
         xde = xpe
         yde = ype
-        mde = lis['m0e']
+        mde = lis['m0_err']
 
         # Save the new list as a starlist.
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
