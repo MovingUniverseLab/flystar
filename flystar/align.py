@@ -505,7 +505,6 @@ class MosaicSelfRef(object):
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
 
             ### Update the "average" values to be used as the reference frame for the next list.
-            print(self.ref_table.keys())
             if self.update_ref_orig != 'periter':
                 self.update_ref_table_aggregates()
 
@@ -1054,10 +1053,10 @@ class MosaicSelfRef(object):
         'me_boot', 2D column: bootstrap mag uncertainties due to transformation for each epoch
         
         If calc_vel_in_bootstrap:
-        'x0e_boot', 1D column: bootstrap uncertainties in x0 for PM fit
-        'y0e_boot', 1D column: bootstrap uncertainties in y0 for PM fit
-        'vxe_boot', 1D column: bootstrap uncertainties in vx for PM fit
-        'vye_boot', 1D column: bootstrap uncertainties in vy for PM fit
+        'x0_err_boot', 1D column: bootstrap uncertainties in x0 for PM fit
+        'y0_err_boot', 1D column: bootstrap uncertainties in y0 for PM fit
+        'vx_err_boot', 1D column: bootstrap uncertainties in vx for PM fit
+        'vy_err_boot', 1D column: bootstrap uncertainties in vy for PM fit
 
         For stars that fail boot_epochs_min criteria, np.nan is used
         """
@@ -1234,8 +1233,8 @@ class MosaicSelfRef(object):
         if calc_vel_in_bootstrap:
             x0_err_b = np.std(x0_arr, ddof=1, axis=1)
             y0_err_b = np.std(y0_arr, ddof=1, axis=1)
-            vx_err_b = np.std(vx_arr, ddof=1, axis=1)
-            vy_err_b = np.std(vy_arr, ddof=1, axis=1)
+            vx_err_b = np.nanstd(vx_arr, ddof=1, axis=1)
+            vy_err_b = np.nanstd(vy_arr, ddof=1, axis=1)
         else:
             x0_err_b = np.nan
             y0_err_b = np.nan
@@ -1246,8 +1245,8 @@ class MosaicSelfRef(object):
         # hanging off of mosaic object.
         col_heads_2D = ['xe_boot', 'ye_boot', 'me_boot']
         data_dict = {'xe_boot': x_err_b, 'ye_boot': y_err_b, 'me_boot': m_err_b,
-                         'x0e_boot': x0_err_b, 'y0e_boot': y0_err_b,
-                         'vxe_boot': vx_err_b, 'vye_boot': vy_err_b}
+                         'x0_err_boot': x0_err_b, 'y0_err_boot': y0_err_b,
+                         'vx_err_boot': vx_err_b, 'vy_err_boot': vy_err_b}
             
         for ff in col_heads_2D:
             col = Column(np.ones((len(self.ref_table), n_epochs)), name=ff)
@@ -1258,7 +1257,7 @@ class MosaicSelfRef(object):
 
         # Now handle the velocities, if they were calculated
         if calc_vel_in_bootstrap:
-            col_heads_1D = [ 'x0e_boot', 'y0e_boot', 'vxe_boot', 'vye_boot']
+            col_heads_1D = [ 'x0_err_boot', 'y0_err_boot', 'vx_err_boot', 'vy_err_boot']
             
             for ff in col_heads_1D:
                 col = Column(np.ones(len(self.ref_table)), name=ff)

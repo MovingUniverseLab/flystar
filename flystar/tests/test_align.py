@@ -753,12 +753,13 @@ def test_bootstrap():
 
     # Run bootstrap: no boot_epochs_min
     match1.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min)
-
+    print(match1.ref_table.keys())
     # Make sure columns exist, and none of them are nan values
     assert np.sum(np.isnan(match1.ref_table['xe_boot'])) == 0
     assert np.sum(np.isnan(match1.ref_table['ye_boot'])) == 0
-    assert np.sum(np.isnan(match1.ref_table['vxe_boot'])) == 0
-    assert np.sum(np.isnan(match1.ref_table['vye_boot'])) == 0
+    print(match1.ref_table['vx_err_boot'])
+    assert np.sum(np.isnan(match1.ref_table['vx_err_boot'])) == 0
+    assert np.sum(np.isnan(match1.ref_table['vy_err_boot'])) == 0
 
     # Test 2: make sure boot_epochs_min is working
     # Eliminate some rows to list2, so some stars are only in 1 epoch.
@@ -797,14 +798,14 @@ def test_bootstrap():
     # For "good" stars: all bootstrap vals should be present
     assert np.sum(np.isnan(out['xe_boot'][good])) == 0
     assert np.sum(np.isnan(out['ye_boot'][good])) == 0
-    assert np.sum(np.isnan(out['vxe_boot'][good])) == 0
-    assert np.sum(np.isnan(out['vye_boot'][good])) == 0
+    assert np.sum(np.isnan(out['vx_err_boot'][good])) == 0
+    assert np.sum(np.isnan(out['vy_err_boot'][good])) == 0
 
     # For "bad" stars, all bootstrap vals should be nans
     assert np.sum(np.isfinite(out['xe_boot'][bad])) == 0
     assert np.sum(np.isfinite(out['ye_boot'][bad])) == 0
-    assert np.sum(np.isfinite(out['vxe_boot'][bad])) == 0
-    assert np.sum(np.isfinite(out['vye_boot'][bad])) == 0
+    assert np.sum(np.isfinite(out['vx_err_boot'][bad])) == 0
+    assert np.sum(np.isfinite(out['vy_err_boot'][bad])) == 0
 
     return
 
@@ -869,15 +870,15 @@ def test_calc_vel_in_bootstrap():
 
     assert 'xe_boot' in match_vel.ref_table.keys()
     assert np.sum(np.isnan(match_vel.ref_table['xe_boot'])) == 0
-    assert 'vxe_boot' in match_vel.ref_table.keys()
+    assert 'vx_err_boot' in match_vel.ref_table.keys()
     assert np.sum(np.isnan(match_vel.ref_table['vxe_boot'])) == 0
 
     # Run without calc_vel_in_bootstrap, make sure velocities are NOT calculated
     match.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=False)
 
-    assert 'xe_boot' in match.ref_table.keys()
+    assert 'x_e_boot' in match.ref_table.keys()
     assert np.sum(np.isnan(match.ref_table['xe_boot'])) == 0
-    assert 'vxe_boot' not in match.ref_table.keys()
+    assert 'vx_err_boot' not in match.ref_table.keys()
     
     return
 
