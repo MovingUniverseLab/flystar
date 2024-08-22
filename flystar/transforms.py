@@ -120,13 +120,13 @@ class Transform2D(object):
             new_list['vy'] = vals[1]
 
             # Velocity errors (if they exist)
-            if 'vxe' in new_list.colnames:
+            if 'vx_err' in new_list.colnames:
                 vals = self.evaluate_vel_error(star_list['x'], star_list['y'],
                                                star_list['vx'], star_list['vy'],
                                                star_list['xe'], star_list['ye'],
-                                               star_list['vxe'], star_list['vye'])
-                new_list['vxe'] = vals[0]
-                new_list['vye'] = vals[1]
+                                               star_list['vx_err'], star_list['vy_err'])
+                new_list['vx_err'] = vals[0]
+                new_list['vy_err'] = vals[1]
                 
         return new_list
     

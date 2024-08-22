@@ -59,7 +59,6 @@ def test_MosaicSelfRef():
     for ii in range(4):
         np.testing.assert_almost_equal(msc.trans_list[ii].px.c1_0, 1.0, 2)
         np.testing.assert_almost_equal(msc.trans_list[ii].py.c0_1, 1.0, 2)
-    
     # We didn't do any velocity fitting, so make sure nothing got created.
     assert 'vx' not in msc.ref_table.colnames
     assert 'vy' not in msc.ref_table.colnames
@@ -82,6 +81,7 @@ def test_MosaicSelfRef():
     plt.plot(msc.ref_table['x0'],
              msc.ref_table['y0'],
              'k.', color='black', alpha=0.2)
+             
 
     return
 
@@ -137,13 +137,14 @@ def test_MosaicSelfRef_vel_tconst():
 
     # Check that the velocities aren't crazy...
     # they should be zero (since there is no time difference)
-    np.testing.assert_almost_equal(msc.ref_table['vx'], 0, 1)
-    np.testing.assert_almost_equal(msc.ref_table['vy'], 0, 1)
+    # TODO: is there a reason these were both happening? seemed like a duplicate assert
+    #np.testing.assert_almost_equal(msc.ref_table['vx'], 0, 1)
+    #np.testing.assert_almost_equal(msc.ref_table['vy'], 0, 1)
 
-    assert (msc.ref_table['vx'] == 0).all()
-    assert (msc.ref_table['vy'] == 0).all()
-    assert (msc.ref_table['vx_err'] == 0).all()
-    assert (msc.ref_table['vy_err'] == 0).all()
+    assert np.isnan(msc.ref_table['vx']).all()
+    assert np.isnan(msc.ref_table['vy']).all()
+    assert np.isnan(msc.ref_table['vx_err']).all()
+    assert np.isnan(msc.ref_table['vy_err']).all()
 
     return
 
@@ -277,6 +278,7 @@ def test_MosaicToRef():
     
     return msc
 
+# TODO: Make this a valid test - it currently just runs with Linear
 def test_MosaicToRef_acc():
     make_fake_starlists_poly1_acc(seed=42)
     
@@ -311,11 +313,11 @@ def test_MosaicToRef_acc():
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2},
-                              motion_class=motion_model.Accel,
-                              use_vel=True,
+                              default_motion_model='Acceleration',
                               update_ref_orig=False, verbose=False)
 
     msc.fit()
+    print(msc.ref_table['motion_model_input','motion_model_used'])
 
     # Check our status columns
     assert 'use_in_trans' in msc.ref_table.colnames

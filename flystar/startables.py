@@ -164,8 +164,8 @@ class StarTable(Table):
                     self.add_column(Column(data=kwargs[arg], name=arg))
                     if arg == 'name_in_list':
                         self['name_in_list'] = self['name_in_list'].astype('U20')
-                    if arg == 'motion_model':
-                        self['motion_model'] = self['motion_model'].astype('U20')
+                    if arg == 'motion_model_input':
+                        self['motion_model_input'] = self['motion_model_input'].astype('U20')
             '''if 'motion_model' not in kwargs:
                 self['motion_model'] = np.repeat(default_motion_model, len(self['name']))'''
 
@@ -507,7 +507,7 @@ class StarTable(Table):
 
         # Save off our new AVG and STD into new columns with shape (N_stars).
         col_name_avg = col_name_in + '0'
-        col_name_std = col_name_in + '0e'
+        col_name_std = col_name_in + '0_err'
 
         if ismag:
             std = (2.5 / np.log(10)) * std / avg
@@ -579,14 +579,17 @@ class StarTable(Table):
             msg = 'Starting startable.fit_velocities for {0:d} stars with n={1:d} bootstrap'
             print(msg.format(N_stars, bootstrap))
 
+        # Set all to default_motion_model if none assigned already.
+        # Reset motion_model_used to the inputs for now -> will change as fits run
+        if 'motion_model_input' not in self.colnames:
+            self['motion_model_input'] = default_motion_model
+        self['motion_model_used'] = self['motion_model_input']
+            
         #
         # Fill table with all possible motion model parameter names as new
         # columns. Make everything empty for now.
         #
-        if 'motion_model' not in self.colnames:
-            self['motion_model'] = default_motion_model
-            
-        all_motion_models = np.unique(self['motion_model'].tolist() + ['Fixed','Linear']).tolist()
+        all_motion_models = np.unique(self['motion_model_input'].tolist() + ['Fixed']+[default_motion_model]).tolist()
         new_col_list = motion_model.get_list_motion_model_param_names(all_motion_models, with_errors=True)
         # Append goodness of fit metrics and t0.
         # TODO: actually populate these columns
@@ -609,7 +612,7 @@ class StarTable(Table):
         # Catch the case when there is only a single epoch. Just return
         # the same input position for the x0/y0.
         if (self['x'].shape[1] == 1):
-            self['motion_model'] = 'Fixed'
+            self['motion_model_used'] = 'Fixed'
             self['x0'] = self['x'][:,0]
             self['y0'] = self['y'][:,0]
 
@@ -625,11 +628,6 @@ class StarTable(Table):
             self['n_fit'] = 1
 
             return
-            
-        # TODO: this is not great - hack attempt at debugging
-        motion_model_dict = {}
-        for motion_model_name in np.unique(self['motion_model']):
-            motion_model_dict[motion_model_name] = getattr(motion_model, motion_model_name)()
 
         # STARS LOOP through the stars and work on them 1 at a time.
         # This is slow; but robust.
@@ -638,15 +636,13 @@ class StarTable(Table):
                 self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy,
                                            absolute_sigma=absolute_sigma, bootstrap=bootstrap,
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,
-                                           mask_val=mask_val, mask_lists=mask_lists,
-                                           motion_model_dict=motion_model_dict)
+                                           mask_val=mask_val, mask_lists=mask_lists)
         else:
             for ss in range(N_stars):
                 self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy,
                                            absolute_sigma=absolute_sigma, bootstrap=bootstrap,
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,
-                                           mask_val=mask_val, mask_lists=mask_lists,
-                                           motion_model_dict=motion_model_dict)
+                                           mask_val=mask_val, mask_lists=mask_lists)
         if verbose:
             stop_time = time.time()
             print('startable.fit_velocities runtime = {0:.0f} s for {1:d} stars'.format(stop_time - start_time, N_stars))
@@ -656,8 +652,7 @@ class StarTable(Table):
     def fit_velocity_for_star(self, ss, weighting='var', use_scipy=True,
                               absolute_sigma=True, bootstrap=False, fixed_t0=False,
                               default_motion_model='Linear',
-                              mask_val=None, mask_lists=False,
-                              motion_model_dict=None):
+                              mask_val=None, mask_lists=False):
 
         # 
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
@@ -798,22 +793,22 @@ class StarTable(Table):
         #
         # Decide which motion_model to fit.
         #
-        motion_model_use = self['motion_model'][ss]
+        motion_model_use = self['motion_model_input'][ss]
         
         # Go to default model if not enough points for assigned but enough for default
         # TODO: think about whether we want other fallbacks besides the singular default and Fixed
-        if (N_good < getattr(motion_model, self['motion_model'][ss]).n_pts_req) and \
+        if (N_good < getattr(motion_model, self['motion_model_input'][ss]).n_pts_req) and \
             (N_good >= getattr(motion_model, default_motion_model).n_pts_req):
             motion_model_use = default_motion_model
         # If not enough points for either, go to a fixed model
-        elif (N_good < getattr(motion_model, self['motion_model'][ss]).n_pts_req) and \
+        elif (N_good < getattr(motion_model, self['motion_model_input'][ss]).n_pts_req) and \
             (N_good < getattr(motion_model, default_motion_model).n_pts_req):
             motion_model_use = 'Fixed'
         # If the points do not cover multiple times, go to a fixed model
         if (dt == dt[0]).all():
             motion_model_use = 'Fixed'
             
-        self['motion_model'][ss] = motion_model_use
+        self['motion_model_used'][ss] = motion_model_use
 
         # Instantiate the motion model object.
         modClass = getattr(motion_model, motion_model_use)
@@ -870,11 +865,11 @@ class StarTable(Table):
         ye = np.full(N_stars, np.nan, dtype=float)
         # Check which motion models we need
         # use complex_mms to collect models besides Fixed and Linear
-        unique_mms = np.unique(self['motion_model']).tolist()
+        unique_mms = np.unique(self['motion_model_used']).tolist()
         # Calculate current position in batches by motion model
         for mm in unique_mms:
             # Identify stars with this model & get class
-            idx = np.where(self['motion_model']==mm)[0]
+            idx = np.where(self['motion_model_used']==mm)[0]
             modClass = getattr(motion_model, mm)
             # Set up parameters
             param_dict = {}
