@@ -594,6 +594,8 @@ class StarTable(Table):
         # Append goodness of fit metrics and t0.
         # TODO: actually populate these columns
         new_col_list += ['chi2_x', 'chi2_y']
+        if 't0' not in new_col_list:
+            new_col_list.append('t0')
 
         # Define output arrays for the best-fit parameters.
         for col in new_col_list:
@@ -653,6 +655,7 @@ class StarTable(Table):
                               absolute_sigma=True, bootstrap=False, fixed_t0=False,
                               default_motion_model='Linear',
                               mask_val=None, mask_lists=False):
+        # TODO: "weighting" is not used
 
         # 
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
@@ -794,7 +797,6 @@ class StarTable(Table):
         # Decide which motion_model to fit.
         #
         motion_model_use = self['motion_model_input'][ss]
-        
         # Go to default model if not enough points for assigned but enough for default
         # TODO: think about whether we want other fallbacks besides the singular default and Fixed
         if (N_good < getattr(motion_model, self['motion_model_input'][ss]).n_pts_req) and \
@@ -810,7 +812,7 @@ class StarTable(Table):
             
         self['motion_model_used'][ss] = motion_model_use
 
-        # Instantiate the motion model object.
+        # Get the motion model object.
         modClass = getattr(motion_model, motion_model_use)
 
         # Load up any prior information on parameters for this model.
@@ -835,16 +837,10 @@ class StarTable(Table):
 
         # Fit for the best parameters
         params, param_errs = mod.fit_motion_model(dt, x, y, xe, ye, bootstrap=bootstrap)
-        
-        # TODO:  bad
-        #with modClass(**param_dict) as mod:
-        #    params, param_errs = mod.fit_motion_model(dt, x, y, xe, ye, bootstrap=bootstrap)
-
         # Save parameters and errors to table.
         for pp in range(len(modClass.fitter_param_names)):
             par = modClass.fitter_param_names[pp]
             par_err = par + '_err'
-            
             self[par][ss] = params[pp]
             self[par_err][ss] = param_errs[pp]
             
@@ -873,15 +869,7 @@ class StarTable(Table):
             modClass = getattr(motion_model, mm)
             # Set up parameters
             param_dict = {}
-            for par in modClass.fitter_param_names:
-                param_dict[par] = self[par][idx]
-                param_dict[par+'_err'] = self[par+'_err'][idx]
-            # Load fixed parameters, if needed.
-            for par in modClass.fixed_param_names:
-                if par not in self.colnames:
-                    msg  = f'fit_velocity_for_star: '
-                    msg += f'Missing fixed_params column {par} needed for motion model {motion_model_use}.'
-                    raise RuntimeException(msg)
+            for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
                 param_dict[par] = self[par][idx]
             mod = modClass()
             x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)

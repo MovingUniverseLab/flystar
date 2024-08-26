@@ -278,7 +278,7 @@ def test_MosaicToRef():
     
     return msc
 
-# TODO: Make this a valid test - it currently just runs with Linear
+# TODO: Make this a valid test
 def test_MosaicToRef_acc():
     make_fake_starlists_poly1_acc(seed=42)
     
@@ -289,12 +289,14 @@ def test_MosaicToRef_acc():
                   'random_acc_3.fits']
 
     ref_list = Table.read(ref_file)
+    print(ref_list.keys())
+    print(ref_list)
 
     # Convert velocities to arcsec/yr
-    ref_list['vx'] *= 1e-3
-    ref_list['vy'] *= 1e-3
-    ref_list['vx_err'] *= 1e-3
-    ref_list['vy_err'] *= 1e-3
+    ref_list['vx0'] *= 1e-3
+    ref_list['vy0'] *= 1e-3
+    ref_list['vx0_err'] *= 1e-3
+    ref_list['vy0_err'] *= 1e-3
 
     # Convert accelerations to arcsec/yr**2
     ref_list['ax'] *= 1e-3
@@ -304,7 +306,7 @@ def test_MosaicToRef_acc():
     
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
-    ref_list['vx'] *= -1.0
+    ref_list['vx0'] *= -1.0
     ref_list['ax'] *= -1.0
         
     lists = [starlists.StarList.read(lf) for lf in list_files]
@@ -328,8 +330,8 @@ def test_MosaicToRef_acc():
 
     # The velocities should be almost the same as the input 
     # velocities since update_ref_orig == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 5)
-    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 5)
+    np.testing.assert_almost_equal(msc.ref_table['vx0'], ref_list['vx0'], 5)
+    np.testing.assert_almost_equal(msc.ref_table['vy0'], ref_list['vy0'], 5)
 
 
     ##########
@@ -340,11 +342,11 @@ def test_MosaicToRef_acc():
 
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 1)
-    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 1)
+    np.testing.assert_almost_equal(msc.ref_table['vx0'], ref_list['vx0'], 1)
+    np.testing.assert_almost_equal(msc.ref_table['vy0'], ref_list['vy0'], 1)
 
     # Also double check that they aren't exactly the same for the reference stars.
-    assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
+    assert np.any(np.not_equal(msc.ref_table['vx0'], ref_list['vx0']))
     
     return msc
 
@@ -580,7 +582,7 @@ def make_fake_starlists_poly1_acc(seed=-1):
                               t0],
                              names = ('name', 'm0', 'm0_err',
                                       'x0', 'x0_err', 'y0', 'y0_err',
-                                      'vx', 'vx_err', 'vy', 'vy_err',
+                                      'vx0', 'vx0_err', 'vy0', 'vy0_err',
                                       'ax', 'axe', 'ay', 'aye',
                                       't0'))
     
@@ -609,8 +611,8 @@ def make_fake_starlists_poly1_acc(seed=-1):
     for ss in range(len(times)):
         dt = times[ss] - lis['t0']
         
-        x = lis['x0'] + (lis['vx']/1e3) * dt + (lis['ax']/1e3) * dt**2
-        y = lis['y0'] + (lis['vy']/1e3) * dt + (lis['ay']/1e3) * dt**2
+        x = lis['x0'] + (lis['vx0']/1e3) * dt + (lis['ax']/1e3) * dt**2
+        y = lis['y0'] + (lis['vy0']/1e3) * dt + (lis['ay']/1e3) * dt**2
         t = np.ones(N_stars) * times[ss]
 
         # Convert into pixels
@@ -871,12 +873,12 @@ def test_calc_vel_in_bootstrap():
     assert 'xe_boot' in match_vel.ref_table.keys()
     assert np.sum(np.isnan(match_vel.ref_table['xe_boot'])) == 0
     assert 'vx_err_boot' in match_vel.ref_table.keys()
-    assert np.sum(np.isnan(match_vel.ref_table['vxe_boot'])) == 0
+    assert np.sum(np.isnan(match_vel.ref_table['vx_err_boot'])) == 0
 
     # Run without calc_vel_in_bootstrap, make sure velocities are NOT calculated
     match.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=False)
 
-    assert 'x_e_boot' in match.ref_table.keys()
+    assert 'xe_boot' in match.ref_table.keys()
     assert np.sum(np.isnan(match.ref_table['xe_boot'])) == 0
     assert 'vx_err_boot' not in match.ref_table.keys()
     
@@ -987,7 +989,7 @@ def test_MosaicToRef_mag_bug():
     """
     make_fake_starlists_poly1_vel()
 
-    ref_list = starlists.StarList.from_lis_file('random_0.lis', error=False)
+    ref_list = starlists.StarList.read('random_vel_0.fits')
     lists = [ref_list]
 
     msc = align.MosaicToRef(ref_list, lists, 
@@ -1031,8 +1033,8 @@ def test_masked_cols():
 
     # Coordinates are arcsecs offset +x to the East.
     targets_dict = {'ob150029':   [0.0, 0.0],
-                'S11_15_3.9': [ 1.13982, 3.73524],
-                'S13_13_4.5': [-4.42878, 0.03100]
+                'S005': [1.1416,    3.7405],
+                'S002': [-4.421,    0.027]
                }
 
     # Get gaia catalog stars. Note that this produces a masked column table

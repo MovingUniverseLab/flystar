@@ -820,7 +820,8 @@ class MosaicSelfRef(object):
                 motion_model_class_names += self.ref_table['motion_model_used'][ref_orig_idx].tolist()
             motion_model_col_names = motion_model.get_list_motion_model_param_names(motion_model_class_names, with_errors=True)
             for mm in motion_model_col_names:
-                vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
+                if mm in self.ref_table.keys():
+                    vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
                 
         #if self.use_motion:
             # Combine positions with a velocity fit.
@@ -1086,11 +1087,18 @@ class MosaicSelfRef(object):
         xe_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
         ye_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
         me_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
+
+        # Set up motion model parameters
+        motion_model_list = ['Fixed', self.default_motion_model]
+        if 'motion_model_used' in ref_table.keys():
+            motion_model_list += ref_table['motion_model_used'].tolist()
+        elif 'motion_model_assigned' in ref_table.keys():
+            motion_model_list += ref_table['motion_model_assigned'].tolist()
+        motion_col_list = motion_model.get_list_motion_model_param_names(np.unique(motion_model_list).tolist(), with_errors=False, with_fixed=False)
         if calc_vel_in_bootstrap:
-            x0_arr = np.ones((len(ref_table['x']), n_boot)) * -999
-            y0_arr = np.ones((len(ref_table['x']), n_boot)) * -999
-            vx_arr = np.ones((len(ref_table['x']), n_boot)) * -999
-            vy_arr = np.ones((len(ref_table['x']), n_boot)) * -999
+            motion_data = {}
+            for col in motion_col_list:
+                motion_data[col] = np.ones((len(ref_table['x']), n_boot)) * -999
 
         ### IF MEMORY PROBLEMS HERE:
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
@@ -1211,10 +1219,8 @@ class MosaicSelfRef(object):
                 star_table.fit_velocities(fixed_t0=t0_arr, default_motion_model=self.default_motion_model)
 
                 # Save proper motion fit results to output arrays
-                x0_arr[:,ii] = star_table['x0']
-                y0_arr[:,ii] = star_table['y0']
-                vx_arr[:,ii] = star_table['vx']
-                vy_arr[:,ii] = star_table['vy']
+                for col in motion_col_list:
+                    motion_data[col][:,ii] = star_table[col]
 
                 # Quick check to make sure bootstrap calc was valid: output t0 should be
                 # same as input t0_arr, since we used fixed_t0 option
@@ -1230,23 +1236,20 @@ class MosaicSelfRef(object):
         y_err_b = np.std(y_trans_arr, ddof=1, axis=1)
         m_err_b = np.std(m_trans_arr, ddof=1, axis=1)
 
+        motion_data_err = {}
         if calc_vel_in_bootstrap:
-            x0_err_b = np.std(x0_arr, ddof=1, axis=1)
-            y0_err_b = np.std(y0_arr, ddof=1, axis=1)
-            vx_err_b = np.nanstd(vx_arr, ddof=1, axis=1)
-            vy_err_b = np.nanstd(vy_arr, ddof=1, axis=1)
+            for col in motion_col_list:
+                motion_data_err[col] = np.nanstd(motion_data[col], ddof=1,axis=1)
         else:
-            x0_err_b = np.nan
-            y0_err_b = np.nan
-            vx_err_b = np.nan
-            vy_err_b = np.nan
+            for col in motion_col_list:
+                motion_data_err[col] = np.nan
 
         # Add summary statistics to *original* ref_table, i.e. ref_table
         # hanging off of mosaic object.
         col_heads_2D = ['xe_boot', 'ye_boot', 'me_boot']
-        data_dict = {'xe_boot': x_err_b, 'ye_boot': y_err_b, 'me_boot': m_err_b,
-                         'x0_err_boot': x0_err_b, 'y0_err_boot': y0_err_b,
-                         'vx_err_boot': vx_err_b, 'vy_err_boot': vy_err_b}
+        data_dict = {'xe_boot': x_err_b, 'ye_boot': y_err_b, 'me_boot': m_err_b}
+        for col in motion_col_list:
+            data_dict[col+'_err_boot'] = motion_data_err[col]
             
         for ff in col_heads_2D:
             col = Column(np.ones((len(self.ref_table), n_epochs)), name=ff)
@@ -1257,7 +1260,7 @@ class MosaicSelfRef(object):
 
         # Now handle the velocities, if they were calculated
         if calc_vel_in_bootstrap:
-            col_heads_1D = [ 'x0_err_boot', 'y0_err_boot', 'vx_err_boot', 'vy_err_boot']
+            col_heads_1D = [col+'_err_boot' for col in motion_col_list]
             
             for ff in col_heads_1D:
                 col = Column(np.ones(len(self.ref_table)), name=ff)
@@ -3770,9 +3773,9 @@ def get_weighting_scheme(weights, ref_list, star_list):
 # TODO: I think this is a startable, not a starlist
 def get_pos_at_time(t, starlist):
     """
-    Take a starlist, check to see if it has velocity columns.
+    Take a starlist, check to see if it has motion/velocity columns.
     If it does, then propogate the positions forward in time 
-    to the desired epoch. If no velocities exist, then just 
+    to the desired epoch. If no motion/velocities exist, then just
     use ['x0', 'y0'] or ['x', 'y']
 
     Inputs
@@ -3782,15 +3785,21 @@ def get_pos_at_time(t, starlist):
         but it should be in the same units
         as the 't0' column in starlist.
     """
+    # Check for motion model
     if 'motion_model_used' in starlist.colnames:
         x,y,xe,ye = starlist.get_star_positions_at_time(t)
+    # If no motion model, check for velocities
+    elif ('vx' in starlist.colnames) and ('vy' in starlist.colnames) and ('x0' in starlist.colnames) and ('y0' in starlist.colnames):
+        x = starlist['x0'] + np.nan_to_num(starlist['vx'])*(t-starlist['t0'])
+        y = starlist['y0'] + np.nan_to_num(starlist['vy'])*(t-starlist['t0'])
+    # If no velocities, try fitted positon
+    elif ('x0' in starlist.colnames) and ('y0' in starlist.colnames):
+        x = starlist['x0']
+        y = starlist['y0']
+    # Otherwise, use measured position
     else:
-        if ('x0' in starlist.colnames) and ('y0' in starlist.colnames):
-            x = starlist['x0']
-            y = starlist['y0']
-        else:
-            x = starlist['x']
-            y = starlist['y']
+        x = starlist['x']
+        y = starlist['y']
         
     return (x, y)
 
