@@ -6,6 +6,8 @@ import pdb
 class MotionModel(ABC):
     # Number of data points required to fit model
     n_pts_req = 0
+    # Degrees of freedom for model
+    dof = 0
 
     # Fit paramters: Shared fit parameters
     fitter_param_names = []
@@ -50,12 +52,24 @@ class MotionModel(ABC):
         """
         #return params, param_errors
         pass
+        
+    def get_chi2(self,dt,x,y,xe,ye):
+        """
+        Get the chi^2 value for the current MM and
+        the input data.
+        """
+        # TODO: confirm whether we want reduced chi^2 or anything special - maybe kwarg option
+        x_pred,y_pred = self.get_pos_at_time(dt)
+        chi2x = np.sum((x-x_pred)**2 / xe**2)
+        chi2y = np.sum((y-y_pred)**2 / ye**2)
+        return chi2x,chi2y
     
 class Fixed(MotionModel):
     """
     A non-moving motion model for a star on the sky.
     """
     n_pts_req = 1
+    dof=1
     fitter_param_names = ['x0','y0']
     fixed_param_names = []
     
@@ -111,6 +125,7 @@ class Linear(MotionModel):
     A 2D linear motion model for a star on the sky.
     """
     n_pts_req = 2
+    dof=2
     fitter_param_names = ['x0', 'vx', 'y0', 'vy']
     fixed_param_names = ['t0']
     
@@ -136,20 +151,14 @@ class Linear(MotionModel):
         
         return
 
-    def get_pos_at_time(self, t):
-        dt = t - self.t0
-        
+    def get_pos_at_time(self, dt):
         x = self.px(dt)
         y = self.py(dt)
-
         return x, y
         
-    def get_pos_err_at_time(self, t):
-        dt = t - self.t0
-        
+    def get_pos_err_at_time(self, dt):
         x_err = np.hypot(self.x0_err, self.vx_err*dt)
         y_err = np.hypot(self.y0_err, self.vy_err*dt)
-
         return x_err, y_err
         
     def get_batch_pos_at_time(self,t,
@@ -252,6 +261,7 @@ class Acceleration(MotionModel):
     A 2D accelerating motion model for a star on the sky.
     """
     n_pts_req = 4 # TODO: consider special case for 3 pts
+    dof=3
     fitter_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
     fixed_param_names = ['t0']
     
@@ -384,7 +394,10 @@ class Acceleration(MotionModel):
         
         return params, param_errors
 
-
+"""
+Get all the motion model parameters for a given motion_model_name.
+Optionally, include fixed and error parameters (included by default).
+"""
 def get_one_motion_model_param_names(motion_model_name, with_errors=True, with_fixed=True):
     mod = eval(motion_model_name)
     list_of_parameters = []
@@ -395,6 +408,10 @@ def get_one_motion_model_param_names(motion_model_name, with_errors=True, with_f
         list_of_parameters += [par+'_err' for par in getattr(mod, 'fitter_param_names')]
     return list_of_parameters
 
+"""
+Get all the motion model parameters for all models given in motion_model_list.
+Optionally, include fixed and error parameters (included by default).
+"""
 def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_fixed=True):
     list_of_parameters = []
     all_motion_models = [eval(mm) for mm in np.unique(motion_model_list).tolist()]
@@ -411,6 +428,10 @@ def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_
     
     return np.unique(list_of_parameters).tolist()
 
+"""
+Get all the motion model parameters for all models defined in this module.
+Optionally, include fixed and error parameters (included by default).
+"""
 def get_all_motion_model_param_names(with_errors=True, with_fixed=True):
     list_of_parameters = []
     all_motion_models = MotionModel.__subclasses__()

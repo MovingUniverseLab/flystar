@@ -592,7 +592,6 @@ class StarTable(Table):
         all_motion_models = np.unique(self['motion_model_input'].tolist() + ['Fixed']+[default_motion_model]).tolist()
         new_col_list = motion_model.get_list_motion_model_param_names(all_motion_models, with_errors=True)
         # Append goodness of fit metrics and t0.
-        # TODO: actually populate these columns
         new_col_list += ['chi2_x', 'chi2_y']
         if 't0' not in new_col_list:
             new_col_list.append('t0')
@@ -836,7 +835,11 @@ class StarTable(Table):
         mod = modClass(**param_dict)
 
         # Fit for the best parameters
-        params, param_errs = mod.fit_motion_model(dt, x, y, xe, ye, bootstrap=bootstrap)
+        params, param_errs = mod.fit_motion_model(dt, x, y, xe, ye, bootstrap=bootstrap, update=True)
+        chi2_x,chi2_y = mod.get_chi2(dt,x,y,xe,ye)
+        self['chi2_x'][ss]=chi2_x
+        self['chi2_y'][ss]=chi2_y
+        
         # Save parameters and errors to table.
         for pp in range(len(modClass.fitter_param_names)):
             par = modClass.fitter_param_names[pp]
