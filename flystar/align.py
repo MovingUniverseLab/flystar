@@ -1842,11 +1842,9 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis, default_motion_model='
     
     return ref_table, idx_lis_new, idx_ref_new
 
-
 """
 Functions specific to OB120169 moved to align_old_functions,py
 """
-
 
 def calc_mag_avg_all_stars(d):
     # Determine how many stars there are. 
