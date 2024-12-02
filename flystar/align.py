@@ -2406,65 +2406,52 @@ def transform_from_object(starlist, transform):
     
     # Prior code before motion_model implementation
     # Can still be used as shortcut for Linear+Fixed motion_model only
+    err = 'xe' in keys
+    
+    # Extract needed information from starlist
+    x = starlist_f['x']
+    y = starlist_f['y']
+
+    if err:
+        xe = starlist_f['xe']
+        ye = starlist_f['ye']
+
     if vel:
-        err = 'xe' in keys
+        x0 = starlist_f['x0']
+        y0 = starlist_f['y0']
+        x0e = starlist_f['x0_err']
+        y0e = starlist_f['y0_err']
+        vx = starlist_f['vx']
+        vy = starlist_f['vy']
+        vxe = starlist_f['vx_err']
+        vye = starlist_f['vy_err']
         
-        # Extract needed information from starlist
-        x = starlist_f['x']
-        y = starlist_f['y']
+    # calculate the transformed position and velocity
+    x_new, y_new, xe_new, ye_new = position_transform_from_object(x, y, xe, ye, transform)
 
-        if err:
-            xe = starlist_f['xe']
-            ye = starlist_f['ye']
+    if vel:
+        x0_new, y0_new, x0e_new, y0e_new = position_transform_from_object(x0, y0, x0e, y0e, transform)
+        vx_new, vy_new, vxe_new, vye_new = velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
 
-        if vel:
-            x0 = starlist_f['x0']
-            y0 = starlist_f['y0']
-            x0e = starlist_f['x0_err']
-            y0e = starlist_f['y0_err']
-            vx = starlist_f['vx']
-            vy = starlist_f['vy']
-            vxe = starlist_f['vx_err']
-            vye = starlist_f['vy_err']
-        
-        # calculate the transformed position and velocity
-        
-        # (x_new, y_new, xe_new, ye_new) in (x,y)
-        x_new, y_new, xe_new, ye_new = position_transform_from_object(x, y, xe, ye, transform)
-
-        
-        if vel:
-            # (x0_new,  y0_new, x0e_new, y0e_new) in (x0, y0, x0e, y0e)
-            x0_new, y0_new, x0e_new, y0e_new = position_transform_from_object(x0, y0, x0e, y0e, transform)
-            # (vx_new, vy_new, vxe_new, vye_new) in (x0, y0, x0e, y0e, vx, vy, vxe, vye)
-            vx_new, vy_new, vxe_new, vye_new = velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
-
-        # update transformed coords to copy of astropy table
-        starlist_f['x'] = x_new
-        starlist_f['y'] = y_new
-        starlist_f['xe'] = xe_new
-        starlist_f['ye'] = ye_new
-        
-        if vel:
-            starlist_f['x0'] = x0_new
-            starlist_f['y0'] = y0_new
-            starlist_f['x0_err'] = x0e_new
-            starlist_f['y0_err'] = y0e_new
-            starlist_f['vx'] = vx_new
-            starlist_f['vy'] = vy_new
-            starlist_f['vx_err'] = vxe_new
-            starlist_f['vy_err'] = vye_new
+    # update transformed coords to copy of astropy table
+    starlist_f['x'] = x_new
+    starlist_f['y'] = y_new
+    starlist_f['xe'] = xe_new
+    starlist_f['ye'] = ye_new
+    
+    if vel:
+        starlist_f['x0'] = x0_new
+        starlist_f['y0'] = y0_new
+        starlist_f['x0_err'] = x0e_new
+        starlist_f['y0_err'] = y0e_new
+        starlist_f['vx'] = vx_new
+        starlist_f['vy'] = vy_new
+        starlist_f['vx_err'] = vxe_new
+        starlist_f['vy_err'] = vye_new
             
     # For more complicated motion_models,
-    # We can't easily transform them, set the values to nans and refit later
+    #  we can't easily transform them, set the values to nans and refit later.
     if mot:
-        # Transform positions
-        x_new, y_new, xe_new, ye_new = position_transform_from_object(x, y, xe, ye, transform)
-        starlist_f['x'] = x_new
-        starlist_f['y'] = y_new
-        starlist_f['xe'] = xe_new
-        starlist_f['ye'] = ye_new
-        
         motion_model_params = motion_model.get_all_motion_model_param_names()
         for param in motion_model_params:
             if param in keys:
