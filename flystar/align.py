@@ -1996,7 +1996,6 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, verb
     y2 = table2['y']
     m2 = table2['m']
 
-
     # Transform x, y coordinates from starlist 1 into starlist 2
     x1t, y1t = transform.evaluate(x1, y1)
 
@@ -2394,7 +2393,7 @@ def transform_from_object(starlist, transform):
     # Check to see if velocities or motion_model are present in starlist.
     vel = ('vx' in keys)and ~("motion_model_assigned" in keys)
     mot = ("motion_model_assigned" in keys)
-    # If the only motion models used are Fixed and Linear, we can still use the older, faster code.
+    # If the only motion models used are Fixed and Linear, we can still transform velocities.
     if mot:
         motion_models_unique = list(np.unique(starlist_f['motion_model_assigned']))
         if 'Linear' in motion_models_unique:

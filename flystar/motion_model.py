@@ -2,6 +2,9 @@ from astropy.modeling import models, fitting
 import numpy as np
 from abc import ABC
 import pdb
+from flystar import parallax
+from astropy.time import Time
+from scipy.optimize import minimize
 
 class MotionModel(ABC):
     # Number of data points required to fit model
@@ -52,17 +55,6 @@ class MotionModel(ABC):
         """
         #return params, param_errors
         pass
-        
-    def get_chi2(self,dt,x,y,xe,ye):
-        """
-        Get the chi^2 value for the current MM and
-        the input data.
-        """
-        # TODO: confirm whether we want reduced chi^2 or anything special - maybe kwarg option
-        x_pred,y_pred = self.get_pos_at_time(dt)
-        chi2x = np.sum((x-x_pred)**2 / xe**2)
-        chi2y = np.sum((y-y_pred)**2 / ye**2)
-        return chi2x,chi2y
     
 class Fixed(MotionModel):
     """
@@ -98,7 +90,7 @@ class Fixed(MotionModel):
                                 x0_err=[], y0_err=[]):
         return x0,y0,x0_err,y0_err
             
-    def fit_motion_model(self, dt, x, y, xe, ye, update=False, bootstrap=0):
+    def fit_motion_model(self, dt, x, y, xe, ye, update=True, bootstrap=0):
         # Handle single data point case
         if len(x)==1:
             return [x[0],y[0]],[xe[0],ye[0]]
@@ -171,7 +163,7 @@ class Linear(MotionModel):
         y_err = np.hypot(y0_err, vy_err*dt)
         return x,y,x_err,y_err
 
-    def fit_motion_model(self, dt, x, y, xe, ye, update=False, bootstrap=0):
+    def fit_motion_model(self, dt, x, y, xe, ye, update=True, bootstrap=0):
         fitter = fitting.LevMarLSQFitter()
 
         # Handle 2-data point case
@@ -313,7 +305,7 @@ class Acceleration(MotionModel):
         y_err = np.sqrt(y0_err**2 + (vy0_err*dt)**2 + (0.5*ay_err*dt**2)**2)
         return x,y,x_err,y_err
 
-    def fit_motion_model(self, dt, x, y, xe, ye, update=False, bootstrap=0):
+    def fit_motion_model(self, dt, x, y, xe, ye, update=True, bootstrap=0):
         fitter = fitting.LevMarLSQFitter()
 
         px_new = fitter(self.px, dt, x, weights=1/xe)
@@ -393,6 +385,101 @@ class Acceleration(MotionModel):
         param_errors = [x0e, vx0e, axe, y0e, vy0e, aye]
         
         return params, param_errors
+
+class Parallax(MotionModel):
+    """
+    Motion model for linear proper motion + parallax
+    """
+    n_pts_req = 5
+    # TODO: did we count dofs properly in previous ones? (incl. x0 and y0)
+    dof=5
+    fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
+    fixed_param_names = ['t0', 'RA','Dec','obs']
+
+    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0,
+                            x0_err=0, vx_err=0, y0_err=0, vy_err=0,
+                            pi=0, pi_err=0,
+                            RA=None, Dec=None, obs='earth'):
+        self.x0 = x0
+        self.vx = vx
+        self.y0 = y0
+        self.vy = vy
+        self.t0 = t0
+        self.x0_err = x0_err
+        self.vx_err = vx_err
+        self.y0_err = y0_err
+        self.vy_err = vy_err
+        self.pi = pi
+        self.pi_err = pi_err
+        self.RA = RA
+        self.Dec = Dec
+        self.obs = obs
+        return
+
+    def get_pos_at_time(self, t):
+        t_mjd = Time(t, format='decimalyear', scale='utc').mjd
+        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs).T
+        # TODO: need to confirm x-e orientation
+        x = self.x0 + self.vx*(t-self.t0) + self.pi*pvec[0]
+        y = self.y0 + self.vy*(t-self.t0) + self.pi*pvec[1]
+        return x, y
+        
+    def get_pos_err_at_time(self, t):
+        t_mjd = Time(t, format='decimalyear', scale='utc').mjd
+        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs).T
+        x_err = np.sqrt(self.y0_err**2 + ((t-self.t0)*self.vx_err)**2 + (self.pi_err*pvec[0])**2)
+        y_err = np.sqrt(self.x0_err**2 + ((t-self.t0)*self.vy_err)**2 + (self.pi_err*pvec[1])**2)
+        return x_err, y_err
+        
+    def get_batch_pos_at_time(self, t):
+        #return x, y, x_err, y_err
+        pass
+
+    def fit_motion_model(self, t, x, y, xe, ye, update=True,method='Nelder-Mead'):
+        t_mjd = Time(t, format='decimalyear', scale='utc').mjd
+        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs).T
+        def fit_func(params):
+            x0,y0, vx,vy, pi = params
+            x_res = x0 + vx*(t-self.t0) + pi*pvec[0]
+            y_res = y0 + vy*(t-self.t0) + pi*pvec[1]
+            chi2 = np.sum((x-x_res)**2/xe**2 + (y-y_res)**2/ye**2)
+            return chi2
+        # Initial guesses, x0,y0 as x,y averages;
+        #     vx,vy as average velocity if first and last points are perfectly measured;
+        #     pi for 10 pc disance
+        res = minimize(fit_func, x0=[np.mean(x),np.mean(y), (x[-1]-x[0])/(t[-1]-t[0]),(y[-1]-y[0])/(t[-1]-t[0]), 1],
+                        method = method)
+        print(res)
+        if res.success:
+            x0,y0,vx,vy,pi = res.x
+            if update:
+                self.x0 = x0
+                self.y0=y0
+                self.vx=vx
+                self.vy=vy
+                self.pi=pi
+            return res
+        else:
+            print('failed')
+            if update:
+                self.x0 = 0
+                self.y0=0
+                self.vx=0
+                self.vy=0
+                self.pi=0
+        
+    def get_chi2(self,dt,x,y,xe,ye):
+        """
+        Get the chi^2 value for the current MM and
+        the input data.
+        """
+        # TODO: confirm whether we want reduced chi^2 or anything special - maybe kwarg option
+        x_pred,y_pred = self.get_pos_at_time(dt)
+        chi2x = np.sum((x-x_pred)**2 / xe**2)
+        chi2y = np.sum((y-y_pred)**2 / ye**2)
+        return chi2x,chi2y
+        
+
 
 """
 Get all the motion model parameters for a given motion_model_name.

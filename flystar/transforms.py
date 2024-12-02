@@ -6,6 +6,7 @@ from astropy.table import Table
 import collections
 import re
 import pdb
+from flystar import motion_model
 
 class Transform2D(object):
     '''
@@ -112,8 +113,26 @@ class Transform2D(object):
             new_list['xe'] = vals[0]
             new_list['ye'] = vals[1]
 
-        # Velocities (if they exist)
-        if 'vx' in new_list.colnames:
+        # Velocities (if they exist and no more complex motion model used)
+        complex_motion_model = ('motion_model_assigned' in new_list.colnames)
+        if complex_motion_model:
+            # If the only motion models used are Fixed and Linear, we can still transform velocities.
+            motion_models_unique = list(np.unique(starlist_f['motion_model_assigned']))
+            if 'Linear' in motion_models_unique:
+                motion_models_unique.remove('Linear')
+            if 'Fixed' in motion_models_unique:
+                motion_models_unique.remove('Fixed')
+            if len(motion_models_unique)==0:
+                complex_motion_model=False
+        # Cannot transform more complex motion models - set values to nan
+        if complex_motion_model:
+            motion_params = motion_model.get_list_motion_model_param_names(new_list['motion_model_assigned'], with_errors=True, with_fixed=False)
+            for param in motion_params:
+                if param in new_list.colnames:
+                    new_list[param] = np.nan
+                
+        if ('vx' in new_list.colnames) and (not complex_motion_model):
+            # For velocity only, no problem
             vals = self.evaluate_vel(star_list['x'], star_list['y'],
                                      star_list['vx'], star_list['vy'])
             new_list['vx'] = vals[0]
