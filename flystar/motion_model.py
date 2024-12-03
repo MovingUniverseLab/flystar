@@ -4,7 +4,7 @@ from abc import ABC
 import pdb
 from flystar import parallax
 from astropy.time import Time
-from scipy.optimize import minimize
+from scipy.optimize import minimize,curve_fit
 
 class MotionModel(ABC):
     # Number of data points required to fit model
@@ -438,35 +438,33 @@ class Parallax(MotionModel):
     def fit_motion_model(self, t, x, y, xe, ye, update=True,method='Nelder-Mead'):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs).T
-        def fit_func(params):
-            x0,y0, vx,vy, pi = params
+        def fit_func(t, x0,y0, vx,vy, pi):
             x_res = x0 + vx*(t-self.t0) + pi*pvec[0]
             y_res = y0 + vy*(t-self.t0) + pi*pvec[1]
-            chi2 = np.sum((x-x_res)**2/xe**2 + (y-y_res)**2/ye**2)
-            return chi2
+            diff = (x-x_res)**2/xe**2 + (y-y_res)**2/ye**2
+            return diff
         # Initial guesses, x0,y0 as x,y averages;
         #     vx,vy as average velocity if first and last points are perfectly measured;
         #     pi for 10 pc disance
-        res = minimize(fit_func, x0=[np.mean(x),np.mean(y), (x[-1]-x[0])/(t[-1]-t[0]),(y[-1]-y[0])/(t[-1]-t[0]), 1],
-                        method = method)
-        print(res)
-        if res.success:
-            x0,y0,vx,vy,pi = res.x
-            if update:
-                self.x0 = x0
-                self.y0=y0
-                self.vx=vx
-                self.vy=vy
-                self.pi=pi
-            return res
-        else:
-            print('failed')
-            if update:
-                self.x0 = 0
-                self.y0=0
-                self.vx=0
-                self.vy=0
-                self.pi=0
+        res = curve_fit(fit_func, t, np.zeros(len(t)),
+                        p0=[np.mean(x),np.mean(y), (x[-1]-x[0])/(t[-1]-t[0]),(y[-1]-y[0])/(t[-1]-t[0]), 1])
+        x0,y0,vx,vy,pi = res[0]
+        x0_err,y0_err,vx_err,vy_err,pi_err = np.sqrt(np.diag(res[1]))
+        if update:
+            self.x0 = x0
+            self.y0=y0
+            self.vx=vx
+            self.vy=vy
+            self.pi=pi
+            self.x0_err=x0_err
+            self.y0_err=y0_err
+            self.vx_err=vx_err
+            self.vy_err=vy_err
+            self.pi_err=pi_err
+        params = [x0, vx, y0, vy, pi]
+        param_errors = [x0_err, vx_err, y0_err, vy_err, pi_err]
+        return params, param_errors
+
         
     def get_chi2(self,dt,x,y,xe,ye):
         """

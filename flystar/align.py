@@ -2511,10 +2511,9 @@ def position_transform_from_object(x, y, xe, ye, transform):
         for j in range(1, N+2-i):
             sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.)
             y_new += Ycoeff[sub] * (x**i) * (y**j)
-
             
     """
-    THIS IS WRONG BELOW!
+    THIS IS WRONG BELOW! - NOTE: I don't think this is wrong any more
 
     Currently doing:
     ((A + B + C) * xe)**2
@@ -2658,7 +2657,6 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
             temp4 += j * Xcoeff[int(sub)] * (x0**i) * (y0**(j-1))
 
     vxe_new = np.sqrt((temp1*x0e)**2 + (temp2*y0e)**2 + (temp3*vxe)**2 + (temp4*vye)**2)
-
 
     vye_new = 0
     temp1 = 0
