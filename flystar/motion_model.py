@@ -4,7 +4,7 @@ from abc import ABC
 import pdb
 from flystar import parallax
 from astropy.time import Time
-from scipy.optimize import minimize,curve_fit
+from scipy.optimize import curve_fit
 
 class MotionModel(ABC):
     # Number of data points required to fit model
@@ -389,17 +389,21 @@ class Acceleration(MotionModel):
 class Parallax(MotionModel):
     """
     Motion model for linear proper motion + parallax
+    
+    Requires RA, Dec, and PA parameters (degrees) for parallax calculation.
+        RA, Dec in J2000
+        PA is counterclockwise offset between North and the image y-axis.
+    Optional obs parameter describing observer location, default is 'earth'.
     """
-    n_pts_req = 5
-    # TODO: did we count dofs properly in previous ones? (incl. x0 and y0)
-    dof=5
+    n_pts_req = 4
+    dof=3
     fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
-    fixed_param_names = ['t0', 'RA','Dec','obs']
+    fixed_param_names = ['t0', 'RA','Dec','PA','obs']
 
     def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0,
                             x0_err=0, vx_err=0, y0_err=0, vy_err=0,
                             pi=0, pi_err=0,
-                            RA=None, Dec=None, obs='earth'):
+                            RA=None, Dec=None, PA=None, obs='earth'):
         self.x0 = x0
         self.vx = vx
         self.y0 = y0
@@ -413,12 +417,13 @@ class Parallax(MotionModel):
         self.pi_err = pi_err
         self.RA = RA
         self.Dec = Dec
+        self.PA = PA
         self.obs = obs
         return
 
     def get_pos_at_time(self, t):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs).T
+        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
         # TODO: need to confirm x-e orientation
         x = self.x0 + self.vx*(t-self.t0) + self.pi*pvec[0]
         y = self.y0 + self.vy*(t-self.t0) + self.pi*pvec[1]
@@ -426,18 +431,26 @@ class Parallax(MotionModel):
         
     def get_pos_err_at_time(self, t):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs).T
+        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
         x_err = np.sqrt(self.y0_err**2 + ((t-self.t0)*self.vx_err)**2 + (self.pi_err*pvec[0])**2)
         y_err = np.sqrt(self.x0_err**2 + ((t-self.t0)*self.vy_err)**2 + (self.pi_err*pvec[1])**2)
         return x_err, y_err
         
-    def get_batch_pos_at_time(self, t):
-        #return x, y, x_err, y_err
-        pass
-
-    def fit_motion_model(self, t, x, y, xe, ye, update=True,method='Nelder-Mead'):
+    def get_batch_pos_at_time(self, t,
+                                x0=[],vx=[], y0=[],vy=[], pi=[], t0=[],
+                                x0_err=[],vx_err=[], y0_err=[],vy_err=[], pi_err=[]):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs).T
+        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
+        dt = t-t0
+        x = x0 + dt*vx + pi*pvec[0]
+        y = y0 + dt*vy + pi*pvec[1]
+        x_err = np.sqrt(x0_err**2 + (vx_err*dt)**2 + (pi_err*pvec[0])**2)
+        y_err = np.sqrt(y0_err**2 + (vy_err*dt)**2 + (pi_err*pvec[1])**2)
+        return x,y,x_err,y_err
+
+    def fit_motion_model(self, t, x, y, xe, ye, update=True):
+        t_mjd = Time(t, format='decimalyear', scale='utc').mjd
+        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
         def fit_func(t, x0,y0, vx,vy, pi):
             x_res = x0 + vx*(t-self.t0) + pi*pvec[0]
             y_res = y0 + vy*(t-self.t0) + pi*pvec[1]
@@ -464,7 +477,6 @@ class Parallax(MotionModel):
         params = [x0, vx, y0, vy, pi]
         param_errors = [x0_err, vx_err, y0_err, vy_err, pi_err]
         return params, param_errors
-
         
     def get_chi2(self,dt,x,y,xe,ye):
         """
@@ -477,8 +489,6 @@ class Parallax(MotionModel):
         chi2y = np.sum((y-y_pred)**2 / ye**2)
         return chi2x,chi2y
         
-
-
 """
 Get all the motion model parameters for a given motion_model_name.
 Optionally, include fixed and error parameters (included by default).

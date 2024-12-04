@@ -21,11 +21,12 @@ cache_memory = Memory(cache_dir, verbose=0, bytes_limit='1G')
 cache_memory.reduce_size()
 
 @cache_memory.cache()
-def parallax_in_direction(RA, Dec, mjd, obsLocation='earth'):
+def parallax_in_direction(RA, Dec, mjd, obsLocation='earth', PA=0):
     """
     | R.A. in degrees. (J2000)
     | Dec. in degrees. (J2000)
     | MJD
+    | PA in degrees. (counterclockwise misalignment of North and image y-axis)
 
     Equations following MulensModel.
     """
@@ -49,9 +50,14 @@ def parallax_in_direction(RA, Dec, mjd, obsLocation='earth'):
 
     e = np.dot(pos, _east_projected)
     n = np.dot(pos, _north_projected)
-
-    pvec = np.array([e.value, n.value]).T
-
+    
+    # Rotate frame e,n->x,y accounting for PA
+    PA_rad = np.pi/180.0 * PA
+    x = -e.value*np.cos(PA_rad) + n.value*np.sin(PA_rad)
+    y =  e.value*np.sin(PA_rad) + n.value*np.cos(PA_rad)
+    
+    pvec = np.array([x, y]).T
+    
     return pvec
 
 
