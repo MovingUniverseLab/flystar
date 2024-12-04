@@ -655,7 +655,6 @@ class StarTable(Table):
                               default_motion_model='Linear',
                               mask_val=None, mask_lists=False):
         # TODO: "weighting" is not used
-
         # 
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
         #
@@ -670,7 +669,6 @@ class StarTable(Table):
             if not np.ma.is_masked(y):
                 y.mask = np.zeros_like(y.data, dtype=bool)
                 
-        
         if mask_lists is not False:
             # Remove a list
             if isinstance(mask_lists, list):
@@ -681,7 +679,6 @@ class StarTable(Table):
             # Throw a warning if mask_lists is not a list
             if not isinstance(mask_lists, list):
                 raise RuntimeError('mask_lists needs to be a list.')
-
         #
         # Assign the appropriate positional errors
         #
@@ -854,7 +851,6 @@ class StarTable(Table):
         """ Get current x,y positions of each star according to its motion_model
         Instead of looping through every star, we implement a faster calculation for Fixed and Linear models,
         and loop through any stars with a more complex model
-        TODO: can add acceleration model to the ones with shortcuts
         """
         # Start with empty arrays so we can fill them in batches
         N_stars = len(self)

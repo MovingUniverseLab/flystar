@@ -26,7 +26,7 @@ def parallax_in_direction(RA, Dec, mjd, obsLocation='earth', PA=0):
     | R.A. in degrees. (J2000)
     | Dec. in degrees. (J2000)
     | MJD
-    | PA in degrees. (counterclockwise misalignment of North and image y-axis)
+    | PA in degrees. (counterclockwise offset of the image y-axis from North)
 
     Equations following MulensModel.
     """

@@ -55,6 +55,17 @@ class MotionModel(ABC):
         """
         #return params, param_errors
         pass
+        
+    def get_chi2(self,t,x,y,xe,ye):
+        """
+        Get the chi^2 value for the current MM and
+        the input data.
+        """
+        # TODO: confirm whether we want reduced chi^2 or anything special - maybe kwarg option
+        x_pred,y_pred = self.get_pos_at_time(t)
+        chi2x = np.sum((x-x_pred)**2 / xe**2)
+        chi2y = np.sum((y-y_pred)**2 / ye**2)
+        return chi2x,chi2y
     
 class Fixed(MotionModel):
     """
@@ -80,26 +91,35 @@ class Fixed(MotionModel):
         return
         
     def get_pos_at_time(self,t):
-        return self.x0, self.y0
+        if hasattr(t, "__len__"):
+            return np.repeat(self.x0, len(t)), np.repeat(self.y0, len(t))
+        else:
+            return self.x0, self.y0
         
     def get_pos_err_at_time(self,t):
-        return self.x0_err, self.y0_err
+        if hasattr(t, "__len__"):
+            return np.repeat(self.x0_err, len(t)), np.repeat(self.y0_err, len(t))
+        else:
+            return self.x0_err, self.y0_err
         
     def get_batch_pos_at_time(self,t,
                                 x0=[],y0=[],t0=[],
                                 x0_err=[], y0_err=[]):
-        return x0,y0,x0_err,y0_err
+        if hasattr(t, "__len__"):
+            return np.repeat(x0[:,np.newaxis],len(t),axis=1), np.repeat(y0[:,np.newaxis],len(t),axis=1), np.repeat(x0_err[:,np.newaxis],len(t),axis=1), np.repeat(y0_err[:,np.newaxis],len(t),axis=1)
+        else:
+            return x0,y0,x0_err,y0_err
             
-    def fit_motion_model(self, dt, x, y, xe, ye, update=True, bootstrap=0):
+    def fit_motion_model(self, t, x, y, xe, ye, update=True, bootstrap=0):
         # Handle single data point case
         if len(x)==1:
             return [x[0],y[0]],[xe[0],ye[0]]
     
         #TODO: it seems like sometimes it's weighted by std and sometimes by var - confirm which to do here
         x0 = np.average(x, weights=1/xe**2)
-        x0e = np.sqrt(np.average((x-x0)**2,weights=1/xe))
+        x0e = np.sqrt(np.average((x-x0)**2,weights=1/xe**2))
         y0 = np.average(y, weights=1/ye**2)
-        y0e = np.sqrt(np.average((y-y0)**2,weights=1/ye))
+        y0e = np.sqrt(np.average((y-y0)**2,weights=1/ye**2))
         
         params = [x0, y0]
         param_errors = [x0e, y0e]
@@ -142,25 +162,30 @@ class Linear(MotionModel):
         self.py = models.Polynomial1D(self.poly_order, c0=self.y0, c1=self.vy)
         
         return
-
-    def get_pos_at_time(self, dt):
-        x = self.px(dt)
-        y = self.py(dt)
-        return x, y
         
-    def get_pos_err_at_time(self, dt):
-        x_err = np.hypot(self.x0_err, self.vx_err*dt)
-        y_err = np.hypot(self.y0_err, self.vy_err*dt)
-        return x_err, y_err
+    def get_pos_at_time(self, t):
+        dt = t-self.t0
+        return self.x0 + self.vx*dt, self.y0 + self.vy*dt
         
-    def get_batch_pos_at_time(self,t,
+    def get_pos_err_at_time(self, t):
+        dt = t-self.t0
+        return np.hypot(self.x0_err, self.vx_err*dt), np.hypot(self.y0_err, self.vy_err*dt)
+        
+    def get_batch_pos_at_time(self, t,
                                 x0=[],vx=[], y0=[],vy=[], t0=[],
                                 x0_err=[],vx_err=[], y0_err=[],vy_err=[]):
-        dt = t-t0
-        x = x0 + dt*vx
-        y = y0 + dt*vy
-        x_err = np.hypot(x0_err, vx_err*dt)
-        y_err = np.hypot(y0_err, vy_err*dt)
+        if hasattr(t, "__len__"):
+            dt = t-t0[:,np.newaxis]
+            x = x0[:,np.newaxis] + dt*vx[:,np.newaxis]
+            y = y0[:,np.newaxis] + dt*vy[:,np.newaxis]
+            x_err = np.hypot(x0_err[:,np.newaxis], vx_err[:,np.newaxis]*dt)
+            y_err = np.hypot(y0_err[:,np.newaxis], vy_err[:,np.newaxis]*dt)
+        else:
+            dt = t-t0
+            x = x0 + dt*vx
+            y = y0 + dt*vy
+            x_err = np.hypot(x0_err, vx_err*dt)
+            y_err = np.hypot(y0_err, vy_err*dt)
         return x,y,x_err,y_err
 
     def fit_motion_model(self, dt, x, y, xe, ye, update=True, bootstrap=0):
@@ -392,7 +417,7 @@ class Parallax(MotionModel):
     
     Requires RA, Dec, and PA parameters (degrees) for parallax calculation.
         RA, Dec in J2000
-        PA is counterclockwise offset between North and the image y-axis.
+        PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describing observer location, default is 'earth'.
     """
     n_pts_req = 4
@@ -424,7 +449,6 @@ class Parallax(MotionModel):
     def get_pos_at_time(self, t):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
-        # TODO: need to confirm x-e orientation
         x = self.x0 + self.vx*(t-self.t0) + self.pi*pvec[0]
         y = self.y0 + self.vy*(t-self.t0) + self.pi*pvec[1]
         return x, y
@@ -477,17 +501,6 @@ class Parallax(MotionModel):
         params = [x0, vx, y0, vy, pi]
         param_errors = [x0_err, vx_err, y0_err, vy_err, pi_err]
         return params, param_errors
-        
-    def get_chi2(self,dt,x,y,xe,ye):
-        """
-        Get the chi^2 value for the current MM and
-        the input data.
-        """
-        # TODO: confirm whether we want reduced chi^2 or anything special - maybe kwarg option
-        x_pred,y_pred = self.get_pos_at_time(dt)
-        chi2x = np.sum((x-x_pred)**2 / xe**2)
-        chi2y = np.sum((y-y_pred)**2 / ye**2)
-        return chi2x,chi2y
         
 """
 Get all the motion model parameters for a given motion_model_name.
