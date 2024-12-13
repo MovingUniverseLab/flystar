@@ -77,7 +77,7 @@ class Fixed(MotionModel):
     fixed_param_names = []
     
     def __init__(self, x0=0, y0=0, t0=2025.0,
-                        x0_err=0, y0_err=0):
+                        x0_err=0, y0_err=0, **kwargs):
         self.x0 = x0
         self.y0 = y0
         self.t0 = t0
@@ -142,7 +142,7 @@ class Linear(MotionModel):
     fixed_param_names = ['t0']
     
     def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0,
-                            x0_err=0, vx_err=0, y0_err=0, vy_err=0):
+                            x0_err=0, vx_err=0, y0_err=0, vy_err=0, **kwargs):
         self.x0 = x0
         self.vx = vx
         self.y0 = y0
@@ -173,7 +173,7 @@ class Linear(MotionModel):
         
     def get_batch_pos_at_time(self, t,
                                 x0=[],vx=[], y0=[],vy=[], t0=[],
-                                x0_err=[],vx_err=[], y0_err=[],vy_err=[]):
+                                x0_err=[],vx_err=[], y0_err=[],vy_err=[], **kwargs):
         if hasattr(t, "__len__"):
             dt = t-t0[:,np.newaxis]
             x = x0[:,np.newaxis] + dt*vx[:,np.newaxis]
@@ -283,7 +283,7 @@ class Acceleration(MotionModel):
     fixed_param_names = ['t0']
     
     def __init__(self, x0=0, vx0=0, ax=0, y0=0, vy0=0, ay=0, t0=2025.0,
-                            x0_err=0, vx0_err=0, ax_err=0, y0_err=0, vy0_err=0, ay_err=0):
+                            x0_err=0, vx0_err=0, ax_err=0, y0_err=0, vy0_err=0, ay_err=0, **kwargs):
         self.x0 = x0
         self.vx0 = vx0
         self.ax = ax
@@ -316,18 +316,25 @@ class Acceleration(MotionModel):
         
     def get_pos_err_at_time(self, t):
         dt = t - self.t0
-        x_err = np.sqrt(self.x0_err**2 + (self.vx_err*dt)**2 + (self.ax_err*dt**2)**2)
-        y_err = np.sqrt(self.y0_err**2 + (self.vy_err*dt)**2 + (self.ay_err*dt**2)**2)
+        x_err = np.sqrt(self.x0_err**2 + (self.vx0_err*dt)**2 + (0.5*self.ax_err*dt**2)**2)
+        y_err = np.sqrt(self.y0_err**2 + (self.vy0_err*dt)**2 + (0.5*self.ay_err*dt**2)**2)
         return x_err, y_err
         
     def get_batch_pos_at_time(self,t,
                                 x0=[],vx0=[],ax=[], y0=[],vy0=[],ay=[], t0=[],
-                                x0_err=[],vx0_err=[],ax_err=[], y0_err=[],vy0_err=[],ay_err=[]):
-        dt = t-t0
-        x = x0 + dt*vx0 + 0.5*dt**2*ax
-        y = y0 + dt*vy0 + 0.5*dt**2*ay
-        x_err = np.sqrt(x0_err**2 + (vx0_err*dt)**2 + (0.5*ax_err*dt**2)**2)
-        y_err = np.sqrt(y0_err**2 + (vy0_err*dt)**2 + (0.5*ay_err*dt**2)**2)
+                                x0_err=[],vx0_err=[],ax_err=[], y0_err=[],vy0_err=[],ay_err=[], **kwargs):
+        if hasattr(t, "__len__"):
+            dt = t-t0[:,np.newaxis]
+            x = x0[:,np.newaxis] + dt*vx0[:,np.newaxis] + 0.5*dt**2*ax[:,np.newaxis]
+            y = y0[:,np.newaxis] + dt*vy0[:,np.newaxis] + 0.5*dt**2*ay[:,np.newaxis]
+            x_err = np.sqrt(x0_err[:,np.newaxis]**2 + (vx0_err[:,np.newaxis]*dt)**2 + (0.5*ax_err[:,np.newaxis]*dt**2)**2)
+            y_err = np.sqrt(y0_err[:,np.newaxis]**2 + (vy0_err[:,np.newaxis]*dt)**2 + (0.5*ay_err[:,np.newaxis]*dt**2)**2)
+        else:
+            dt = t-t0
+            x = x0 + dt*vx0 + 0.5*dt**2*ax
+            y = y0 + dt*vy0 + 0.5*dt**2*ay
+            x_err = np.sqrt(x0_err**2 + (vx0_err*dt)**2 + (0.5*ax_err*dt**2)**2)
+            y_err = np.sqrt(y0_err**2 + (vy0_err*dt)**2 + (0.5*ay_err*dt**2)**2)
         return x,y,x_err,y_err
 
     def fit_motion_model(self, dt, x, y, xe, ye, update=True, bootstrap=0):
@@ -428,7 +435,7 @@ class Parallax(MotionModel):
     def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0,
                             x0_err=0, vx_err=0, y0_err=0, vy_err=0,
                             pi=0, pi_err=0,
-                            RA=None, Dec=None, PA=None, obs='earth'):
+                            RA=None, Dec=None, PA=None, obs='earth', **kwargs):
         self.x0 = x0
         self.vx = vx
         self.y0 = y0
@@ -462,14 +469,27 @@ class Parallax(MotionModel):
         
     def get_batch_pos_at_time(self, t,
                                 x0=[],vx=[], y0=[],vy=[], pi=[], t0=[],
-                                x0_err=[],vx_err=[], y0_err=[],vy_err=[], pi_err=[]):
+                                x0_err=[],vx_err=[], y0_err=[],vy_err=[], pi_err=[], **kwargs):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
-        dt = t-t0
-        x = x0 + dt*vx + pi*pvec[0]
-        y = y0 + dt*vy + pi*pvec[1]
-        x_err = np.sqrt(x0_err**2 + (vx_err*dt)**2 + (pi_err*pvec[0])**2)
-        y_err = np.sqrt(y0_err**2 + (vy_err*dt)**2 + (pi_err*pvec[1])**2)
+        if hasattr(t, "__len__"):
+            dt = t-t0[:,np.newaxis]
+            x = x0[:,np.newaxis] + dt*vx[:,np.newaxis] + pi[:,np.newaxis]*pvec[0]
+            y = y0[:,np.newaxis] + dt*vy[:,np.newaxis] + pi[:,np.newaxis]*pvec[1]
+            try:
+                x_err = np.sqrt(x0_err[:,np.newaxis]**2 + (vx_err[:,np.newaxis]*dt)**2 + (pi_err[:,np.newaxis]*pvec[0])**2)
+                y_err = np.sqrt(y0_err[:,np.newaxis]**2 + (vy_err[:,np.newaxis]*dt)**2 + (pi_err[:,np.newaxis]*pvec[1])**2)
+            except:
+                x_err,y_err = [],[]
+        else:
+            dt = t-t0
+            x = x0 + dt*vx + pi*pvec[0]
+            y = y0 + dt*vy + pi*pvec[1]
+            try:
+                x_err = np.sqrt(x0_err**2 + (vx_err*dt)**2 + (pi_err*pvec[0])**2)
+                y_err = np.sqrt(y0_err**2 + (vy_err*dt)**2 + (pi_err*pvec[1])**2)
+            except:
+                x_err,y_err = [],[]
         return x,y,x_err,y_err
 
     def fit_motion_model(self, t, x, y, xe, ye, update=True):

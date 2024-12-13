@@ -114,10 +114,10 @@ class Transform2D(object):
             new_list['ye'] = vals[1]
 
         # Velocities (if they exist and no more complex motion model used)
-        complex_motion_model = ('motion_model_assigned' in new_list.colnames)
+        complex_motion_model = ('motion_model_input' in new_list.colnames)
         if complex_motion_model:
             # If the only motion models used are Fixed and Linear, we can still transform velocities.
-            motion_models_unique = list(np.unique(starlist_f['motion_model_assigned']))
+            motion_models_unique = list(np.unique(starlist_f['motion_model_input']))
             if 'Linear' in motion_models_unique:
                 motion_models_unique.remove('Linear')
             if 'Fixed' in motion_models_unique:
@@ -126,7 +126,7 @@ class Transform2D(object):
                 complex_motion_model=False
         # Cannot transform more complex motion models - set values to nan
         if complex_motion_model:
-            motion_params = motion_model.get_list_motion_model_param_names(new_list['motion_model_assigned'], with_errors=True, with_fixed=False)
+            motion_params = motion_model.get_list_motion_model_param_names(new_list['motion_model_input'], with_errors=True, with_fixed=False)
             for param in motion_params:
                 if param in new_list.colnames:
                     new_list[param] = np.nan

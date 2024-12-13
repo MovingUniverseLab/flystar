@@ -27,6 +27,7 @@ class MosaicSelfRef(object):
                  use_vel=None, default_motion_model='Fixed',
                  calc_trans_inverse=False,
                  init_guess_mode='miracle', iter_callback=None,
+                 position_angle=None, RA=None, Dec=None, observer_location='earth',
                  verbose=True):
         """
         Make a mosaic object by passing in a list of starlists and then running fit(). 
@@ -129,7 +130,16 @@ class MosaicSelfRef(object):
 
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
-            at the end of every iteration. This can be used for plotting or printing state. 
+            at the end of every iteration. This can be used for plotting or printing state.
+            
+        position_angle, RA, Dec : float (degrees)
+            [Only required if using Parallax motion model]
+            position_angle: clockwise angular offset of image y-axis from North
+            RA, Dec: J2000.0 coordinates of your image center
+            These values are assumed to be the same for all starlists
+            
+        observer_location: str
+            Only used for parallax motion models, default is 'earth'
 
         verbose : int (0 to 9, inclusive)
             Controls the verbosity of print statements. (0 least, 9 most verbose).
@@ -180,6 +190,11 @@ class MosaicSelfRef(object):
         self.trans_input = trans_input
         self.trans_class = trans_class
         self.calc_trans_inverse = calc_trans_inverse
+        self.position_angle=position_angle
+        self.RA=RA
+        self.Dec=Dec
+        self.observer_location=observer_location
+        
         # TODO: consider whether we want this fallback
         if use_vel is None:
             self.default_motion_model = default_motion_model
@@ -587,7 +602,7 @@ class MosaicSelfRef(object):
                 col_arrays[new_col_name] = new_col_data
 
         # Use the columns from the ref list to make the ref_table.
-        ref_table = StarTable(**col_arrays)
+        ref_table = StarTable(**col_arrays, position_angle=self.position_angle, RA=self.RA, Dec=self.Dec)
         
         # Make new columns to hold original values. These will be copies
         # of the old columns and will only include x, y, m, xe, ye, me.
@@ -1091,8 +1106,8 @@ class MosaicSelfRef(object):
         motion_model_list = ['Fixed', self.default_motion_model]
         if 'motion_model_used' in ref_table.keys():
             motion_model_list += ref_table['motion_model_used'].tolist()
-        elif 'motion_model_assigned' in ref_table.keys():
-            motion_model_list += ref_table['motion_model_assigned'].tolist()
+        elif 'motion_model_input' in ref_table.keys():
+            motion_model_list += ref_table['motion_model_input'].tolist()
         motion_col_list = motion_model.get_list_motion_model_param_names(np.unique(motion_model_list).tolist(), with_errors=False, with_fixed=False)
         if calc_vel_in_bootstrap:
             motion_data = {}
@@ -1291,6 +1306,8 @@ class MosaicToRef(MosaicSelfRef):
                  update_ref_orig=False,
                  init_guess_mode='miracle',
                  iter_callback=None,
+                 position_angle=None, RA=None, Dec=None,
+                 observer_location='earth',
                  verbose=True):
 
         """
@@ -1416,7 +1433,16 @@ class MosaicToRef(MosaicSelfRef):
 
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
-            at the end of every iteration. This can be used for plotting or printing state. 
+            at the end of every iteration. This can be used for plotting or printing state.
+            
+        position_angle, RA, Dec : float (degrees)
+            Only required if using Parallax motion model
+            position_angle: clockwise angular offset of image y-axis from North
+            RA, Dec: J2000.0 coordinates of your image center
+            These values are assumed to be the same for all starlists
+            
+        observer_location: str
+            Only used for parallax motion models, default is 'earth'
 
         Example
         ----------
@@ -1460,6 +1486,8 @@ class MosaicToRef(MosaicSelfRef):
                          default_motion_model = default_motion_model,
                          init_guess_mode=init_guess_mode,
                          iter_callback=iter_callback,
+                         position_angle=position_angle, RA=RA, Dec=Dec,
+                         observer_location=observer_location,
                          verbose=verbose)
         
         self.ref_list = copy.deepcopy(ref_list)
@@ -1542,10 +1570,10 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table = self.setup_ref_table_from_starlist(self.ref_list)
         
         # copy over motion model parameters if they exist in the reference list
-        if 'motion_model_assigned' in self.ref_list.colnames:
-            self.ref_table['motion_model_assigned'] = self.ref_list['motion_model_assigned']
+        if 'motion_model_input' in self.ref_list.colnames:
+            self.ref_table['motion_model_input'] = self.ref_list['motion_model_input']
         if 'motion_model' in self.ref_list.colnames:
-            self.ref_table['motion_model_assigned'] = self.ref_list['motion_model']
+            self.ref_table['motion_model_input'] = self.ref_list['motion_model']
         for param in motion_model.get_all_motion_model_param_names(with_fixed=True, with_errors=True):
             if param in self.ref_list.colnames:
                 self.ref_table[param] = self.ref_list[param]
@@ -1675,7 +1703,7 @@ def setup_ref_table_from_starlist(star_list):
             col_arrays[new_col_name] = new_col_data
 
     # Use the columns from the ref list to make the ref_table.
-    ref_table = StarTable(**col_arrays)
+    ref_table = StarTable(**col_arrays, position_angle=self.position_angle, RA=self.RA, Dec=self.Dec)
 
     # Make new columns to hold original values. These will be copies
     # of the old columns and will only include x, y, m, xe, ye, me.
@@ -2391,11 +2419,11 @@ def transform_from_object(starlist, transform):
     keys = list(starlist.keys())
 
     # Check to see if velocities or motion_model are present in starlist.
-    vel = ('vx' in keys)and ~("motion_model_assigned" in keys)
-    mot = ("motion_model_assigned" in keys)
+    vel = ('vx' in keys)and ~("motion_model_input" in keys)
+    mot = ("motion_model_input" in keys)
     # If the only motion models used are Fixed and Linear, we can still transform velocities.
     if mot:
-        motion_models_unique = list(np.unique(starlist_f['motion_model_assigned']))
+        motion_models_unique = list(np.unique(starlist_f['motion_model_input']))
         if 'Linear' in motion_models_unique:
             motion_models_unique.remove('Linear')
         if 'Fixed' in motion_models_unique:

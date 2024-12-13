@@ -3,6 +3,7 @@ from flystar import starlists
 from flystar import startables
 from flystar import transforms
 from flystar import analysis
+from flystar import motion_model
 from astropy.table import Table
 import numpy as np
 import pylab as plt
@@ -534,7 +535,7 @@ def make_fake_starlists_poly1_vel(seed=-1):
 
         # Save the new list as a starlist.
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
-                                     names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
+                                     names=('name', 'm', 'm_err', 'x', 'x_err', 'y', 'y_err', 't'))
 
         new_lis.write('random_vel_{0:d}.fits'.format(ss), overwrite=True)
 
@@ -583,7 +584,7 @@ def make_fake_starlists_poly1_acc(seed=-1):
                              names = ('name', 'm0', 'm0_err',
                                       'x0', 'x0_err', 'y0', 'y0_err',
                                       'vx0', 'vx0_err', 'vy0', 'vy0_err',
-                                      'ax', 'axe', 'ay', 'aye',
+                                      'ax', 'ax_err', 'ay', 'ay_err',
                                       't0'))
     
     sdx = np.argsort(m0)
@@ -639,6 +640,107 @@ def make_fake_starlists_poly1_acc(seed=-1):
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
         new_lis.write('random_acc_{0:d}.fits'.format(ss), overwrite=True)
+
+    return (xy_trans, mag_trans)
+    
+def make_fake_starlists_poly1_par(seed=-1):
+    # If seed >=0, then set random seed to that value
+    if seed >= 0:
+        np.random.seed(seed=seed)
+        
+    N_stars = 200
+
+    x0  = np.random.rand(N_stars) * 10.0     # arcsec (increasing to East)
+    y0  = np.random.rand(N_stars) * 10.0     # arcsec
+    x0e = np.random.randn(N_stars) * 5.0e-4  # arcsec
+    y0e = np.random.randn(N_stars) * 5.0e-4  # arcsec
+    vx  = np.random.randn(N_stars) * 5.0     # mas / yr
+    vy  = np.random.randn(N_stars) * 5.0     # mas / yr
+    vxe = np.random.randn(N_stars) * 0.1     # mas / yr
+    vye = np.random.randn(N_stars) * 0.1     # mas / yr
+    pi  = np.random.randn(N_stars) * 0.5     # mas
+    pie = np.random.randn(N_stars) * 0.01    # mas
+    m0  = (np.random.rand(N_stars) * 8) + 9  # mag
+    m0e = np.random.randn(N_stars) * 0.05    # mag
+    t0 = np.ones(N_stars) * 2019.5
+
+    # Make all the errors positive
+    x0e = np.abs(x0e)
+    y0e = np.abs(y0e)
+    m0e = np.abs(m0e)
+    vxe = np.abs(vxe)
+    vye = np.abs(vye)
+    pie = np.abs(pie)
+    
+    name = ['star_{0:03d}'.format(ii) for ii in range(N_stars)]
+
+    # Make an StarList
+    lis = starlists.StarList([name, m0, m0e,
+                              x0, x0e, y0, y0e,
+                              vx, vxe, vy, vye,
+                              pi, pie,
+                              t0],
+                             names = ('name', 'm0', 'm0_err',
+                                      'x0', 'x0_err', 'y0', 'y0_err',
+                                      'vx', 'vx_err', 'vy', 'vy_err',
+                                      'pi', 'pi_err',
+                                      't0'))
+    
+    sdx = np.argsort(m0)
+    lis = lis[sdx]
+
+    # Save original positions as reference (1st) list
+    # in a StarList format (with velocities).
+    lis.write('random_par_ref.fits', overwrite=True)
+    
+    ##########
+    # Propogate to new times and distort.
+    ##########
+    # Make 4 new starlists with different epochs and transformations.
+    times = [2018.5, 2019.5, 2020.5, 2021.5]
+    xy_trans = [[[ 6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
+               [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
+               [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
+               [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]]]
+    mag_trans = [0.1, 0.4, 0.0, -0.3]
+
+    # Convert into pixels (undistorted) with the following info.
+    scale = 0.01  # arcsec / pix
+    shift = [1.0, 1.0]  # pix
+    
+    for ss in range(len(times)):
+        dt = times[ss] - lis['t0']
+        
+        par_mod = motion_model.Parallax(PA=0,RA=18.0, Dec=-30.0)
+        par_mod_dat = par_mod.get_batch_pos_at_time(dt+lis['t0'], x0=lis['x0'],vx=lis['vx']/1e3, pi=lis['pi'],
+                            y0=lis['y0'], vy=lis['vy']/1e3, t0=lis['t0'])
+        x,y = par_mod_dat[0], par_mod_dat[1]
+        t = np.ones(N_stars) * times[ss]
+
+        # Convert into pixels
+        xp = (x / -scale) + shift[0]  # -1 from switching to increasing to West (right)
+        yp = (y /  scale) + shift[1]
+        xpe = lis['x0_err'] / scale
+        ype = lis['y0_err'] / scale
+
+        # Distort the positions
+        trans = transforms.PolyTransform(1, xy_trans[ss][0], xy_trans[ss][1], mag_offset=mag_trans[ss])
+        xd, yd = trans.evaluate(xp, yp)
+        md = trans.evaluate_mag(lis['m0'])
+
+        # Perturb with small errors (0.1 pix)
+        xd += np.random.randn(N_stars) * 0.1
+        yd += np.random.randn(N_stars) * 0.1
+        md += np.random.randn(N_stars) * 0.02
+        xde = xpe
+        yde = ype
+        mde = lis['m0_err']
+
+        # Save the new list as a starlist.
+        new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
+                                     names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
+
+        new_lis.write('random_par_{0:d}.fits'.format(ss), overwrite=True)
 
     return (xy_trans, mag_trans)
 

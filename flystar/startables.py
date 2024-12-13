@@ -60,7 +60,18 @@ class StarTable(Table):
 
     ref_list : int
         Specify which list is the reference list (if any).
-
+        
+    position_angle: float (degree)
+        required for parallax motion model
+        clockwise angular offset between image y-axis and North
+        
+    RA, Dec: float (degrees)
+        required for parallax motion model
+        image position coordinates
+        
+    observer_location: string
+        only used by parallax motion model
+        default is 'earth'
 
     Examples
     --------------------------
@@ -72,7 +83,7 @@ class StarTable(Table):
     print(t['name'][0:10])  # print the first 10 star names
     print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
     """
-    def __init__(self, *args, ref_list=0, **kwargs):
+    def __init__(self, *args, ref_list=0, position_angle=None, RA=None, Dec=None, observer_location='earth', **kwargs):
         """
         """
         
@@ -150,7 +161,8 @@ class StarTable(Table):
             Table.__init__(self, (kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
                            names=('name', 'x', 'y', 'm'))
             self['name'] = self['name'].astype('U20')
-            self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
+            self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list,
+                         'position_angle': position_angle, 'RA': RA, 'Dec':Dec, 'observer_location':observer_location}
 
             for meta_arg in meta_tab:
                 if meta_arg in kwargs:
@@ -829,7 +841,7 @@ class StarTable(Table):
                 param_dict[par] = self[par][ss]
 
         # Model object
-        mod = modClass(**param_dict)
+        mod = modClass(**param_dict, PA=self.meta['position_angle'], RA=self.meta['RA'], Dec=self.meta['Dec'], obs=self.meta['observer_location'])
 
         # Fit for the best parameters
         params, param_errs = mod.fit_motion_model(dt, x, y, xe, ye, bootstrap=bootstrap, update=True)
