@@ -69,19 +69,19 @@ def test_MosaicSelfRef():
     plt.clf()
     plt.plot(msc.ref_table['x'][:, 0],
              msc.ref_table['y'][:, 0],
-             'k+', color='red', mec='red', mfc='none')
+             '+', color='red', mec='red', mfc='none')
     plt.plot(msc.ref_table['x'][:, 1],
              msc.ref_table['y'][:, 1],
-             'kx', color='blue', mec='blue', mfc='none')
+             'x', color='blue', mec='blue', mfc='none')
     plt.plot(msc.ref_table['x'][:, 2],
              msc.ref_table['y'][:, 2],
-             'ko', color='cyan', mec='cyan', mfc='none')
+             'o', color='cyan', mec='cyan', mfc='none')
     plt.plot(msc.ref_table['x'][:, 3],
              msc.ref_table['y'][:, 3],
-             'k^', color='green', mec='green', mfc='none')
+             '^', color='green', mec='green', mfc='none')
     plt.plot(msc.ref_table['x0'],
              msc.ref_table['y0'],
-             'k.', color='black', alpha=0.2)
+             '.', color='black', alpha=0.2)
              
 
     return
@@ -217,6 +217,66 @@ def test_MosaicSelfRef_vel():
              'k.', color='black', alpha=0.2)
 
     return
+    
+'''def test_MosaicSelfRef_acc():
+    """
+    Cross-match and align 4 starlists using the OO version of mosaic lists.
+    
+    """
+    make_fake_starlists_poly1_acc(seed=42)
+    
+    ref_file = 'random_acc_ref.fits'
+    ref_list = Table.read(ref_file)
+    names = ref_list["name"]
+    list_files = ['random_acc_0.fits',
+                  'random_acc_1.fits',
+                  'random_acc_2.fits',
+                  'random_acc_3.fits']
+    lists = [starlists.StarList.read(lf) for lf in list_files]
+
+    ##########
+    # Test instantiation and basic fitting.
+    ##########
+    msc = align.MosaicSelfRef(lists, ref_index=0, iters=3,
+                              dr_tol=[5, 3, 3], dm_tol=[1, 1, 0.5], outlier_tol=None,
+                              trans_class=transforms.PolyTransform,
+                              trans_args={'order': 2}, default_motion_model='Acceleration',
+                              verbose=False)
+
+    msc.fit()
+    
+    # Check some of the output quantities on the final table.
+    assert 'x0' in msc.ref_table.colnames
+    assert 'x0_err' in msc.ref_table.colnames
+    assert 'y0' in msc.ref_table.colnames
+    assert 'y0_err' in msc.ref_table.colnames
+    assert 'm0' in msc.ref_table.colnames
+    assert 'm0_err' in msc.ref_table.colnames
+    assert 'vx0' in msc.ref_table.colnames
+    assert 'vx0_err' in msc.ref_table.colnames
+    assert 'vy0' in msc.ref_table.colnames
+    assert 'vy0_err' in msc.ref_table.colnames
+    assert 'ax' in msc.ref_table.colnames
+    assert 'ax_err' in msc.ref_table.colnames
+    assert 'ay' in msc.ref_table.colnames
+    assert 'ay_err' in msc.ref_table.colnames
+    assert 't0' in msc.ref_table.colnames
+
+    # Check that we have some matched stars... should be at least 35 stars
+    # that are detected in all 4 starlists.
+    idx = np.where(msc.ref_table['n_detect'] == 4)[0]
+    assert len(idx) > 35
+
+    # Check that the transformation error isn't too big
+    assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0_err'] < 3.0).all()
+    assert (msc.ref_table['m0_err'] < 1.0).all() # less than 0.5 mag
+    
+    # Check fit quality
+    for param in ['x0','y0','vx0','vy0','ax','ay']:
+        #np.testing.assert_almost_equal(msc.ref_table[param][:len(ref_list)], ref_list[param], 2)
+        print(param,np.transpose([msc.ref_table[param][:len(ref_list)], ref_list[param]]))
+    return'''
 
 
 def test_MosaicToRef():
@@ -246,7 +306,7 @@ def test_MosaicToRef():
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2}, use_vel=True,
-                              update_ref_orig=False, verbose=False)
+                              update_ref_orig=False, verbose=True)
 
     msc.fit()
 
@@ -261,7 +321,6 @@ def test_MosaicToRef():
     # velocities since update_ref_orig == False.
     np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 5)
     np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 5)
-
 
     ##########
     # Align and let velocities be free. 
@@ -279,7 +338,6 @@ def test_MosaicToRef():
     
     return msc
 
-# TODO: Make this a valid test
 def test_MosaicToRef_acc():
     make_fake_starlists_poly1_acc(seed=42)
     
@@ -302,8 +360,8 @@ def test_MosaicToRef_acc():
     # Convert accelerations to arcsec/yr**2
     ref_list['ax'] *= 1e-3
     ref_list['ay'] *= 1e-3
-    ref_list['axe'] *= 1e-3
-    ref_list['aye'] *= 1e-3
+    ref_list['ax_err'] *= 1e-3
+    ref_list['ay_err'] *= 1e-3
     
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
@@ -598,12 +656,16 @@ def make_fake_starlists_poly1_acc(seed=-1):
     # Propogate to new times and distort.
     ##########
     # Make 4 new starlists with different epochs and transformations.
-    times = [2018.5, 2019.5, 2020.5, 2021.5]
+    times = [2018.5, 2019.0, 2019.5, 2020.0, 2020.5, 2021.0, 2021.5, 2022.0]
     xy_trans = [[[ 6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
                [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
-               [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
-               [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]]]
-    mag_trans = [0.1, 0.4, 0.0, -0.3]
+               [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.000]],
+               [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]],
+               [[ 50.0, 1.01, 1e-5], [ -31.0, 1e-5, 1.000]],
+               [[ 78.0, 0.98, 0.0 ], [  45.0, 9e-6, 1.001]],
+               [[-13.0, 0.99, 1e-5], [  150, 2e-5, 1.002]],
+               [[ 94.0, 1.00, 9e-6], [-182.0, 0.0, 0.99]]]
+    mag_trans = [0.1, 0.4, 0.0, -0.3, 0.2, 0.0, -0.1, -0.3]
 
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
@@ -612,8 +674,8 @@ def make_fake_starlists_poly1_acc(seed=-1):
     for ss in range(len(times)):
         dt = times[ss] - lis['t0']
         
-        x = lis['x0'] + (lis['vx0']/1e3) * dt + (lis['ax']/1e3) * dt**2
-        y = lis['y0'] + (lis['vy0']/1e3) * dt + (lis['ay']/1e3) * dt**2
+        x = lis['x0'] + (lis['vx0']/1e3) * dt + 0.5*(lis['ax']/1e3) * dt**2
+        y = lis['y0'] + (lis['vy0']/1e3) * dt + 0.5*(lis['ay']/1e3) * dt**2
         t = np.ones(N_stars) * times[ss]
 
         # Convert into pixels
