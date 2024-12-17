@@ -178,8 +178,8 @@ class StarTable(Table):
                         self['name_in_list'] = self['name_in_list'].astype('U20')
                     if arg == 'motion_model_input':
                         self['motion_model_input'] = self['motion_model_input'].astype('U20')
-            '''if 'motion_model' not in kwargs:
-                self['motion_model'] = np.repeat(default_motion_model, len(self['name']))'''
+            #if 'motion_model_input' not in kwargs:
+            #    self['motion_model_input'] = np.repeat(self.default_motion_model, len(self['name']))
 
         return
     
@@ -247,7 +247,7 @@ class StarTable(Table):
 
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if isinstance(self.meta[tab_key], collections.abc.Iterable) and (len(self.meta[tab_key]) == self.meta['n_lists']):
+            if isinstance(self.meta[tab_key], collections.abc.Iterable) and (len(self.meta[tab_key]) == self.meta['n_lists']) and (not isinstance(self.meta[tab_key], str)):
 
                 # If we find the key in the starlists' meta argument, then add the new values.
                 # Otherwise, add "None".
@@ -304,7 +304,7 @@ class StarTable(Table):
         for key in self.meta.keys():
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if isinstance(self.meta[key], collections.abc.Iterable) and (len(self.meta[key]) == self.meta['n_lists']):
+            if isinstance(self.meta[key], collections.abc.Iterable) and (len(self.meta[key]) == self.meta['n_lists']) and (not isinstance(self.meta[key], str)):
                 # If we find the key is the passed in meta argument, then add the new values.
                 # Otherwise, add "None".
                 if 'meta' in kwargs:
@@ -641,7 +641,7 @@ class StarTable(Table):
             self['n_fit'] = 1
 
             return
-
+            
         # STARS LOOP through the stars and work on them 1 at a time.
         # This is slow; but robust.
         if show_progress:
@@ -670,6 +670,11 @@ class StarTable(Table):
         # 
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
         #
+        
+        if ss==0:
+            print('first star')
+            print('  x', self['x'][ss, :].data)
+        
         x = np.ma.masked_invalid(self['x'][ss, :].data)
         y = np.ma.masked_invalid(self['y'][ss, :].data)
         if mask_val:
@@ -797,7 +802,6 @@ class StarTable(Table):
             t0 = self.t0
         else:
             t0 = fixed_t0[ss]
-        dt = t - t0
         self['t0'][ss] = t0
         self['n_fit'][ss] = N_good
 
@@ -815,7 +819,7 @@ class StarTable(Table):
             (N_good < getattr(motion_model, default_motion_model).n_pts_req):
             motion_model_use = 'Fixed'
         # If the points do not cover multiple times, go to a fixed model
-        if (dt == dt[0]).all():
+        if (t == t[0]).all():
             motion_model_use = 'Fixed'
             
         self['motion_model_used'][ss] = motion_model_use
@@ -829,8 +833,9 @@ class StarTable(Table):
             if ~np.isnan(self[par][ss]):
                 param_dict[par] = self[par][ss]
 
+        # TODO: this doesn't match how we actually handle ra,dec,pa - need to adjust
         # Load fixed parameters, if needed.
-        for par in modClass.fixed_param_names:
+        '''for par in modClass.fixed_param_names:
             if par not in self.colnames:
                 msg  = f'fit_velocity_for_star: '
                 msg += f'Missing fixed_params column {par} needed for motion model {motion_model_use}.'
@@ -838,14 +843,14 @@ class StarTable(Table):
                 raise RuntimeException(msg)
             
             if self[par][ss] != np.nan:
-                param_dict[par] = self[par][ss]
+                param_dict[par] = self[par][ss]'''
 
         # Model object
         mod = modClass(**param_dict, PA=self.meta['position_angle'], RA=self.meta['RA'], Dec=self.meta['Dec'], obs=self.meta['observer_location'])
 
         # Fit for the best parameters
-        params, param_errs = mod.fit_motion_model(dt, x, y, xe, ye, bootstrap=bootstrap, update=True)
-        chi2_x,chi2_y = mod.get_chi2(dt,x,y,xe,ye)
+        params, param_errs = mod.fit_motion_model(t, x, y, xe, ye, bootstrap=bootstrap, update=True)
+        chi2_x,chi2_y = mod.get_chi2(t,x,y,xe,ye)
         self['chi2_x'][ss]=chi2_x
         self['chi2_y'][ss]=chi2_y
         
@@ -882,7 +887,7 @@ class StarTable(Table):
             param_dict = {}
             for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
                 param_dict[par] = self[par][idx]
-            mod = modClass()
+            mod = modClass(RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
             x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
         return x,y,xe,ye
                 

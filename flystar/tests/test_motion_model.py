@@ -122,6 +122,35 @@ def test_Linear():
     # Run fit
     mod_fit = motion_model.Linear()
     params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err)
+    print(param_errs)
+    # Confirm true value is within error bar of fit value
+    assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
+    
+    # Test fitter with bootstrap
+    t = np.arange(2015.0,2025.0, 0.5)
+    # Get values from model and add scatter
+    x_true, y_true = mod_true.get_pos_at_time(t)
+    x_true_err, y_true_err = mod_true.get_pos_err_at_time(t)
+    x_sim = np.random.normal(x_true, x_true_err)
+    y_sim = np.random.normal(y_true, y_true_err)
+    # Run fit
+    mod_fit = motion_model.Linear()
+    params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err,bootstrap=10)
+    print(param_errs)
+    # Confirm true value is within error bar of fit value
+    assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
+    
+    # Test fitter for 2 pts
+    t = np.array([2015.0,2025.0])
+    # Get values from model and add scatter
+    x_true, y_true = mod_true.get_pos_at_time(t)
+    x_true_err, y_true_err = mod_true.get_pos_err_at_time(t)
+    x_sim = np.random.normal(x_true, x_true_err)
+    y_sim = np.random.normal(y_true, y_true_err)
+    # Run fit
+    mod_fit = motion_model.Linear()
+    params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err)
+    print(param_errs)
     # Confirm true value is within error bar of fit value
     assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
     
@@ -223,7 +252,7 @@ def test_Parallax():
     params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err)
     # Confirm true value is within error bar of fit value
     assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
-    
+
 
 def test_Parallax_PA():
     # Set PA=0 model

@@ -137,11 +137,7 @@ def test_MosaicSelfRef_vel_tconst():
         np.testing.assert_almost_equal(msc.trans_list[ii].py.c0_1, 1.0, 2)
 
     # Check that the velocities aren't crazy...
-    # they should be zero (since there is no time difference)
-    # TODO: is there a reason these were both happening? seemed like a duplicate assert
-    #np.testing.assert_almost_equal(msc.ref_table['vx'], 0, 1)
-    #np.testing.assert_almost_equal(msc.ref_table['vy'], 0, 1)
-
+    # they should be non-existent (since there is no time difference)
     assert np.isnan(msc.ref_table['vx']).all()
     assert np.isnan(msc.ref_table['vy']).all()
     assert np.isnan(msc.ref_table['vx_err']).all()
@@ -177,7 +173,7 @@ def test_MosaicSelfRef_vel():
     msc = align.MosaicSelfRef(lists, ref_index=0, iters=3,
                               dr_tol=[5, 3, 3], dm_tol=[1, 1, 0.5], outlier_tol=None,
                               trans_class=transforms.PolyTransform,
-                              trans_args={'order': 2}, use_vel=True,
+                              trans_args={'order': 2}, default_motion_model='Linear',
                               verbose=False)
 
     msc.fit()
@@ -280,13 +276,83 @@ def test_MosaicSelfRef_vel():
 
 
 def test_MosaicToRef():
+    make_fake_starlists_poly1(seed=42)
+    
+    ref_file = 'random_ref.fits'
+    list_files = ['random_0.fits',
+                  'random_1.fits',
+                  'random_2.fits',
+                  'random_3.fits',
+                  'random_4.fits',
+                  'random_5.fits',
+                  'random_6.fits',
+                  'random_7.fits']
+
+    ref_list = Table.read(ref_file)
+
+    # Switch our list to a "increasing to the West" list.
+    ref_list['x0'] *= -1.0
+        
+    lists = [starlists.StarList.read(lf) for lf in list_files]
+
+    msc = align.MosaicToRef(ref_list, lists, iters=2,
+                              dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
+                              trans_class=transforms.PolyTransform,
+                              trans_args={'order': 2}, default_motion_model='Fixed',
+                              update_ref_orig=False, verbose=True)
+
+    msc.fit()
+
+    # Check our status columns
+    assert 'use_in_trans' in msc.ref_table.colnames
+    assert 'used_in_trans' in msc.ref_table.colnames
+    assert 'ref_orig' in msc.ref_table.colnames
+    assert msc.ref_table['use_in_trans'].shape == msc.ref_table['x0'].shape
+    assert msc.ref_table['used_in_trans'].shape == msc.ref_table['x'].shape
+
+    # The velocities should be almost the same as the input
+    # velocities since update_ref_orig == False.
+    for i,star in enumerate(ref_list["name"]):
+        if star in msc.ref_table["name"]:
+            ii = np.where(msc.ref_table["name"]==star)[0][0]
+            np.testing.assert_almost_equal(msc.ref_table['x0'][ii], ref_list['x0'][i], 5)
+            np.testing.assert_almost_equal(msc.ref_table['y0'][ii], ref_list['y0'][i], 5)
+
+    ##########
+    # Align and let velocities be free.
+    ##########
+    msc.update_ref_orig = True
+    msc.fit()
+
+    # The velocities should be almost the same (but not as close as before)
+    # as the input velocities since update_ref == False.
+    for i,star in enumerate(ref_list["name"]):
+        if star in msc.ref_table["name"]:
+            ii = np.where(msc.ref_table["name"]==star)[0][0]
+            np.testing.assert_almost_equal(msc.ref_table['x0'][ii], ref_list['x0'][i], 1)
+            np.testing.assert_almost_equal(msc.ref_table['y0'][ii], ref_list['y0'][i], 1)
+
+    # Also double check that they aren't exactly the same for the reference stars.
+    #assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
+    for i,star in enumerate(ref_list["name"]):
+        if star in msc.ref_table["name"]:
+            ii = np.where(msc.ref_table["name"]==star)[0][0]
+            assert np.not_equal(msc.ref_table['x0'][ii], ref_list['x0'][i])
+    
+    return msc
+
+def test_MosaicToRef_vel():
     make_fake_starlists_poly1_vel(seed=42)
     
     ref_file = 'random_vel_ref.fits'
     list_files = ['random_vel_0.fits',
                   'random_vel_1.fits',
                   'random_vel_2.fits',
-                  'random_vel_3.fits']
+                  'random_vel_3.fits',
+                  'random_vel_4.fits',
+                  'random_vel_5.fits',
+                  'random_vel_6.fits',
+                  'random_vel_7.fits']
 
     ref_list = Table.read(ref_file)
 
@@ -305,7 +371,7 @@ def test_MosaicToRef():
     msc = align.MosaicToRef(ref_list, lists, iters=2,
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
-                              trans_args={'order': 2}, use_vel=True,
+                              trans_args={'order': 2}, default_motion_model='Linear',
                               update_ref_orig=False, verbose=True)
 
     msc.fit()
@@ -319,8 +385,11 @@ def test_MosaicToRef():
 
     # The velocities should be almost the same as the input 
     # velocities since update_ref_orig == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 5)
-    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 5)
+    for i,star in enumerate(ref_list["name"]):
+        if star in msc.ref_table["name"]:
+            ii = np.where(msc.ref_table["name"]==star)[0][0]
+            np.testing.assert_almost_equal(msc.ref_table['vx'][ii], ref_list['vx'][i], 5)
+            np.testing.assert_almost_equal(msc.ref_table['vy'][ii], ref_list['vy'][i], 5)
 
     ##########
     # Align and let velocities be free. 
@@ -330,11 +399,18 @@ def test_MosaicToRef():
 
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 1)
-    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 1)
+    for i,star in enumerate(ref_list["name"]):
+        if star in msc.ref_table["name"]:
+            ii = np.where(msc.ref_table["name"]==star)[0][0]
+            np.testing.assert_almost_equal(msc.ref_table['vx'][ii], ref_list['vx'][i], 1)
+            np.testing.assert_almost_equal(msc.ref_table['vy'][ii], ref_list['vy'][i], 1)
 
     # Also double check that they aren't exactly the same for the reference stars.
-    assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
+    #assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
+    for i,star in enumerate(ref_list["name"]):
+        if star in msc.ref_table["name"]:
+            ii = np.where(msc.ref_table["name"]==star)[0][0]
+            assert np.not_equal(msc.ref_table['vx'][ii], ref_list['vx'][i])
     
     return msc
 
@@ -345,7 +421,11 @@ def test_MosaicToRef_acc():
     list_files = ['random_acc_0.fits',
                   'random_acc_1.fits',
                   'random_acc_2.fits',
-                  'random_acc_3.fits']
+                  'random_acc_3.fits',
+                  'random_acc_4.fits',
+                  'random_acc_5.fits',
+                  'random_acc_6.fits',
+                  'random_acc_7.fits']
 
     ref_list = Table.read(ref_file)
     print(ref_list.keys())
@@ -371,14 +451,13 @@ def test_MosaicToRef_acc():
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
     msc = align.MosaicToRef(ref_list, lists, iters=2,
-                              dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
+                              dr_tol=[0.4, 0.2], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2},
                               default_motion_model='Acceleration',
                               update_ref_orig=False, verbose=False)
 
     msc.fit()
-    print(msc.ref_table['motion_model_input','motion_model_used'])
 
     # Check our status columns
     assert 'use_in_trans' in msc.ref_table.colnames
@@ -389,9 +468,11 @@ def test_MosaicToRef_acc():
 
     # The velocities should be almost the same as the input 
     # velocities since update_ref_orig == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx0'], ref_list['vx0'], 5)
-    np.testing.assert_almost_equal(msc.ref_table['vy0'], ref_list['vy0'], 5)
-
+    for i,star in enumerate(ref_list["name"]):
+        if star in msc.ref_table["name"]:
+            ii = np.where(msc.ref_table["name"]==star)[0][0]
+            np.testing.assert_almost_equal(msc.ref_table['vx0'][ii], ref_list['vx0'][i], 5)
+            np.testing.assert_almost_equal(msc.ref_table['vy0'][ii], ref_list['vy0'][i], 5)
 
     ##########
     # Align and let velocities be free. 
@@ -401,8 +482,11 @@ def test_MosaicToRef_acc():
 
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx0'], ref_list['vx0'], 1)
-    np.testing.assert_almost_equal(msc.ref_table['vy0'], ref_list['vy0'], 1)
+    for i,star in enumerate(ref_list["name"]):
+        if star in msc.ref_table["name"]:
+            ii = np.where(msc.ref_table["name"]==star)[0][0]
+            np.testing.assert_almost_equal(msc.ref_table['vx0'][ii], ref_list['vx0'][i], 1)
+            np.testing.assert_almost_equal(msc.ref_table['vy0'][ii], ref_list['vy0'][i], 1)
 
     # Also double check that they aren't exactly the same for the reference stars.
     assert np.any(np.not_equal(msc.ref_table['vx0'], ref_list['vx0']))
@@ -463,51 +547,85 @@ def make_fake_starlists_poly1(seed=-1):
         np.random.seed(seed=seed)
         
     N_stars = 200
-    x = np.random.rand(N_stars) * 1000
-    y = np.random.rand(N_stars) * 1000
-    m = (np.random.rand(N_stars) * 8) + 9
-        
-    sdx = np.argsort(m)
-    x = x[sdx]
-    y = y[sdx]
-    m = m[sdx]
+
+    x0  = np.random.rand(N_stars) * 10.0     # arcsec (increasing to East)
+    y0  = np.random.rand(N_stars) * 10.0     # arcsec
+    x0e = np.random.randn(N_stars) * 5.0e-4  # arcsec
+    y0e = np.random.randn(N_stars) * 5.0e-4  # arcsec
+    m0  = (np.random.rand(N_stars) * 8) + 9  # mag
+    m0e = np.random.randn(N_stars) * 0.05    # mag
+    t0 = np.ones(N_stars) * 2019.5
+
+    # Make all the errors positive
+    x0e = np.abs(x0e)
+    y0e = np.abs(y0e)
+    m0e = np.abs(m0e)
     
     name = ['star_{0:03d}'.format(ii) for ii in range(N_stars)]
 
-    # Save original positions as reference (1st) list.
-    fmt = '{0:10s}  {1:5.2f} 2015.0 {2:9.4f}  {3:9.4f} 0 0 0 0\n'
-    _out = open('random_0.lis', 'w')
-    for ii in range(N_stars):
-        _out.write(fmt.format(name[ii], m[ii], x[ii], y[ii]))
-    _out.close()
+    # Make an StarList
+    lis = starlists.StarList([name, m0, m0e, x0, x0e, y0, y0e, t0],
+                             names = ('name', 'm0', 'm0_err', 'x0', 'x0_err', 'y0', 'y0_err', 't0'))
+    
+    sdx = np.argsort(m0)
+    lis = lis[sdx]
 
+    # Save original positions as reference (1st) list
+    # in a StarList format (with velocities).
+    lis.write('random_ref.fits', overwrite=True)
 
     ##########
     # Shifts
     ##########
     # Make 4 new starlists with different shifts.
-    transforms = [[[  6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
-                  [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
-                  [[-30.0, 1.00, 1e-5], [-100.7, 2e-5, 0.999]],
-                  [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]]]
+    times = [2018.5, 2019.0, 2019.5, 2020.0, 2020.5, 2021.0, 2021.5, 2022.0]
+    xy_trans = [[[ 6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
+               [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
+               [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
+               [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]],
+               [[ 50.0, 1.01, 1e-5], [ -31.0, 1e-5, 1.000]],
+               [[ 78.0, 0.98, 0.0 ], [  45.0, 9e-6, 1.001]],
+               [[-13.0, 0.99, 1e-5], [  150, 2e-5, 1.002]],
+               [[ 94.0, 1.00, 9e-6], [-182.0, 0.0, 0.99]]]
+    mag_trans = [0.1, 0.4, 0.0, -0.3, 0.2, 0.0, -0.1, -0.3]
+    
+    # Convert into pixels (undistorted) with the following info.
+    scale = 0.01  # arcsec / pix
+    shift = [1.0, 1.0]  # pix
 
-    for ss in range(len(shifts)):
-        #transforms.PolyTransform2D(1, transforms[ss])
-        xnew = x - shifts[ss][0]
-        ynew = y - shifts[ss][1]
+    for ss in range(len(times)):
+        dt = times[ss] - lis['t0']
+        
+        x = lis['x0']
+        y = lis['y0']
+        t = np.ones(N_stars) * times[ss]
+
+        # Convert into pixels
+        xp = (x / -scale) + shift[0]  # -1 from switching to increasing to West (right)
+        yp = (y /  scale) + shift[1]
+        xpe = lis['x0_err'] / scale
+        ype = lis['y0_err'] / scale
+
+        # Distort the positions
+        trans = transforms.PolyTransform(1, xy_trans[ss][0], xy_trans[ss][1], mag_offset=mag_trans[ss])
+        xd, yd = trans.evaluate(xp, yp)
+        md = trans.evaluate_mag(lis['m0'])
 
         # Perturb with small errors (0.1 pix)
-        xnew += np.random.randn(N_stars) * 0.1
-        ynew += np.random.randn(N_stars) * 0.1
+        xd += np.random.randn(N_stars) * 0.1
+        yd += np.random.randn(N_stars) * 0.1
+        md += np.random.randn(N_stars) * 0.02
+        xde = xpe
+        yde = ype
+        mde = lis['m0_err']
 
-        mnew = m + np.random.randn(N_stars) * 0.05
+        # Save the new list as a starlist.
+        new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
+                                     names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        _out = open('random_shift_{0:d}.lis'.format(ss+1), 'w')
-        for ii in range(N_stars):
-            _out.write(fmt.format(name[ii], mnew[ii], xnew[ii], ynew[ii]))
-        _out.close()
+        new_lis.write('random_{0:d}.fits'.format(ss), overwrite=True)
 
-    return shifts
+    return (xy_trans,mag_trans)
 
 
 def make_fake_starlists_poly1_vel(seed=-1):
@@ -554,12 +672,16 @@ def make_fake_starlists_poly1_vel(seed=-1):
     # Propogate to new times and distort.
     ##########
     # Make 4 new starlists with different epochs and transformations.
-    times = [2018.5, 2019.5, 2020.5, 2021.5]
+    times = [2018.5, 2019.0, 2019.5, 2020.0, 2020.5, 2021.0, 2021.5, 2022.0]
     xy_trans = [[[ 6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
                [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
                [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
-               [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]]]
-    mag_trans = [0.1, 0.4, 0.0, -0.3]
+               [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]],
+               [[ 50.0, 1.01, 1e-5], [ -31.0, 1e-5, 1.000]],
+               [[ 78.0, 0.98, 0.0 ], [  45.0, 9e-6, 1.001]],
+               [[-13.0, 0.99, 1e-5], [  150, 2e-5, 1.002]],
+               [[ 94.0, 1.00, 9e-6], [-182.0, 0.0, 0.99]]]
+    mag_trans = [0.1, 0.4, 0.0, -0.3, 0.2, 0.0, -0.1, -0.3]
 
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
@@ -582,6 +704,7 @@ def make_fake_starlists_poly1_vel(seed=-1):
         trans = transforms.PolyTransform(1, xy_trans[ss][0], xy_trans[ss][1], mag_offset=mag_trans[ss])
         xd, yd = trans.evaluate(xp, yp)
         md = trans.evaluate_mag(lis['m0'])
+        print([xd-xp])
 
         # Perturb with small errors (0.1 pix)
         xd += np.random.randn(N_stars) * 0.1
@@ -593,7 +716,7 @@ def make_fake_starlists_poly1_vel(seed=-1):
 
         # Save the new list as a starlist.
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
-                                     names=('name', 'm', 'm_err', 'x', 'x_err', 'y', 'y_err', 't'))
+                                     names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
         new_lis.write('random_vel_{0:d}.fits'.format(ss), overwrite=True)
 

@@ -273,14 +273,14 @@ class PolyTransform(Transform2D):
         
         Parameters
         ----------
-        px : list or array [a0, a1, a2, ...] 
+        order : int
+            The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
+            
+        px : list or array [a0, a1, a2, ...]
             coefficients to transform input x coordinates into output x' coordinates.
 
         py : list or array [b0, b1, b2, ...] 
             coefficients to transform input y coordinates into output y' coordinates.
-        
-        order : int
-            The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
 
         pxerr : array or list
             array or list of errors of the coefficients to transform input x coordinates 
@@ -331,7 +331,7 @@ class PolyTransform(Transform2D):
 
         a0 + a1*x + a2*y + a3*x^2 + a4*x*y + a5*y^2 + a6*x^3 + a7*x^2*y + a8*x*y^2 + a9*y^3
 
-        and conver this into a dictionary where:
+        and convert this into a dictionary where:
 
         c0_0 = a0
         c1_0 = a1
@@ -611,6 +611,7 @@ class PolyTransform(Transform2D):
         
         fit_p  = fitting.LinearLSQFitter()
 
+        #pdb.set_trace()
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
 

@@ -5,6 +5,7 @@ import pdb
 from flystar import parallax
 from astropy.time import Time
 from scipy.optimize import curve_fit
+import warnings
 
 class MotionModel(ABC):
     # Number of data points required to fit model
@@ -18,6 +19,8 @@ class MotionModel(ABC):
     # Fixed parameters: These are parameters that are required for the model, but are not 
     # fit quantities. For example, RA and Dec in a parallax model.
     fixed_param_names = []
+    # TODO: for values that are for the full data set, not per star - are we happy with this method?
+    fixed_meta_data = []
 
     # Non-fit paramters: Custom paramters that will not be fit.
     # These parameters should be derived from the fit parameters and
@@ -44,8 +47,21 @@ class MotionModel(ABC):
     def get_batch_pos_at_time(self, t):
         #return x, y, x_err, y_err
         pass
+        
+    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
+        # Run a single fit (used both for overall fit + bootstrap iterations)
+        pass
+        
+    def get_weights(self, xe, ye, weighting='var'):
+        if weighting=='std':
+            return 1./xe, 1./ye
+        elif weighting=='var':
+            return 1./xe**2, 1./ye**2
+        else:
+            warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
+            return 1./xe**2, 1./ye**2
 
-    def fit_motion_model(self, t, x, y, xe, ye, update=True):
+    def fit_motion_model(self, t, x, y, xe, ye, update=True, bootstrap=0, weighting='var'):
         """
         Fit the input positions on the sky and errors
         to determine new parameters for this motion model (MM).
@@ -53,10 +69,26 @@ class MotionModel(ABC):
         Best-fit parameters will be returned along with uncertainties
         and updated if update=True. 
         """
-        #return params, param_errors
-        pass
+        params, param_errs = self.run_fit(t, x, y, xe, ye, weighting=weighting, update=True)
         
-    def get_chi2(self,t,x,y,xe,ye):
+        if bootstrap>0 and len(x)>(self.n_pts_req):
+            edx = np.arange(len(x), dtype=int)
+            bb_params = []
+            for bb in range(bootstrap):
+                bdx = np.random.choice(edx, len(x))
+                params_bdx, param_errs_bdx = self.run_fit(t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], weighting=weighting, update=False)
+                bb_params.append(params_bdx)
+        
+            # Save the errors from the bootstrap
+            param_errs = np.std(bb_params, axis=0)
+                    
+            if update:
+                for i in range(len(self.fitter_param_names)):
+                    setattr(self, self.fitter_param_names[i]+'_err', param_errs[i])
+        
+        return params, param_errs
+        
+    def get_chi2(self,t,x,y,xe,ye,reduced=False):
         """
         Get the chi^2 value for the current MM and
         the input data.
@@ -65,6 +97,11 @@ class MotionModel(ABC):
         x_pred,y_pred = self.get_pos_at_time(t)
         chi2x = np.sum((x-x_pred)**2 / xe**2)
         chi2y = np.sum((y-y_pred)**2 / ye**2)
+        if reduced:
+            if len(t)==self.dof:
+                chi2x, chi2y = 0,0
+            else:
+                chi2x, chi2y = chi2x/(len(x)-self.dof), chi2y/(len(x)-self.dof)
         return chi2x,chi2y
     
 class Fixed(MotionModel):
@@ -110,16 +147,16 @@ class Fixed(MotionModel):
         else:
             return x0,y0,x0_err,y0_err
             
-    def fit_motion_model(self, t, x, y, xe, ye, update=True, bootstrap=0):
+    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
         # Handle single data point case
         if len(x)==1:
             return [x[0],y[0]],[xe[0],ye[0]]
     
-        #TODO: it seems like sometimes it's weighted by std and sometimes by var - confirm which to do here
-        x0 = np.average(x, weights=1/xe**2)
-        x0e = np.sqrt(np.average((x-x0)**2,weights=1/xe**2))
-        y0 = np.average(y, weights=1/ye**2)
-        y0e = np.sqrt(np.average((y-y0)**2,weights=1/ye**2))
+        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
+        x0 = np.average(x, weights=x_wt)
+        x0e = np.sqrt(np.average((x-x0)**2,weights=x_wt))
+        y0 = np.average(y, weights=y_wt)
+        y0e = np.sqrt(np.average((y-y0)**2,weights=y_wt))
         
         params = [x0, y0]
         param_errors = [x0e, y0e]
@@ -188,91 +225,62 @@ class Linear(MotionModel):
             y_err = np.hypot(y0_err, vy_err*dt)
         return x,y,x_err,y_err
 
-    def fit_motion_model(self, dt, x, y, xe, ye, update=True, bootstrap=0):
+    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
         fitter = fitting.LevMarLSQFitter()
-
+        dt = t-self.t0
         # Handle 2-data point case
-        # TODO: is this the best way to handle this case ? Altered it to be consistent with t0
         if len(x)==2:
             ix = int(xe[0]>xe[1])
             iy = int(ye[0]>ye[1])
             dx = np.diff(x)[0]
             dy = np.diff(y)[0]
-            dt_diff = np.diff(dt)[0]
-            vx = dx / dt_diff
-            vy = dy / dt_diff
-            x0 = x[ix]-vx*dt[ix]
-            y0 = y[iy]-vy*dt[iy]
-            vxe = np.hypot(*xe)/dt_diff
-            vye = np.hypot(*ye)/dt_diff
+            t_diff = np.diff(t)[0]
+            vx = dx / t_diff
+            vy = dy / t_diff
+            x0 = x[ix]+vx*(-dt[ix])
+            y0 = y[ix]+vy*(-dt[ix])
+            vxe = np.hypot(*xe)/t_diff
+            vye = np.hypot(*ye)/t_diff
             x0e = np.sqrt(xe[ix]**2 + (dt[ix]*vxe)**2)
             y0e = np.sqrt(ye[iy]**2 + (dt[iy]*vye)**2)
             return [x0, vx, y0, vy],[x0e, vxe, y0e, vye]
 
-        px_new = fitter(self.px, dt, x, weights=1/xe)
+        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
+        px_new = fitter(self.px, dt, x, weights=x_wt)
         px_cov = fitter.fit_info['param_cov']
-        py_new = fitter(self.py, dt, y, weights=1/ye)
+        py_new = fitter(self.py, dt, y, weights=y_wt)
         py_cov = fitter.fit_info['param_cov']
 
         x0 = px_new.c0.value
         vx = px_new.c1.value
         y0 = py_new.c0.value
         vy = py_new.c1.value
-        
-        # Run the bootstrap
-        if bootstrap > 0:
-            edx = np.arange(len(x), dtype=int)
 
-            fit_x0_b = np.zeros(bootstrap, dtype=float)
-            fit_vx_b = np.zeros(bootstrap, dtype=float)
-            fit_y0_b = np.zeros(bootstrap, dtype=float)
-            fit_vy_b = np.zeros(bootstrap, dtype=float)
-        
-            for bb in range(bootstrap):
-                bdx = np.random.choice(edx, len(x))
-                
-                px_b = fitter(self.px, dt[bdx], x[bdx], weights=1/xe[bdx])
-                px_b_cov = fitter.fit_info['param_cov']
-                py_b = fitter(self.py, dt[bdx], y[bdx], weights=1/ye[bdx])
-                py_b_cov = fitter.fit_info['param_cov']
-
-                fit_x0_b[bb] = px_b.c0.value
-                fit_vx_b[bb] = px_b.c1.value
-                fit_y0_b[bb] = py_b.c0.value
-                fit_vy_b[bb] = py_b.c1.value
-        
-            # Save the errors from the bootstrap
-            x0e = fit_x0_b.std()
-            vxe = fit_vx_b.std()
-            y0e = fit_y0_b.std()
-            vye = fit_vy_b.std()
-        else:
-            px_param_errs = dict(zip(self.px.param_names, np.diag(px_cov)**0.5))
-            py_param_errs = dict(zip(self.py.param_names, np.diag(py_cov)**0.5))
-            x0e = px_param_errs['c0']
-            vxe = px_param_errs['c1']
-            y0e = py_param_errs['c0']
-            vye = py_param_errs['c1']
-        
-        if update:
-            self.px = px_new
-            self.py = py_new
-
-            self.x0 = x0
-            self.vx = vx
-            self.y0 = y0
-            self.vy = vy
-            
-            self.x0_err = x0e
-            self.vx_err = vxe
-            self.y0_err = y0e
-            self.vy_err = vye
+        px_param_errs = dict(zip(self.px.param_names, np.diag(px_cov)**0.5))
+        py_param_errs = dict(zip(self.py.param_names, np.diag(py_cov)**0.5))
+        x0e = px_param_errs['c0']
+        vxe = px_param_errs['c1']
+        y0e = py_param_errs['c0']
+        vye = py_param_errs['c1']
 
         params = [x0, vx, y0, vy]
         param_errors = [x0e, vxe, y0e, vye]
         
+        if update:
+            self.px = px_new
+            self.py = py_new
+            self.x0 = x0
+            self.vx = vx
+            self.y0 = y0
+            self.vy = vy
+            self.x0_err = x0e
+            self.vx_err = vxe
+            self.y0_err = y0e
+            self.vy_err = vye
+        
         return params, param_errors
-
+        
+        
 class Acceleration(MotionModel):
     """
     A 2D accelerating motion model for a star on the sky.
@@ -337,12 +345,14 @@ class Acceleration(MotionModel):
             y_err = np.sqrt(y0_err**2 + (vy0_err*dt)**2 + (0.5*ay_err*dt**2)**2)
         return x,y,x_err,y_err
 
-    def fit_motion_model(self, dt, x, y, xe, ye, update=True, bootstrap=0):
+    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
         fitter = fitting.LevMarLSQFitter()
+        dt = t-self.t0
+        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
 
-        px_new = fitter(self.px, dt, x, weights=1/xe)
+        px_new = fitter(self.px, dt, x, weights=x_wt)
         px_cov = fitter.fit_info['param_cov']
-        py_new = fitter(self.py, dt, y, weights=1/ye)
+        py_new = fitter(self.py, dt, y, weights=y_wt)
         py_cov = fitter.fit_info['param_cov']
 
         x0 = px_new.c0.value
@@ -351,61 +361,25 @@ class Acceleration(MotionModel):
         y0 = py_new.c0.value
         vy0 = py_new.c1.value
         ay = py_new.c2.value
-        
-        # Run the bootstrap
-        if bootstrap > 0:
-            edx = np.arange(len(x), dtype=int)
-
-            fit_x0_b = np.zeros(bootstrap, dtype=float)
-            fit_vx0_b = np.zeros(bootstrap, dtype=float)
-            fit_ax_b = np.zeros(bootstrap, dtype=float)
-            fit_y0_b = np.zeros(bootstrap, dtype=float)
-            fit_vy0_b = np.zeros(bootstrap, dtype=float)
-            fit_ay_b = np.zeros(bootstrap, dtype=float)
-
-            for bb in range(bootstrap):
-                bdx = np.random.choice(edx, len(x))
-                
-                px_b = fitter(self.px, dt[bdx], x[bdx], weights=1/xe[bdx])
-                px_b_cov = fitter.fit_info['param_cov']
-                py_b = fitter(self.py, dt[bdx], y[bdx], weights=1/ye[bdx])
-                py_b_cov = fitter.fit_info['param_cov']
-
-                fit_x0_b[bb] = px_b.c0.value
-                fit_vx0_b[bb] = px_b.c1.value
-                fit_ax_b[bb] = px_b.c2.value
-                fit_y0_b[bb] = py_b.c0.value
-                fit_vy0_b[bb] = py_b.c1.value
-                fit_ay_b[bb] = py_b.c2.value
-
-            # Save the errors from the bootstrap
-            x0e = fit_x0_b.std()
-            vx0e = fit_vx0_b.std()
-            axe = fit_ax_b.std()
-            y0e = fit_y0_b.std()
-            vy0e = fit_vy0_b.std()
-            aye = fit_ay_b.std()
-        else:
-            px_param_errs = dict(zip(self.px.param_names, np.diag(px_cov)**0.5))
-            py_param_errs = dict(zip(self.py.param_names, np.diag(py_cov)**0.5))
-            x0e = px_param_errs['c0']
-            vx0e = px_param_errs['c1']
-            axe = px_param_errs['c2']
-            y0e = py_param_errs['c0']
-            vy0e = py_param_errs['c1']
-            aye = py_param_errs['c2']
+    
+        px_param_errs = dict(zip(self.px.param_names, np.diag(px_cov)**0.5))
+        py_param_errs = dict(zip(self.py.param_names, np.diag(py_cov)**0.5))
+        x0e = px_param_errs['c0']
+        vx0e = px_param_errs['c1']
+        axe = px_param_errs['c2']
+        y0e = py_param_errs['c0']
+        vy0e = py_param_errs['c1']
+        aye = py_param_errs['c2']
         
         if update:
             self.px = px_new
             self.py = py_new
-
             self.x0 = x0
             self.vx0 = vx0
             self.ax = ax
             self.y0 = y0
             self.vy0 = vy0
             self.ay = ay
-            
             self.x0_err = x0e
             self.vx0_err = vx0e
             self.ax_err = axe
@@ -425,12 +399,13 @@ class Parallax(MotionModel):
     Requires RA, Dec, and PA parameters (degrees) for parallax calculation.
         RA, Dec in J2000
         PA is counterclockwise offset of the image y-axis from North.
-    Optional obs parameter describing observer location, default is 'earth'.
+    Optional obs parameter describes observer location, default is 'earth'.
     """
     n_pts_req = 4
     dof=3
     fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
-    fixed_param_names = ['t0', 'RA','Dec','PA','obs']
+    fixed_param_names = ['t0']
+    fixed_meta_data = ['RA','Dec','PA','obs']
 
     def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0,
                             x0_err=0, vx_err=0, y0_err=0, vy_err=0,
@@ -492,13 +467,14 @@ class Parallax(MotionModel):
                 x_err,y_err = [],[]
         return x,y,x_err,y_err
 
-    def fit_motion_model(self, t, x, y, xe, ye, update=True):
+    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
+        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
         def fit_func(t, x0,y0, vx,vy, pi):
             x_res = x0 + vx*(t-self.t0) + pi*pvec[0]
             y_res = y0 + vy*(t-self.t0) + pi*pvec[1]
-            diff = (x-x_res)**2/xe**2 + (y-y_res)**2/ye**2
+            diff = (x-x_res)**2 * x_wt + (y-y_res)**2 * y_wt
             return diff
         # Initial guesses, x0,y0 as x,y averages;
         #     vx,vy as average velocity if first and last points are perfectly measured;

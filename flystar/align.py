@@ -521,7 +521,7 @@ class MosaicSelfRef(object):
             ### Update the "average" values to be used as the reference frame for the next list.
             if self.update_ref_orig != 'periter':
                 self.update_ref_table_aggregates()
-
+                
             # Print out some metrics
             if self.verbose > 0:
                 msg1 = '    {0:2s} (mean and std) for {1:10s}: {2:8.5f} +/- {3:8.5f}'
@@ -837,23 +837,27 @@ class MosaicSelfRef(object):
                 if mm in self.ref_table.keys():
                     vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
                 
-        #if self.use_motion:
-            # Combine positions with a velocity fit.
+        #if 'motion_model_input' in self.ref_table.keys():
+        # Combine positions with a velocity fit.
+        if 'vx' in self.ref_table.keys():
+            print('before:',self.ref_table['vx'][:10])
         self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose, default_motion_model=self.default_motion_model)
+        print(np.unique(self.ref_table['motion_model_used']))
+        if 'vx' in self.ref_table.keys():
+            print('after:', self.ref_table['vx'][:10])
 
         # Combine (transformed) magnitudes
-        # TODO: how does this work?
         if 'me' in self.ref_table.colnames:
             weights_col = None
         else:
             weights_col = 'me'
             
         self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
-        '''else:
-            weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
-            weighted_m = ('me' in self.ref_table.colnames)
+        #else:
+        #    weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
+        #    weighted_m = ('me' in self.ref_table.colnames)
     
-            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)'''
+        #    self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
         # Replace the originals if we are supposed to keep them fixed.
         if not self.update_ref_orig:
             for val in vals_orig.keys():
@@ -962,6 +966,7 @@ class MosaicSelfRef(object):
 
         if ('motion_model_used' in self.ref_table.colnames):
             x,y,xe,ye = self.ref_table.get_star_positions_at_time(epoch)
+            #print('ref star pos',epoch,x,y)
         else:
             # No velocities... just used average positions.
             x = self.ref_table['x0']
@@ -3037,7 +3042,7 @@ def get_weighting_scheme(weights, ref_list, star_list):
 
     return weight
 
-# TODO: I think this is a startable, not a starlist
+# TODO: I think this is a startable, not a starlist, at least as currently used
 def get_pos_at_time(t, starlist):
     """
     Take a starlist, check to see if it has motion/velocity columns.
