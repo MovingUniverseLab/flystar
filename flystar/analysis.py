@@ -173,13 +173,13 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['vye'][idx] = 0.0
 
     #macy additions to try to fix wild magnitude values
-    gaia_new['ruwe'] = gaia['ruwe']
-    try:
-        gaia_new = gaia_new[~gaia_new['m'].mask]
-    except:
-        print('no invalig mags')
+    #gaia_new['ruwe'] = gaia['ruwe']
+    #try:
+    #    gaia_new = gaia_new[~gaia_new['m'].mask]
+    #except:
+    #    print('no invalig mags')
 
-    gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
+    #gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
 
     if targets_dict != None:
         for targ_name, targ_coo in targets_dict.items():

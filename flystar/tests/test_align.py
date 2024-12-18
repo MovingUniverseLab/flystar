@@ -254,9 +254,8 @@ def test_MosaicToRef():
 
     # The velocities should be almost the same as the input 
     # velocities since update_ref_orig == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 5)
-    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 5)
-
+    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], rtol=1e-5)
+    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], rtol=1e-5)
 
     ##########
     # Align and let velocities be free. 
@@ -266,8 +265,8 @@ def test_MosaicToRef():
 
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 1)
-    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 1)
+    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], rtol=1e-1)
+    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], rtol=1e-1)
 
     # Also double check that they aren't exactly the same for the reference stars.
     assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
@@ -419,12 +418,23 @@ def make_fake_starlists_poly1_vel(seed=-1):
     # Propogate to new times and distort.
     ##########
     # Make 4 new starlists with different epochs and transformations.
-    times = [2018.5, 2019.5, 2020.5, 2021.5]
+    '''times = [2018.5, 2019.5, 2020.5, 2021.5]
     xy_trans = [[[ 6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
                [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
                [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
                [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]]]
-    mag_trans = [0.1, 0.4, 0.0, -0.3]
+    mag_trans = [0.1, 0.4, 0.0, -0.3]'''
+    
+    times = [2018.5, 2019.0, 2019.5, 2020.0, 2020.5, 2021.0, 2021.5, 2022.0]
+    xy_trans = [[[ 6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
+               [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
+               [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
+               [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]],
+               [[ 50.0, 1.00, 0.0], [ -31.0, 0.0, 1.000]],
+               [[ 78.0, 1.00, 0.0 ], [  45.0, 0.0, 1.00]],
+               [[-13.0, 1.00, 0.0], [  150, 0.0, 1.00]],
+               [[ 94.0, 1.00, 0.0], [-182.0, 0.0, 1.00]]]
+    mag_trans = [0.1, 0.4, 0.0, -0.3, 0.0, 0.0, 0.0, 0.0]
 
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
