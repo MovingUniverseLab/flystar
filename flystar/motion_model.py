@@ -232,12 +232,12 @@ class Linear(MotionModel):
             dt_diff = np.diff(dt)[0]
             vx = dx / dt_diff
             vy = dy / dt_diff
-            x0 = np.average(x, weights=x_wt)
-            y0 = np.average(y, weights=y_wt)
+            x0 = x[0] - dt[0]*vx
+            y0 = y[0] - dt[0]*vy
             vxe = 0.0
             vye = 0.0
             x0e = np.abs(dx) / 2**0.5
-            y0e = np.abs(dy) /2 **0.5
+            y0e = np.abs(dy) / 2**0.5
 
         else:
             def linear(t, c0, c1):
