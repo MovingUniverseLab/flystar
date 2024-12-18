@@ -254,8 +254,8 @@ def test_MosaicToRef():
 
     # The velocities should be almost the same as the input 
     # velocities since update_ref_orig == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 5)
-    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 5)
+    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], rtol=1e-5)
+    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], rtol=1e-5)
 
 
     ##########
@@ -266,8 +266,9 @@ def test_MosaicToRef():
 
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == False.
-    np.testing.assert_almost_equal(msc.ref_table['vx'], ref_list['vx'], 1)
-    np.testing.assert_almost_equal(msc.ref_table['vy'], ref_list['vy'], 1)
+    print(msc.ref_table['name'], ref_list['name'])
+    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], rtol=1e-1)
+    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], rtol=1e-1)
 
     # Also double check that they aren't exactly the same for the reference stars.
     assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
