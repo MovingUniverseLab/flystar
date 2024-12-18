@@ -646,7 +646,6 @@ class MosaicSelfRef(object):
                 # Some munging to convert data shape from (N,1) to (N,),
                 # since these are all 1D cols
                 vals = np.transpose(np.array(ref_table[orig_err_cols[ii]]))[0]
-
                 # Now add to ref_table
                 new_col = Column(vals, name=new_err_cols[ii])
                 ref_table.add_column(new_col)
@@ -837,14 +836,13 @@ class MosaicSelfRef(object):
                 if mm in self.ref_table.keys():
                     vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
                 
-        #if 'motion_model_input' in self.ref_table.keys():
         # Combine positions with a velocity fit.
-        if 'vx' in self.ref_table.keys():
-            print('before:',self.ref_table['vx'][:10])
+        #if 'vx' in self.ref_table.keys():
+            #print('before:',self.ref_table['vx'][:10])
         self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose, default_motion_model=self.default_motion_model)
-        print(np.unique(self.ref_table['motion_model_used']))
-        if 'vx' in self.ref_table.keys():
-            print('after:', self.ref_table['vx'][:10])
+        #print(np.unique(self.ref_table['motion_model_used']))
+        #if 'vx' in self.ref_table.keys():
+            #print('after:', self.ref_table['vx'][:10])
 
         # Combine (transformed) magnitudes
         if 'me' in self.ref_table.colnames:

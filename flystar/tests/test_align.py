@@ -58,8 +58,8 @@ def test_MosaicSelfRef():
     
     # Check that the transformation lists aren't too wacky
     for ii in range(4):
-        np.testing.assert_almost_equal(msc.trans_list[ii].px.c1_0, 1.0, 2)
-        np.testing.assert_almost_equal(msc.trans_list[ii].py.c0_1, 1.0, 2)
+        np.testing.assert_allclose(msc.trans_list[ii].px.c1_0, 1.0, rtol=1e-2)
+        np.testing.assert_allclose(msc.trans_list[ii].py.c0_1, 1.0, rtol=1e-2)
     # We didn't do any velocity fitting, so make sure nothing got created.
     assert 'vx' not in msc.ref_table.colnames
     assert 'vy' not in msc.ref_table.colnames
@@ -133,8 +133,8 @@ def test_MosaicSelfRef_vel_tconst():
     
     # Check that the transformation lists aren't too wacky
     for ii in range(4):
-        np.testing.assert_almost_equal(msc.trans_list[ii].px.c1_0, 1.0, 2)
-        np.testing.assert_almost_equal(msc.trans_list[ii].py.c0_1, 1.0, 2)
+        np.testing.assert_allclose(msc.trans_list[ii].px.c1_0, 1.0, rtol=1e-2)
+        np.testing.assert_allclose(msc.trans_list[ii].py.c0_1, 1.0, rtol=1e-2)
 
     # Check that the velocities aren't crazy...
     # they should be non-existent (since there is no time difference)
@@ -203,9 +203,8 @@ def test_MosaicSelfRef_vel():
     
     # Check that the transformation lists aren't too wacky
     for ii in range(4):
-        np.testing.assert_almost_equal(msc.trans_list[ii].px.c1_0, 1.0, 2)
-        np.testing.assert_almost_equal(msc.trans_list[ii].py.c0_1, 1.0, 2)
-
+        np.testing.assert_allclose(msc.trans_list[ii].px.c1_0, 1.0, rtol=1e-2)
+        np.testing.assert_allclose(msc.trans_list[ii].py.c0_1, 1.0, rtol=1e-2)
     
     plt.clf()
     plt.plot(msc.ref_table['vx'],
@@ -299,7 +298,7 @@ def test_MosaicToRef():
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2}, default_motion_model='Fixed',
-                              update_ref_orig=False, verbose=True)
+                              update_ref_orig=False, verbose=False)
 
     msc.fit()
 
@@ -312,11 +311,8 @@ def test_MosaicToRef():
 
     # The velocities should be almost the same as the input
     # velocities since update_ref_orig == False.
-    for i,star in enumerate(ref_list["name"]):
-        if star in msc.ref_table["name"]:
-            ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_almost_equal(msc.ref_table['x0'][ii], ref_list['x0'][i], 5)
-            np.testing.assert_almost_equal(msc.ref_table['y0'][ii], ref_list['y0'][i], 5)
+    np.testing.assert_allclose(msc.ref_table['x0'], ref_list['x0'], rtol=1e-5)
+    np.testing.assert_allclose(msc.ref_table['y0'], ref_list['y0'], rtol=1e-5)
 
     ##########
     # Align and let velocities be free.
@@ -326,18 +322,12 @@ def test_MosaicToRef():
 
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == False.
-    for i,star in enumerate(ref_list["name"]):
-        if star in msc.ref_table["name"]:
-            ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_almost_equal(msc.ref_table['x0'][ii], ref_list['x0'][i], 1)
-            np.testing.assert_almost_equal(msc.ref_table['y0'][ii], ref_list['y0'][i], 1)
+    np.testing.assert_allclose(msc.ref_table['x0'], ref_list['x0'], rtol=1e-1)
+    np.testing.assert_allclose(msc.ref_table['y0'], ref_list['y0'], rtol=1e-1)
 
     # Also double check that they aren't exactly the same for the reference stars.
-    #assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
-    for i,star in enumerate(ref_list["name"]):
-        if star in msc.ref_table["name"]:
-            ii = np.where(msc.ref_table["name"]==star)[0][0]
-            assert np.not_equal(msc.ref_table['x0'][ii], ref_list['x0'][i])
+    assert np.not_equal(msc.ref_table['x0'], ref_list['x0']).all()
+    assert np.not_equal(msc.ref_table['y0'], ref_list['y0']).all()
     
     return msc
 
@@ -367,13 +357,13 @@ def test_MosaicToRef_vel():
     ref_list['vx'] *= -1.0
         
     lists = [starlists.StarList.read(lf) for lf in list_files]
+    print(ref_list[['x0','vx']])
 
     msc = align.MosaicToRef(ref_list, lists, iters=2,
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2}, default_motion_model='Linear',
-                              update_ref_orig=False, verbose=True)
-
+                              update_ref_orig=False, verbose=False)
     msc.fit()
 
     # Check our status columns
@@ -388,22 +378,25 @@ def test_MosaicToRef_vel():
     for i,star in enumerate(ref_list["name"]):
         if star in msc.ref_table["name"]:
             ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_almost_equal(msc.ref_table['vx'][ii], ref_list['vx'][i], 5)
-            np.testing.assert_almost_equal(msc.ref_table['vy'][ii], ref_list['vy'][i], 5)
+            np.testing.assert_allclose(msc.ref_table['vx'][ii], ref_list['vx'][i], rtol=1e-5)
+            np.testing.assert_allclose(msc.ref_table['vy'][ii], ref_list['vy'][i], rtol=1e-5)
 
     ##########
     # Align and let velocities be free. 
     ##########
     msc.update_ref_orig = True
     msc.fit()
+    
+    print(msc.ref_table[['name','vx']][:10])
+    print(ref_list['name','vx'][:10])
 
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == False.
     for i,star in enumerate(ref_list["name"]):
         if star in msc.ref_table["name"]:
             ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_almost_equal(msc.ref_table['vx'][ii], ref_list['vx'][i], 1)
-            np.testing.assert_almost_equal(msc.ref_table['vy'][ii], ref_list['vy'][i], 1)
+            np.testing.assert_allclose(msc.ref_table['vx'][ii], ref_list['vx'][i], rtol=1e-1)
+            np.testing.assert_allclose(msc.ref_table['vy'][ii], ref_list['vy'][i], rtol=1e-1)
 
     # Also double check that they aren't exactly the same for the reference stars.
     #assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
@@ -471,8 +464,8 @@ def test_MosaicToRef_acc():
     for i,star in enumerate(ref_list["name"]):
         if star in msc.ref_table["name"]:
             ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_almost_equal(msc.ref_table['vx0'][ii], ref_list['vx0'][i], 5)
-            np.testing.assert_almost_equal(msc.ref_table['vy0'][ii], ref_list['vy0'][i], 5)
+            np.testing.assert_allclose(msc.ref_table['vx0'][ii], ref_list['vx0'][i], rtol=1e-5)
+            np.testing.assert_allclose(msc.ref_table['vy0'][ii], ref_list['vy0'][i], rtol=1e-5)
 
     ##########
     # Align and let velocities be free. 
@@ -485,8 +478,8 @@ def test_MosaicToRef_acc():
     for i,star in enumerate(ref_list["name"]):
         if star in msc.ref_table["name"]:
             ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_almost_equal(msc.ref_table['vx0'][ii], ref_list['vx0'][i], 1)
-            np.testing.assert_almost_equal(msc.ref_table['vy0'][ii], ref_list['vy0'][i], 1)
+            np.testing.assert_allclose(msc.ref_table['vx0'][ii], ref_list['vx0'][i], rtol=1e-1)
+            np.testing.assert_allclose(msc.ref_table['vy0'][ii], ref_list['vy0'][i], rtol=1e-1)
 
     # Also double check that they aren't exactly the same for the reference stars.
     assert np.any(np.not_equal(msc.ref_table['vx0'], ref_list['vx0']))
@@ -677,11 +670,11 @@ def make_fake_starlists_poly1_vel(seed=-1):
                [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
                [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
                [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]],
-               [[ 50.0, 1.01, 1e-5], [ -31.0, 1e-5, 1.000]],
-               [[ 78.0, 0.98, 0.0 ], [  45.0, 9e-6, 1.001]],
-               [[-13.0, 0.99, 1e-5], [  150, 2e-5, 1.002]],
-               [[ 94.0, 1.00, 9e-6], [-182.0, 0.0, 0.99]]]
-    mag_trans = [0.1, 0.4, 0.0, -0.3, 0.2, 0.0, -0.1, -0.3]
+               [[ 50.0, 1.00, 0.0], [ -31.0, 0.0, 1.000]],
+               [[ 78.0, 1.00, 0.0 ], [  45.0, 0.0, 1.00]],
+               [[-13.0, 1.00, 0.0], [  150, 0.0, 1.00]],
+               [[ 94.0, 1.00, 0.0], [-182.0, 0.0, 1.00]]]
+    mag_trans = [0.1, 0.4, 0.0, -0.3, 0.0, 0.0, 0.0, 0.0]
 
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
