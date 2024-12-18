@@ -168,8 +168,8 @@ def test_Acceleration():
     assert y_t==true_params['y0']
     t_arr = np.array([2010.0,mod_true.t0,2030.0])
     x_t, y_t = mod_true.get_pos_at_time(t_arr)
-    assert (x_t==(true_params['x0'] + (t_arr-mod_true.t0)*true_params['vx0'] + (t_arr-mod_true.t0)**2*true_params['ax'])).all()
-    assert (y_t==(true_params['y0'] + (t_arr-mod_true.t0)*true_params['vy0'] + (t_arr-mod_true.t0)**2*true_params['ay'])).all()
+    assert (x_t==(true_params['x0'] + (t_arr-mod_true.t0)*true_params['vx0'] + 0.5*(t_arr-mod_true.t0)**2*true_params['ax'])).all()
+    assert (y_t==(true_params['y0'] + (t_arr-mod_true.t0)*true_params['vy0'] + 0.5*(t_arr-mod_true.t0)**2*true_params['ay'])).all()
     x_err_t, y_err_t = mod_true.get_pos_err_at_time(mod_true.t0)
     assert x_err_t==true_params['x0_err']
     assert y_err_t==true_params['y0_err']

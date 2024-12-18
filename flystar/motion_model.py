@@ -1,4 +1,3 @@
-from astropy.modeling import models, fitting
 import numpy as np
 from abc import ABC
 import pdb
@@ -150,13 +149,14 @@ class Fixed(MotionModel):
     def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
         # Handle single data point case
         if len(x)==1:
-            return [x[0],y[0]],[xe[0],ye[0]]
+            x0,y0,x0e,y0e = x[0],y[0],xe[0],ye[0]
     
-        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
-        x0 = np.average(x, weights=x_wt)
-        x0e = np.sqrt(np.average((x-x0)**2,weights=x_wt))
-        y0 = np.average(y, weights=y_wt)
-        y0e = np.sqrt(np.average((y-y0)**2,weights=y_wt))
+        else:
+            x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
+            x0 = np.average(x, weights=x_wt)
+            x0e = np.sqrt(np.average((x-x0)**2,weights=x_wt))
+            y0 = np.average(y, weights=y_wt)
+            y0e = np.sqrt(np.average((y-y0)**2,weights=y_wt))
         
         params = [x0, y0]
         param_errors = [x0e, y0e]
@@ -168,7 +168,7 @@ class Fixed(MotionModel):
             self.y0_err = y0e
         
         return params, param_errors
-    
+        
 class Linear(MotionModel):
     """
     A 2D linear motion model for a star on the sky.
@@ -193,10 +193,6 @@ class Linear(MotionModel):
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
-
-        self.poly_order = 1
-        self.px = models.Polynomial1D(self.poly_order, c0=self.x0, c1=self.vx)
-        self.py = models.Polynomial1D(self.poly_order, c0=self.y0, c1=self.vy)
         
         return
         
@@ -226,49 +222,39 @@ class Linear(MotionModel):
         return x,y,x_err,y_err
 
     def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
-        fitter = fitting.LevMarLSQFitter()
         dt = t-self.t0
+        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
+
         # Handle 2-data point case
         if len(x)==2:
-            ix = int(xe[0]>xe[1])
-            iy = int(ye[0]>ye[1])
             dx = np.diff(x)[0]
             dy = np.diff(y)[0]
-            t_diff = np.diff(t)[0]
-            vx = dx / t_diff
-            vy = dy / t_diff
-            x0 = x[ix]+vx*(-dt[ix])
-            y0 = y[ix]+vy*(-dt[ix])
-            vxe = np.hypot(*xe)/t_diff
-            vye = np.hypot(*ye)/t_diff
-            x0e = np.sqrt(xe[ix]**2 + (dt[ix]*vxe)**2)
-            y0e = np.sqrt(ye[iy]**2 + (dt[iy]*vye)**2)
-            return [x0, vx, y0, vy],[x0e, vxe, y0e, vye]
+            dt_diff = np.diff(dt)[0]
+            vx = dx / dt_diff
+            vy = dy / dt_diff
+            x0 = np.average(x, weights=x_wt)
+            y0 = np.average(y, weights=y_wt)
+            vxe = 0.0
+            vye = 0.0
+            x0e = np.abs(dx) / 2**0.5
+            y0e = np.abs(dy) /2 **0.5
 
-        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
-        px_new = fitter(self.px, dt, x, weights=x_wt)
-        px_cov = fitter.fit_info['param_cov']
-        py_new = fitter(self.py, dt, y, weights=y_wt)
-        py_cov = fitter.fit_info['param_cov']
-
-        x0 = px_new.c0.value
-        vx = px_new.c1.value
-        y0 = py_new.c0.value
-        vy = py_new.c1.value
-
-        px_param_errs = dict(zip(self.px.param_names, np.diag(px_cov)**0.5))
-        py_param_errs = dict(zip(self.py.param_names, np.diag(py_cov)**0.5))
-        x0e = px_param_errs['c0']
-        vxe = px_param_errs['c1']
-        y0e = py_param_errs['c0']
-        vye = py_param_errs['c1']
+        else:
+            def linear(t, c0, c1):
+                return c0 + c1*t
+            x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array([x.mean(),0.0]), sigma=1/x_wt, absolute_sigma=True)
+            y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array([y.mean(),0.0]), sigma=1/y_wt, absolute_sigma=True)
+            x0 = x_opt[0]
+            vx = x_opt[1]
+            y0 = y_opt[0]
+            vy = y_opt[1]
+            x0e, vxe = np.sqrt(x_cov.diagonal())
+            y0e, vye = np.sqrt(y_cov.diagonal())
 
         params = [x0, vx, y0, vy]
         param_errors = [x0e, vxe, y0e, vye]
         
         if update:
-            self.px = px_new
-            self.py = py_new
             self.x0 = x0
             self.vx = vx
             self.y0 = y0
@@ -309,17 +295,12 @@ class Acceleration(MotionModel):
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
-
-        self.poly_order = 2
-        self.px = models.Polynomial1D(self.poly_order, c0=self.x0, c1=self.vx0, c2=self.ax)
-        self.py = models.Polynomial1D(self.poly_order, c0=self.y0, c1=self.vy0, c2=self.ay)
-    
         return
 
     def get_pos_at_time(self, t):
         dt = t - self.t0
-        x = self.px(dt)
-        y = self.py(dt)
+        x = self.x0 + self.vx0*dt + 0.5*self.ax*dt**2
+        y = self.y0 + self.vy0*dt + 0.5*self.ay*dt**2
         return x, y
         
     def get_pos_err_at_time(self, t):
@@ -346,34 +327,24 @@ class Acceleration(MotionModel):
         return x,y,x_err,y_err
 
     def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
-        fitter = fitting.LevMarLSQFitter()
         dt = t-self.t0
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
 
-        px_new = fitter(self.px, dt, x, weights=x_wt)
-        px_cov = fitter.fit_info['param_cov']
-        py_new = fitter(self.py, dt, y, weights=y_wt)
-        py_cov = fitter.fit_info['param_cov']
-
-        x0 = px_new.c0.value
-        vx0 = px_new.c1.value
-        ax = px_new.c2.value
-        y0 = py_new.c0.value
-        vy0 = py_new.c1.value
-        ay = py_new.c2.value
-    
-        px_param_errs = dict(zip(self.px.param_names, np.diag(px_cov)**0.5))
-        py_param_errs = dict(zip(self.py.param_names, np.diag(py_cov)**0.5))
-        x0e = px_param_errs['c0']
-        vx0e = px_param_errs['c1']
-        axe = px_param_errs['c2']
-        y0e = py_param_errs['c0']
-        vy0e = py_param_errs['c1']
-        aye = py_param_errs['c2']
+        def accel(t, c0,c1,c2):
+            return c0 + c1*t + 0.5*c2*t**2
+        x_opt, x_cov = curve_fit(accel, dt, x, p0=np.array([x.mean(),0.0,0.0]), sigma=1/x_wt, absolute_sigma=True)
+        y_opt, y_cov = curve_fit(accel, dt, y, p0=np.array([y.mean(),0.0,0.0]), sigma=1/y_wt, absolute_sigma=True)
+        x0 = x_opt[0]
+        y0 = y_opt[0]
+        vx0 = x_opt[1]
+        vy0 = y_opt[1]
+        ax = x_opt[2]
+        ay = y_opt[2]
+        
+        x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
+        y0e, vy0e, aye = np.sqrt(y_cov.diagonal())
         
         if update:
-            self.px = px_new
-            self.py = py_new
             self.x0 = x0
             self.vx0 = vx0
             self.ax = ax
