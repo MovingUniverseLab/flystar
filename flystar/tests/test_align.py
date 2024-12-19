@@ -47,8 +47,7 @@ def test_MosaicSelfRef():
     # Check that we have some matched stars... should be at least 35 stars
     # that are detected in all 4 starlists.
     idx = np.where(msc.ref_table['n_detect'] == 4)[0]
-    print(len(idx))
-    assert len(idx) > 35 
+    assert len(idx) > 35
 
     # Check that the transformation error isn't too big
     assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
@@ -194,8 +193,7 @@ def test_MosaicSelfRef_vel():
     # Check that we have some matched stars... should be at least 35 stars
     # that are detected in all 4 starlists.
     idx = np.where(msc.ref_table['n_detect'] == 4)[0]
-    print(idx)
-    assert len(idx) > 35 
+    assert len(idx) > 35
 
     # Check that the transformation error isn't too big
     assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
@@ -213,67 +211,6 @@ def test_MosaicSelfRef_vel():
              'k.', color='black', alpha=0.2)
 
     return
-    
-'''def test_MosaicSelfRef_acc():
-    """
-    Cross-match and align 4 starlists using the OO version of mosaic lists.
-    
-    """
-    make_fake_starlists_poly1_acc(seed=42)
-    
-    ref_file = 'random_acc_ref.fits'
-    ref_list = Table.read(ref_file)
-    names = ref_list["name"]
-    list_files = ['random_acc_0.fits',
-                  'random_acc_1.fits',
-                  'random_acc_2.fits',
-                  'random_acc_3.fits']
-    lists = [starlists.StarList.read(lf) for lf in list_files]
-
-    ##########
-    # Test instantiation and basic fitting.
-    ##########
-    msc = align.MosaicSelfRef(lists, ref_index=0, iters=3,
-                              dr_tol=[5, 3, 3], dm_tol=[1, 1, 0.5], outlier_tol=None,
-                              trans_class=transforms.PolyTransform,
-                              trans_args={'order': 2}, default_motion_model='Acceleration',
-                              verbose=False)
-
-    msc.fit()
-    
-    # Check some of the output quantities on the final table.
-    assert 'x0' in msc.ref_table.colnames
-    assert 'x0_err' in msc.ref_table.colnames
-    assert 'y0' in msc.ref_table.colnames
-    assert 'y0_err' in msc.ref_table.colnames
-    assert 'm0' in msc.ref_table.colnames
-    assert 'm0_err' in msc.ref_table.colnames
-    assert 'vx0' in msc.ref_table.colnames
-    assert 'vx0_err' in msc.ref_table.colnames
-    assert 'vy0' in msc.ref_table.colnames
-    assert 'vy0_err' in msc.ref_table.colnames
-    assert 'ax' in msc.ref_table.colnames
-    assert 'ax_err' in msc.ref_table.colnames
-    assert 'ay' in msc.ref_table.colnames
-    assert 'ay_err' in msc.ref_table.colnames
-    assert 't0' in msc.ref_table.colnames
-
-    # Check that we have some matched stars... should be at least 35 stars
-    # that are detected in all 4 starlists.
-    idx = np.where(msc.ref_table['n_detect'] == 4)[0]
-    assert len(idx) > 35
-
-    # Check that the transformation error isn't too big
-    assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
-    assert (msc.ref_table['y0_err'] < 3.0).all()
-    assert (msc.ref_table['m0_err'] < 1.0).all() # less than 0.5 mag
-    
-    # Check fit quality
-    for param in ['x0','y0','vx0','vy0','ax','ay']:
-        #np.testing.assert_almost_equal(msc.ref_table[param][:len(ref_list)], ref_list[param], 2)
-        print(param,np.transpose([msc.ref_table[param][:len(ref_list)], ref_list[param]]))
-    return'''
-
 
 def test_MosaicToRef():
     make_fake_starlists_poly1(seed=42)
@@ -358,7 +295,6 @@ def test_MosaicToRef_vel():
     ref_list['vx'] *= -1.0
         
     lists = [starlists.StarList.read(lf) for lf in list_files]
-    print(ref_list[['x0','vx']])
 
     msc = align.MosaicToRef(ref_list, lists, iters=2,
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
@@ -410,8 +346,6 @@ def test_MosaicToRef_acc():
                   'random_acc_7.fits']
 
     ref_list = Table.read(ref_file)
-    print(ref_list.keys())
-    print(ref_list)
 
     # Convert velocities to arcsec/yr
     ref_list['vx0'] *= 1e-3
@@ -686,7 +620,6 @@ def make_fake_starlists_poly1_vel(seed=-1):
         trans = transforms.PolyTransform(1, xy_trans[ss][0], xy_trans[ss][1], mag_offset=mag_trans[ss])
         xd, yd = trans.evaluate(xp, yp)
         md = trans.evaluate_mag(lis['m0'])
-        print([xd-xp])
 
         # Perturb with small errors (0.1 pix)
         xd += np.random.randn(N_stars) * 0.1
@@ -1024,11 +957,9 @@ def test_bootstrap():
 
     # Run bootstrap: no boot_epochs_min
     match1.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min)
-    print(match1.ref_table.keys())
     # Make sure columns exist, and none of them are nan values
     assert np.sum(np.isnan(match1.ref_table['xe_boot'])) == 0
     assert np.sum(np.isnan(match1.ref_table['ye_boot'])) == 0
-    print(match1.ref_table['vx_err_boot'])
     assert np.sum(np.isnan(match1.ref_table['vx_err_boot'])) == 0
     assert np.sum(np.isnan(match1.ref_table['vy_err_boot'])) == 0
 

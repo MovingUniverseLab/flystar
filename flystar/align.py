@@ -48,7 +48,7 @@ class MosaicSelfRef(object):
 
                 star_list['w'] * ref_list['w'] * weight_from_keyword (see the weights parameter)
 
-            for those stars not trimmed out by the other criteria. 
+            for those stars not trimmed out by the other criteria.
 
         Optional Parameters
         ----------
@@ -836,25 +836,15 @@ class MosaicSelfRef(object):
                     vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
                 
         # Combine positions with a velocity fit.
-        #if 'vx' in self.ref_table.keys():
-            #print('before:',self.ref_table['vx'][:10])
         self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose, default_motion_model=self.default_motion_model)
-        #print(np.unique(self.ref_table['motion_model_used']))
-        #if 'vx' in self.ref_table.keys():
-            #print('after:', self.ref_table['vx'][:10])
 
         # Combine (transformed) magnitudes
         if 'me' in self.ref_table.colnames:
             weights_col = None
         else:
             weights_col = 'me'
-            
         self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
-        #else:
-        #    weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
-        #    weighted_m = ('me' in self.ref_table.colnames)
-    
-        #    self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
+
         # Replace the originals if we are supposed to keep them fixed.
         if not self.update_ref_orig:
             for val in vals_orig.keys():
@@ -963,7 +953,6 @@ class MosaicSelfRef(object):
 
         if ('motion_model_used' in self.ref_table.colnames):
             x,y,xe,ye = self.ref_table.get_star_positions_at_time(epoch)
-            #print('ref star pos',epoch,x,y)
         else:
             # No velocities... just used average positions.
             x = self.ref_table['x0']

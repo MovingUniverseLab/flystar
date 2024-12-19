@@ -843,7 +843,6 @@ class StarTable(Table):
                 param_dict[par] = self[par][ss]'''
 
         # Model object
-        #print(motion_model_use,param_dict)
         mod = modClass(**param_dict, PA=self.meta['position_angle'], RA=self.meta['RA'], Dec=self.meta['Dec'], obs=self.meta['observer_location'])
 
         # Fit for the best parameters
