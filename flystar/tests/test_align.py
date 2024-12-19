@@ -194,6 +194,7 @@ def test_MosaicSelfRef_vel():
     # Check that we have some matched stars... should be at least 35 stars
     # that are detected in all 4 starlists.
     idx = np.where(msc.ref_table['n_detect'] == 4)[0]
+    print(idx)
     assert len(idx) > 35 
 
     # Check that the transformation error isn't too big

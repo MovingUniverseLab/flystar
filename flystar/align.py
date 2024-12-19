@@ -50,7 +50,6 @@ class MosaicSelfRef(object):
 
             for those stars not trimmed out by the other criteria. 
 
-
         Optional Parameters
         ----------
         ref_index : int
@@ -602,7 +601,7 @@ class MosaicSelfRef(object):
                 col_arrays[new_col_name] = new_col_data
 
         # Use the columns from the ref list to make the ref_table.
-        ref_table = StarTable(**col_arrays, position_angle=self.position_angle, RA=self.RA, Dec=self.Dec)
+        ref_table = StarTable(**col_arrays, position_angle=self.position_angle, RA=self.RA, Dec=self.Dec, observer_location=self.observer_location)
         
         # Make new columns to hold original values. These will be copies
         # of the old columns and will only include x, y, m, xe, ye, me.

@@ -112,7 +112,7 @@ class Fixed(MotionModel):
     fitter_param_names = ['x0','y0']
     fixed_param_names = []
     
-    def __init__(self, x0=0, y0=0, t0=2025.0,
+    def __init__(self, x0=0, y0=0, t0=None,
                         x0_err=0, y0_err=0, **kwargs):
         self.x0 = x0
         self.y0 = y0
@@ -178,7 +178,7 @@ class Linear(MotionModel):
     fitter_param_names = ['x0', 'vx', 'y0', 'vy']
     fixed_param_names = ['t0']
     
-    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0,
+    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=None,
                             x0_err=0, vx_err=0, y0_err=0, vy_err=0, **kwargs):
         self.x0 = x0
         self.vx = vx
@@ -232,8 +232,9 @@ class Linear(MotionModel):
             dt_diff = np.diff(dt)[0]
             vx = dx / dt_diff
             vy = dy / dt_diff
-            x0 = x[0] - dt[0]*vx
-            y0 = y[0] - dt[0]*vy
+            # TODO: this does not align with how t0 works.....
+            x0 = np.average(x, weights=x_wt) #x[0] - dt[0]*vx
+            y0 = np.average(y, weights=y_wt) #y[0] - dt[0]*vy
             vxe = 0.0
             vye = 0.0
             x0e = np.abs(dx) / 2**0.5
@@ -276,7 +277,7 @@ class Acceleration(MotionModel):
     fitter_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
     fixed_param_names = ['t0']
     
-    def __init__(self, x0=0, vx0=0, ax=0, y0=0, vy0=0, ay=0, t0=2025.0,
+    def __init__(self, x0=0, vx0=0, ax=0, y0=0, vy0=0, ay=0, t0=None,
                             x0_err=0, vx0_err=0, ax_err=0, y0_err=0, vy0_err=0, ay_err=0, **kwargs):
         self.x0 = x0
         self.vx0 = vx0
@@ -378,7 +379,7 @@ class Parallax(MotionModel):
     fixed_param_names = ['t0']
     fixed_meta_data = ['RA','Dec','PA','obs']
 
-    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=2025.0,
+    def __init__(self, x0=0, vx=0, y0=0, vy=0, t0=None,
                             x0_err=0, vx_err=0, y0_err=0, vy_err=0,
                             pi=0, pi_err=0,
                             RA=None, Dec=None, PA=None, obs='earth', **kwargs):
