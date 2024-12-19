@@ -463,6 +463,7 @@ def test_fit_velocities_2epoch():
     tab2 = tab[10000:10100]
     tab3 = tab[-100:]
     tab_2 = table.vstack((tab1, tab2, tab3))
+    tab_2.meta=tab1.meta
 
     tab_2.fit_velocities(verbose=False)
 
