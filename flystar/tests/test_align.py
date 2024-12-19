@@ -384,11 +384,13 @@ def test_MosaicToRef_acc():
 
     # The velocities should be almost the same as the input 
     # velocities since update_ref_orig == False.
+    i_orig, i_fit = [],[]
     for i,star in enumerate(ref_list["name"]):
         if star in msc.ref_table["name"]:
-            ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_allclose(msc.ref_table['vx0'][ii], ref_list['vx0'][i], rtol=1e-5)
-            np.testing.assert_allclose(msc.ref_table['vy0'][ii], ref_list['vy0'][i], rtol=1e-5)
+            i_fit.append(np.where(msc.ref_table["name"]==star)[0][0])
+            i_orig.append(i)
+    np.testing.assert_allclose(msc.ref_table['ax'][i_fit], ref_list['ax'][i_orig], rtol=1e-5)
+    np.testing.assert_allclose(msc.ref_table['ay'][i_fit], ref_list['ay'][i_orig], rtol=1e-5)
 
     ##########
     # Align and let velocities be free. 
@@ -398,14 +400,18 @@ def test_MosaicToRef_acc():
 
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == False.
+    i_orig, i_fit = [],[]
     for i,star in enumerate(ref_list["name"]):
         if star in msc.ref_table["name"]:
-            ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_allclose(msc.ref_table['vx0'][ii], ref_list['vx0'][i], rtol=1e-1)
-            np.testing.assert_allclose(msc.ref_table['vy0'][ii], ref_list['vy0'][i], rtol=1e-1)
+            ix_fit = np.where(msc.ref_table["name"]==star)[0][0]
+            if ~np.isnan(msc.ref_table['ax'][ix_fit]):
+                i_orig.append(i)
+                i_fit.append(ix_fit)
+    np.testing.assert_allclose(msc.ref_table['ax'][i_fit], ref_list['ax'][i_orig], rtol=1e-1)
+    np.testing.assert_allclose(msc.ref_table['ay'][i_fit], ref_list['ay'][i_orig], rtol=1e-1)
 
     # Also double check that they aren't exactly the same for the reference stars.
-    assert np.any(np.not_equal(msc.ref_table['vx0'], ref_list['vx0']))
+    assert np.any(np.not_equal(msc.ref_table['ax'], ref_list['ax']))
     
     return msc
 
@@ -591,13 +597,13 @@ def make_fake_starlists_poly1_vel(seed=-1):
     times = [2018.5, 2019.0, 2019.5, 2020.0, 2020.5, 2021.0, 2021.5, 2022.0]
     xy_trans = [[[ 6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
                [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
-               [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
+               [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.000]],
                [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]],
-               [[ 50.0, 1.00, 0.0], [ -31.0, 0.0, 1.000]],
-               [[ 78.0, 1.00, 0.0 ], [  45.0, 0.0, 1.00]],
-               [[-13.0, 1.00, 0.0], [  150, 0.0, 1.00]],
-               [[ 94.0, 1.00, 0.0], [-182.0, 0.0, 1.00]]]
-    mag_trans = [0.1, 0.4, 0.0, -0.3, 0.0, 0.0, 0.0, 0.0]
+               [[ 50.0, 1.01, 1e-5], [ -31.0, 1e-5, 1.000]],
+               [[ 78.0, 0.98, 0.0 ], [  45.0, 9e-6, 1.001]],
+               [[-13.0, 0.99, 1e-5], [  150, 2e-5, 1.002]],
+               [[ 94.0, 1.00, 9e-6], [-182.0, 0.0, 0.99]]]
+    mag_trans = [0.1, 0.4, 0.0, -0.3, 0.2, 0.0, -0.1, -0.3]
 
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix

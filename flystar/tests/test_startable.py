@@ -359,7 +359,7 @@ def test_fit_velocities():
     ##########
     # Test bootstrap
     ##########
-    '''tab_b = table.vstack((tab1, tab2, tab3))
+    tab_b = table.vstack((tab1, tab2, tab3))
     tab_b.meta = tab1.meta
     tab_b.fit_velocities(verbose=True, bootstrap=50)
     
@@ -367,7 +367,7 @@ def test_fit_velocities():
     assert tab_b['x0_err'][0] > tab['x0_err'][0]
     assert tab_b['vx_err'][0] > tab['vx_err'][0]
     assert tab_b['y0_err'][0] > tab['y0_err'][0]
-    assert tab_b['vy_err'][0] > tab['vy_err'][0]'''
+    assert tab_b['vy_err'][0] > tab['vy_err'][0]
 
     ##########
     # Test what happens with no velocity errors
