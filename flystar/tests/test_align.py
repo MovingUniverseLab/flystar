@@ -375,35 +375,23 @@ def test_MosaicToRef_vel():
 
     # The velocities should be almost the same as the input 
     # velocities since update_ref_orig == False.
-    for i,star in enumerate(ref_list["name"]):
-        if star in msc.ref_table["name"]:
-            ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_allclose(msc.ref_table['vx'][ii], ref_list['vx'][i], rtol=1e-5)
-            np.testing.assert_allclose(msc.ref_table['vy'][ii], ref_list['vy'][i], rtol=1e-5)
+    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], rtol=1e-5)
+    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], rtol=1e-5)
 
     ##########
     # Align and let velocities be free. 
     ##########
     msc.update_ref_orig = True
     msc.fit()
-    
-    print(msc.ref_table[['name','vx']][:10])
-    print(ref_list['name','vx'][:10])
 
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == False.
-    for i,star in enumerate(ref_list["name"]):
-        if star in msc.ref_table["name"]:
-            ii = np.where(msc.ref_table["name"]==star)[0][0]
-            np.testing.assert_allclose(msc.ref_table['vx'][ii], ref_list['vx'][i], rtol=1e-1)
-            np.testing.assert_allclose(msc.ref_table['vy'][ii], ref_list['vy'][i], rtol=1e-1)
+    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], rtol=1e-1)
+    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], rtol=1e-1)
 
     # Also double check that they aren't exactly the same for the reference stars.
     #assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
-    for i,star in enumerate(ref_list["name"]):
-        if star in msc.ref_table["name"]:
-            ii = np.where(msc.ref_table["name"]==star)[0][0]
-            assert np.not_equal(msc.ref_table['vx'][ii], ref_list['vx'][i])
+    assert np.not_equal(msc.ref_table['vx'], ref_list['vx']).any()
     
     return msc
 

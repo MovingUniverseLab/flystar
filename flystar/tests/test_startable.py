@@ -479,7 +479,8 @@ def test_fit_velocities_2epoch():
     assert 'vy_err' in tab_2.colnames
 
     # 2 detections
-    np.testing.assert_allclose(tab_2['x0'][0], tab_2['x'][0,0], rtol=1e-1)
+    print(tab1.meta)
+    np.testing.assert_almost_equal(tab_2['x0'][0], tab_2['x'][0,0], 1)
     assert tab_2['n_fit'][0] == 2
     
     # 1 detection

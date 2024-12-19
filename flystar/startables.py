@@ -578,15 +578,6 @@ class StarTable(Table):
         KeyError
             If there's not time information in the table
         """
-        
-        ss=0
-        print('first star')
-        print('  x', self['x'][ss, :].data)
-        print('  y', self['y'][ss, :].data)
-        if 'vx' in self.keys():
-            print('   vx', self['vx'][ss])
-            print('   vy', self['vy'][ss])
-        
         if weighting not in ['var', 'std']:
             raise ValueError(f"fit_velocities: Weighting must either be 'var' or 'std', not {weighting}!")
         
@@ -835,7 +826,7 @@ class StarTable(Table):
 
         # Load up any prior information on parameters for this model.
         param_dict = {}
-        for par in modClass.fitter_param_names:
+        for par in modClass.fitter_param_names+modClass.fixed_param_names:
             if ~np.isnan(self[par][ss]):
                 param_dict[par] = self[par][ss]
 
@@ -859,9 +850,7 @@ class StarTable(Table):
         chi2_x,chi2_y = mod.get_chi2(t,x,y,xe,ye)
         self['chi2_x'][ss]=chi2_x
         self['chi2_y'][ss]=chi2_y
-        
-        #print('N good', N_good, motion_model_use, params)
-        
+                
         # Save parameters and errors to table.
         for pp in range(len(modClass.fitter_param_names)):
             par = modClass.fitter_param_names[pp]
@@ -886,12 +875,10 @@ class StarTable(Table):
         # Check which motion models we need
         # use complex_mms to collect models besides Fixed and Linear
         unique_mms = np.unique(self['motion_model_used']).tolist()
-        print(list(self['motion_model_used']))
         # Calculate current position in batches by motion model
         for mm in unique_mms:
             # Identify stars with this model & get class
             idx = np.where(self['motion_model_used']==mm)[0]
-            print(mm,'idx',idx)
             modClass = getattr(motion_model, mm)
             # Set up parameters
             param_dict = {}
@@ -899,8 +886,6 @@ class StarTable(Table):
                 param_dict[par] = self[par][idx]
             mod = modClass(RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
             x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
-        print('all x',x)
-        print('nans:', np.sum(np.isnan(x)))
         return x,y,xe,ye
                 
 
