@@ -846,7 +846,7 @@ class StarTable(Table):
         mod = modClass(**param_dict, PA=self.meta['position_angle'], RA=self.meta['RA'], Dec=self.meta['Dec'], obs=self.meta['observer_location'])
 
         # Fit for the best parameters
-        params, param_errs = mod.fit_motion_model(t, x, y, xe, ye, bootstrap=bootstrap, update=True)
+        params, param_errs = mod.fit_motion_model(t, x, y, xe, ye, bootstrap=bootstrap, update=True, weighting=weighting)
         chi2_x,chi2_y = mod.get_chi2(t,x,y,xe,ye)
         self['chi2_x'][ss]=chi2_x
         self['chi2_y'][ss]=chi2_y

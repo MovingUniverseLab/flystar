@@ -389,6 +389,7 @@ def test_fit_velocities():
     # Test mask_list
     #########
     # Test 5a: Masked
+    print("Testing Masked List")
     tt.fit_velocities(bootstrap=0, verbose=False, mask_lists=[1])
     assert np.arange(2.25, 48, 5) == pytest.approx(tt['x0'].data)
     assert np.arange(2.25, 48, 5) == pytest.approx(tt['y0'].data)

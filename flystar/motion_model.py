@@ -243,17 +243,12 @@ class Linear(MotionModel):
         else:
             def linear(t, c0, c1):
                 return c0 + c1*t
-            x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array([x.mean(),0.0]), sigma=1/x_wt, absolute_sigma=True)
-            y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array([y.mean(),0.0]), sigma=1/y_wt, absolute_sigma=True)
-            x0 = x_opt[0]
-            vx = x_opt[1]
-            y0 = y_opt[0]
-            vy = y_opt[1]
+            x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array([x.mean(),0.0]), sigma=1/np.sqrt(x_wt), absolute_sigma=True)
+            y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array([y.mean(),0.0]), sigma=1/np.sqrt(y_wt), absolute_sigma=True)
+            x0, vx = x_opt
+            y0, vy = y_opt
             x0e, vxe = np.sqrt(x_cov.diagonal())
             y0e, vye = np.sqrt(y_cov.diagonal())
-
-        params = [x0, vx, y0, vy]
-        param_errors = [x0e, vxe, y0e, vye]
         
         if update:
             self.x0 = x0
@@ -265,6 +260,8 @@ class Linear(MotionModel):
             self.y0_err = y0e
             self.vy_err = vye
         
+        params = [x0, vx, y0, vy]
+        param_errors = [x0e, vxe, y0e, vye]
         return params, param_errors
         
         
@@ -333,8 +330,8 @@ class Acceleration(MotionModel):
 
         def accel(t, c0,c1,c2):
             return c0 + c1*t + 0.5*c2*t**2
-        x_opt, x_cov = curve_fit(accel, dt, x, p0=np.array([x.mean(),0.0,0.0]), sigma=1/x_wt, absolute_sigma=True)
-        y_opt, y_cov = curve_fit(accel, dt, y, p0=np.array([y.mean(),0.0,0.0]), sigma=1/y_wt, absolute_sigma=True)
+        x_opt, x_cov = curve_fit(accel, dt, x, p0=np.array([x.mean(),0.0,0.0]), sigma=1/x_wt**0.5, absolute_sigma=True)
+        y_opt, y_cov = curve_fit(accel, dt, y, p0=np.array([y.mean(),0.0,0.0]), sigma=1/y_wt**0.5, absolute_sigma=True)
         x0 = x_opt[0]
         y0 = y_opt[0]
         vx0 = x_opt[1]
