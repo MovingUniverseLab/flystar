@@ -141,14 +141,14 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
 
     gaia_new['x0'] = x * -1.0
     gaia_new['y0'] = y
-    gaia_new['x0e'] = xe
-    gaia_new['y0e'] = ye
+    gaia_new['x0_err'] = xe
+    gaia_new['y0_err'] = ye
 
     # Also convert the velocities. Note that Gaia PM are already * cos(dec)
     gaia_new['vx'] = gaia['pmra'].data * -1.0 / 1e3 # asec/yr
     gaia_new['vy'] = gaia['pmdec'].data / 1e3
-    gaia_new['vxe'] = gaia['pmra_error'].data / 1e3
-    gaia_new['vye'] = gaia['pmdec_error'].data / 1e3
+    gaia_new['vx_err'] = gaia['pmra_error'].data / 1e3
+    gaia_new['vy_err'] = gaia['pmdec_error'].data / 1e3
     
     gaia_new['t0'] = gaia['ref_epoch'].data
     gaia_new['source_id'] = gaia['source_id'].data.astype('S19')
@@ -157,8 +157,8 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     idx = np.where(gaia['pmdec'].mask == True)[0]
     gaia_new['vx'][idx] = 0.0
     gaia_new['vy'][idx] = 0.0
-    gaia_new['vxe'][idx] = 0.0
-    gaia_new['vye'][idx] = 0.0
+    gaia_new['vx_err'][idx] = 0.0
+    gaia_new['vy_err'][idx] = 0.0
     
     gaia_new['m'] = gaia['phot_g_mean_mag']
     gaia_new['me'] = 1.09/gaia['phot_g_mean_flux_over_error']
@@ -168,9 +168,9 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     # Set the velocities (and uncertainties) to zero if they aren't measured.
     idx = np.where(np.isnan(gaia_new['vx']) == True)[0]
     gaia_new['vx'][idx] = 0.0
-    gaia_new['vxe'][idx] = 0.0
+    gaia_new['vx_err'][idx] = 0.0
     gaia_new['vy'][idx] = 0.0
-    gaia_new['vye'][idx] = 0.0
+    gaia_new['vy_err'][idx] = 0.0
 
     #macy additions to try to fix wild magnitude values
     #gaia_new['ruwe'] = gaia['ruwe']
@@ -377,12 +377,12 @@ def pick_good_ref_stars(star_tab, r_cut=None, m_cut=None, p_err_cut=None, pm_err
         print('pick_good_ref_stars: Use {0:d} stars after m<{1:.2f}.'.format(use.sum(), m_cut))
 
     if p_err_cut is not None:
-        p_err = np.mean((star_tab['x0e'], star_tab['y0e']), axis=0)
+        p_err = np.mean((star_tab['x0_err'], star_tab['y0_err']), axis=0)
         use = use & (p_err < p_err_cut)
         print('pick_good_ref_stars: Use {0:d} stars after p_err<{1:.5f}.'.format(use.sum(), p_err_cut))
 
     if pm_err_cut is not None:
-        pm_err = np.mean((star_tab['vxe'], star_tab['vye']), axis=0)
+        pm_err = np.mean((star_tab['vx_err'], star_tab['vy_err']), axis=0)
         use = use & (pm_err < pm_err_cut)
         print('pick_good_ref_stars: Use {0:d} stars after pm_err<{1:.5f}.'.format(use.sum(), pm_err_cut))
 
@@ -405,8 +405,8 @@ def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
     """
     # Multiples: ['x', 'y', 'm', 'name_in_list', 'xe', 'ye', 'me', 't',
     #     'x_orig', 'y_orig', 'm_orig', 'xe_orig', 'ye_orig', 'me_orig', 'used_in_trans']
-    # Single: ['name', 'm0', 'm0e', 'use_in_trans', 'ref_orig', 'n_detect',
-    #     'x0', 'vx', 'y0', 'vy', 'x0e', 'vxe', 'y0e', 'vye', 't0'] 
+    # Single: ['name', 'm0', 'm0_err', 'use_in_trans', 'ref_orig', 'n_detect',
+    #     'x0', 'vx', 'y0', 'vy', 'x0_err', 'vx_err', 'y0_err', 'vy_err', 't0']
     # Don't include n_vfit
 
     new_tab = startables.StarTable(name=tab['name'].data, 
@@ -425,16 +425,16 @@ def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
                                    me_orig=tab['me_orig'][:,idx].data,                                  
                                    used_in_trans=tab['used_in_trans'][:,idx].data,                                
                                    m0=tab['m0'].data,
-                                   m0e=tab['m0e'].data,
+                                   m0e=tab['m0_err'].data,
                                    use_in_trans=tab['use_in_trans'].data,         
                                    x0=tab['x0'].data,
                                    vx=tab['vx'].data,
                                    y0=tab['y0'].data,
                                    vy=tab['vy'].data,   
-                                   x0e=tab['x0e'].data,
-                                   vxe=tab['vxe'].data,
-                                   y0e=tab['y0e'].data,
-                                   vye=tab['vye'].data,                                  
+                                   x0e=tab['x0_err'].data,
+                                   vxe=tab['vx_err'].data,
+                                   y0e=tab['y0_err'].data,
+                                   vye=tab['vy_err'].data,
                                    t0=tab['t0'].data)
 
     new_tab.combine_lists('m', weights_col='me', sigma=3, ismag=True)

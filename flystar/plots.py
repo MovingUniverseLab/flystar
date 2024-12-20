@@ -520,8 +520,8 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     diff_vx = ref_mat['vx'] - starlist_mat['vx']
     diff_vy = ref_mat['vy'] - starlist_mat['vy']
     
-    vx_err = np.hypot(ref_mat['vxe'], starlist_mat['vxe'])
-    vy_err = np.hypot(ref_mat['vye'], starlist_mat['vye'])
+    vx_err = np.hypot(ref_mat['vx_err'], starlist_mat['vx_err'])
+    vy_err = np.hypot(ref_mat['vy_err'], starlist_mat['vy_err'])
 
     ratio_vx = diff_vx / vx_err
     ratio_vy = diff_vy / vy_err
@@ -591,10 +591,10 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
 
     # Error calculation depends on if we are converting to mas/yr
     if pscale != None:
-        xerr_frac = np.hypot((ref_mat['vxe'] / ref_mat['vx']),
-                             (starlist_trans_mat['vxe'] / starlist_trans_mat['vx']))
-        yerr_frac = np.hypot((ref_mat['vye'] / ref_mat['vy']),
-                             (starlist_trans_mat['vye'] / starlist_trans_mat['vy']))
+        xerr_frac = np.hypot((ref_mat['vx_err'] / ref_mat['vx']),
+                             (starlist_trans_mat['vx_err'] / starlist_trans_mat['vx']))
+        yerr_frac = np.hypot((ref_mat['vy_err'] / ref_mat['vy']),
+                             (starlist_trans_mat['vy_err'] / starlist_trans_mat['vy']))
 
         # Now apply the plate scale to convert to mas/yr
         diff_x *= pscale
@@ -602,8 +602,8 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
         xerr = diff_x * xerr_frac
         yerr = diff_y * yerr_frac
     else:
-        xerr = np.hypot(ref_mat['vxe'], starlist_trans_mat['vxe'])
-        yerr = np.hypot(ref_mat['vye'], starlist_trans_mat['vye'])
+        xerr = np.hypot(ref_mat['vx_err'], starlist_trans_mat['vx_err'])
+        yerr = np.hypot(ref_mat['vy_err'], starlist_trans_mat['vy_err'])
 
     # Plotting
     py.figure(figsize=(10,10))
@@ -1046,8 +1046,8 @@ def plot_gaia(gaia):
 def plot_pm_error(tab):
     plt.figure(figsize=(6,6))
     plt.clf()
-    plt.semilogy(tab['m0'], tab['vxe']*1e3, 'r.', label=r'$\sigma_{\mu_{\alpha *}}$', alpha=0.4)
-    plt.semilogy(tab['m0'], tab['vye']*1e3, 'b.', label=r'$\sigma_{\mu_{\delta}}$', alpha=0.4)
+    plt.semilogy(tab['m0'], tab['vx_err']*1e3, 'r.', label=r'$\sigma_{\mu_{\alpha *}}$', alpha=0.4)
+    plt.semilogy(tab['m0'], tab['vy_err']*1e3, 'b.', label=r'$\sigma_{\mu_{\delta}}$', alpha=0.4)
     plt.legend()
     plt.xlabel('Mag')
     plt.ylabel('PM Error (mas/yr)')
@@ -1057,7 +1057,7 @@ def plot_pm_error(tab):
 def plot_mag_error(tab):
     plt.figure(figsize=(6,6))
     plt.clf()
-    plt.semilogy(tab['m0'], tab['m0e'], 'r.', alpha=0.4)
+    plt.semilogy(tab['m0'], tab['m0_err'], 'r.', alpha=0.4)
     plt.legend()
     plt.xlabel('Mag')
     plt.ylabel('Mag Error (mag)')
@@ -1218,7 +1218,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                                    scale=scale_orig, plotlim=plotlim)
 
         plot_mag_scatter(tab['m'][:, ee], 
-                         tab['m0'], tab['m0e'],
+                         tab['m0'], tab['m0_err'],
                          tab['x'][:, ee], tab['y'][:, ee], 
                          tab['xe'][:, ee], tab['ye'][:, ee],
                          xt_mod, yt_mod, 
@@ -1228,7 +1228,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                          cte_fit=cte_fit, mlim=mlim)
 
         plot_y_scatter(tab['m'][:, ee], 
-                         tab['m0'], tab['m0e'],
+                         tab['m0'], tab['m0_err'],
                          tab['x'][:, ee], tab['y'][:, ee], 
                          tab['xe'][:, ee], tab['ye'][:, ee],
                          xt_mod, yt_mod, 
@@ -2448,7 +2448,7 @@ def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
         m = tab['m'][ii, fnd]
         merr = tab['me'][ii, fnd]
         m0 = tab['m0'][ii]
-        m0err = tab['m0e'][ii]
+        m0err = tab['m0_err'][ii]
 
         diff_m = m0 - m
         sig_m = diff_m/merr
@@ -2540,11 +2540,11 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
         fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
 
-        fitSigX = np.hypot(tab['x0e'][ii], tab['vxe'][ii]*dt)
-        fitSigY = np.hypot(tab['y0e'][ii], tab['vye'][ii]*dt)
+        fitSigX = np.hypot(tab['x0_err'][ii], tab['vx_err'][ii]*dt)
+        fitSigY = np.hypot(tab['y0_err'][ii], tab['vy_err'][ii]*dt)
 
         fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
-        fitSigM = np.repeat(tab['m0e'][ii], len(dt)).reshape(len(dt),1)
+        fitSigM = np.repeat(tab['m0_err'][ii], len(dt)).reshape(len(dt),1)
 
         diffX = x - fitLineX
         diffY = y - fitLineY
@@ -2948,11 +2948,11 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
             fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
     
-            fitSigX = np.hypot(tab['x0e'][ii], tab['vxe'][ii]*dt)
-            fitSigY = np.hypot(tab['y0e'][ii], tab['vye'][ii]*dt)
+            fitSigX = np.hypot(tab['x0_err'][ii], tab['vx_err'][ii]*dt)
+            fitSigY = np.hypot(tab['y0_err'][ii], tab['vy_err'][ii]*dt)
     
             fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
-            fitSigM = np.repeat(tab['m0e'][ii], len(dt)).reshape(len(dt),1)
+            fitSigM = np.repeat(tab['m0_err'][ii], len(dt)).reshape(len(dt),1)
     
             diffX = x - fitLineX
             diffY = y - fitLineY
@@ -3299,8 +3299,8 @@ def plot_errors_vs_r_m(star_tab, vmax_perr=0.75, vmax_pmerr=0.75):
     two axis (as is used in pick_good_ref_stars()). 
     """
     r = np.hypot(star_tab['x0'], star_tab['y0'])
-    p_err = np.mean((star_tab['x0e'], star_tab['y0e']), axis=0) * 1e3
-    pm_err = np.mean((star_tab['vxe'], star_tab['vye']), axis=0) * 1e3
+    p_err = np.mean((star_tab['x0_err'], star_tab['y0_err']), axis=0) * 1e3
+    pm_err = np.mean((star_tab['vx_err'], star_tab['vy_err']), axis=0) * 1e3
 
     plt.figure(figsize=(12, 6))
     plt.clf()

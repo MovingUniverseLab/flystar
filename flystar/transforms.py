@@ -6,6 +6,7 @@ from astropy.table import Table
 import collections
 import re
 import pdb
+from flystar import motion_model
 
 class Transform2D(object):
     '''
@@ -112,21 +113,39 @@ class Transform2D(object):
             new_list['xe'] = vals[0]
             new_list['ye'] = vals[1]
 
-        # Velocities (if they exist)
-        if 'vx' in new_list.colnames:
+        # Velocities (if they exist and no more complex motion model used)
+        complex_motion_model = ('motion_model_input' in new_list.colnames)
+        if complex_motion_model:
+            # If the only motion models used are Fixed and Linear, we can still transform velocities.
+            motion_models_unique = list(np.unique(starlist_f['motion_model_input']))
+            if 'Linear' in motion_models_unique:
+                motion_models_unique.remove('Linear')
+            if 'Fixed' in motion_models_unique:
+                motion_models_unique.remove('Fixed')
+            if len(motion_models_unique)==0:
+                complex_motion_model=False
+        # Cannot transform more complex motion models - set values to nan
+        if complex_motion_model:
+            motion_params = motion_model.get_list_motion_model_param_names(new_list['motion_model_input'], with_errors=True, with_fixed=False)
+            for param in motion_params:
+                if param in new_list.colnames:
+                    new_list[param] = np.nan
+                
+        if ('vx' in new_list.colnames) and (not complex_motion_model):
+            # For velocity only, no problem
             vals = self.evaluate_vel(star_list['x'], star_list['y'],
                                      star_list['vx'], star_list['vy'])
             new_list['vx'] = vals[0]
             new_list['vy'] = vals[1]
 
             # Velocity errors (if they exist)
-            if 'vxe' in new_list.colnames:
+            if 'vx_err' in new_list.colnames:
                 vals = self.evaluate_vel_error(star_list['x'], star_list['y'],
                                                star_list['vx'], star_list['vy'],
                                                star_list['xe'], star_list['ye'],
-                                               star_list['vxe'], star_list['vye'])
-                new_list['vxe'] = vals[0]
-                new_list['vye'] = vals[1]
+                                               star_list['vx_err'], star_list['vy_err'])
+                new_list['vx_err'] = vals[0]
+                new_list['vy_err'] = vals[1]
                 
         return new_list
     
@@ -254,14 +273,14 @@ class PolyTransform(Transform2D):
         
         Parameters
         ----------
-        px : list or array [a0, a1, a2, ...] 
+        order : int
+            The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
+            
+        px : list or array [a0, a1, a2, ...]
             coefficients to transform input x coordinates into output x' coordinates.
 
         py : list or array [b0, b1, b2, ...] 
             coefficients to transform input y coordinates into output y' coordinates.
-        
-        order : int
-            The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
 
         pxerr : array or list
             array or list of errors of the coefficients to transform input x coordinates 
@@ -312,7 +331,7 @@ class PolyTransform(Transform2D):
 
         a0 + a1*x + a2*y + a3*x^2 + a4*x*y + a5*y^2 + a6*x^3 + a7*x^2*y + a8*x*y^2 + a9*y^3
 
-        and conver this into a dictionary where:
+        and convert this into a dictionary where:
 
         c0_0 = a0
         c1_0 = a1
@@ -592,6 +611,7 @@ class PolyTransform(Transform2D):
         
         fit_p  = fitting.LinearLSQFitter()
 
+        #pdb.set_trace()
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
 
