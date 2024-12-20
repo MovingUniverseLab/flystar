@@ -400,15 +400,19 @@ class Parallax(MotionModel):
     def get_pos_at_time(self, t):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
-        x = self.x0 + self.vx*(t-self.t0) + self.pi*pvec[0]
-        y = self.y0 + self.vy*(t-self.t0) + self.pi*pvec[1]
+        pvec_x = np.reshape(pvec[0], t.shape)
+        pvec_y = np.reshape(pvec[1], t.shape)
+        x = self.x0 + self.vx*(t-self.t0) + self.pi*pvec_x
+        y = self.y0 + self.vy*(t-self.t0) + self.pi*pvec_y
         return x, y
         
     def get_pos_err_at_time(self, t):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
-        x_err = np.sqrt(self.y0_err**2 + ((t-self.t0)*self.vx_err)**2 + (self.pi_err*pvec[0])**2)
-        y_err = np.sqrt(self.x0_err**2 + ((t-self.t0)*self.vy_err)**2 + (self.pi_err*pvec[1])**2)
+        pvec_x = np.reshape(pvec[0], t.shape)
+        pvec_y = np.reshape(pvec[1], t.shape)
+        x_err = np.sqrt(self.y0_err**2 + ((t-self.t0)*self.vx_err)**2 + (self.pi_err*pvec_x)**2)
+        y_err = np.sqrt(self.x0_err**2 + ((t-self.t0)*self.vy_err)**2 + (self.pi_err*pvec_y)**2)
         return x_err, y_err
         
     def get_batch_pos_at_time(self, t,

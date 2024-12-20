@@ -1,4 +1,4 @@
-from flystar import analysis
+from flystar import analysis, motion_model
 import pylab as py
 import pylab as plt
 import numpy as np
@@ -2481,7 +2481,8 @@ def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
     
     return
 
-def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False):
+def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False,
+                position_angle=None, RA=None, Dec=None, observer_location='earth'):
     """
     Plot a set of stars positions, flux and residuals over time. 
 
@@ -2537,11 +2538,22 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         merr = tab['me'][ii, fnd]
 
         dt = tab['t'][ii, fnd] - tab['t0'][ii]
-        fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
-        fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
+        
+        if 'motion_model_used' not in tab.keys():
+            fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
+            fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
 
-        fitSigX = np.hypot(tab['x0_err'][ii], tab['vx_err'][ii]*dt)
-        fitSigY = np.hypot(tab['y0_err'][ii], tab['vy_err'][ii]*dt)
+            fitSigX = np.hypot(tab['x0_err'][ii], tab['vx_err'][ii]*dt)
+            fitSigY = np.hypot(tab['y0_err'][ii], tab['vy_err'][ii]*dt)
+        else:
+            motion_model_str = tab['motion_model_used'][ii]
+            modClass = getattr(motion_model, motion_model_str)
+            param_dict = {}
+            for par in modClass.fitter_param_names+modClass.fixed_param_names:
+                param_dict[par] = tab[par][ii]
+            mod = modClass(**param_dict, PA=position_angle, RA=RA, Dec=Dec, obs=observer_location)
+            fitLineX, fitLineY = mod.get_pos_at_time(time)
+            fitSigX, fitSigY = mod.get_pos_err_at_time(time)
 
         fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
         fitSigM = np.repeat(tab['m0_err'][ii], len(dt)).reshape(len(dt),1)
@@ -2582,6 +2594,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
               (chi2_red_y, chi2_y, dof))
         print( '\tM Chi^2 = %5.2f (%6.2f for %2d dof)' % 
               (chi2_red_m, chi2_m, dofM))
+        if 'motion_model_used' in tab.keys():
+            print('\tMotion model:', tab['motion_model_used'][ii])
 
         tmin = time.min()
         tmax = time.max()
