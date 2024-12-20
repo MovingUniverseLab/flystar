@@ -441,13 +441,14 @@ class Parallax(MotionModel):
         pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
         def fit_func(t, x0,y0, vx,vy, pi):
-            x_res = x0 + vx*(t-self.t0) + pi*pvec[0]
-            y_res = y0 + vy*(t-self.t0) + pi*pvec[1]
+            use_t = t[:int(len(t)/2)]
+            x_res = x0 + vx*(use_t-self.t0) + pi*pvec[0]
+            y_res = y0 + vy*(use_t-self.t0) + pi*pvec[1]
             return np.append(x_res, y_res)
         # Initial guesses, x0,y0 as x,y averages;
         #     vx,vy as average velocity if first and last points are perfectly measured;
         #     pi for 10 pc disance
-        res = curve_fit(fit_func, t, np.append(x,y),
+        res = curve_fit(fit_func, np.append(t,t), np.append(x,y),
                         p0=[np.mean(x),np.mean(y), (x[-1]-x[0])/(t[-1]-t[0]),(y[-1]-y[0])/(t[-1]-t[0]), 1],
                         sigma = 1.0/np.append(x_wt,y_wt))
         x0,y0,vx,vy,pi = res[0]
