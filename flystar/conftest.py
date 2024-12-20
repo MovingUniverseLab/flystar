@@ -32,7 +32,7 @@ def pytest_configure(config):
         PYTEST_HEADER_MODULES['scikit-image'] = 'skimage'
 
         #from . import __version__
-        #packagename = os.path.basename(os.path.dirname(__file__))
+        packagename = os.path.basename(os.path.dirname(__file__))
         #TESTED_VERSIONS[packagename] = __version__
 
 # Uncomment the last two lines in this block to treat all DeprecationWarnings as

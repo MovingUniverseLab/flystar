@@ -307,7 +307,7 @@ class PolyTransform(Transform2D):
             px_dict = PolyTransform.make_param_dict(px, self.poly_order, isY=False)
             py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
             
-            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c0_1': True}
             self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
             self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
         else:
@@ -599,7 +599,7 @@ class PolyTransform(Transform2D):
             init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
             init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
 
-            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True, 'c0_1': True}
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c0_1': True}
             p_init_x = models.Polynomial2D(poly_order, **init_gx, fixed=fixed_params)
             p_init_y = models.Polynomial2D(poly_order, **init_gy, fixed=fixed_params)
         else:

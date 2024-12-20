@@ -57,6 +57,57 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
 
     return gaia
 
+def check_gaia_parallaxes(ra,dec,search_radius=10.0,table_name='gaiadr3',target='(unnamed)',
+    file_ext=''):
+    """
+    Query the Gaia database at the specified location
+    and with the specified search radius, and plot
+    parallaxes.
+
+    Input
+    ----------
+    ra : string
+        R.A. in hours in the format such as '17:45:40.3'
+
+    dec : string
+        Dec. in degrees in the format such as '-29:00:28.0'
+
+    search_radius : float
+        The search radius in arcseconds.
+
+    Optional Input
+    --------------
+    table_name : string
+        Options are 'gaiadr2' or 'gaiadr3'
+    """
+    # Query Gaia
+    gaia = query_gaia(ra,dec,search_radius=search_radius,table_name=table_name)
+    # Set up reasonable histogram bins
+    plim0,plim1 = np.min(gaia['parallax']),np.max(gaia['parallax'])
+    pplim0,pplim1 = np.min(gaia['parallax']/gaia['parallax_error']),np.max(gaia['parallax']/gaia['parallax_error'])
+    binwidth = 1
+    pbins = np.arange(np.floor(plim0),np.ceil(plim1)+binwidth,binwidth)
+    ppbins = np.arange(np.floor(pplim0),np.ceil(pplim1)+binwidth,binwidth)
+    # Find number where plx/plx_err>3
+    p_perr = (gaia['parallax']/gaia['parallax_error']).compressed()
+    nppe3 = sum((p_perr>3).astype(int))
+    nppen3 = sum((p_perr<-3).astype(int))
+    print(table_name,'stars within',search_radius,'\" with plx/plx_err>3: ', nppe3, ' of ', len(gaia['parallax']))
+    print(table_name,'stars within',search_radius,'\" with plx/plx_err<-3: ', nppen3, ' of ', len(gaia['parallax']))
+    # Plot
+    plt.subplots(nrows=1,ncols=2,figsize=(12,6))
+    plt.subplot(121)
+    plt.xlabel('parallax (mas)'); plt.ylabel('N stars')
+    plt.hist(gaia['parallax'],bins=pbins)
+    plt.yscale('log')
+    plt.title(table_name+' parallax histograms, '+str(search_radius)+'\" radius around '+target, loc='left')
+    plt.subplot(122)
+    plt.xlabel('parallax/parallax_error')
+    plt.hist(gaia['parallax']/gaia['parallax_error'],bins=ppbins)
+    plt.yscale('log')
+    plt.tight_layout()
+    plt.savefig('gaiaplx'+file_ext+'.png')
+    
 
 def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2):
     """
@@ -121,7 +172,14 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new['vy'][idx] = 0.0
     gaia_new['vy_err'][idx] = 0.0
 
-    gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
+    #macy additions to try to fix wild magnitude values
+    #gaia_new['ruwe'] = gaia['ruwe']
+    #try:
+    #    gaia_new = gaia_new[~gaia_new['m'].mask]
+    #except:
+    #    print('no invalig mags')
+
+    #gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
 
     if targets_dict != None:
         for targ_name, targ_coo in targets_dict.items():
@@ -133,11 +191,10 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
 
             if dr[idx] < match_dr_max:
                 gaia_new['name'][idx] = targ_name
-                print('Found match for: ', targ_name)
+                print('Found match for: ', targ_name, ' - ',gaia_new['source_id'][idx])
 
     return gaia_new
     
-
 def run_flystar():
     
     test_file = '/u/jlu/work/microlens/OB150211/a_2018_10_19/a_ob150211_2018_10_19/lis/stars_matched2.fits'
@@ -279,6 +336,9 @@ def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, d
     idx_lab, idx_star, dr, dm = match.match(x_lab, y_lab, m_lab, 
                                             star_tab['x0'], star_tab['y0'], star_tab['m0'],
                                             dr_tol=dr_tol, dm_tol=dm_tol, verbose=verbose)
+    #print('idx_lab:')
+    #for iii in range(len(idx_lab)):
+    #    print(label_tab["name"][idx_lab[iii]], star_tab["name"][idx_star[iii]])
 
     print('Renaming {0:d} out of {1:d} stars'.format(len(idx_lab), len(star_tab)))
     
