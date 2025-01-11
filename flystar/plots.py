@@ -2309,6 +2309,8 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
         ax3.set_xlabel('mag')
         ax3.set_ylabel('residual (mas)')
 
+        plt.savefig('Epoch {0}'.format(ii)+'_chi2_dist.png', dpi=400)
+
     return
 
 def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30, xlim=40, file_name=None, filter=None): #Modified -SKT
