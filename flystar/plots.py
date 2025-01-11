@@ -2147,7 +2147,7 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     return
 
 
-def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
+def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, filter=None): # Modified -SKT
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2194,13 +2194,19 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
-    plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
-    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6, 
+    plt.hist(x[idx], bins=chi2_bins, histtype='stepfilled', label='RA', density=True, color='skyblue', alpha=0.8, edgecolor = "black")
+    plt.hist(y[idx], bins=chi2_bins, histtype='stepfilled', label='DEC', density=True, color='orange', alpha=0.8, edgecolor = "black")
+    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'k-', alpha=1, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
-    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.title(str(filter)+' (N = '+str(len(chi2_x_list))+')', fontsize=22)
     plt.xlim(0, xlim)
-    plt.legend()
+    plt.ylabel(r'PDF', fontsize=28)
+    plt.legend(fontsize=20)
+
+    plt.tick_params(labelsize=20, direction='in', right=True, top=True)
+
+    plt.savefig(str(filter)+'_chi2_dist.png', dpi=400)
 
     chi2red_x = x / (fnd - 2)
     chi2red_y = y / (fnd - 2)
@@ -2305,7 +2311,7 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
 
     return
 
-def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
+def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30, xlim=40, file_name=None, filter=None): #Modified -SKT
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2341,12 +2347,18 @@ def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(chi2_m[idx], bins=np.arange(mlim*10), histtype='step', density=True)
-    plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
+    plt.hist(chi2_m[idx], bins=np.arange(xlim*10), label='mag', histtype='stepfilled', density=True, color='green', alpha=0.7, edgecolor = "black")
+    plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'k-', alpha=1, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
-    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
-    plt.xlim(0, mlim)
-    plt.legend()
+    #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.xlim(0, xlim)
+    plt.xlabel(r'$\chi^{2}$', fontsize=28)
+    plt.ylabel(r'PDF', fontsize=28)
+    plt.legend(fontsize=20)
+
+    plt.tick_params(labelsize=20, direction='in', right=True, top=True)
+
+    plt.savefig(str(filter)+'_chi2_dist_mag.png', dpi=400)
 
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
     fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
