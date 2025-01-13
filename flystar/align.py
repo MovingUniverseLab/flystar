@@ -324,7 +324,7 @@ class MosaicSelfRef(object):
             self.ref_table.detections()
 
             ### Drop all stars that have 0 detections.
-            idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
+            idx = np.where((self.ref_table['n_detect'] == 0))[0]
             print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
@@ -360,7 +360,7 @@ class MosaicSelfRef(object):
         self.ref_table.detections()
 
         ### Drop all stars that have 0 detections.
-        idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
+        idx = np.where((self.ref_table['n_detect'] == 0))[0]
         print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
 

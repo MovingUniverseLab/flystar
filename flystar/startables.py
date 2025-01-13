@@ -780,6 +780,7 @@ class StarTable(Table):
         # Catch the case where there is NO good data. 
         if N_good == 0:
             #self['motion_model_used'][ss] = 'None'
+            self['n_fit'][ss] = N_good
             return
 
         # Everything below has N_good >= 1

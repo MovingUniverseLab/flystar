@@ -59,6 +59,15 @@ class MotionModel(ABC):
         else:
             warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
             return 1./xe**2, 1./ye**2
+            
+    def scale_errors(self, errs, weighting='var'):
+        if weighting=='std':
+            return errs**2
+        elif weighting=='var':
+            return errs
+        else:
+            warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
+            return errs
 
     def fit_motion_model(self, t, x, y, xe, ye, update=True, bootstrap=0, weighting='var'):
         """
@@ -249,6 +258,7 @@ class Linear(MotionModel):
             y0, vy = y_opt
             x0e, vxe = np.sqrt(x_cov.diagonal())
             y0e, vye = np.sqrt(y_cov.diagonal())
+            x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
         
         if update:
             self.x0 = x0
@@ -341,6 +351,7 @@ class Acceleration(MotionModel):
         
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
         y0e, vy0e, aye = np.sqrt(y_cov.diagonal())
+        x0e, vxe, axe, y0e, vye, aye = self.scale_errors([x0e, vxe, axe, y0e, vye, aye], weighting=weighting)
         
         if update:
             self.x0 = x0
@@ -456,7 +467,8 @@ class Parallax(MotionModel):
                         p0=[np.mean(x),np.mean(y), (x[-1]-x[0])/(t[-1]-t[0]),(y[-1]-y[0])/(t[-1]-t[0]), 1],
                         sigma = 1.0/np.append(x_wt,y_wt))
         x0,y0,vx,vy,pi = res[0]
-        x0_err,y0_err,vx_err,vy_err,pi_err = np.sqrt(np.diag(res[1]))
+        x0_err,y0_err,vx_err,vy_err,pi_err = self.scale_errors(np.sqrt(np.diag(res[1])), weighting=weighting)
+
         if update:
             self.x0 = x0
             self.y0=y0
