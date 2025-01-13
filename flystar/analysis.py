@@ -179,7 +179,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     #except:
     #    print('no invalig mags')
 
-    #gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
+    gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
 
     if targets_dict != None:
         for targ_name, targ_coo in targets_dict.items():
