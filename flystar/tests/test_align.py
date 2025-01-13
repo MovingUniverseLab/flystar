@@ -385,12 +385,12 @@ def make_fake_starlists_poly1_vel(seed=-1):
 
     x0  = np.random.rand(N_stars) * 10.0     # arcsec (increasing to East)
     y0  = np.random.rand(N_stars) * 10.0     # arcsec
-    x0e = np.random.randn(N_stars) * 5.0e-4  # arcsec
-    y0e = np.random.randn(N_stars) * 5.0e-4  # arcsec
+    x0e = np.ones(N_stars) * 1.0e-4  # arcsec
+    y0e = np.ones(N_stars) * 1.0e-4  # arcsec
     vx  = np.random.randn(N_stars) * 5.0     # mas / yr
     vy  = np.random.randn(N_stars) * 5.0     # mas / yr
-    vxe = np.random.randn(N_stars) * 0.1    # mas / yr
-    vye = np.random.randn(N_stars) * 0.1    # mas / yr
+    vxe = np.ones(N_stars) * 0.05    # mas / yr
+    vye = np.ones(N_stars) * 0.05    # mas / yr
     m0  = (np.random.rand(N_stars) * 8) + 9  # mag
     m0e = np.random.randn(N_stars) * 0.05    # mag
     t0 = np.ones(N_stars) * 2019.5
@@ -420,12 +420,16 @@ def make_fake_starlists_poly1_vel(seed=-1):
     # Propogate to new times and distort.
     ##########
     # Make 4 new starlists with different epochs and transformations.
-    times = [2018.5, 2019.5, 2020.5, 2021.5]
+    times = [2018.5, 2019.0, 2019.5, 2020.0, 2020.5, 2021.0, 2021.5, 2022.0]
     xy_trans = [[[ 6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
                [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
-               [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
-               [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]]]
-    mag_trans = [0.1, 0.4, 0.0, -0.3]
+               [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.000]],
+               [[250.0, 1.01, 2e-5], [-250.0, 1e-5, 0.98]],
+               [[ 50.0, 1.01, 1e-5], [ -31.0, 1e-5, 1.000]],
+               [[ 78.0, 0.98, 0.0 ], [  45.0, 9e-6, 1.001]],
+               [[-13.0, 0.99, 1e-5], [  150, 2e-5, 1.002]],
+               [[ 94.0, 1.00, 9e-6], [-182.0, 0.0, 0.99]]]
+    mag_trans = [0.1, 0.4, 0.0, -0.3, 0.2, 0.0, -0.1, -0.3]
 
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
@@ -449,9 +453,9 @@ def make_fake_starlists_poly1_vel(seed=-1):
         xd, yd = trans.evaluate(xp, yp)
         md = trans.evaluate_mag(lis['m0'])
 
-        # Perturb with small errors (0.1 pix)
-        xd += np.random.randn(N_stars) * 0.1
-        yd += np.random.randn(N_stars) * 0.1
+        # Perturb with small errors (0.1 mas)
+        xd += np.random.randn(N_stars) * xpe
+        yd += np.random.randn(N_stars) * ype
         md += np.random.randn(N_stars) * 0.02
         xde = xpe
         yde = ype
