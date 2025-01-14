@@ -873,20 +873,38 @@ class StarTable(Table):
         y = np.full(N_stars, np.nan, dtype=float)
         xe = np.full(N_stars, np.nan, dtype=float)
         ye = np.full(N_stars, np.nan, dtype=float)
+
+        # TODO: probably worth some additional testing here
         # Check which motion models we need
         # use complex_mms to collect models besides Fixed and Linear
-        unique_mms = np.unique(self['motion_model_used']).tolist()
+        unique_mms = np.unique(self['motion_model_input']).tolist()
         # Calculate current position in batches by motion model
         for mm in unique_mms:
-            # Identify stars with this model & get class
-            idx = np.where(self['motion_model_used']==mm)[0]
-            modClass = getattr(motion_model, mm)
-            # Set up parameters
-            param_dict = {}
-            for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
-                param_dict[par] = self[par][idx]
-            mod = modClass(RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
-            x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
+            try:
+                # Identify stars with this model & get class
+                idx = np.where(self['motion_model_input']==mm)[0]
+                modClass = getattr(motion_model, mm)
+                # Set up parameters
+                param_dict = {}
+                for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
+                    param_dict[par] = self[par][idx]
+                mod = modClass(RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
+                x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
+            except:
+                pass
+        if np.isnan(x).any():
+            re_calc = np.where(np.isnan(x))[0]
+            for idx in re_calc:
+                mm = self['motion_model_used'][idx]
+                modClass = getattr(motion_model, mm)
+                # Set up parameters
+                param_dict = {}
+                for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
+                    param_dict[par] = self[par][idx]
+                mod = modClass(**param_dict, RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
+                x[idx],y[idx] = mod.get_pos_at_time(t)
+                xe[idx],ye[idx] = mod.get_pos_err_at_time(t)
+                
         return x,y,xe,ye
                 
 
