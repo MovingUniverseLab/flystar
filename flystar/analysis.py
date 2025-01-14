@@ -21,7 +21,7 @@ from scipy.stats import f
 # the new StarTable and StarList format. 
 ##################################################
 
-def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
+def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
     """
     Query the Gaia database at the specified location
     and with the specified search radius
