@@ -77,7 +77,7 @@ class MotionModel(ABC):
         Best-fit parameters will be returned along with uncertainties
         and updated if update=True. 
         """
-        params, param_errs = self.run_fit(t, x, y, xe, ye, weighting=weighting, update=True)
+        params, param_errs = self.run_fit(t, x, y, xe, ye, weighting=weighting, update=update)
         
         if bootstrap>0 and len(x)>(self.n_pts_req):
             edx = np.arange(len(x), dtype=int)
