@@ -15,7 +15,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
                          Nbins_vmax=200, Nbins_angle=360,verbose=False):
     """
     Take two input starlists and select the <Nbrite> brightest stars from
-    each. Then performa a triangle matching algorithm along the lines of
+    each. Then perform a triangle matching algorithm along the lines of
     Groth 1986.
 
     For every possible triangle (combination of 3 stars) in a starlist,

@@ -454,6 +454,7 @@ class MosaicSelfRef(object):
                                                       **trans_args,
                                                       m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight, mag_trans=self.mag_trans)
+            print(trans.px, trans.py)
 
             # Save the final transformation.
             self.trans_list[ii] = trans
@@ -583,7 +584,7 @@ class MosaicSelfRef(object):
         array in the original reference star list.
         """
         col_arrays = {}
-        motion_model_col_names = motion_model.get_all_motion_model_param_names(with_errors=True) + ['m0','m0_err','use_in_trans']
+        motion_model_col_names = motion_model.get_all_motion_model_param_names(with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
         for col_name in star_list.colnames:
             if col_name == 'name':
                 # The "name" column will be 1D; but we will also add a "name_in_list" column.
@@ -682,6 +683,11 @@ class MosaicSelfRef(object):
         for col_name in ref_table.colnames:
             if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
                 ref_table._set_invalid_list_values(col_name, -1)
+                
+        if 'motion_model_input' not in ref_table.colnames:
+            ref_table.add_column(Column(np.repeat(self.default_motion_model, len(ref_table)), name='motion_model_input'))
+        if 'motion_model_used' not in ref_table.colnames:
+            ref_table.add_column(Column(np.repeat('Fixed', len(ref_table)), name='motion_model_used'))
 
         return ref_table
 
@@ -830,20 +836,27 @@ class MosaicSelfRef(object):
             motion_model_class_names = [self.default_motion_model]
             if 'motion_model_used' in self.ref_table.keys():
                 motion_model_class_names += self.ref_table['motion_model_used'][ref_orig_idx].tolist()
-            motion_model_col_names = motion_model.get_list_motion_model_param_names(motion_model_class_names, with_errors=True)
+            motion_model_col_names = motion_model.get_list_motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
             for mm in motion_model_col_names:
                 if mm in self.ref_table.keys():
                     vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
-                
-        # Combine positions with a velocity fit.
-        self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose, default_motion_model=self.default_motion_model)
-
-        # Combine (transformed) magnitudes
-        if 'me' in self.ref_table.colnames:
-            weights_col = None
+        # Figure out whether motion fits are necessary
+        all_fixed = np.all(self.ref_table['motion_model_input']=='Fixed')
+        if all_fixed:
+            weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
+            weighted_m = ('me' in self.ref_table.colnames)
+    
+            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
         else:
-            weights_col = 'me'
-        self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
+            # Combine positions with a velocity fit.
+            self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose, default_motion_model=self.default_motion_model)
+
+            # Combine (transformed) magnitudes
+            if 'me' in self.ref_table.colnames:
+                weights_col = None
+            else:
+                weights_col = 'me'
+            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
 
         # Replace the originals if we are supposed to keep them fixed.
         if not self.update_ref_orig:
@@ -1636,7 +1649,7 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table.detections()
 
         ### Drop all stars that have 0 detections.
-        idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
+        idx = np.where((self.ref_table['n_detect'] == 0))[0]
         print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
 
@@ -1837,7 +1850,7 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis, default_motion_model='
             elif col_name=='motion_model_input':
                 new_col_empty = default_motion_model
             elif col_name=='motion_model_used':
-                new_col_empty = 'None'
+                new_col_empty = 'Fixed'
             else:
                 new_col_empty = np.nan
             
