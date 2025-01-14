@@ -2,8 +2,9 @@ from flystar import motion_model
 import numpy as np
 import pytest
 
-def within_error(true_val, fit_val, fit_err, n_sigma=1):
-    return (true_val < (fit_val+fit_err)) & (true_val> (fit_val-fit_err))
+def within_error(true_val, fit_val, fit_err, n_sigma=2):
+    print('True', true_val, 'Fit', fit_val, 'Fit err', fit_err)
+    return (true_val < (fit_val+fit_err*n_sigma)) & (true_val> (fit_val-fit_err*n_sigma))
 
 def test_Fixed():
     # Test handling of a single star
@@ -63,7 +64,8 @@ def test_Fixed():
 def test_Linear():
     # Test handling of a single star
     true_params = {'x0': 1.0, 'y0':0.5, 'x0_err':0.1, 'y0_err':0.1,
-                    'vx':0.2, 'vy':0.5, 'vx_err':0.05, 'vy_err':0.05}
+                    'vx':0.2, 'vy':0.5, 'vx_err':0.05, 'vy_err':0.05,
+                    't0':2025.0}
     mod_true = motion_model.Linear(**true_params)
     param_list = mod_true.fitter_param_names
     # Confirm return of proper values for single t=t0 and array t
@@ -120,11 +122,11 @@ def test_Linear():
     x_sim = np.random.normal(x_true, x_true_err)
     y_sim = np.random.normal(y_true, y_true_err)
     # Run fit
-    mod_fit = motion_model.Linear()
+    mod_fit = motion_model.Linear(t0=true_params['t0'])
     params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err)
     print(param_errs)
     # Confirm true value is within error bar of fit value
-    assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
     
     # Test fitter with bootstrap
     t = np.arange(2015.0,2025.0, 0.5)
@@ -134,11 +136,11 @@ def test_Linear():
     x_sim = np.random.normal(x_true, x_true_err)
     y_sim = np.random.normal(y_true, y_true_err)
     # Run fit
-    mod_fit = motion_model.Linear()
+    mod_fit = motion_model.Linear(t0=true_params['t0'])
     params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err,bootstrap=10)
     print(param_errs)
     # Confirm true value is within error bar of fit value
-    assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
     
     # Test fitter for 2 pts
     t = np.array([2015.0,2025.0])
@@ -148,11 +150,11 @@ def test_Linear():
     x_sim = np.random.normal(x_true, x_true_err)
     y_sim = np.random.normal(y_true, y_true_err)
     # Run fit
-    mod_fit = motion_model.Linear()
+    mod_fit = motion_model.Linear(t0=true_params['t0'])
     params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err)
     print(param_errs)
     # Confirm true value is within error bar of fit value
-    assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
     
     
 def test_Acceleration():
