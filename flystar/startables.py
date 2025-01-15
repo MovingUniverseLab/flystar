@@ -862,7 +862,7 @@ class StarTable(Table):
         return
         
     # New function, to use in align
-    def get_star_positions_at_time(self, t):
+    def get_star_positions_at_time(self, t, allow_alt_models=True):
         """ Get current x,y positions of each star according to its motion_model
         """
         # Start with empty arrays so we can fill them in batches
@@ -890,7 +890,7 @@ class StarTable(Table):
                 x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
             except:
                 pass
-        if np.isnan(x).any():
+        if np.isnan(x).any() and allow_alt_models:
             re_calc = np.where(np.isnan(x))[0]
             unique_mms = np.unique(self['motion_model_used'][re_calc]).tolist()
             # Calculate current position in batches by motion model
