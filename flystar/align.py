@@ -931,11 +931,7 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
             
-            print('star list T x:',star_list_T['x'])
-            print('ref table x0', self.ref_table['x0'])
-            print('ref table vx', self.ref_table['vx'])
             xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table) #, use_motion=self.use_motion)  # optional velocity propogation.
-            print('x ref:',xref)
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -3055,9 +3051,10 @@ def get_pos_at_time(t, starlist):
     if 'motion_model_used' in starlist.colnames:
         x,y,xe,ye = starlist.get_star_positions_at_time(t)
     # If no motion model, check for velocities
-    elif ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
-        x = starlist['x0'] + np.nan_to_num(starlist['vx'])*np.nan_to_num(t-starlist['t0'])
-        y = starlist['y0'] + np.nan_to_num(starlist['vy'])*np.nan_to_num(t-starlist['t0'])
+    #TODO: This is a hacky temporary solution, need to make motion-model compatible
+    if ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
+        x = starlist['x0'] + starlist['vx']*(t-starlist['t0'])
+        y = starlist['y0'] + starlist['vy']*(t-starlist['t0'])
     # If no velocities, try fitted positon
     elif ('x0' in starlist.colnames) and ('y0' in starlist.colnames):
         x = starlist['x0']
