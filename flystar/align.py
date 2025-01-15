@@ -3049,10 +3049,9 @@ def get_pos_at_time(t, starlist):
     """
     # Check for motion model
     if 'motion_model_used' in starlist.colnames:
-        x,y,xe,ye = starlist.get_star_positions_at_time(t)
+        x,y,xe,ye = starlist.get_star_positions_at_time(t, allow_alt_models=False)
     # If no motion model, check for velocities
-    #TODO: This is a hacky temporary solution, need to make motion-model compatible
-    if ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
+    elif ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
         x = starlist['x0'] + starlist['vx']*(t-starlist['t0'])
         y = starlist['y0'] + starlist['vy']*(t-starlist['t0'])
     # If no velocities, try fitted positon
