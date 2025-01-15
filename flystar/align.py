@@ -454,7 +454,6 @@ class MosaicSelfRef(object):
                                                       **trans_args,
                                                       m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight, mag_trans=self.mag_trans)
-            print(trans.px, trans.py)
 
             # Save the final transformation.
             self.trans_list[ii] = trans
@@ -833,7 +832,7 @@ class MosaicSelfRef(object):
             vals_orig = {}
             vals_orig['m0'] = self.ref_table['m0'][ref_orig_idx]
             vals_orig['m0_err'] = self.ref_table['m0_err'][ref_orig_idx]
-            motion_model_class_names = [self.default_motion_model]
+            motion_model_class_names = self.ref_table['motion_model_input'].tolist()
             if 'motion_model_used' in self.ref_table.keys():
                 motion_model_class_names += self.ref_table['motion_model_used'][ref_orig_idx].tolist()
             motion_model_col_names = motion_model.get_list_motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
@@ -938,6 +937,7 @@ class MosaicSelfRef(object):
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    xref, yref, mref,
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
+            
             if self.verbose > 0:
                 fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} +/- {4:6.4f}, dm = {5:5.2f} +/- {6:4.2f}'
                 print(fmt.format(len(idx_lis), len(star_list_T), ii, dr.mean(), dr.std(), dm.mean(), dm.std()))
@@ -1572,15 +1572,6 @@ class MosaicToRef(MosaicSelfRef):
         #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
         ##########
         self.ref_table = self.setup_ref_table_from_starlist(self.ref_list)
-        
-        # copy over motion model parameters if they exist in the reference list
-        if 'motion_model_input' in self.ref_list.colnames:
-            self.ref_table['motion_model_input'] = self.ref_list['motion_model_input']
-        if 'motion_model' in self.ref_list.colnames:
-            self.ref_table['motion_model_input'] = self.ref_list['motion_model']
-        for param in motion_model.get_all_motion_model_param_names(with_fixed=True, with_errors=True):
-            if param in self.ref_list.colnames:
-                self.ref_table[param] = self.ref_list[param]
 
         ##########
         #
@@ -1773,7 +1764,7 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
     idx_ref : list or array
         The indices into the ref_table where values are copied to.
     idx_lis : list or array
-        The indices into the star_list or star_lsit_T where values are copied from.
+        The indices into the star_list or star_list_T where values are copied from.
     """
     for col_name in ref_table.colnames:
         if col_name in star_list_T.colnames:
@@ -3041,7 +3032,7 @@ def get_weighting_scheme(weights, ref_list, star_list):
 
     return weight
 
-# TODO: I think this is a startable, not a starlist, at least as currently used
+# TODO: This is sometimes run on a startable, not a starlist, at least as currently used
 def get_pos_at_time(t, starlist):
     """
     Take a starlist, check to see if it has motion/velocity columns.
@@ -3060,9 +3051,9 @@ def get_pos_at_time(t, starlist):
     if 'motion_model_used' in starlist.colnames:
         x,y,xe,ye = starlist.get_star_positions_at_time(t)
     # If no motion model, check for velocities
-    elif ('vx' in starlist.colnames) and ('vy' in starlist.colnames) and ('x0' in starlist.colnames) and ('y0' in starlist.colnames):
-        x = starlist['x0'] + np.nan_to_num(starlist['vx'])*(t-starlist['t0'])
-        y = starlist['y0'] + np.nan_to_num(starlist['vy'])*(t-starlist['t0'])
+    elif ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
+        x = starlist['x0'] + np.nan_to_num(starlist['vx'])*np.nan_to_num(t-starlist['t0'])
+        y = starlist['y0'] + np.nan_to_num(starlist['vy'])*np.nan_to_num(t-starlist['t0'])
     # If no velocities, try fitted positon
     elif ('x0' in starlist.colnames) and ('y0' in starlist.colnames):
         x = starlist['x0']

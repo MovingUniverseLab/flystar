@@ -864,8 +864,6 @@ class StarTable(Table):
     # New function, to use in align
     def get_star_positions_at_time(self, t):
         """ Get current x,y positions of each star according to its motion_model
-        Instead of looping through every star, we implement a faster calculation for Fixed and Linear models,
-        and loop through any stars with a more complex model
         """
         # Start with empty arrays so we can fill them in batches
         N_stars = len(self)
@@ -894,17 +892,21 @@ class StarTable(Table):
                 pass
         if np.isnan(x).any():
             re_calc = np.where(np.isnan(x))[0]
-            for idx in re_calc:
-                mm = self['motion_model_used'][idx]
+            unique_mms = np.unique(self['motion_model_used'][re_calc]).tolist()
+            # Calculate current position in batches by motion model
+            for mm in unique_mms:
+                # Identify stars with this model & get class
+                idx_0 = np.where(self['motion_model_used']==mm)[0]
+                idx = np.intersect1d(re_calc, idx_0)
                 modClass = getattr(motion_model, mm)
                 # Set up parameters
                 param_dict = {}
                 for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
                     param_dict[par] = self[par][idx]
-                mod = modClass(**param_dict, RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
-                x[idx],y[idx] = mod.get_pos_at_time(t)
-                xe[idx],ye[idx] = mod.get_pos_err_at_time(t)
-                
+                mod = modClass(RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
+                x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
+
+        #print(x)
         return x,y,xe,ye
                 
 
