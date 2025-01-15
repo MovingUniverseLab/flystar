@@ -931,7 +931,11 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
             
+            print('star list T x:',star_list_T['x'])
+            print('ref table x0', self.ref_table['x0'])
+            print('ref table vx', self.ref_table['vx'])
             xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table) #, use_motion=self.use_motion)  # optional velocity propogation.
+            print('x ref:',xref)
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
