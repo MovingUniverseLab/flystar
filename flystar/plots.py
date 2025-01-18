@@ -1,4 +1,4 @@
-from flystar import analysis, motion_model, startable
+from flystar import analysis, motion_model, startables
 import pylab as py
 import pylab as plt
 import numpy as np

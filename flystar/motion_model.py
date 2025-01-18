@@ -351,7 +351,7 @@ class Acceleration(MotionModel):
         
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
         y0e, vy0e, aye = np.sqrt(y_cov.diagonal())
-        x0e, vxe, axe, y0e, vye, aye = self.scale_errors([x0e, vxe, axe, y0e, vye, aye], weighting=weighting)
+        x0e, vx0e, axe, y0e, vy0e, aye = self.scale_errors([x0e, vx0e, axe, y0e, vy0e, aye], weighting=weighting)
         
         if update:
             self.x0 = x0

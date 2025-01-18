@@ -346,7 +346,8 @@ class MosaicSelfRef(object):
             print("**********")
 
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
-        self.update_ref_table_aggregates()
+        # Hard-coded not to keep ref values for MosaicSelfRef
+        self.update_ref_table_aggregates(False)
 
         ##########
         # Clean up output table.
@@ -518,8 +519,8 @@ class MosaicSelfRef(object):
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
 
             ### Update the "average" values to be used as the reference frame for the next list.
-            if self.update_ref_orig != 'periter':
-                self.update_ref_table_aggregates()
+            keep_ref_orig = (self.update_ref_orig==False) or (self.update_ref_orig=='atend') or (self.update_ref_orig=='periter' and ii<(len(self.star_lists)-1))
+            self.update_ref_table_aggregates(keep_ref_orig)
                 
             # Print out some metrics
             if self.verbose > 0:
@@ -815,19 +816,19 @@ class MosaicSelfRef(object):
                 
         return
     
-    def update_ref_table_aggregates(self, n_boot=0):
+    def update_ref_table_aggregates(self, keep_ref_orig, n_boot=0):
         """
         Average positions or fit velocities.
         Average magnitudes.
         Calculate bootstrap errors if desired.
 
-        Update the use_in_trans values as needed.
+        Update the use_in_trans values as needed. TODO: ????
 
         Updates aggregate columns in self.ref_table in place.
         """
         # Keep track of the original reference values.
         # In certain cases, we will NOT update these.
-        if not self.update_ref_orig:
+        if keep_ref_orig:
             ref_orig_idx = np.where(self.ref_table['ref_orig'] == True)[0]
             vals_orig = {}
             vals_orig['m0'] = self.ref_table['m0'][ref_orig_idx]
@@ -858,7 +859,7 @@ class MosaicSelfRef(object):
             self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
 
         # Replace the originals if we are supposed to keep them fixed.
-        if not self.update_ref_orig:
+        if keep_ref_orig:
             for val in vals_orig.keys():
                 self.ref_table[val][ref_orig_idx] = vals_orig[val]
         return
@@ -1626,7 +1627,8 @@ class MosaicToRef(MosaicSelfRef):
             print("**********")
 
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
-        self.update_ref_table_aggregates()
+        keep_ref_orig = (self.update_ref_orig==False)
+        self.update_ref_table_aggregates(keep_ref_orig)
 
         ##########
         # Clean up output table.
