@@ -548,7 +548,7 @@ class StarTable(Table):
     
     def fit_velocities(self, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=0, fixed_t0=False, verbose=False,
                        mask_val=None, mask_lists=False, show_progress=True, default_motion_model='Linear',
-                       reassign_motion_model=False):
+                       reassign_motion_model=False, select_stars=None):
         """Fit velocities for all stars in the table and add to the columns 'vx', 'vxe', 'vy', 'vye', 'x0', 'x0e', 'y0', 'y0e'.
 
         Parameters
@@ -643,16 +643,20 @@ class StarTable(Table):
 
             return
             
+        # Only fit selected stars, if list given
+        fit_star_idxs = range(N_stars)
+        if select_stars is not None:
+            fit_star_idxs = select_stars
         # STARS LOOP through the stars and work on them 1 at a time.
         # This is slow; but robust.
         if show_progress:
-            for ss in tqdm(range(N_stars)):
+            for ss in tqdm(fit_star_idxs):
                 self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy,
                                            absolute_sigma=absolute_sigma, bootstrap=bootstrap,
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,
                                            mask_val=mask_val, mask_lists=mask_lists)
         else:
-            for ss in range(N_stars):
+            for ss in range(fit_star_idxs):
                 self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy,
                                            absolute_sigma=absolute_sigma, bootstrap=bootstrap,
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,

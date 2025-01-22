@@ -840,6 +840,9 @@ class MosaicSelfRef(object):
             for mm in motion_model_col_names:
                 if mm in self.ref_table.keys():
                     vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
+            fit_star_idxs = np.where(self.ref_table['ref_orig'] == False)[0]
+        else:
+            fit_star_idxs = None
         # Figure out whether motion fits are necessary
         all_fixed = np.all(self.ref_table['motion_model_input']=='Fixed')
         if all_fixed:
@@ -849,7 +852,8 @@ class MosaicSelfRef(object):
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
         else:
             # Combine positions with a velocity fit.
-            self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose, default_motion_model=self.default_motion_model)
+            self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose,
+                        default_motion_model=self.default_motion_model, select_stars=fit_star_idxs)
 
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
