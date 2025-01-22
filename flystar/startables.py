@@ -547,7 +547,8 @@ class StarTable(Table):
         return
     
     def fit_velocities(self, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=0, fixed_t0=False, verbose=False,
-                       mask_val=None, mask_lists=False, show_progress=True, default_motion_model='Linear'):
+                       mask_val=None, mask_lists=False, show_progress=True, default_motion_model='Linear',
+                       reassign_motion_model=False):
         """Fit velocities for all stars in the table and add to the columns 'vx', 'vxe', 'vy', 'vye', 'x0', 'x0e', 'y0', 'y0e'.
 
         Parameters
@@ -593,7 +594,7 @@ class StarTable(Table):
 
         # Set all to default_motion_model if none assigned already.
         # Reset motion_model_used to the inputs for now -> will change as fits run
-        if 'motion_model_input' not in self.colnames:
+        if ('motion_model_input' not in self.colnames) or reassign_motion_model:
             self['motion_model_input'] = default_motion_model
         self['motion_model_used'] = self['motion_model_input']
             
