@@ -2165,12 +2165,12 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
     
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'], allow_alt_models=False)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
 
     for ii in range(len(tab)):
         # Ignore the NaNs 
         fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
-#        fnd = np.where(tab['xe'][ii, :] > 0)[0]
         fnd_list.append(len(fnd))
         
         x = tab['x'][ii, fnd]
@@ -2178,9 +2178,8 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
         xerr = tab['xe'][ii, fnd]
         yerr = tab['ye'][ii, fnd]
 
-        dt = tab['t'][ii, fnd] - tab['t0'][ii]
-        fitLineX = xt_mod_all[ee]
-        fitLineY = yt_mod_all[ee]
+        fitLineX = xt_mod_all[ii, fnd]
+        fitLineY = yt_mod_all[ii,fnd]
 
         diffX = x - fitLineX
         diffY = y - fitLineY
@@ -2198,7 +2197,7 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
     
     idx = np.where(fnd == Ndetect)[0]
     # Fitting position and velocity... so subtract 2 to get Ndof
-    Ndof = Ndetect - 2 
+    Ndof = Ndetect - tab['dof'][i_all_detected]
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
 
@@ -2206,7 +2205,7 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
     plt.clf()
     plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
     plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
-    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6, 
+    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
@@ -2244,8 +2243,9 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_
     sigY_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
     m_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
     
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'], allow_alt_models=False)
-
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
+    
     for ii in range(len(tab['xe'])):
         # Ignore the NaNs 
         fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
@@ -2258,9 +2258,8 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_
             xerr = tab['xe'][ii, fnd]
             yerr = tab['ye'][ii, fnd]
 
-            dt = tab['t'][ii, fnd] - tab['t0'][ii]
-            fitLineX = xt_mod_all[ee]
-            fitLineY = yt_mod_all[ee]
+            fitLineX = xt_mod_all[ii, fnd]
+            fitLineY = yt_mod_all[ii, fnd]
             
             diffX = x - fitLineX
             diffY = y - fitLineY
@@ -2442,7 +2441,7 @@ def plot_chi2_ecliptic_per_epoch(tab, Ndetect,ra,dec, mlim=[14,21], ylim = [-1, 
         ax3.set_ylabel('residual (mas)')
     return
 
-def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
+def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2473,16 +2472,16 @@ def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
 
     # Fitting mean magnitude... so subtract 1 to get Ndof
     Ndof = Ndetect - 1
-    chi2_maxis = np.linspace(0, mlim, mlim*3)
-    chi2_bins = np.linspace(0, mlim, n_bins)
+    chi2_maxis = np.linspace(0, xlim, xlim*3)
+    chi2_bins = np.linspace(0, xlim, n_bins)
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(chi2_m[idx], bins=np.arange(mlim*10), histtype='step', density=True)
+    plt.hist(chi2_m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
-    plt.xlim(0, mlim)
+    plt.xlim(0, xlim)
     plt.legend()
 
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
@@ -2551,11 +2550,11 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         dt = tab['t'][ii, fnd] - tab['t0'][ii]
         
-        fitLineX = xt_mod_all[ee]
-        fitLineY = yt_mod_all[ee]
+        fitLineX = xt_mod_all[ii]
+        fitLineY = yt_mod_all[ii]
 
-        fitSigX = xt_mod_err[ee]
-        fitSigY = yt_mod_err[ee]
+        fitSigX = xt_mod_err[ii]
+        fitSigY = yt_mod_err[ii]
 
 
         fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
@@ -2965,11 +2964,11 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             merr = tab['me'][ii, fnd]
     
             dt = tab['t'][ii, fnd] - tab['t0'][ii]
-            fitLineX = xt_mod_all[ee]
-            fitLineY = yt_mod_all[ee]
+            fitLineX = xt_mod_all[ii]
+            fitLineY = yt_mod_all[ii]
     
-            fitSigX = xt_mod_err[ee]
-            fitSigY = yt_mod_err[ee]
+            fitSigX = xt_mod_err[ii]
+            fitSigY = yt_mod_err[ii]
     
             fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
             fitSigM = np.repeat(tab['m0_err'][ii], len(dt)).reshape(len(dt),1)

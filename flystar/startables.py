@@ -605,7 +605,7 @@ class StarTable(Table):
         all_motion_models = np.unique(self['motion_model_input'].tolist() + ['Fixed']+[default_motion_model]).tolist()
         new_col_list = motion_model.get_list_motion_model_param_names(all_motion_models, with_errors=True)
         # Append goodness of fit metrics and t0.
-        new_col_list += ['chi2_x', 'chi2_y']
+        new_col_list += ['chi2_x', 'chi2_y', 'dof']
         if 't0' not in new_col_list:
             new_col_list.append('t0')
 
@@ -640,6 +640,7 @@ class StarTable(Table):
                 self['y0_err'] = self['ye'][:,0]
 
             self['n_fit'] = 1
+            self['dof'] = 1
 
             return
             
@@ -786,6 +787,7 @@ class StarTable(Table):
         if N_good == 0:
             #self['motion_model_used'][ss] = 'None'
             self['n_fit'][ss] = N_good
+            self['dof'][ss] = 0
             return
 
         # Everything below has N_good >= 1
@@ -856,6 +858,7 @@ class StarTable(Table):
         chi2_x,chi2_y = mod.get_chi2(t,x,y,xe,ye)
         self['chi2_x'][ss]=chi2_x
         self['chi2_y'][ss]=chi2_y
+        self['dof'][ss] = mod.dof
                 
         # Save parameters and errors to table.
         for pp in range(len(modClass.fitter_param_names)):
@@ -872,10 +875,16 @@ class StarTable(Table):
         """
         # Start with empty arrays so we can fill them in batches
         N_stars = len(self)
-        x = np.full(N_stars, np.nan, dtype=float)
-        y = np.full(N_stars, np.nan, dtype=float)
-        xe = np.full(N_stars, np.nan, dtype=float)
-        ye = np.full(N_stars, np.nan, dtype=float)
+        if hasattr(t, "__len__"):
+            x = np.full((N_stars,len(t)), np.nan, dtype=float)
+            y = np.full((N_stars,len(t)), np.nan, dtype=float)
+            xe = np.full((N_stars,len(t)), np.nan, dtype=float)
+            ye = np.full((N_stars,len(t)), np.nan, dtype=float)
+        else:
+            x = np.full(N_stars, np.nan, dtype=float)
+            y = np.full(N_stars, np.nan, dtype=float)
+            xe = np.full(N_stars, np.nan, dtype=float)
+            ye = np.full(N_stars, np.nan, dtype=float)
 
         # TODO: probably worth some additional testing here
         # Check which motion models we need

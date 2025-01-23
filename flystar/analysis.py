@@ -18,7 +18,7 @@ from scipy.stats import f
 
 ##################################################
 # New codes for velocity support in FlyStar and using
-# the new StarTable and StarList format. 
+# the new StarTable and StarList format.
 ##################################################
 
 def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
@@ -409,33 +409,12 @@ def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
     #     'x0', 'vx', 'y0', 'vy', 'x0_err', 'vx_err', 'y0_err', 'vy_err', 't0']
     # Don't include n_vfit
 
-    new_tab = startables.StarTable(name=tab['name'].data, 
-                                   x=tab['x'][:,idx].data,
-                                   y=tab['y'][:,idx].data,
-                                   m=tab['m'][:,idx].data,
-                                   xe=tab['xe'][:,idx].data,
-                                   ye=tab['ye'][:,idx].data,
-                                   me=tab['me'][:,idx].data,
-                                   t=tab['t'][:,idx].data,                                
-                                   x_orig=tab['x_orig'][:,idx].data,                                
-                                   y_orig=tab['y_orig'][:,idx].data,                                
-                                   m_orig=tab['m_orig'][:,idx].data,                                
-                                   xe_orig=tab['xe_orig'][:,idx].data,                                
-                                   ye_orig=tab['ye_orig'][:,idx].data,                                
-                                   me_orig=tab['me_orig'][:,idx].data,                                  
-                                   used_in_trans=tab['used_in_trans'][:,idx].data,                                
-                                   m0=tab['m0'].data,
-                                   m0e=tab['m0_err'].data,
-                                   use_in_trans=tab['use_in_trans'].data,         
-                                   x0=tab['x0'].data,
-                                   vx=tab['vx'].data,
-                                   y0=tab['y0'].data,
-                                   vy=tab['vy'].data,   
-                                   x0e=tab['x0_err'].data,
-                                   vxe=tab['vx_err'].data,
-                                   y0e=tab['y0_err'].data,
-                                   vye=tab['vy_err'].data,
-                                   t0=tab['t0'].data)
+    new_tab = copy.deepcopy(tab)
+    #new_tab.remove_column('n_fit')
+    new_tab.remove_column('n_detect')
+    for col in ['x','y','m','xe','ye','me','t','x_orig','y_orig','m_orig',
+                'xe_orig','ye_orig','me_orig','used_in_trans']:
+        new_tab[col] = tab[col][:,idx]
 
     new_tab.combine_lists('m', weights_col='me', sigma=3, ismag=True)
 

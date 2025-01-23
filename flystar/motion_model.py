@@ -101,7 +101,6 @@ class MotionModel(ABC):
         Get the chi^2 value for the current MM and
         the input data.
         """
-        # TODO: confirm whether we want reduced chi^2 or anything special - maybe kwarg option
         x_pred,y_pred = self.get_pos_at_time(t)
         chi2x = np.sum((x-x_pred)**2 / xe**2)
         chi2y = np.sum((y-y_pred)**2 / ye**2)
@@ -433,11 +432,11 @@ class Parallax(MotionModel):
         pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
         if hasattr(t, "__len__"):
             dt = t-t0[:,np.newaxis]
-            x = x0[:,np.newaxis] + dt*vx[:,np.newaxis] + pi[:,np.newaxis]*pvec[0]
-            y = y0[:,np.newaxis] + dt*vy[:,np.newaxis] + pi[:,np.newaxis]*pvec[1]
+            x = x0[:,np.newaxis] + dt*vx[:,np.newaxis] + pi[:,np.newaxis]*pvec[0].T
+            y = y0[:,np.newaxis] + dt*vy[:,np.newaxis] + pi[:,np.newaxis]*pvec[1].T
             try:
-                x_err = np.sqrt(x0_err[:,np.newaxis]**2 + (vx_err[:,np.newaxis]*dt)**2 + (pi_err[:,np.newaxis]*pvec[0])**2)
-                y_err = np.sqrt(y0_err[:,np.newaxis]**2 + (vy_err[:,np.newaxis]*dt)**2 + (pi_err[:,np.newaxis]*pvec[1])**2)
+                x_err = np.sqrt(x0_err[:,np.newaxis]**2 + (vx_err[:,np.newaxis]*dt)**2 + (pi_err[:,np.newaxis]*pvec[0].T)**2)
+                y_err = np.sqrt(y0_err[:,np.newaxis]**2 + (vy_err[:,np.newaxis]*dt)**2 + (pi_err[:,np.newaxis]*pvec[1].T)**2)
             except:
                 x_err,y_err = [],[]
         else:
