@@ -2916,9 +2916,11 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     """
     print( 'Creating residuals plots for star(s):' )
     print( star_names )
+    def rs(x):
+        return x.reshape(len(x))
     
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'], allow_alt_models=False)
-
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
     
     Nstars = len(star_names)
     Ncols = 3 * np.min([Nstars, NcolMax])
@@ -2963,15 +2965,14 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             yerr = tab['ye'][ii, fnd]
             merr = tab['me'][ii, fnd]
     
-            dt = tab['t'][ii, fnd] - tab['t0'][ii]
-            fitLineX = xt_mod_all[ii]
-            fitLineY = yt_mod_all[ii]
+            fitLineX = xt_mod_all[ii, fnd]
+            fitLineY = yt_mod_all[ii, fnd]
     
-            fitSigX = xt_mod_err[ii]
-            fitSigY = yt_mod_err[ii]
+            fitSigX = xt_mod_err[ii, fnd]
+            fitSigY = yt_mod_err[ii, fnd]
     
-            fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
-            fitSigM = np.repeat(tab['m0_err'][ii], len(dt)).reshape(len(dt),1)
+            fitLineM = np.repeat(tab['m0'][ii], len(time)).reshape(len(time),1)
+            fitSigM = np.repeat(tab['m0_err'][ii], len(time)).reshape(len(time),1)
     
             diffX = x - fitLineX
             diffY = y - fitLineY
@@ -3063,8 +3064,9 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.plot(time, fitLineX, 'b-')
             plt.plot(time, fitLineX + fitSigX, 'b--')
             plt.plot(time, fitLineX - fitSigX, 'b--')
+            print(np.shape(xerr.reshape(len(xerr),)))
             if not color_time:
-                plt.errorbar(time, x, yerr=xerr.reshape(len(xerr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(x), yerr=rs(xerr), marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3096,7 +3098,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.plot(time, fitLineY + fitSigY, 'b--')
             plt.plot(time, fitLineY - fitSigY, 'b--')
             if not color_time:
-                plt.errorbar(time, y, yerr=yerr.reshape(len(yerr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(y), yerr=rs(yerr), marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3126,7 +3128,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.plot(time, fitLineM + fitSigM, 'g--')
             plt.plot(time, fitLineM - fitSigM, 'g--')
             if not color_time:
-                plt.errorbar(time, m, yerr=merr.reshape(len(merr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(m), yerr=rs(merr), marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3158,7 +3160,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.plot(time,  fitSigX*1e3, 'b--')
             plt.plot(time, -fitSigX*1e3, 'b--')
             if not color_time:
-                plt.errorbar(time, (x - fitLineX)*1e3, yerr=xerr.reshape(len(xerr),)*1e3, marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(x - fitLineX)*1e3, yerr=rs(xerr)*1e3, marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3186,7 +3188,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.plot(time,  fitSigY*1e3, 'b--')
             plt.plot(time, -fitSigY*1e3, 'b--')
             if not color_time:
-                plt.errorbar(time, (y - fitLineY)*1e3, yerr=yerr.reshape(len(yerr),)*1e3, marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(y - fitLineY)*1e3, yerr=rs(yerr)*1e3, marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3214,7 +3216,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.plot(time,  fitSigM*1e3, 'g--')
             plt.plot(time, -fitSigM*1e3, 'g--')
             if not color_time:
-                plt.errorbar(time, (m - fitLineM), yerr=merr.reshape(len(merr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(m - fitLineM), yerr=rs(merr), marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3241,8 +3243,8 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     
             paxes = plt.subplot(Nrows, Ncols, ind)
             if not color_time:
-                plt.errorbar(x,y, xerr=xerr.reshape(len(xerr),), 
-                             yerr=yerr.reshape(len(yerr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(x),rs(y), xerr=rs(xerr),
+                             yerr=rs(yerr), marker='.', color=color, ls='none')
             else:
                 sc = plt.scatter(x, y, s=0, c=dtime, vmin=0, vmax=1, cmap='hsv')
                 clb = plt.colorbar(sc)
