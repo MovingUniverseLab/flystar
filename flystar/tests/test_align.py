@@ -255,7 +255,7 @@ def test_MosaicToRef():
     ##########
     # Align and let velocities be free.
     ##########
-    msc.update_ref_orig = True
+    msc.update_ref_orig = 'periter'
     msc.fit()
 
     # The velocities should be almost the same (but not as close as before)
@@ -320,7 +320,7 @@ def test_MosaicToRef_p0_vel():
     ##########
     # Align and let velocities be free.
     ##########
-    msc.update_ref_orig = True
+    msc.update_ref_orig = 'periter'
     msc.fit()
 
     # The velocities should be almost the same (but not as close as before)
@@ -386,7 +386,7 @@ def test_MosaicToRef_vel():
     ##########
     # Align and let velocities be free. 
     ##########
-    msc.update_ref_orig = True
+    msc.update_ref_orig = 'periter'
     msc.fit()
 
     # The velocities should be almost the same (but not as close as before)
@@ -464,7 +464,7 @@ def test_MosaicToRef_acc():
     ##########
     # Align and let velocities be free. 
     ##########
-    msc.update_ref_orig = True
+    msc.update_ref_orig = 'periter'
     msc.fit()
 
     # The velocities should be almost the same (but not as close as before)

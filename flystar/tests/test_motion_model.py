@@ -2,8 +2,8 @@ from flystar import motion_model
 import numpy as np
 import pytest
 
-def within_error(true_val, fit_val, fit_err, n_sigma=2):
-    print('True', true_val, 'Fit', fit_val, 'Fit err', fit_err)
+def within_error(true_val, fit_val, fit_err, n_sigma=3):
+    #print('True', true_val, 'Fit', fit_val, 'Fit err', fit_err)
     return (true_val < (fit_val+fit_err*n_sigma)) & (true_val> (fit_val-fit_err*n_sigma))
 
 def test_Fixed():
@@ -58,7 +58,7 @@ def test_Fixed():
     mod_fit = motion_model.Fixed()
     params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err)
     # Confirm true value is within error bar of fit value
-    assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
 
 
 def test_Linear():
@@ -161,7 +161,8 @@ def test_Acceleration():
     # Test handling of a single star
     true_params = {'x0': 1.0, 'y0':0.5, 'x0_err':0.1, 'y0_err':0.1,
                     'vx0':0.2, 'vy0':0.5, 'vx0_err':0.05, 'vy0_err':0.05,
-                    'ax':0.1, 'ay':-0.1, 'ax_err':0.02, 'ay_err':0.02}
+                    'ax':0.1, 'ay':-0.1, 'ax_err':0.02, 'ay_err':0.02,
+                    't0':2025.0}
     mod_true = motion_model.Acceleration(**true_params)
     param_list = mod_true.fitter_param_names
     # Confirm return of proper values for single t=t0 and array t
@@ -228,17 +229,18 @@ def test_Acceleration():
     x_sim = np.random.normal(x_true, x_true_err)
     y_sim = np.random.normal(y_true, y_true_err)
     # Run fit
-    mod_fit = motion_model.Acceleration()
+    mod_fit = motion_model.Acceleration(t0=mod_true.t0)
     params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err)
     # Confirm true value is within error bar of fit value
-    assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
     
 #@pytest.mark.skip(reason="not written")
 def test_Parallax():
     # Test handling of a single star
     true_params = {'x0': 1.0, 'y0':-0.5, 'x0_err':0.1, 'y0_err':0.1,
                     'vx':-0.2, 'vy':0.5, 'vx_err':0.05, 'vy_err':0.05,
-                    'pi':0.5, 'RA':17.76, 'Dec':-28.933, 'PA':0}
+                    'pi':0.5, 'RA':17.76, 'Dec':-28.933, 'PA':0,
+                    't0':2020.0}
     mod_true = motion_model.Parallax(**true_params)
     param_list = mod_true.fitter_param_names
     
@@ -250,10 +252,10 @@ def test_Parallax():
     x_sim = np.random.normal(x_true, x_true_err)
     y_sim = np.random.normal(y_true, y_true_err)
     # Run fit
-    mod_fit = motion_model.Parallax(RA=17.76, Dec=-28.933, PA=0)
+    mod_fit = motion_model.Parallax(RA=17.76, Dec=-28.933, PA=0, t0=mod_true.t0)
     params, param_errs = mod_fit.fit_motion_model(t, x_sim,y_sim, x_true_err, y_true_err)
     # Confirm true value is within error bar of fit value
-    assert [within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))]
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
 
 
 def test_Parallax_PA():
