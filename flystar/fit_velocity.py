@@ -76,6 +76,8 @@ def fit_velocity(startable, weighting='var', use_scipy=False, absolute_sigma=Tru
         Weighting by variance (1/ye**2) or standard deviation (1/ye), by default 'var'
     use_scipy : bool, optional
         Use scipy.curve_fit or flystar.fit_velocity.linear_fit, by default False
+    absolute_sigma : bool, optional
+        If True (default), sigma is used in an absolute sense and the estimated parameter uncertainty reflects these absolute values. If False, only the relative magnitudes of the sigma values matter, by default True
     epoch_cols : str or list of intergers, optional
         List of indicies of columns to use. If 'all', use all columns, by default 'all'
     art_star : bool, optional

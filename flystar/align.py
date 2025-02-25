@@ -792,7 +792,7 @@ class MosaicSelfRef(object):
                 
         return
     
-    def update_ref_table_aggregates(self, n_boot=0):
+    def update_ref_table_aggregates(self, n_boot=0, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True):
         """
         Average positions or fit velocities.
         Average magnitudes.
@@ -822,7 +822,7 @@ class MosaicSelfRef(object):
                 
         if self.use_vel:
             # Combine positions with a velocity fit.
-            self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose)
+            self.ref_table.fit_velocities(weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, bootstrap=n_boot, verbose=self.verbose, show_progress=show_progress)
     
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
@@ -1026,7 +1026,7 @@ class MosaicSelfRef(object):
 
         return
     
-    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True):
+    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True):
         """
         Function to calculate bootstrap errors for the transformations as well
         as the proper motions. For each iteration, this will:
@@ -1066,7 +1066,18 @@ class MosaicSelfRef(object):
            stellar proper motions, as well as the bootstrap over reference stars
            to calculate positional alignment errors. If false, only 
            calculate position alignment errors.
-
+        
+        weighting: str
+            'var' or 'std' weighting for velocity fitting, by default 'var'. If 'var', use the variance of the residuals to weight the fit.
+            If 'std', use the standard deviation of the residuals to weight the fit.
+        
+        use_scipy: boolean
+            If True, use scipy.optimize.curve_fit to fit the velocity. If False, use flystar.fit_velocity.linear_fit, by default True.
+        
+        absolute_sigma: boolean
+            If True, use the absolute sigma in the velocity fitting. If False, use the relative sigma, by default False.
+        
+            
         Output:
         ------
         Seven new columns will be added to self.ref_table:
@@ -1230,7 +1241,7 @@ class MosaicSelfRef(object):
 
                 # Now, do proper motion calculation, making sure to fix t0 to the
                 # orig value (so we can get a reasonable error on x0, y0)
-                star_table.fit_velocities(fixed_t0=t0_arr)
+                star_table.fit_velocities(weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, fixed_t0=t0_arr, show_progress=show_progress)
 
                 # Save proper motion fit results to output arrays
                 x0_arr[:,ii] = star_table['x0']
