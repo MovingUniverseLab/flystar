@@ -405,7 +405,7 @@ class MosaicSelfRef(object):
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
 
-            # Outlier rejection
+            # Outlier rejection on ref_stars
             if outlier_tol != None:
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
                                                           outlier_tol)
@@ -426,7 +426,7 @@ class MosaicSelfRef(object):
                 idx2 = idx2[keepers]
 
             # Determine weights in the fit.
-            weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
+            weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])            
 
             # Derive the best-fit transformation parameters. 
             if self.verbose > 1:
@@ -437,7 +437,55 @@ class MosaicSelfRef(object):
                                                       m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight, mag_trans=self.mag_trans)
 
-            # Save the final transformation.
+            # Outlier rejection: ref stars in final transformation, if desired
+            if outlier_tol != None:
+                # Apply transformation to starlist, run match between starlist and ref_list
+                star_list_T = copy.deepcopy(star_list)
+                if self.mag_trans:
+                    star_list_T.transform_xym(trans)
+                else:
+                    star_list_T.transform_xy(trans)
+
+                idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                                                   ref_list['x'], ref_list['y'], ref_list['m'],
+                                                   dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
+                
+                # Let's look at just the ref stars used in the transformation, which are idx1 and idx2
+                keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
+                                                          outlier_tol)
+
+                if self.verbose > 1:
+                    print( '  Rejected ', len(idx2) - len(keepers), ' outliers, final trans.' )
+
+                # If at least 1 ref star was eliminated, redo transformation
+                if len(keepers) < len(idx2):
+                    # Return print statment if verbose high enough
+                    if self.verbose > 7:
+                        print('=========================')
+                        print('OUTLIER FOUND: list {0}'.format(star_list['t'][0]))
+                        outlier_names = np.setdiff1d(ref_list['name'][idx2], ref_list['name'][idx2][keepers])
+                        print('Outliers:')
+                        for jj in outlier_names:
+                            print('{0}'.format(jj))
+                        print('=========================')
+                    
+                    # Update set of ref stars (indices are idx1, idx2 here, to be compatible downstream)
+                    idx1 = idx1[keepers]
+                    idx2 = idx2[keepers]
+
+                    # Determine weights in the fit.
+                    weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
+
+                    # Redo transformation
+                    if self.verbose > 1:
+                        print( 'Recalculating trans after outlier reject. Using ', len(idx1), ' stars in transformation.' )
+                    trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
+                                                      ref_list['x'][idx2], ref_list['y'][idx2],
+                                                      **trans_args,
+                                                      m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
+                                                      weights=weight, mag_trans=self.mag_trans)
+
+            # Save the final transformation
             self.trans_list[ii] = trans
 
             # If desired, calculate and save the inverse transformation
@@ -459,9 +507,9 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xym(self.trans_list[ii])
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
-
+                
             if self.verbose > 7:
-                hdr = '{nr:20s} {n:20s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
+                hdr = '{nr:20s} {n:s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
                 hdr += '{dx:7s} {dy:7s} {dm:6s} {xo:9s} {yo:9s} {mo:6s}'
                 print(hdr.format(nr='name_ref', n='name_lis',
                                      xl='x_lis_T', xr='x_ref',
@@ -470,7 +518,7 @@ class MosaicSelfRef(object):
                                      dx='dx_mpix', dy='dy_mpix', dm='dm',
                                      xo='x_orig', yo='y_orig', mo='m_orig'))
                 
-                fmt = '{nr:20s} {n:20s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
+                fmt = '{nr:20s} {n:s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
                 fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
                 for foo in range(len(idx1)):
                     star_s = star_list_orig_trim[idx1[foo]]
@@ -487,15 +535,15 @@ class MosaicSelfRef(object):
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-            
+                
             if self.verbose > 1:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
 
             ## Make plot, if desired
             plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                  fileName='{0}'.format(star_list_T['t'][0]))
-            
+                                  fileName='ep{0}'.format(ii))
+
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
             
@@ -583,7 +631,7 @@ class MosaicSelfRef(object):
 
         # Use the columns from the ref list to make the ref_table.
         ref_table = StarTable(**col_arrays)
-        
+
         # Make new columns to hold original values. These will be copies
         # of the old columns and will only include x, y, m, xe, ye, me.
         # The columns we have already created will hold transformed values. 
@@ -727,7 +775,7 @@ class MosaicSelfRef(object):
         y_resid_on_old_trans = star_list['y'] - yref
         resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
 
-        threshold = outlier_tol * resid_on_old_trans.std()
+        threshold = np.median(resid_on_old_trans) + (outlier_tol * resid_on_old_trans.std())
         keepers = np.where(resid_on_old_trans < threshold)[0]
 
         if verbose:
@@ -1136,8 +1184,11 @@ class MosaicSelfRef(object):
             # can handle case where different reference stars are used
             # in different epochs
             for jj in range(n_epochs):
-                # Extract bootstrap sample of matched reference stars
-                good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
+                # Extract bootstrap sample of matched reference stars, using only ref stars
+                # used in this epoch
+                good = np.where( (ref_table['used_in_trans'][idx_ref][:,jj] == True) &
+                                     (~np.isnan(ref_table['x_orig'][idx_ref][:,jj])) )
+                #good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
                 samp_idx = np.random.choice(good[0], len(good[0]), replace=True)
                 
                 # Get reference star positions in particular epoch from ref_list.
@@ -1625,7 +1676,7 @@ class MosaicToRef(MosaicSelfRef):
         #        First rest the reference table 2D values. 
         ##########
         self.reset_ref_values(exclude=['used_in_trans'])
-
+        
         if self.verbose > 0:
             print("**********")
             print("Final Matching")
@@ -1652,6 +1703,7 @@ class MosaicToRef(MosaicSelfRef):
 
         if self.iter_callback != None:
             self.iter_callback(self.ref_table, nn)
+
         return
 
 def get_all_epochs(t):
