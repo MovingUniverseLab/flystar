@@ -920,7 +920,6 @@ class StarTable(Table):
                 mod = modClass(RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
                 x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
 
-        #print(x)
         return x,y,xe,ye
                 
 

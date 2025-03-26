@@ -276,10 +276,7 @@ class MosaicSelfRef(object):
         x0e
         y0e
         m0e
-        vx  (only if use_motion=True)
-        vy  (only if use_motion=True)
-        vxe (only if use_motion=True)
-        vye (only if use_motion=True)
+        additional motion_model columns
 
         """
         ##########
@@ -836,6 +833,7 @@ class MosaicSelfRef(object):
             motion_model_class_names = self.ref_table['motion_model_input'].tolist()
             if 'motion_model_used' in self.ref_table.keys():
                 motion_model_class_names += self.ref_table['motion_model_used'][ref_orig_idx].tolist()
+                vals_orig['motion_model_used'] = self.ref_table['motion_model_used'][ref_orig_idx]
             motion_model_col_names = motion_model.get_list_motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
             for mm in motion_model_col_names:
                 if mm in self.ref_table.keys():
@@ -936,7 +934,7 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
             
-            xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table) #, use_motion=self.use_motion)  # optional velocity propogation.
+            xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table)
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -970,7 +968,7 @@ class MosaicSelfRef(object):
         name = self.ref_table['name']
 
         if ('motion_model_used' in self.ref_table.colnames):
-            x,y,xe,ye = self.ref_table.get_star_positions_at_time(epoch)
+            x,y,xe,ye = self.ref_table.get_star_positions_at_time(epoch, allow_alt_models=True)
         else:
             # No velocities... just used average positions.
             x = self.ref_table['x0']
@@ -1427,13 +1425,7 @@ class MosaicToRef(MosaicSelfRef):
             necessarily want to use these in the reference frame in subsequent passes. 
             If True, then the new stars will be used in later passes/iterations.
             If False, then the new stars will be carried, but not used in the transformation.
-            We determine which stars to use through setting a boolean use_in_trans flag. 
-
-        use_motion : boolean
-            If velocities are present in the reference list and use_motion == True, then during
-            each iteration of the alignment, the reference list will be propogated in time
-            using the velocity information. So all transformations will be derived w.r.t. 
-            the propogated positions. See also update_vel.
+            We determine which stars to use through setting a boolean use_in_trans flag.
 
         init_guess_mode : string
             If no initial transformations are passed in via the trans_input keyword, then we have
@@ -1460,7 +1452,6 @@ class MosaicToRef(MosaicSelfRef):
                                 outlier_tol=[None], mag_lim=[13, 21],
                                 trans_class=transforms.PolyTransform,
                                 trans_args=[{'order': 1}],
-                                use_motion=True,
                                 use_ref_new=False,
                                 update_ref_orig=False,
                                 mag_trans=False,
@@ -1539,10 +1530,7 @@ class MosaicToRef(MosaicSelfRef):
         x0e
         y0e
         m0e
-        vx  (only if use_motion=True)
-        vy  (only if use_motion=True)
-        vxe (only if use_motion=True)
-        vye (only if use_motion=True)
+        addl. motion_model parameters
 
         """
         # Create a log file of the parameters used in the fit.
