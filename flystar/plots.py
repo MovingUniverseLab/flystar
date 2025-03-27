@@ -1071,9 +1071,9 @@ def plot_mean_residuals_by_epoch(tab):
     the size of the mean residual.
     """
     # Predicted model positions at each epoch
-    dt = tab['t'] - tab['t0'][:, np.newaxis]
-    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'], allow_alt_models=False)
-
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
+    
     # Residuals
     dx = tab['x'] - xt_mod
     dy = tab['y'] - yt_mod
@@ -1129,12 +1129,12 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
     
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'], allow_alt_models=False)
-
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
+    
     for ee in range(tab['x'].shape[1]):
-        dt = tab['t'][:, ee] - tab['t0']
-        xt_mod = xt_mod_all[ee]
-        yt_mod = yt_mod_all[ee]
+        xt_mod = xt_mod_all[:,ee]
+        yt_mod = yt_mod_all[:,ee]
         
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
         ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
@@ -1195,8 +1195,9 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
     
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'], allow_alt_models=False)
-
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
+    
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
         xt_mod = xt_mod_all[ee]
@@ -1305,8 +1306,9 @@ def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arc
     da_list = []
 
     ntrans = len(tab_list)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'], allow_alt_models=False)
-
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
+    
     for mm in range(ntrans):
         tab = tab_list[mm]
         trans_list = trans_list_list[mm]
@@ -1858,8 +1860,9 @@ def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, pl
     idx = np.where((tab['m0'] < lower_mag) & 
                    (tab['m0'] > upper_mag))[0]
     tab = tab[idx]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'], allow_alt_models=False)
-
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
+    
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
         xt_mod = xt_mod_all[ee]
@@ -2519,8 +2522,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     x = tab['x0']
     y = tab['y0']
     r = np.hypot(x, y)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'], allow_alt_models=False)
-
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
     
     for i in range(Nstars):
         starName = star_names[i]
@@ -2550,12 +2553,11 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         dt = tab['t'][ii, fnd] - tab['t0'][ii]
         
-        fitLineX = xt_mod_all[ii]
-        fitLineY = yt_mod_all[ii]
+        fitLineX = xt_mod_all[ii, fnd]
+        fitLineY = yt_mod_all[ii, fnd]
 
-        fitSigX = xt_mod_err[ii]
-        fitSigY = yt_mod_err[ii]
-
+        fitSigX = xt_mod_err[ii, fnd]
+        fitSigY = yt_mod_err[ii, fnd]
 
         fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
         fitSigM = np.repeat(tab['m0_err'][ii], len(dt)).reshape(len(dt),1)
