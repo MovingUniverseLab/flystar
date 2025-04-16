@@ -392,7 +392,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
             keep[dups[dm_min]] = True
         else:
             if verbose:
-                print('    confused, dropping')
+                print('    confused, dropping star at',x2[idxs2[dups]][0],y2[idxs2[dups]][0])
 
 
     # Clean up the duplicates

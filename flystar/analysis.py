@@ -182,16 +182,29 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
 
     if targets_dict != None:
-        for targ_name, targ_coo in targets_dict.items():
-            dx = gaia_new['x0'] - (targ_coo[0] * -1.0)
-            dy = gaia_new['y0'] - targ_coo[1]
+#        for targ_name, targ_coo in targets_dict.items():
+#            dx = gaia_new['x0'] - (targ_coo[0] * -1.0)
+#            dy = gaia_new['y0'] - targ_coo[1]
+#            dr = np.hypot(dx, dy)
+#
+#            idx = dr.argmin()
+#
+#            if dr[idx] < match_dr_max:
+#                gaia_new['name'][idx] = targ_name
+#                print('Found match for: ', targ_name, ' - ',gaia_new['source_id'][idx])
+        targ_names = [x for x in targets_dict]
+        targ_xs = np.array([targets_dict[x][0] for x in targets_dict])
+        targ_ys = np.array([targets_dict[x][1] for x in targets_dict])
+        for i_gaia in range(len(gaia_new)):
+            dx = gaia_new['x0'][i_gaia] - (targ_xs * -1.0)
+            dy = gaia_new['y0'][i_gaia] - targ_ys
             dr = np.hypot(dx, dy)
 
             idx = dr.argmin()
 
             if dr[idx] < match_dr_max:
-                gaia_new['name'][idx] = targ_name
-                print('Found match for: ', targ_name, ' - ',gaia_new['source_id'][idx])
+                gaia_new['name'][i_gaia] = targ_names[idx]
+                print('Found match for: ', targ_names[idx], ' - ',gaia_new['source_id'][i_gaia])
 
     return gaia_new
     

@@ -684,7 +684,7 @@ class MosaicSelfRef(object):
         if 'motion_model_input' not in ref_table.colnames:
             ref_table.add_column(Column(np.repeat(self.default_motion_model, len(ref_table)), name='motion_model_input'))
         if 'motion_model_used' not in ref_table.colnames:
-            ref_table.add_column(Column(np.repeat('Fixed', len(ref_table)), name='motion_model_used'))
+            ref_table.add_column(Column(np.repeat(self.default_motion_model, len(ref_table)), name='motion_model_used'))
 
         return ref_table
 
@@ -1609,7 +1609,7 @@ class MosaicToRef(MosaicSelfRef):
         #
         # Re-do all matching given final transformations.
         #        No trimming this time.
-        #        First rest the reference table 2D values. 
+        #        First reset the reference table 2D values.
         ##########
         self.reset_ref_values(exclude=['used_in_trans'])
 
@@ -1634,7 +1634,7 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table.detections()
 
         ### Drop all stars that have 0 detections.
-        idx = np.where((self.ref_table['n_detect'] == 0))[0]
+        idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
         print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
 
@@ -3043,7 +3043,7 @@ def get_pos_at_time(t, starlist):
     """
     # Check for motion model
     if 'motion_model_used' in starlist.colnames:
-        x,y,xe,ye = starlist.get_star_positions_at_time(t, allow_alt_models=False)
+        x,y,xe,ye = starlist.get_star_positions_at_time(t, allow_alt_models=True)
     # If no motion model, check for velocities
     elif ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
         x = starlist['x0'] + starlist['vx']*(t-starlist['t0'])

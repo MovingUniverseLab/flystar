@@ -178,6 +178,8 @@ class StarTable(Table):
                         self['name_in_list'] = self['name_in_list'].astype('U20')
                     if arg == 'motion_model_input':
                         self['motion_model_input'] = self['motion_model_input'].astype('U20')
+                    if arg == 'motion_model_used':
+                        self['motion_model_used'] = self['motion_model_used'].astype('U20')
             #if 'motion_model_input' not in kwargs:
             #    self['motion_model_input'] = np.repeat(self.default_motion_model, len(self['name']))
 
