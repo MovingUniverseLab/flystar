@@ -2523,7 +2523,9 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     y = tab['y0']
     r = np.hypot(x, y)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, allow_alt_models=True)
     
     for i in range(Nstars):
         starName = star_names[i]
@@ -2650,9 +2652,9 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         ind = int((row-1)*Ncols + col)
 
         paxes = plt.subplot(Nrows, Ncols, ind)
-        plt.plot(time, fitLineX, 'b-')
-        plt.plot(time, fitLineX + fitSigX, 'b--')
-        plt.plot(time, fitLineX - fitSigX, 'b--')
+        plt.plot(cont_times, xt_cont_all[ii], 'b-')
+        plt.plot(cont_times, xt_cont_all[ii] + xt_cont_err[ii], 'b--')
+        plt.plot(cont_times, xt_cont_all[ii] - xt_cont_err[ii], 'b--')
         if not color_time:
             #print('x:',x)
             #print('xerr:',xerr)
@@ -2687,9 +2689,9 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         ind = int((row-1)*Ncols + col)
 
         paxes = plt.subplot(Nrows, Ncols, ind)
-        plt.plot(time, fitLineY, 'b-')
-        plt.plot(time, fitLineY + fitSigY, 'b--')
-        plt.plot(time, fitLineY - fitSigY, 'b--')
+        plt.plot(cont_times, yt_cont_all[ii], 'b-')
+        plt.plot(cont_times, yt_cont_all[ii] + yt_cont_err[ii], 'b--')
+        plt.plot(cont_times, yt_cont_all[ii] - yt_cont_err[ii], 'b--')
         if not color_time:
             plt.errorbar(rs(time), rs(y), yerr=rs(yerr), fmt='k.')
         else:
@@ -2750,8 +2752,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, np.zeros(len(time)), 'b-')
-        plt.plot(time,  fitSigX*1e3, 'b--')
-        plt.plot(time, -fitSigX*1e3, 'b--')
+        plt.plot(cont_times,  xt_cont_err[ii]*1e3, 'b--')
+        plt.plot(cont_times, -xt_cont_err[ii]*1e3, 'b--')
         if not color_time:
             plt.errorbar(rs(time), rs(x - fitLineX)*1e3, yerr=rs(xerr)*1e3, fmt='k.')
         else:
@@ -2778,8 +2780,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, np.zeros(len(time)), 'b-')
-        plt.plot(time,  fitSigY*1e3, 'b--')
-        plt.plot(time, -fitSigY*1e3, 'b--')
+        plt.plot(cont_times,  yt_cont_err[ii]*1e3, 'b--')
+        plt.plot(cont_times, -yt_cont_err[ii]*1e3, 'b--')
         if not color_time:
             plt.errorbar(rs(time), rs(y - fitLineY)*1e3, yerr=rs(yerr)*1e3, fmt='k.')
         else:
@@ -2854,8 +2856,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         paxes.xaxis.set_major_formatter(FormatStrFormatter('%.3f'))
         plt.xlabel('X (asec)', fontsize=fontsize1)
         plt.ylabel('Y (asec)', fontsize=fontsize1)
-        plt.plot(fitLineX, fitLineY, 'b-')    
-
+        plt.plot(xt_cont_all[ii], yt_cont_all[ii], 'b-')
+        
         ##########
         # X, Y Histogram of Residuals
         ##########
