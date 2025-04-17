@@ -240,14 +240,14 @@ class Linear(MotionModel):
             dt_diff = np.diff(dt)[0]
             vx = dx / dt_diff
             vy = dy / dt_diff
-            # TODO: this does not align with how t0 works.....
-            x0 = np.average(x, weights=x_wt) #x[0] - dt[0]*vx
-            y0 = np.average(y, weights=y_wt) #y[0] - dt[0]*vy
-            vxe = 0.0
-            vye = 0.0
-            x0e = np.abs(dx) / 2**0.5
-            y0e = np.abs(dy) / 2**0.5
-
+            # TODO: still not sure about the error handling here
+            x0 = x[0] - dt[0]*vx # np.average(x, weights=x_wt) #
+            y0 = y[0] - dt[0]*vy # np.average(y, weights=y_wt) #
+            x0e = np.abs(dx) / 2**0.5 # np.sqrt(np.sum(xe**2)/2) #
+            y0e = np.abs(dy) / 2**0.5 # np.sqrt(np.sum(ye**2)/2) #
+            vxe = 0.0 #np.abs(vx) * np.sqrt(np.sum(xe**2/x**2))
+            vye = 0.0 #np.abs(vy) * np.sqrt(np.sum(ye**2/y**2))
+            
         else:
             def linear(t, c0, c1):
                 return c0 + c1*t
