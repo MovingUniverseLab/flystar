@@ -3344,7 +3344,17 @@ def plot_errors_vs_r_m(star_tab, vmax_perr=0.75, vmax_pmerr=0.75):
     plt.ylabel('Radius (")')
 
     return
- 
+
+def plot_plxs(star_tab):
+    fig,ax = plt.subplots(nrows=1,ncols=2,figsize=(10,5))
+    ax[0].errorbar(star_tab['m0'],star_tab['pi']*1e3, yerr=star_tab['pi_err']*1e3,marker='.',linestyle='none')
+    ax[0].axhline(0, c='gray')
+    ax[0].set_ylabel('Plx (mas)')
+    ax[0].set_xlabel('Mag')
+    ax[1].hist(star_tab['pi']/star_tab['pi_err'], bins=range(-20,20))
+    ax[1].set_ylabel('N stars')
+    ax[1].set_xlabel('Plx/Plx_err')
+    plt.tight_layout()
        
 def plot_sky(stars_tab,
             plot_errors=False, center_star=None, range=0.4,

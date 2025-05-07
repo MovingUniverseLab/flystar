@@ -6,6 +6,8 @@ from astropy.time import Time
 from scipy.optimize import curve_fit
 import warnings
 
+plx_vector_cached = None
+
 class MotionModel(ABC):
     # Number of data points required to fit model
     n_pts_req = 0
@@ -32,7 +34,6 @@ class MotionModel(ABC):
             param_var = getattr(self, param)
             if not isinstance(param_var, (list, np.ndarray)):
                 setattr(self, param, np.array([param_var]))'''
-
         return
 
     def get_pos_at_time(self, t):
@@ -84,7 +85,9 @@ class MotionModel(ABC):
             bb_params = []
             for bb in range(bootstrap):
                 bdx = np.random.choice(edx, len(x))
-                params_bdx, param_errs_bdx = self.run_fit(t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], weighting=weighting, update=False)
+                while len(np.unique(bdx))<self.n_pts_req:
+                    bdx = np.random.choice(edx, len(x))
+                params_bdx, param_errs_bdx = self.run_fit(t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], weighting=weighting, update=False, params_guess=params)
                 bb_params.append(params_bdx)
         
             # Save the errors from the bootstrap
@@ -154,7 +157,7 @@ class Fixed(MotionModel):
         else:
             return x0,y0,x0_err,y0_err
             
-    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
+    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var', params_guess=None):
         # Handle single data point case
         if len(x)==1:
             x0,y0,x0e,y0e = x[0],y[0],xe[0],ye[0]
@@ -229,9 +232,11 @@ class Linear(MotionModel):
             y_err = np.hypot(y0_err, vy_err*dt)
         return x,y,x_err,y_err
 
-    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
+    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var', params_guess=None):
         dt = t-self.t0
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
+        if params_guess is None:
+            params_guess = [x.mean(),0.0,y.mean(),0.0]
 
         # Handle 2-data point case
         if len(x)==2:
@@ -251,8 +256,8 @@ class Linear(MotionModel):
         else:
             def linear(t, c0, c1):
                 return c0 + c1*t
-            x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array([x.mean(),0.0]), sigma=1/np.sqrt(x_wt), absolute_sigma=True)
-            y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array([y.mean(),0.0]), sigma=1/np.sqrt(y_wt), absolute_sigma=True)
+            x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=1/np.sqrt(x_wt), absolute_sigma=True)
+            y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=1/np.sqrt(y_wt), absolute_sigma=True)
             x0, vx = x_opt
             y0, vy = y_opt
             x0e, vxe = np.sqrt(x_cov.diagonal())
@@ -333,14 +338,16 @@ class Acceleration(MotionModel):
             y_err = np.sqrt(y0_err**2 + (vy0_err*dt)**2 + (0.5*ay_err*dt**2)**2)
         return x,y,x_err,y_err
 
-    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
+    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var', params_guess=None):
         dt = t-self.t0
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
-
+        if params_guess is None:
+            params_guess = [x.mean(),0.0,0.0,y.mean(),0.0,0.0]
+            
         def accel(t, c0,c1,c2):
             return c0 + c1*t + 0.5*c2*t**2
-        x_opt, x_cov = curve_fit(accel, dt, x, p0=np.array([x.mean(),0.0,0.0]), sigma=1/x_wt**0.5, absolute_sigma=True)
-        y_opt, y_cov = curve_fit(accel, dt, y, p0=np.array([y.mean(),0.0,0.0]), sigma=1/y_wt**0.5, absolute_sigma=True)
+        x_opt, x_cov = curve_fit(accel, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=True)
+        y_opt, y_cov = curve_fit(accel, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=True)
         x0 = x_opt[0]
         y0 = y_opt[0]
         vx0 = x_opt[1]
@@ -450,11 +457,23 @@ class Parallax(MotionModel):
                 x_err,y_err = [],[]
         return x,y,x_err,y_err
 
-    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var'):
+    def run_fit(self, t, x, y, xe, ye, update=True, weighting='var', params_guess=None):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
+        recalc_plx = True
+        global plx_vector_cached
+        if plx_vector_cached is not None:
+            if list(t_mjd) == list(plx_vector_cached[0]):
+                pvec = plx_vector_cached[1:]
+                recalc_plx = False
+            elif all([t_mjd_i in plx_vector_cached[0] for t_mjd_i in t_mjd]):
+                pvec_idxs = [np.argwhere(plx_vector_cached[0]==t_mjd_i)[0][0] for t_mjd_i in t_mjd]
+                pvec = [plx_vector_cached[1][pvec_idxs], plx_vector_cached[2][pvec_idxs]]
+                recalc_plx = False
+        if recalc_plx:
+            pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
+            plx_vector_cached = [t_mjd, pvec[0], pvec[1]]
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
-        def fit_func(t, x0,y0, vx,vy, pi):
+        def fit_func(t, x0,vx, y0,vy, pi):
             use_t = t[:int(len(t)/2)]
             x_res = x0 + vx*(use_t-self.t0) + pi*pvec[0]
             y_res = y0 + vy*(use_t-self.t0) + pi*pvec[1]
@@ -462,11 +481,14 @@ class Parallax(MotionModel):
         # Initial guesses, x0,y0 as x,y averages;
         #     vx,vy as average velocity if first and last points are perfectly measured;
         #     pi for 10 pc disance
+        if params_guess is None:
+            idx_first, idx_last = np.argmin(t), np.argmax(t)
+            params_guess = [x.mean(),(x[idx_last]-x[idx_first])/(t[idx_last]-t[idx_first]),
+                            y.mean(),(y[idx_last]-y[idx_first])/(t[idx_last]-t[idx_first]), 1]
         res = curve_fit(fit_func, np.append(t,t), np.append(x,y),
-                        p0=[np.mean(x),np.mean(y), (x[-1]-x[0])/(t[-1]-t[0]),(y[-1]-y[0])/(t[-1]-t[0]), 1],
-                        sigma = 1.0/np.append(x_wt,y_wt))
-        x0,y0,vx,vy,pi = res[0]
-        x0_err,y0_err,vx_err,vy_err,pi_err = self.scale_errors(np.sqrt(np.diag(res[1])), weighting=weighting)
+                        p0=params_guess, sigma = 1.0/np.append(x_wt,y_wt))
+        x0,vx,y0,vy,pi = res[0]
+        x0_err,vx_err,y0_err,vy_err,pi_err = self.scale_errors(np.sqrt(np.diag(res[1])), weighting=weighting)
 
         if update:
             self.x0 = x0
