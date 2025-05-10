@@ -2232,6 +2232,85 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
 
     return
 
+def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    chi2_x_list = []
+    chi2_y_list = []
+    fnd_list = [] # Number of non-NaN error measurements
+    
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], allow_alt_models=True)
+
+    for ii in range(len(tab)):
+        # Ignore the NaNs 
+        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
+        fnd_list.append(len(fnd))
+        
+        x = tab['x'][ii, fnd]
+        y = tab['y'][ii, fnd]
+        xerr = tab['xe'][ii, fnd]
+        yerr = tab['ye'][ii, fnd]
+
+        fitLineX = xt_mod_all[ii, fnd]
+        fitLineY = yt_mod_all[ii,fnd]
+
+        diffX = x - fitLineX
+        diffY = y - fitLineY
+        sigX = diffX / xerr
+        sigY = diffY / yerr
+        
+        chi2_x = np.sum(sigX**2)
+        chi2_y = np.sum(sigY**2)
+        chi2_x_list.append(chi2_x)
+        chi2_y_list.append(chi2_y)
+
+    x = np.array(chi2_x_list)
+    y = np.array(chi2_y_list)
+    fnd = np.array(fnd_list)
+    
+    idx = np.where(fnd == Ndetect)[0]
+    # Fitting position and velocity... so subtract 2 to get Ndof
+    Ndof = Ndetect - tab['dof'][i_all_detected]
+    chi2_xaxis = np.linspace(0, xlim, xlim*3)
+    chi2_bins = np.linspace(0, xlim, n_bins)
+
+    plt.figure(figsize=(6,4))
+    plt.clf()
+    plt.hist(x[idx], bins=chi2_bins, histtype='stepfilled', label='RA', density=True, color='skyblue', alpha=0.8, edgecolor='k')
+    plt.hist(y[idx], bins=chi2_bins, histtype='stepfilled', label='DEC', density=True, color='orange', alpha=0.8, edgecolor='k')
+    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
+             label='$\chi^2$ ' + str(Ndof) + ' dof')
+    #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.title(str(filter)+' (N = '+str(len(chi2_x_list))+')', fontsize=22)
+    plt.xlim(0, xlim)
+    plt.ylabel(r'PDF', fontsize=28)
+    plt.legend(fontsize=20)
+
+    plt.tick_params(labelsize=20, direction='in', right=True, top=True)
+
+    plt.savefig(str(filter)+'_chi2_dist.png', dpi=400)
+
+    chi2red_x = x / (fnd - 2)
+    chi2red_y = y / (fnd - 2)
+    chi2red_t = (x + y) / (2.0 * (fnd - 2))
+    
+    print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
+    fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
+    med_chi2red_x_f = np.median(chi2red_x[idx])
+    med_chi2red_x_a = np.median(chi2red_x)
+    med_chi2red_y_f = np.median(chi2red_y[idx])
+    med_chi2red_y_a = np.median(chi2red_y)
+    med_chi2red_t_f = np.median(chi2red_t[idx])
+    med_chi2red_t_a = np.median(chi2red_t)
+    print(fmt.format('  X', med_chi2red_x_f, med_chi2red_x_a))
+    print(fmt.format('  Y', med_chi2red_y_f, med_chi2red_y_a))
+    print(fmt.format('Tot', med_chi2red_t_f, med_chi2red_t_a))
+
+    return
+
 
 def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_idx = 0):
     """
@@ -2486,6 +2565,61 @@ def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30):
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.legend()
+
+    print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
+    fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
+    print(fmt.format('M', np.median(chi2_m[idx] / (fnd[idx] - 2)), np.median(chi2_m / (fnd - 2))))
+    
+    return
+
+def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, file_name=None, filter=None):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    chi2_m_list = []
+    fnd_list = [] # Number of non-NaN error measurements
+
+    for ii in range(len(tab['me'])):
+        # Ignore the NaNs 
+        fnd = np.argwhere(~np.isnan(tab['me'][ii,:]))
+        fnd_list.append(len(fnd))
+        
+        m = tab['m'][ii, fnd]
+        merr = tab['me'][ii, fnd]
+        m0 = tab['m0'][ii]
+        m0err = tab['m0_err'][ii]
+
+        diff_m = m0 - m
+        sig_m = diff_m/merr
+        
+        chi2_m = np.sum(sig_m**2)
+        chi2_m_list.append(chi2_m)
+
+    chi2_m = np.array(chi2_m_list)
+    fnd = np.array(fnd_list)
+
+    idx = np.where(fnd == Ndetect)[0]
+
+    # Fitting mean magnitude... so subtract 1 to get Ndof
+    Ndof = Ndetect - 1
+    chi2_maxis = np.linspace(0, xlim, xlim*3)
+    chi2_bins = np.linspace(0, xlim, n_bins)
+
+    plt.figure(figsize=(6,4))
+    plt.clf()
+    plt.hist(chi2_m[idx], bins=np.arange(xlim*10), label='mag', histtype='stepfilled', density=True, color='green', alpha=0.7, edgecolor='k')
+    plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
+             label='$\chi^2$ ' + str(Ndof) + ' dof')
+    #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.xlim(0, xlim)
+    plt.xlabel(r'$\chi^{2}$', fontsize=28)
+    plt.ylabel(r'PDF', fontsize=28)
+    plt.legend(fontsize=20)
+
+    plt.tick_params(labelsize=20, direction='in', right=True, top=True)
+
+    plt.savefig(str(filter)+'_chi2_dist_mag.png', dpi=400)
 
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
     fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
