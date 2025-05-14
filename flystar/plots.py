@@ -3042,7 +3042,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     return
 
 def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None,
-                         figsize=(15,25), color_time=False, resTicRng=None):
+                         figsize=(15,25), color_time=False, resTicRng=None, save_name=None):
     """
     Plot a set of stars positions, flux and residuals over time. 
 
@@ -3445,7 +3445,8 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
         plt.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
         # plt.savefig(rootDir+'plots/plotStar_all.png')
         plt.show()
-
+    if save_name is not None:
+        plt.savefig(save_name + '.png')
     plt.show()
 
     return
