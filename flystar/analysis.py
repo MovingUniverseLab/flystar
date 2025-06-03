@@ -178,6 +178,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2,
     print(idx)
     gaia_new['pi'][idx] = 0.0
     gaia_new['pi_err'][idx] = 0.0
+    gaia_new['motion_model_input'] = 'Parallax'
     gaia_new['motion_model_used'] = 'Parallax'
     gaia_new['motion_model_used'][idx] = 'Linear'
 
