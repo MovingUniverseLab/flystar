@@ -3345,9 +3345,11 @@ def plot_errors_vs_r_m(star_tab, vmax_perr=0.75, vmax_pmerr=0.75):
 
     return
 
-def plot_plxs(star_tab):
+def plot_plxs(star_tab, target_idx=0):
     fig,ax = plt.subplots(nrows=1,ncols=2,figsize=(10,5))
     ax[0].errorbar(star_tab['m0'],star_tab['pi']*1e3, yerr=star_tab['pi_err']*1e3,marker='.',linestyle='none')
+    if target_idx is not None:
+        ax[0].errorbar(star_tab['m0'][target_idx],star_tab['pi'][target_idx]*1e3, yerr=star_tab['pi_err'][target_idx]*1e3,marker='*',linestyle='none', color='orange', markersize=10)
     ax[0].axhline(0, c='gray')
     ax[0].set_ylabel('Plx (mas)')
     ax[0].set_xlabel('Mag')

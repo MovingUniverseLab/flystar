@@ -16,7 +16,7 @@ try:
     cache_dir = os.environ['PARALLAX_CACHE_DIR']
 except:
     cache_dir = os.path.dirname(__file__) + '/parallax_cache/'
-cache_memory = Memory(cache_dir, verbose=0, bytes_limit='1G')
+cache_memory = Memory(cache_dir, verbose=0)
 # Default cache size is 1 GB
 cache_memory.reduce_size()
 
