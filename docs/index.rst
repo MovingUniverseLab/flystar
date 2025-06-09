@@ -5,5 +5,3 @@ This is the documentation for FlyStar.
 
 .. toctree::
   :maxdepth: 2
-
-  flystar/index.rst
