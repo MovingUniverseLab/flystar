@@ -6,7 +6,7 @@ import os
 import sys
 import datetime
 from importlib import import_module
-sys.path.insert(0, os.path.abspath('../flystar/'))
+sys.path.insert(0, os.path.abspath('../../flystar/'))
 
 # Get configuration information from setup.cfg
 from configparser import ConfigParser
@@ -35,7 +35,7 @@ extensions = [
 
 extensions.append('autoapi.extension')
 extensions.append('sphinx.ext.autosectionlabel')
-autoapi_dirs = ['../flystar']
+autoapi_dirs = ['../../flystar']
 autoapi_ignore = ['conf.py']
 
 intersphinx_mapping = {
