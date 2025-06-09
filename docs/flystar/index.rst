@@ -1,10 +1,9 @@
-*********************
 FlyStar Documentation
-*********************
+=============
 
 This is the documentation for FlyStar.
 
-Reference/API
-=============
-
-.. automodapi:: flystar
+Contents
+--------
+.. toctree::
+  :maxdepth: 2
