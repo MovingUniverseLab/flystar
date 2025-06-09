@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath('../flystar/'))
 from configparser import ConfigParser
 conf = ConfigParser()
 
-conf.read([os.path.join(os.path.dirname(__file__), '..', 'setup.cfg')])
+conf.read([os.path.join(os.path.dirname(__file__), '../..', 'setup.cfg')])
 setup_cfg = dict(conf.items('metadata'))
 
 project = setup_cfg['name']
