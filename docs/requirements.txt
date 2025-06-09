@@ -1,4 +1,4 @@
 sphinx
 sphinx-rtd-theme
 sphinx-autoapi
-sphinx-astropy
+sphinx_astropy
