@@ -109,7 +109,7 @@ def check_gaia_parallaxes(ra,dec,search_radius=10.0,table_name='gaiadr3',target=
     plt.savefig('gaiaplx'+file_ext+'.png')
     
 
-def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2, pi_err_limit=0.4):
+def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2, pi_err_limit=0.4, default_motion_model='Linear'):
     """
     Take a Gaia table (from astroquery) and produce a new table with a tangential projection
     and shift such that the origin is centered on the target of interest. 
@@ -176,10 +176,19 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2,
     idx = np.where((gaia_new['pi_err']>(pi_err_limit/1e3)) | (gaia['parallax'].mask == True))[0]
     gaia_new['pi'][idx] = 0.0
     gaia_new['pi_err'][idx] = 0.0
-    gaia_new['motion_model_input'] = 'Parallax'
-    gaia_new['motion_model_used'] = 'Parallax'
-    gaia_new['motion_model_used'][idx] = 'Linear'
-
+    if default_motion_model=='Parallax':
+        gaia_new['motion_model_input'] = 'Parallax'
+        gaia_new['motion_model_used'] = 'Parallax'
+        gaia_new['motion_model_used'][idx] = 'Linear'
+    elif default_motion_model=='Linear':
+        gaia_new['motion_model_input'] = 'Linear'
+        gaia_new['motion_model_used'] = 'Linear'
+    elif default_motion_model=='Fixed':
+        gaia_new['motion_model_input'] = 'Fixed'
+        gaia_new['motion_model_used'] = 'Fixed'
+    else:
+        print("Invalid motion model",default_motion_model,"- none assigned")
+        
     #macy additions to try to fix wild magnitude values
     #gaia_new['ruwe'] = gaia['ruwe']
     #try:
