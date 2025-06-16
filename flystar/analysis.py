@@ -174,8 +174,6 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2,
     
     # Cut out stars with high plx error and set motion models
     idx = np.where((gaia_new['pi_err']>(pi_err_limit/1e3)) | (gaia['parallax'].mask == True))[0]
-    print(gaia_new['pi_err'])
-    print(idx)
     gaia_new['pi'][idx] = 0.0
     gaia_new['pi_err'][idx] = 0.0
     gaia_new['motion_model_input'] = 'Parallax'
