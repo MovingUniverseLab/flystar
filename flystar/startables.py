@@ -1014,8 +1014,22 @@ class StarTable(Table):
             return
 
     def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0):
+        """
+        After completing an alignment, shift from your relative reference frame to
+        the absolute frame using either Gaia or a Galactic model.
+        
+        Parameters
+        ----------
+        delta_vx : float, optional
+            velocity shift in x-direction (as/yr)
+        delta_vy : float, optional
+            velocity shift in y-direction (as/yr)
+        delta_pi : float, optional
+            parallax shift (as)
+        """
         if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
             print("No shifts input, reference frame unchanged.")
+            print("Specify delta_vx, delta_vy, and/or delta_pi to perform a reference frame shift.")
             return
         self['vx'] += delta_vx
         self['x'] += delta_vx*(self['t']-self['t0'][:, np.newaxis])
