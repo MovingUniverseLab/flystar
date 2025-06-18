@@ -1,5 +1,6 @@
 from astropy.table import Table, Column, hstack
 from astropy.stats import sigma_clipping
+from astropy.time import Time
 from scipy.optimize import curve_fit
 from flystar.fit_velocity import linear_fit, calc_chi2, linear, fit_velocity
 from tqdm import tqdm
@@ -9,7 +10,7 @@ import collections
 import pdb
 import time
 import copy
-from flystar import motion_model
+from flystar import motion_model, parallax
 
 class StarTable(Table):
     """
@@ -1011,3 +1012,21 @@ class StarTable(Table):
             return vel_result
         else:
             return
+
+    def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0):
+        if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
+            print("No shifts input, reference frame unchanged.")
+            return
+        self['vx'] += delta_vx
+        self['x'] += delta_vx*(self['t']-self['t0'][:, np.newaxis])
+        self['vy'] += delta_vy
+        self['y'] += delta_vy*(self['t']-self['t0'][:, np.newaxis])
+        if delta_pi!=0.0:
+            t_all = self['t'][np.where(~np.any(np.isnan(self['t']), axis=1))[0][0]]
+            t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
+            pvec = parallax.parallax_in_direction(self.meta['RA'], self.meta['Dec'], t_mjd,
+                        obsLocation=self.meta['observer_location'], PA=self.meta['position_angle'])
+            self['pi'] += delta_pi
+            self['x'] += delta_pi*pvec[:,0]
+            self['y'] += delta_pi*pvec[:,1]
+        return
