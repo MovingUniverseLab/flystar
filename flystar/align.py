@@ -1233,7 +1233,10 @@ class MosaicSelfRef(object):
                                         xe=xe_trans_arr[:,ii,boot_idx],
                                         ye=ye_trans_arr[:,ii,boot_idx],
                                         me=me_trans_arr[:,ii,boot_idx],
-                                        t=np.tile(t_boot, (len(ref_table),1)))
+                                        t=np.tile(t_boot, (len(ref_table),1)),
+                                        RA=self.RA, Dec=self.Dec,
+                                        position_angle=self.position_angle,
+                                        observer_location=self.observer_location)
 
                 # Now, do proper motion calculation, making sure to fix t0 to the
                 # orig value (so we can get a reasonable error on x0, y0)

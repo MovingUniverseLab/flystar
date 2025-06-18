@@ -1016,7 +1016,9 @@ class StarTable(Table):
     def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0):
         """
         After completing an alignment, shift from your relative reference frame to
-        the absolute frame using either Gaia or a Galactic model.
+        the absolute frame using either Gaia or a Galactic model. This modified the
+        motion model fit parameters as well as the time series astrometry, assuming
+        zero error on the shift values.
         
         Parameters
         ----------

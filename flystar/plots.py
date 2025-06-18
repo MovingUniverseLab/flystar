@@ -2159,7 +2159,7 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     return
 
 
-def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
+def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2178,8 +2178,12 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
         
         x = tab['x'][ii, fnd]
         y = tab['y'][ii, fnd]
-        xerr = tab['xe'][ii, fnd]
-        yerr = tab['ye'][ii, fnd]
+        if boot_err:
+            xerr = tab['xe_boot'][ii, fnd]
+            yerr = tab['ye_boot'][ii, fnd]
+        else:
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
 
         fitLineX = xt_mod_all[ii, fnd]
         fitLineY = yt_mod_all[ii,fnd]
@@ -2232,7 +2236,7 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
 
     return
 
-def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None):
+def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2251,8 +2255,12 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None):
         
         x = tab['x'][ii, fnd]
         y = tab['y'][ii, fnd]
-        xerr = tab['xe'][ii, fnd]
-        yerr = tab['ye'][ii, fnd]
+        if boot_err:
+            xerr = tab['xe_boot'][ii, fnd]
+            yerr = tab['ye_boot'][ii, fnd]
+        else:
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
 
         fitLineX = xt_mod_all[ii, fnd]
         fitLineY = yt_mod_all[ii,fnd]
@@ -2312,7 +2320,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None):
     return
 
 
-def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_idx = 0):
+def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_idx = 0, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2337,6 +2345,10 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_
             y = tab['y'][ii, fnd]
             m = tab['m'][ii, fnd]
 
+        if boot_err:
+            xerr = tab['xe_boot'][ii, fnd]
+            yerr = tab['ye_boot'][ii, fnd]
+        else:
             xerr = tab['xe'][ii, fnd]
             yerr = tab['ye'][ii, fnd]
 
@@ -2523,7 +2535,7 @@ def plot_chi2_ecliptic_per_epoch(tab, Ndetect,ra,dec, mlim=[14,21], ylim = [-1, 
         ax3.set_ylabel('residual (mas)')
     return
 
-def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30):
+def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2537,7 +2549,10 @@ def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30):
         fnd_list.append(len(fnd))
         
         m = tab['m'][ii, fnd]
-        merr = tab['me'][ii, fnd]
+        if boot_err:
+            merr = tab['me_boot'][ii, fnd]
+        else:
+            merr = tab['me'][ii, fnd]
         m0 = tab['m0'][ii]
         m0err = tab['m0_err'][ii]
 
