@@ -286,7 +286,7 @@ class MosaicSelfRef(object):
         #    x_orig, y_orig, m_orig, (opt. errors) -- the transformed errors for the lists: 2D
         #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
         ##########
-        self.ref_table = self.setup_ref_table_from_starlist(self.star_lists[self.ref_index])
+        self.ref_table = self.setup_ref_table_from_starlist(self.star_lists[self.ref_index],motion_model_used='Fixed')
         # Save the reference index to the meta data on the reference list.
         self.ref_table.meta['ref_list'] = self.ref_index
 
@@ -573,7 +573,7 @@ class MosaicSelfRef(object):
 
         return
 
-    def setup_ref_table_from_starlist(self, star_list):
+    def setup_ref_table_from_starlist(self, star_list, motion_model_used=None):
         """ 
         Start with the reference list.... this will change and grow
         over time, so make a copy that we will keep updating.
@@ -684,7 +684,10 @@ class MosaicSelfRef(object):
         if 'motion_model_input' not in ref_table.colnames:
             ref_table.add_column(Column(np.repeat(self.default_motion_model, len(ref_table)), name='motion_model_input'))
         if 'motion_model_used' not in ref_table.colnames:
-            ref_table.add_column(Column(np.repeat(self.default_motion_model, len(ref_table)), name='motion_model_used'))
+            if motion_model_used is None:
+                ref_table.add_column(Column(np.repeat(self.default_motion_model, len(ref_table)), name='motion_model_used'))
+            else:
+                ref_table.add_column(Column(np.repeat(motion_model_used, len(ref_table)), name='motion_model_used'))
 
         return ref_table
 
