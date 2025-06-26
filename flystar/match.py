@@ -345,7 +345,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
 
                 # Double check that "min" choice is still within our
                 # detla-mag tolerence.
-                dm_tmp = np.array([dm.T[dm_min[I]][I] for I in np.lib.index_tricks.ndindex(dm_min.shape)])
+                dm_tmp = np.array([dm.T[dm_min[I]][I] for I in np.ndindex(dm_min.shape)])
 
                 keep = (dm_min == dr_min) & (dm_tmp < dm_tol)
             else:

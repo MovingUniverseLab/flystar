@@ -1295,6 +1295,7 @@ class MosaicSelfRef(object):
                 
                 col[idx_good] = data_dict[ff]
                 self.ref_table.add_column(col)
+        pdb.set_trace()
 
         print('===============================')
         print('Done with bootstrap')
