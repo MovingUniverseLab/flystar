@@ -1078,10 +1078,7 @@ class MosaicSelfRef(object):
         'me_boot', 2D column: bootstrap mag uncertainties due to transformation for each epoch
         
         If calc_vel_in_bootstrap:
-        'x0_err_boot', 1D column: bootstrap uncertainties in x0 for PM fit
-        'y0_err_boot', 1D column: bootstrap uncertainties in y0 for PM fit
-        'vx_err_boot', 1D column: bootstrap uncertainties in vx for PM fit
-        'vy_err_boot', 1D column: bootstrap uncertainties in vy for PM fit
+        '<param>_err_boot', 1D column: bootstrap uncertainties in <param> for motion model fit
 
         For stars that fail boot_epochs_min criteria, np.nan is used
         """
@@ -1137,6 +1134,8 @@ class MosaicSelfRef(object):
             for jj in range(n_epochs):
                 # Extract bootstrap sample of matched reference stars
                 good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
+                # TODO: consider confirming we reach some threshold of unique time values here?
+                # TODO: Like, grab n_pts needed for the default motion model maybe
                 samp_idx = np.random.choice(good[0], len(good[0]), replace=True)
                 
                 # Get reference star positions in particular epoch from ref_list.
@@ -1147,7 +1146,7 @@ class MosaicSelfRef(object):
                 # Then, use these to build reference starlist for the alignment
                 idx_tmp = []
                 for ff in range(len(samp_idx)):
-                    name_tmp = ref_table['name'][samp_idx[ff]]
+                    name_tmp = ref_table['name'][idx_ref][samp_idx[ff]]
                     foo = np.where(ref_orig['name'] == name_tmp)[0][0]
                     idx_tmp.append(foo)
 
@@ -1192,6 +1191,8 @@ class MosaicSelfRef(object):
                                                                    self.trans_args[0]['order'],
                                                                    m=starlist_boot['m'], mref=ref_boot['m'],
                                                                    weights=weight, mag_trans=self.mag_trans)
+                #print(jj)
+                #pdb.set_trace()
 
                 # Apply transformation to *all* orig positions in this epoch. Need to make a new
                 # FLYSTAR starlist object with the original positions for this. We don't
@@ -1295,7 +1296,7 @@ class MosaicSelfRef(object):
                 
                 col[idx_good] = data_dict[ff]
                 self.ref_table.add_column(col)
-        pdb.set_trace()
+        #pdb.set_trace()
 
         print('===============================')
         print('Done with bootstrap')
