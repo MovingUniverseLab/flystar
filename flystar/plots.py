@@ -2179,8 +2179,8 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
         x = tab['x'][ii, fnd]
         y = tab['y'][ii, fnd]
         if boot_err:
-            xerr = tab['xe_boot'][ii, fnd]
-            yerr = tab['ye_boot'][ii, fnd]
+            xerr = np.hypot(tab['xe_boot'][ii, fnd], tab['xe'][ii, fnd])
+            yerr = np.hypot(tab['ye_boot'][ii, fnd], tab['ye'][ii, fnd])
         else:
             xerr = tab['xe'][ii, fnd]
             yerr = tab['ye'][ii, fnd]
@@ -2256,8 +2256,8 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
         x = tab['x'][ii, fnd]
         y = tab['y'][ii, fnd]
         if boot_err:
-            xerr = tab['xe_boot'][ii, fnd]
-            yerr = tab['ye_boot'][ii, fnd]
+            xerr = np.hypot(tab['xe_boot'][ii, fnd], tab['xe'][ii, fnd])
+            yerr = np.hypot(tab['ye_boot'][ii, fnd], tab['ye'][ii, fnd])
         else:
             xerr = tab['xe'][ii, fnd]
             yerr = tab['ye'][ii, fnd]
@@ -2274,6 +2274,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
         chi2_y = np.sum(sigY**2)
         chi2_x_list.append(chi2_x)
         chi2_y_list.append(chi2_y)
+        #pdb.set_trace()
 
     x = np.array(chi2_x_list)
     y = np.array(chi2_y_list)
@@ -2281,9 +2282,10 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
     
     idx = np.where(fnd == Ndetect)[0]
     # Fitting position and velocity... so subtract 2 to get Ndof
-    Ndof = Ndetect - tab['dof'][i_all_detected]
+    Ndof = Ndetect - 1 #tab['dof'][i_all_detected]
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
+    #pdb.set_trace()
 
     plt.figure(figsize=(6,4))
     plt.clf()
@@ -2345,12 +2347,12 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_
             y = tab['y'][ii, fnd]
             m = tab['m'][ii, fnd]
 
-        if boot_err:
-            xerr = tab['xe_boot'][ii, fnd]
-            yerr = tab['ye_boot'][ii, fnd]
-        else:
-            xerr = tab['xe'][ii, fnd]
-            yerr = tab['ye'][ii, fnd]
+            if boot_err:
+                xerr = np.hypot(tab['xe_boot'][ii, fnd], tab['xe'][ii, fnd])
+                yerr = np.hypot(tab['ye_boot'][ii, fnd], tab['ye'][ii, fnd])
+            else:
+                xerr = tab['xe'][ii, fnd]
+                yerr = tab['ye'][ii, fnd]
 
             fitLineX = xt_mod_all[ii, fnd]
             fitLineY = yt_mod_all[ii, fnd]
@@ -2550,7 +2552,7 @@ def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30, boot_err=False):
         
         m = tab['m'][ii, fnd]
         if boot_err:
-            merr = tab['me_boot'][ii, fnd]
+            merr = np.hypot(tab['me_boot'][ii, fnd], tab['me'][ii, fnd])
         else:
             merr = tab['me'][ii, fnd]
         m0 = tab['m0'][ii]
@@ -2643,7 +2645,7 @@ def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, fil
     return
 
 def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False,
-                position_angle=None, RA=None, Dec=None, observer_location='earth'):
+                position_angle=None, RA=None, Dec=None, observer_location='earth', boot_err=False):
     """
     Plot a set of stars positions, flux and residuals over time. 
 
@@ -2698,9 +2700,14 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         y = tab['y'][ii, fnd]
         m = tab['m'][ii, fnd]
 
-        xerr = tab['xe'][ii, fnd]
-        yerr = tab['ye'][ii, fnd]
-        merr = tab['me'][ii, fnd]
+        if boot_err:
+            xerr = np.hypot(tab['xe'][ii, fnd], tab['xe_boot'][ii, fnd])
+            yerr = np.hypot(tab['ye'][ii, fnd], tab['ye_boot'][ii, fnd])
+            merr = np.hypot(tab['me'][ii, fnd], tab['me_boot'][ii, fnd])
+        else:
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
+            merr = tab['me'][ii, fnd]
 
         dt = tab['t'][ii, fnd] - tab['t0'][ii]
         
@@ -3057,7 +3064,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     return
 
 def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None,
-                         figsize=(15,25), color_time=False, resTicRng=None, save_name=None):
+                         figsize=(15,25), color_time=False, resTicRng=None, save_name=None, boot_err=False):
     """
     Plot a set of stars positions, flux and residuals over time. 
 
@@ -3114,9 +3121,14 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             y = tab['y'][ii, fnd]
             m = tab['m'][ii, fnd]
     
-            xerr = tab['xe'][ii, fnd]
-            yerr = tab['ye'][ii, fnd]
-            merr = tab['me'][ii, fnd]
+            if boot_err:
+                xerr = np.hypot(tab['xe'][ii, fnd], tab['xe_boot'][ii, fnd])
+                yerr = np.hypot(tab['ye'][ii, fnd], tab['ye_boot'][ii, fnd])
+                merr = np.hypot(tab['me'][ii, fnd], tab['me_boot'][ii, fnd])
+            else:
+                xerr = tab['xe'][ii, fnd]
+                yerr = tab['ye'][ii, fnd]
+                merr = tab['me'][ii, fnd]
     
             fitLineX = xt_mod_all[ii, fnd]
             fitLineY = yt_mod_all[ii, fnd]
@@ -3503,7 +3515,7 @@ def plot_plxs(star_tab, target_idx=0):
     ax[0].axhline(0, c='gray')
     ax[0].set_ylabel('Plx (mas)')
     ax[0].set_xlabel('Mag')
-    ax[1].hist(star_tab['pi']/star_tab['pi_err'], bins=range(-20,20))
+    ax[1].hist(star_tab['pi']/star_tab['pi_err'], bins=range(-10,10))
     ax[1].set_ylabel('N stars')
     ax[1].set_xlabel('Plx/Plx_err')
     plt.tight_layout()

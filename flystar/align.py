@@ -844,6 +844,7 @@ class MosaicSelfRef(object):
             fit_star_idxs = np.where(self.ref_table['ref_orig'] == False)[0]
         else:
             fit_star_idxs = None
+        #pdb.set_trace()
         # Figure out whether motion fits are necessary
         all_fixed = np.all(self.ref_table['motion_model_input']=='Fixed')
         if all_fixed:
@@ -862,11 +863,13 @@ class MosaicSelfRef(object):
             else:
                 weights_col = 'me'
             self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
-
+        #pdb.set_trace()
         # Replace the originals if we are supposed to keep them fixed.
         if keep_ref_orig:
             for val in vals_orig.keys():
                 self.ref_table[val][ref_orig_idx] = vals_orig[val]
+                
+        #pdb.set_trace()
         return
     
     def get_weights_for_lists(self, ref_list, star_list):
@@ -1134,8 +1137,6 @@ class MosaicSelfRef(object):
             for jj in range(n_epochs):
                 # Extract bootstrap sample of matched reference stars
                 good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
-                # TODO: consider confirming we reach some threshold of unique time values here?
-                # TODO: Like, grab n_pts needed for the default motion model maybe
                 samp_idx = np.random.choice(good[0], len(good[0]), replace=True)
                 
                 # Get reference star positions in particular epoch from ref_list.
@@ -1227,6 +1228,8 @@ class MosaicSelfRef(object):
             # for each star, if desired. Draw a full-sample bootstrap over the epochs
             # for each star, and then run it through the startable fit_velocities machinery
             if calc_vel_in_bootstrap:
+                # TODO: consider confirming we reach some threshold of unique time values here?
+                # TODO: Like, grab n_pts needed for the default motion model maybe
                 boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
                 t_boot = t_arr[boot_idx]
             
@@ -1263,6 +1266,7 @@ class MosaicSelfRef(object):
         x_err_b = np.std(x_trans_arr, ddof=1, axis=1)
         y_err_b = np.std(y_trans_arr, ddof=1, axis=1)
         m_err_b = np.std(m_trans_arr, ddof=1, axis=1)
+        #pdb.set_trace()
 
         motion_data_err = {}
         if calc_vel_in_bootstrap:
@@ -1285,6 +1289,19 @@ class MosaicSelfRef(object):
             
             col[idx_good] = data_dict[ff]
             self.ref_table.add_column(col)
+            
+        # Calculate chi^2 with bootstrap positional errors
+        x_pred, y_pred, _, _ = self.ref_table.get_star_positions_at_time(t_arr, allow_alt_models=True)
+        xe_comb = np.hypot(self.ref_table['xe'], self.ref_table['xe_boot'])
+        ye_comb = np.hypot(self.ref_table['ye'], self.ref_table['ye_boot'])
+        data_dict['chi2_x_boot'] = np.nansum((self.ref_table['x']-x_pred)**2/(xe_comb)**2,axis=1)
+        data_dict['chi2_y_boot'] = np.nansum((self.ref_table['y']-y_pred)**2/(ye_comb)**2,axis=1)
+        for ff in ['chi2_x_boot', 'chi2_y_boot']:
+            col = Column(np.ones(len(self.ref_table)), name=ff)
+            col.fill(np.nan)
+            
+            col[idx_good] = data_dict[ff][idx_good]
+            self.ref_table.add_column(col)
 
         # Now handle the velocities, if they were calculated
         if calc_vel_in_bootstrap:
@@ -1297,7 +1314,7 @@ class MosaicSelfRef(object):
                 col[idx_good] = data_dict[ff]
                 self.ref_table.add_column(col)
         #pdb.set_trace()
-
+        
         print('===============================')
         print('Done with bootstrap')
         print('===============================')
@@ -1605,7 +1622,7 @@ class MosaicToRef(MosaicSelfRef):
             self.ref_table.detections()
 
             ### Drop all stars that have 0 detections.
-            idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
+            idx = np.where((self.ref_table['n_detect'] == 0))[0] # & (self.ref_table['ref_orig'] == False))[0]
             if self.verbose > 0:
                 print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
