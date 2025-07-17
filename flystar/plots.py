@@ -2205,6 +2205,7 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
     idx = np.where(fnd == Ndetect)[0]
     # Fitting position and velocity... so subtract 2 to get Ndof
     Ndof = Ndetect - tab['dof'][i_all_detected]
+    print(i_all_detected)
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
 
@@ -2218,9 +2219,9 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
     plt.xlim(0, xlim)
     plt.legend()
 
-    chi2red_x = x / (fnd - 2)
-    chi2red_y = y / (fnd - 2)
-    chi2red_t = (x + y) / (2.0 * (fnd - 2))
+    chi2red_x = x / Ndof
+    chi2red_y = y / Ndof
+    chi2red_t = (x + y) / (2.0 * Ndof)
     
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
     fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
@@ -2274,17 +2275,21 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
         chi2_y = np.sum(sigY**2)
         chi2_x_list.append(chi2_x)
         chi2_y_list.append(chi2_y)
-        #pdb.set_trace()
+        #print(fitLineX, x, xerr)
+    #pdb.set_trace()
 
     x = np.array(chi2_x_list)
     y = np.array(chi2_y_list)
     fnd = np.array(fnd_list)
     
+    
     idx = np.where(fnd == Ndetect)[0]
     # Fitting position and velocity... so subtract 2 to get Ndof
-    Ndof = Ndetect - 1 #tab['dof'][i_all_detected]
+    Ndof = Ndetect - tab['dof'][i_all_detected]
+    print(i_all_detected)
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
+    print(x[idx])
     #pdb.set_trace()
 
     plt.figure(figsize=(6,4))
@@ -2303,9 +2308,9 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
 
     plt.savefig(str(filter)+'_chi2_dist.png', dpi=400)
 
-    chi2red_x = x / (fnd - 2)
-    chi2red_y = y / (fnd - 2)
-    chi2red_t = (x + y) / (2.0 * (fnd - 2))
+    chi2red_x = x / Ndof
+    chi2red_y = y / Ndof
+    chi2red_t = (x + y) / (2.0 * Ndof)
     
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
     fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
