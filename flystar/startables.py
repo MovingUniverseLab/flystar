@@ -61,18 +61,6 @@ class StarTable(Table):
 
     ref_list : int
         Specify which list is the reference list (if any).
-        
-    position_angle: float (degree)
-        required for parallax motion model
-        clockwise angular offset between image y-axis and North
-        
-    RA, Dec: float (degrees)
-        required for parallax motion model
-        image position coordinates
-        
-    observer_location: string
-        only used by parallax motion model
-        default is 'earth'
 
     Examples
     --------------------------
@@ -84,7 +72,7 @@ class StarTable(Table):
     print(t['name'][0:10])  # print the first 10 star names
     print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
     """
-    def __init__(self, *args, ref_list=0, position_angle=None, RA=None, Dec=None, observer_location='earth', **kwargs):
+    def __init__(self, *args, ref_list=0, **kwargs):
         """
         """
         
@@ -162,8 +150,7 @@ class StarTable(Table):
             Table.__init__(self, (kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
                            names=('name', 'x', 'y', 'm'))
             self['name'] = self['name'].astype('U20')
-            self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list,
-                         'position_angle': position_angle, 'RA': RA, 'Dec':Dec, 'observer_location':observer_location}
+            self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
 
             for meta_arg in meta_tab:
                 if meta_arg in kwargs:
@@ -549,19 +536,15 @@ class StarTable(Table):
         
         return
     
-    def fit_velocities(self, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=0, fixed_t0=False, verbose=False,
+    def fit_velocities(self, weighting='var', bootstrap=0, fixed_t0=False, verbose=False,
                        mask_val=None, mask_lists=False, show_progress=True, default_motion_model='Linear',
-                       reassign_motion_model=False, select_stars=None):
+                       reassign_motion_model=False, select_stars=None, motion_model_dict={}):
         """Fit velocities for all stars in the table and add to the columns 'vx', 'vxe', 'vy', 'vye', 'x0', 'x0e', 'y0', 'y0e'.
 
         Parameters
         ----------
         weighting : str, optional
             Weight by variance 'var' or standard deviation 'std', by default 'var'
-        use_scipy : bool, optional
-            Use scipy.curve_fit (recommended for large number of epochs, but may return inf or nan) or analytic fitting from flystar.fit_velocity.linear_fit (recommended for a few epochs), by default True
-        absolute_sigma : bool, optional
-            Absolute sigma or not. See https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.curve_fit.html for details, by default True
         bootstrap : int, optional
             Calculate uncertain using bootstraping or not, by default 0
         fixed_t0 : bool or array-like, optional
@@ -600,6 +583,8 @@ class StarTable(Table):
         if ('motion_model_input' not in self.colnames) or reassign_motion_model:
             self['motion_model_input'] = default_motion_model
         self['motion_model_used'] = self['motion_model_input']
+        
+        motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, self, default_motion_model)
             
         #
         # Fill table with all possible motion model parameter names as new
@@ -608,7 +593,7 @@ class StarTable(Table):
         all_motion_models = np.unique(self['motion_model_input'].tolist() + ['Fixed']+[default_motion_model]).tolist()
         new_col_list = motion_model.get_list_motion_model_param_names(all_motion_models, with_errors=True)
         # Append goodness of fit metrics and t0.
-        new_col_list += ['chi2_x', 'chi2_y', 'dof']
+        new_col_list += ['chi2_x', 'chi2_y', 'n_params']
         if 't0' not in new_col_list:
             new_col_list.append('t0')
 
@@ -643,7 +628,7 @@ class StarTable(Table):
                 self['y0_err'] = self['ye'][:,0]
 
             self['n_fit'] = 1
-            self['dof'] = 1
+            self['n_params'] = 1
 
             return
             
@@ -655,14 +640,12 @@ class StarTable(Table):
         # This is slow; but robust.
         if show_progress:
             for ss in tqdm(fit_star_idxs):
-                self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy,
-                                           absolute_sigma=absolute_sigma, bootstrap=bootstrap,
+                self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, bootstrap=bootstrap,
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,
                                            mask_val=mask_val, mask_lists=mask_lists)
         else:
             for ss in range(fit_star_idxs):
-                self.fit_velocity_for_star(ss, weighting=weighting, use_scipy=use_scipy,
-                                           absolute_sigma=absolute_sigma, bootstrap=bootstrap,
+                self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, bootstrap=bootstrap,
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,
                                            mask_val=mask_val, mask_lists=mask_lists)
         if verbose:
@@ -671,8 +654,7 @@ class StarTable(Table):
         
         return
 
-    def fit_velocity_for_star(self, ss, weighting='var', use_scipy=True,
-                              absolute_sigma=True, bootstrap=False, fixed_t0=False,
+    def fit_velocity_for_star(self, ss, motion_model_dict, weighting='var', bootstrap=False, fixed_t0=False,
                               default_motion_model='Linear',
                               mask_val=None, mask_lists=False):
         # TODO: "weighting" is not used
@@ -790,7 +772,7 @@ class StarTable(Table):
         if N_good == 0:
             #self['motion_model_used'][ss] = 'None'
             self['n_fit'][ss] = N_good
-            self['dof'][ss] = 0
+            self['n_params'][ss] = 0
             return
 
         # Everything below has N_good >= 1
@@ -819,12 +801,12 @@ class StarTable(Table):
         motion_model_use = self['motion_model_input'][ss]
         # Go to default model if not enough points for assigned but enough for default
         # TODO: think about whether we want other fallbacks besides the singular default and Fixed
-        if (N_good < getattr(motion_model, self['motion_model_input'][ss]).n_pts_req) and \
-            (N_good >= getattr(motion_model, default_motion_model).n_pts_req):
+        if (N_good < motion_model_dict[motion_model_use].n_pts_req) and \
+            (N_good >= motion_model_dict[default_motion_model].n_pts_req):
             motion_model_use = default_motion_model
         # If not enough points for either, go to a fixed model
-        elif (N_good < getattr(motion_model, self['motion_model_input'][ss]).n_pts_req) and \
-            (N_good < getattr(motion_model, default_motion_model).n_pts_req):
+        elif (N_good < motion_model_dict[motion_model_use].n_pts_req) and \
+            (N_good < motion_model_dict[default_motion_model].n_pts_req):
             motion_model_use = 'Fixed'
         # If the points do not cover multiple times, go to a fixed model
         if (t == t[0]).all():
@@ -832,40 +814,31 @@ class StarTable(Table):
             
         self['motion_model_used'][ss] = motion_model_use
 
-        # Get the motion model object.
-        modClass = getattr(motion_model, motion_model_use)
-
-        # Load up any prior information on parameters for this model.
-        param_dict = {}
-        for par in modClass.fitter_param_names+modClass.fixed_param_names:
-            if ~np.isnan(self[par][ss]):
-                param_dict[par] = self[par][ss]
-
-        # TODO: this doesn't match how we actually handle ra,dec,pa - need to adjust
-        # Load fixed parameters, if needed.
-        '''for par in modClass.fixed_param_names:
-            if par not in self.colnames:
-                msg  = f'fit_velocity_for_star: '
-                msg += f'Missing fixed_params column {par} needed for motion model {motion_model_use}.'
-                
-                raise RuntimeException(msg)
-            
-            if self[par][ss] != np.nan:
-                param_dict[par] = self[par][ss]'''
+#        # Get the motion model object.
+#        modClass = motion_model_dict[motion_model_use]
+#
+#        # Load up any prior information on parameters for this model.
+#        param_dict = {}
+#        for par in modClass.fitter_param_names+modClass.fixed_param_names:
+#            if ~np.isnan(self[par][ss]):
+#                param_dict[par] = self[par][ss]
 
         # Model object
-        mod = modClass(**param_dict, PA=self.meta['position_angle'], RA=self.meta['RA'], Dec=self.meta['Dec'], obs=self.meta['observer_location'])
+        mod = motion_model_dict[motion_model_use]
+        print(mod)
+        fixed_params = [self[par][ss] for par in mod.fixed_param_names]
 
         # Fit for the best parameters
-        params, param_errs = mod.fit_motion_model(t, x, y, xe, ye, bootstrap=bootstrap, update=True, weighting=weighting)
-        chi2_x,chi2_y = mod.get_chi2(t,x,y,xe,ye)
+        params, param_errs = mod.fit_motion_model(t, x, y, xe, ye, t0, bootstrap=bootstrap,
+                                        weighting=weighting)
+        chi2_x,chi2_y = mod.get_chi2(params,fixed_params, t,x,y,xe,ye)
         self['chi2_x'][ss]=chi2_x
         self['chi2_y'][ss]=chi2_y
-        self['dof'][ss] = mod.dof
+        self['n_params'][ss] = mod.n_params
                 
         # Save parameters and errors to table.
-        for pp in range(len(modClass.fitter_param_names)):
-            par = modClass.fitter_param_names[pp]
+        for pp in range(len(mod.fitter_param_names)):
+            par = mod.fitter_param_names[pp]
             par_err = par + '_err'
             self[par][ss] = params[pp]
             self[par_err][ss] = param_errs[pp]
@@ -873,7 +846,7 @@ class StarTable(Table):
         return
         
     # New function, to use in align
-    def get_star_positions_at_time(self, t, allow_alt_models=True):
+    def get_star_positions_at_time(self, t, motion_model_dict, allow_alt_models=True):
         """ Get current x,y positions of each star according to its motion_model
         """
         # Start with empty arrays so we can fill them in batches
@@ -898,12 +871,11 @@ class StarTable(Table):
             try:
                 # Identify stars with this model & get class
                 idx = np.where(self['motion_model_input']==mm)[0]
-                modClass = getattr(motion_model, mm)
+                mod = motion_model_dict[mm]
                 # Set up parameters
                 param_dict = {}
-                for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
+                for par in mod.fitter_param_names + mod.fixed_param_names + [pm+'_err' for pm in mod.fitter_param_names]:
                     param_dict[par] = self[par][idx]
-                mod = modClass(RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
                 x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
             except:
                 pass
@@ -920,7 +892,7 @@ class StarTable(Table):
                 param_dict = {}
                 for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
                     param_dict[par] = self[par][idx]
-                mod = modClass(RA=self.meta['RA'], Dec=self.meta['Dec'], PA=self.meta['position_angle'], obs=self.meta['observer_location'])
+                mod = modClass()
                 x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
 
         return x,y,xe,ye
@@ -1040,8 +1012,7 @@ class StarTable(Table):
         if delta_pi!=0.0:
             t_all = self['t'][np.where(~np.any(np.isnan(self['t']), axis=1))[0][0]]
             t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
-            pvec = parallax.parallax_in_direction(self.meta['RA'], self.meta['Dec'], t_mjd,
-                        obsLocation=self.meta['observer_location'], PA=self.meta['position_angle'])
+            pvec = parallax.parallax_in_direction()
             self['pi'] += delta_pi
             self['x'] += delta_pi*pvec[:,0]
             self['y'] += delta_pi*pvec[:,1]
