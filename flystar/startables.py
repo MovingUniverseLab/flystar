@@ -825,7 +825,6 @@ class StarTable(Table):
 
         # Model object
         mod = motion_model_dict[motion_model_use]
-        print(mod)
         fixed_params = [self[par][ss] for par in mod.fixed_param_names]
 
         # Fit for the best parameters
@@ -887,12 +886,11 @@ class StarTable(Table):
                 # Identify stars with this model & get class
                 idx_0 = np.where(self['motion_model_used']==mm)[0]
                 idx = np.intersect1d(re_calc, idx_0)
-                modClass = getattr(motion_model, mm)
+                mod = motion_model_dict[mm]
                 # Set up parameters
                 param_dict = {}
                 for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
                     param_dict[par] = self[par][idx]
-                mod = modClass()
                 x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
 
         return x,y,xe,ye
@@ -985,7 +983,8 @@ class StarTable(Table):
         else:
             return
 
-    def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0):
+    def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
+                                motion_model_dict={}):
         """
         After completing an alignment, shift from your relative reference frame to
         the absolute frame using either Gaia or a Galactic model. This modified the
@@ -1001,6 +1000,7 @@ class StarTable(Table):
         delta_pi : float, optional
             parallax shift (as)
         """
+        motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, self, None)
         if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
             print("No shifts input, reference frame unchanged.")
             print("Specify delta_vx, delta_vy, and/or delta_pi to perform a reference frame shift.")
@@ -1012,7 +1012,7 @@ class StarTable(Table):
         if delta_pi!=0.0:
             t_all = self['t'][np.where(~np.any(np.isnan(self['t']), axis=1))[0][0]]
             t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
-            pvec = parallax.parallax_in_direction()
+            pvec = motion_model_dict['Parallax'].get_parallax_vector(t_mjd)
             self['pi'] += delta_pi
             self['x'] += delta_pi*pvec[:,0]
             self['y'] += delta_pi*pvec[:,1]

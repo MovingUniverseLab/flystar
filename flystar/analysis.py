@@ -180,16 +180,16 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2,
         gaia_new['motion_model_input'] = 'Parallax'
         gaia_new['motion_model_used'] = 'Parallax'
         gaia_new['motion_model_used'][idx] = 'Linear'
-        #gaia_new['dof'] = 3
-        #gaia_new['dof'][idx] = 2
+        gaia_new['n_params'] = 3
+        gaia_new['n_params'][idx] = 2
     elif default_motion_model=='Linear':
         gaia_new['motion_model_input'] = 'Linear'
         gaia_new['motion_model_used'] = 'Linear'
-        #gaia_new['dof'] = 2
+        gaia_new['n_params'] = 2
     elif default_motion_model=='Fixed':
         gaia_new['motion_model_input'] = 'Fixed'
         gaia_new['motion_model_used'] = 'Fixed'
-        #gaia_new['dof'] = 1
+        gaia_new['n_params'] = 1
     else:
         print("Invalid motion model",default_motion_model,"- none assigned")
         

@@ -74,15 +74,21 @@ class MotionModel(ABC):
         if bootstrap>0 and len(x)>(self.n_pts_req):
             edx = np.arange(len(x), dtype=int)
             bb_params = []
+            bb_params_errs = []
             for bb in range(bootstrap):
                 bdx = np.random.choice(edx, len(x))
                 while len(np.unique(bdx))<self.n_pts_req:
                     bdx = np.random.choice(edx, len(x))
                 params_bdx, param_errs_bdx = self.run_fit(t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], t0, weighting=weighting, params_guess=params)
                 bb_params.append(params_bdx)
+                bb_params_errs.append(param_errs_bdx)
         
             # Save the errors from the bootstrap
             param_errs = np.std(bb_params, axis=0)
+            
+            # Account for odd case
+            inf_errs = [np.all(arr==np.inf) for arr in np.transpose(np.array(bb_params_errs))]
+            param_errs[inf_errs] = 0.0
         
         return params, param_errs
         
@@ -196,7 +202,14 @@ class Linear(MotionModel):
             params_guess = [x.mean(),0.0,y.mean(),0.0]
 
         # Handle 2-data point case
-        if len(x)==2:
+        if len(np.unique(dt))==2:
+            if len(x)>2: # Catch case where bootstrap sends only 2 unique epochs
+                _,idx=np.unique(dt, return_index=True)
+                dt = dt[idx]
+                x = x[idx]
+                y = y[idx]
+                xe = xe[idx]
+                ye = ye[idx]
             dx = np.diff(x)[0]
             dy = np.diff(y)[0]
             dt_diff = np.diff(dt)[0]
@@ -319,24 +332,27 @@ class Parallax(MotionModel):
         self.plx_vector_cached = None
         return
         
+    def get_parallax_vector(self, t_mjd):
+        return parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA)
+        
     def get_pos_at_time(self, fit_params, fixed_params, t):
         fit_params_dict = dict(zip(self.fitter_param_names, fit_params))
         fixed_params_dict = dict(zip(self.fixed_param_names, fixed_params))
         dt = t-fixed_params_dict['t0']
         
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
+        pvec = self.get_parallax_vector(t_mjd).T
         pvec_x = np.reshape(pvec[0], t.shape)
         pvec_y = np.reshape(pvec[1], t.shape)
-        x = fit_params_dict['x0'] + fit_params_dict['vx']*dt + self.pi*pvec_x
-        y = fit_params_dict['y0'] + fit_params_dict['vy']*dt + self.pi*pvec_y
+        x = fit_params_dict['x0'] + fit_params_dict['vx']*dt + fit_params_dict['pi']*pvec_x
+        y = fit_params_dict['y0'] + fit_params_dict['vy']*dt + fit_params_dict['pi']*pvec_y
         return x, y
         
     def get_batch_pos_at_time(self, t,
                                 x0=[],vx=[], y0=[],vy=[], pi=[], t0=[],
                                 x0_err=[],vx_err=[], y0_err=[],vy_err=[], pi_err=[], **kwargs):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
+        pvec = self.get_parallax_vector(t_mjd).T
         if hasattr(t, "__len__"):
             dt = t-t0[:,np.newaxis]
             x = x0[:,np.newaxis] + dt*vx[:,np.newaxis] + pi[:,np.newaxis]*pvec[0].T
@@ -369,7 +385,7 @@ class Parallax(MotionModel):
                 pvec = [self.plx_vector_cached[1][pvec_idxs], self.plx_vector_cached[2][pvec_idxs]]
                 recalc_plx = False
         if recalc_plx:
-            pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
+            pvec = self.get_parallax_vector(t_mjd).T
             self.plx_vector_cached = [t_mjd, pvec[0], pvec[1]]
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
         def fit_func(t, x0,vx, y0,vy, pi):
@@ -399,7 +415,9 @@ required metadata.
 """
 def validate_motion_model_dict(motion_model_dict, startable, default_motion_model):
     # Collect names of all motion models that might get used.
-    all_motion_model_names = ['Fixed', default_motion_model]
+    all_motion_model_names = ['Fixed']
+    if default_motion_model is not None:
+        all_motion_model_names.append(default_motion_model)
     if 'motion_model_input' in startable.columns:
         all_motion_model_names += np.unique(startable['motion_model_input']).tolist()
     if 'motion_model_input' in startable.columns:
