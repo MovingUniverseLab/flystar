@@ -1014,6 +1014,6 @@ class StarTable(Table):
             t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
             pvec = motion_model_dict['Parallax'].get_parallax_vector(t_mjd)
             self['pi'] += delta_pi
-            self['x'] += delta_pi*pvec[:,0]
-            self['y'] += delta_pi*pvec[:,1]
+            self['x'] += delta_pi*pvec[0]
+            self['y'] += delta_pi*pvec[1]
         return

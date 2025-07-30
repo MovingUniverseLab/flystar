@@ -333,7 +333,25 @@ class Parallax(MotionModel):
         return
         
     def get_parallax_vector(self, t_mjd):
-        return parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA)
+        recalc_plx = True
+        if self.plx_vector_cached is not None:
+            if hasattr(t_mjd, "__len__"):
+                if list(t_mjd) == list(self.plx_vector_cached[0]):
+                    pvec = self.plx_vector_cached[1:]
+                    recalc_plx = False
+                elif all([t_mjd_i in self.plx_vector_cached[0] for t_mjd_i in t_mjd]):
+                    pvec_idxs = [np.argwhere(self.plx_vector_cached[0]==t_mjd_i)[0][0] for t_mjd_i in t_mjd]
+                    pvec = [self.plx_vector_cached[1][pvec_idxs], self.plx_vector_cached[2][pvec_idxs]]
+                    recalc_plx = False
+            elif t_mjd in self.plx_vector_cached[0]:
+                idx = np.where(t_mjd==self.plx_vector_cached[0])[0][0]
+                pvec = np.array([self.plx_vector_cached[1][idx], self.plx_vector_cached[2][idx]])
+                recalc_plx = False
+        if recalc_plx:
+            pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
+            if hasattr(t_mjd, "__len__"):
+                self.plx_vector_cached = [t_mjd, pvec[0], pvec[1]]
+        return pvec
         
     def get_pos_at_time(self, fit_params, fixed_params, t):
         fit_params_dict = dict(zip(self.fitter_param_names, fit_params))
@@ -341,7 +359,7 @@ class Parallax(MotionModel):
         dt = t-fixed_params_dict['t0']
         
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = self.get_parallax_vector(t_mjd).T
+        pvec = self.get_parallax_vector(t_mjd)
         pvec_x = np.reshape(pvec[0], t.shape)
         pvec_y = np.reshape(pvec[1], t.shape)
         x = fit_params_dict['x0'] + fit_params_dict['vx']*dt + fit_params_dict['pi']*pvec_x
@@ -352,7 +370,7 @@ class Parallax(MotionModel):
                                 x0=[],vx=[], y0=[],vy=[], pi=[], t0=[],
                                 x0_err=[],vx_err=[], y0_err=[],vy_err=[], pi_err=[], **kwargs):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = self.get_parallax_vector(t_mjd).T
+        pvec = self.get_parallax_vector(t_mjd)
         if hasattr(t, "__len__"):
             dt = t-t0[:,np.newaxis]
             x = x0[:,np.newaxis] + dt*vx[:,np.newaxis] + pi[:,np.newaxis]*pvec[0].T
@@ -375,18 +393,7 @@ class Parallax(MotionModel):
 
     def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        recalc_plx = True
-        if self.plx_vector_cached is not None:
-            if list(t_mjd) == list(self.plx_vector_cached[0]):
-                pvec = self.plx_vector_cached[1:]
-                recalc_plx = False
-            elif all([t_mjd_i in self.plx_vector_cached[0] for t_mjd_i in t_mjd]):
-                pvec_idxs = [np.argwhere(self.plx_vector_cached[0]==t_mjd_i)[0][0] for t_mjd_i in t_mjd]
-                pvec = [self.plx_vector_cached[1][pvec_idxs], self.plx_vector_cached[2][pvec_idxs]]
-                recalc_plx = False
-        if recalc_plx:
-            pvec = self.get_parallax_vector(t_mjd).T
-            self.plx_vector_cached = [t_mjd, pvec[0], pvec[1]]
+        pvec = self.get_parallax_vector(t_mjd)
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
         def fit_func(t, x0,vx, y0,vy, pi):
             use_t = t[:int(len(t)/2)]
