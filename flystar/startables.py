@@ -991,7 +991,7 @@ class StarTable(Table):
             for j, param in fit_params:
                 param_data[param][i] = params[j]
                 param_data[param+'_err'][i] = param_errs[j]
-            chi2x, chi2y = motion_model_to_fit.get_chi2([params], [t0], time, x, y, xe, ye)
+            chi2x, chi2y = motion_model_to_fit.get_chi2(params, [t0], time, x, y, xe, ye)
             param_data['chi2_x'][i] = chi2x
             param_data['chi2_y'][i] = chi2y
         
