@@ -903,7 +903,7 @@ class StarTable(Table):
         Parameters
         ----------
         motion_model_to_fit : MotionModel
-            motion model object to use for fitting all stars
+            Motion model object to use for fitting all stars
         weighting : str, optional
             Variance weighting('var') or standard deviation weighting ('std'), by default 'var'
         epoch_cols : str or list of intergers, optional
@@ -954,9 +954,9 @@ class StarTable(Table):
         
         # START FORMER FIT VELOCITY FUNCITON
         if epoch_cols is None:
-            epoch_cols = np.arange(len(startable.meta['YEARS'])) # use all cols if not specified`
-            
-        N = len(startable)
+            epoch_cols = np.arange(len(self.meta['YEARS'])) # use all cols if not specified`
+
+        N = len(self)
         fit_params = motion_model_to_fit.fitter_param_names
         param_data = {p: np.zeros(N) for p in fit_params}
         param_data.update({p+'_err': np.zeros(N) for p in fit_params})
@@ -964,20 +964,20 @@ class StarTable(Table):
         param_data['chi2_x'] = np.zeros(N)
         param_data['chi2_y'] = np.zeros(N)
         
-        time = np.array(startable.meta['YEARS'])[epoch_cols]
+        time = np.array(self.meta['YEARS'])[epoch_cols]
     
         if not art_star:
-            x_arr = startable['x'][:, epoch_cols]
-            y_arr = startable['y'][:, epoch_cols]
+            x_arr = self['x'][:, epoch_cols]
+            y_arr = self['y'][:, epoch_cols]
         else:
-            x_arr = startable['x'][:, epoch_cols, 1]
-            y_arr = startable['y'][:, epoch_cols, 1]
-        
-        xe_arr = startable['xe'][:, epoch_cols]
-        ye_arr = startable['ye'][:, epoch_cols]
-            
+            x_arr = self['x'][:, epoch_cols, 1]
+            y_arr = self['y'][:, epoch_cols, 1]
+
+        xe_arr = self['xe'][:, epoch_cols]
+        ye_arr = self['ye'][:, epoch_cols]
+
         # For each star
-        for i in tqdm(range(len(startable))):
+        for i in tqdm(range(N)):
             x = x_arr[i]
             y = y_arr[i]
             xe = xe_arr[i]
@@ -988,7 +988,7 @@ class StarTable(Table):
             params, param_errs = motion_model_to_fit.fit_motion_model(time, x, y, xe, ye, t0, weighting=weighting)
             if 't0' in motion_model_to_fit.fixed_param_names:
                 param_data['t0'][i] = t0
-            for j, param in fit_params:
+            for j, param in enumerate(fit_params):
                 param_data[param][i] = params[j]
                 param_data[param+'_err'][i] = param_errs[j]
             chi2x, chi2y = motion_model_to_fit.get_chi2([params], [t0], time, x, y, xe, ye)

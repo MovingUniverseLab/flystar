@@ -91,13 +91,13 @@ class MotionModel(ABC):
             param_errs[inf_errs] = 0.0
         
         return params, param_errs
-        
-    def get_chi2(self,fit_params,fixed_params, t,x,y,xe,ye,reduced=False):
+
+    def get_chi2(self, fit_params, fixed_params, t, x, y, xe, ye, reduced=False):
         """
         Get the chi^2 value for the current MM and
         the input data.
         """
-        x_pred,y_pred = self.get_pos_at_time(fit_params,fixed_params, t)
+        x_pred, y_pred = self.get_pos_at_time(fit_params, fixed_params, t)
         chi2x = np.sum((x-x_pred)**2 / xe**2)
         chi2y = np.sum((y-y_pred)**2 / ye**2)
         if reduced:
