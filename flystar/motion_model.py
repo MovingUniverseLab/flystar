@@ -97,7 +97,6 @@ class MotionModel(ABC):
         Get the chi^2 value for the current MM and
         the input data.
         """
-        # TODO: fix this function - no more get_pos_at_time
         x_pred,y_pred = self.get_pos_at_time(fit_params,fixed_params, t)
         chi2x = np.sum((x-x_pred)**2 / xe**2)
         chi2y = np.sum((y-y_pred)**2 / ye**2)
@@ -227,15 +226,37 @@ class Linear(MotionModel):
             if self.use_scipy:
                 def linear(t, c0, c1):
                     return c0 + c1*t
-                x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=1/np.sqrt(x_wt), absolute_sigma=True)
-                y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=1/np.sqrt(y_wt), absolute_sigma=True)
+                x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=1/np.sqrt(x_wt), absolute_sigma=self.absolute_sigma)
+                y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=1/np.sqrt(y_wt), absolute_sigma=self.absolute_sigma)
                 x0, vx = x_opt
                 y0, vy = y_opt
                 x0e, vxe = np.sqrt(x_cov.diagonal())
                 y0e, vye = np.sqrt(y_cov.diagonal())
                 x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
             else:
-                raise ValueError("Option use_scipy=False is not yet implemented for the Linear motion model.")
+                # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution scheme
+                x = np.array(x)
+                y = np.array(y)
+                t = np.array(t)
+                X_mat_t = np.vander(t, 2)
+                # x calculation
+                W_mat_x = np.diag(x_wt)
+                XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
+                pcov_x = np.linalg.inv(XTWX_mat_x)  # Covariance Matrix
+                popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
+                perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
+                # y calculation
+                W_mat_y = np.diag(y_wt)
+                XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t
+                pcov_y = np.linalg.inv(XTWX_mat_y)  # Covariance Matrix
+                popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
+                perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
+                # prepare values to return
+                x0, vx = popt_x[1], popt_x[0]
+                y0, vy = popt_y[1], popt_y[0]
+                x0e, vxe = perr_x[1], perr_x[0]
+                y0e, vye = perr_y[1], perr_y[0]
+                x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
         
         params = [x0, vx, y0, vy]
         param_errors = [x0e, vxe, y0e, vye]

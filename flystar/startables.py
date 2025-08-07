@@ -2,7 +2,7 @@ from astropy.table import Table, Column, hstack
 from astropy.stats import sigma_clipping
 from astropy.time import Time
 from scipy.optimize import curve_fit
-from flystar.fit_velocity import linear_fit, calc_chi2, linear, fit_velocity
+#from flystar.fit_velocity import linear_fit, calc_chi2, linear, fit_velocity
 from tqdm import tqdm
 import numpy as np
 import warnings
@@ -10,7 +10,7 @@ import collections
 import pdb
 import time
 import copy
-from flystar import motion_model, parallax
+from flystar import motion_model
 
 class StarTable(Table):
     """
@@ -896,18 +896,16 @@ class StarTable(Table):
         return x,y,xe,ye
                 
 
-    def fit_velocities_all_detected(self, weighting='var', use_scipy=False, absolute_sigma=False, epoch_cols='all', mask_val=None, art_star=False, return_result=False):
+    def fit_velocities_all_detected(self, motion_model_to_fit, weighting='var', epoch_cols='all', mask_val=None, art_star=False, return_result=False):
         """Fit velocities for stars detected in all epochs specified by epoch_cols. 
         Criterion: xe/ye error > 0 and finite, x/y not masked.
 
         Parameters
         ----------
+        motion_model_to_fit : MotionModel
+            motion model object to use for fitting all stars
         weighting : str, optional
             Variance weighting('var') or standard deviation weighting ('std'), by default 'var'
-        use_scipy : bool, optional
-            Use scipy.curve_fit or flystar.fit_velocity.fit_velocity, by default False
-        absolute_sigma : bool, optional
-            Absolute sigma or rescaled sigma, by default False
         epoch_cols : str or list of intergers, optional
             List of epoch column indices used for fitting velocity, by default 'all'
         mask_val : float, optional
@@ -954,12 +952,51 @@ class StarTable(Table):
             else:
                 detected_in_all_epochs = np.logical_and(valid_xe, valid_ye)
         
+        # START FORMER FIT VELOCITY FUNCITON
+        if epoch_cols is None:
+            epoch_cols = np.arange(len(startable.meta['YEARS'])) # use all cols if not specified`
+            
+        N = len(startable)
+        fit_params = motion_model_to_fit.fitter_param_names
+        param_data = {p: np.zeros(N) for p in fit_params}
+        param_data.update({p+'_err': np.zeros(N) for p in fit_params})
+        param_data.update({p: np.zeros(N) for p in motion_model_to_fit.fixed_param_names})
+        param_data['chi2_x'] = np.zeros(N)
+        param_data['chi2_y'] = np.zeros(N)
         
-        # Fit velocities        
-        vel_result = fit_velocity(self[detected_in_all_epochs], weighting=weighting, use_scipy=use_scipy,
-                                    absolute_sigma=absolute_sigma, epoch_cols=epoch_cols, art_star=art_star)
-        vel_result = Table.from_pandas(vel_result)
+        time = np.array(startable.meta['YEARS'])[epoch_cols]
+    
+        if not art_star:
+            x_arr = startable['x'][:, epoch_cols]
+            y_arr = startable['y'][:, epoch_cols]
+        else:
+            x_arr = startable['x'][:, epoch_cols, 1]
+            y_arr = startable['y'][:, epoch_cols, 1]
         
+        xe_arr = startable['xe'][:, epoch_cols]
+        ye_arr = startable['ye'][:, epoch_cols]
+            
+        # For each star
+        for i in tqdm(range(len(startable))):
+            x = x_arr[i]
+            y = y_arr[i]
+            xe = xe_arr[i]
+            ye = ye_arr[i]
+            t0 = np.average(time, weights=1. / np.hypot(xe, ye))
+            
+            # Run fit and record results
+            params, param_errs = motion_model_to_fit.fit_motion_model(time, x, y, xe, ye, t0, weighting=weighting)
+            if 't0' in motion_model_to_fit.fixed_param_names:
+                param_data['t0'][i] = t0
+            for j, param in fit_params:
+                param_data[param][i] = params[j]
+                param_data[param+'_err'][i] = param_errs[j]
+            chi2x, chi2y = motion_model_to_fit.get_chi2([params], [t0], time, x, y, xe, ye)
+            param_data['chi2_x'][i] = chi2x
+            param_data['chi2_y'][i] = chi2y
+        
+        vel_result = Table.from_pandas(pd.DataFrame(param_data))
+        # END FUNCTION
         
         # Add n_vfit
         n_fit = len(epoch_cols)
