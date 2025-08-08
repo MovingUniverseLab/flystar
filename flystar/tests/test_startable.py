@@ -3,6 +3,7 @@ from astropy import table
 from flystar import motion_model
 from flystar.startables import StarTable
 from flystar.starlists import StarList
+from flystar import motion_model
 import numpy as np
 import pytest
 import os
