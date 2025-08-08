@@ -1,4 +1,4 @@
-from astropy.table import Table, Column, hstack
+from astropy.table import Table, Column, MaskedColumn, hstack
 from astropy.stats import sigma_clipping
 from astropy.time import Time
 from scipy.optimize import curve_fit
@@ -11,6 +11,7 @@ import pdb
 import time
 import copy
 from flystar import motion_model
+import pandas as pd
 
 class StarTable(Table):
     """
@@ -1010,7 +1011,8 @@ class StarTable(Table):
         # Update self
         for column in columns:
             column_array = np.ma.zeros(N_stars)
-            column_array[detected_in_all_epochs] = vel_result[column]
+            print(vel_result[column])
+            column_array = MaskedColumn(vel_result[column], dtype=float)
             column_array[~detected_in_all_epochs] = np.nan
             column_array.mask = ~detected_in_all_epochs
             self[column] = column_array

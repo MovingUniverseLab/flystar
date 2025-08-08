@@ -494,6 +494,34 @@ def test_fit_velocities_2epoch():
     
     return
 
+def test_fit_velocities_all_detected():
+    """
+    Test the fit_velocities function when all stars are detected in all epochs.
+    """
+    tab = StarTable.read(test_dir + '/test_all_detected.fits')
+    tab_orig = tab.copy()
+    
+    epochs = ['2005_F814W', '2010_F160W', '2013_F160W', '2015_F160W']
+    epoch_cols = [['_'.join(_.split('_')[:2]) for _ in tab.meta['EPNAMES']].index(epoch) for epoch in epochs]
+    
+    mm = Linear(use_scipy=False, absolute_sigma=False)
+    tab.fit_velocities_all_detected(
+        weighting='var',
+        motion_model_to_fit=mm,
+    )
+
+    # Check that the output table has the expected columns
+    for col in ['n_fit', 't0', 'x0', 'y0', 'vx', 'vy', 'x0_err', 'y0_err', 'vx_err', 'vy_err']:
+        assert col in tab.colnames
+
+    # Check that the fitted values match the original values
+    np.testing.assert_almost_equal(tab['x0'], tab_orig['x0'])
+    np.testing.assert_almost_equal(tab['y0'], tab_orig['y0'])
+    np.testing.assert_almost_equal(tab['vx'], tab_orig['vx'])
+    np.testing.assert_almost_equal(tab['vy'], tab_orig['vy'])
+
+    return
+
 def make_star_table():
     # User input
     cat_file = test_dir + '/test_catalog.fits'
