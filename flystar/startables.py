@@ -1011,7 +1011,6 @@ class StarTable(Table):
         # Update self
         for column in columns:
             column_array = np.ma.zeros(N_stars)
-            print(vel_result[column])
             column_array = MaskedColumn(vel_result[column], dtype=float)
             column_array[~detected_in_all_epochs] = np.nan
             column_array.mask = ~detected_in_all_epochs

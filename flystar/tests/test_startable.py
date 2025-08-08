@@ -1,5 +1,6 @@
 from astropy.table import Table
 from astropy import table
+from flystar import motion_model
 from flystar.startables import StarTable
 from flystar.starlists import StarList
 import numpy as np
@@ -500,14 +501,17 @@ def test_fit_velocities_all_detected():
     """
     tab = StarTable.read(test_dir + '/test_all_detected.fits')
     tab_orig = tab.copy()
+    # tab = tab[:1]
     
     epochs = ['2005_F814W', '2010_F160W', '2013_F160W', '2015_F160W']
     epoch_cols = [['_'.join(_.split('_')[:2]) for _ in tab.meta['EPNAMES']].index(epoch) for epoch in epochs]
-    
-    mm = Linear(use_scipy=False, absolute_sigma=False)
+
+    mm = motion_model.Linear(use_scipy=False, absolute_sigma=False)
     tab.fit_velocities_all_detected(
         weighting='var',
         motion_model_to_fit=mm,
+        epoch_cols=epoch_cols,
+        art_star=True
     )
 
     # Check that the output table has the expected columns
@@ -517,8 +521,11 @@ def test_fit_velocities_all_detected():
     # Check that the fitted values match the original values
     np.testing.assert_almost_equal(tab['x0'], tab_orig['x0'])
     np.testing.assert_almost_equal(tab['y0'], tab_orig['y0'])
+    np.testing.assert_almost_equal(tab['t0'], tab_orig['t0'])
     np.testing.assert_almost_equal(tab['vx'], tab_orig['vx'])
     np.testing.assert_almost_equal(tab['vy'], tab_orig['vy'])
+    np.testing.assert_almost_equal(tab['vxe'], tab_orig['vxe'])
+    np.testing.assert_almost_equal(tab['vye'], tab_orig['vye'])
 
     return
 

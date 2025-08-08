@@ -237,8 +237,8 @@ class Linear(MotionModel):
                 # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution scheme
                 x = np.array(x)
                 y = np.array(y)
-                t = np.array(t)
-                X_mat_t = np.vander(t, 2)
+                dt = np.array(dt)
+                X_mat_t = np.vander(dt, 2)
                 # x calculation
                 W_mat_x = np.diag(x_wt)
                 XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
