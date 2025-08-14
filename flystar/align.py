@@ -2434,6 +2434,9 @@ def transform_from_object(starlist, transform):
     if err:
         xe = starlist_f['xe']
         ye = starlist_f['ye']
+    else:
+        xe = np.zeros(len(starlist_f))
+        ye = np.zeros(len(starlist_f))
 
     if vel:
         x0 = starlist_f['x0']

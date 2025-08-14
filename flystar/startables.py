@@ -537,9 +537,9 @@ class StarTable(Table):
         
         return
     
-    def fit_velocities(self, weighting='var', bootstrap=0, fixed_t0=False, verbose=False,
-                       mask_val=None, mask_lists=False, show_progress=True, default_motion_model='Linear',
-                       reassign_motion_model=False, select_stars=None, motion_model_dict={}):
+    def fit_velocities(self, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=0,
+                       fixed_t0=False, verbose=False, mask_val=None, mask_lists=False, show_progress=True,
+                       default_motion_model='Linear', reassign_motion_model=False, select_stars=None, motion_model_dict={}):
         """Fit velocities for all stars in the table and add to the columns 'vx', 'vxe', 'vy', 'vye', 'x0', 'x0e', 'y0', 'y0e'.
 
         Parameters
@@ -642,11 +642,13 @@ class StarTable(Table):
         if show_progress:
             for ss in tqdm(fit_star_idxs):
                 self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, bootstrap=bootstrap,
+                                           use_scipy=use_scipy, absolute_sigma=absolute_sigma,
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,
                                            mask_val=mask_val, mask_lists=mask_lists)
         else:
             for ss in range(fit_star_idxs):
                 self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, bootstrap=bootstrap,
+                                           use_scipy=use_scipy, absolute_sigma=absolute_sigma,
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,
                                            mask_val=mask_val, mask_lists=mask_lists)
         if verbose:
@@ -655,9 +657,9 @@ class StarTable(Table):
         
         return
 
-    def fit_velocity_for_star(self, ss, motion_model_dict, weighting='var', bootstrap=False, fixed_t0=False,
-                              default_motion_model='Linear',
-                              mask_val=None, mask_lists=False):
+    def fit_velocity_for_star(self, ss, motion_model_dict, weighting='var', use_scipy=True, absolute_sigma=True,
+                              bootstrap=False, fixed_t0=False, mask_val=None, mask_lists=False,
+                              default_motion_model='Linear'):
         # TODO: "weighting" is not used
         # 
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
@@ -830,7 +832,7 @@ class StarTable(Table):
 
         # Fit for the best parameters
         params, param_errs = mod.fit_motion_model(t, x, y, xe, ye, t0, bootstrap=bootstrap,
-                                        weighting=weighting)
+                                        weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma)
         chi2_x,chi2_y = mod.get_chi2(params,fixed_params, t,x,y,xe,ye)
         self['chi2_x'][ss]=chi2_x
         self['chi2_y'][ss]=chi2_y
@@ -897,7 +899,8 @@ class StarTable(Table):
         return x,y,xe,ye
                 
 
-    def fit_velocities_all_detected(self, motion_model_to_fit, weighting='var', epoch_cols='all', mask_val=None, art_star=False, return_result=False):
+    def fit_velocities_all_detected(self, motion_model_to_fit, weighting='var', use_scipy=True, absolute_sigma=True,
+                    default_motion_model='Linear', epoch_cols='all', mask_val=None, art_star=False, return_result=False):
         """Fit velocities for stars detected in all epochs specified by epoch_cols. 
         Criterion: xe/ye error > 0 and finite, x/y not masked.
 
@@ -986,7 +989,8 @@ class StarTable(Table):
             t0 = np.average(time, weights=1. / np.hypot(xe, ye))
             
             # Run fit and record results
-            params, param_errs = motion_model_to_fit.fit_motion_model(time, x, y, xe, ye, t0, weighting=weighting)
+            params, param_errs = motion_model_to_fit.fit_motion_model(time, x, y, xe, ye, t0, weighting=weighting,
+                                                                        use_scipy=use_scipy, absolute_sigma=absolute_sigma)
             if 't0' in motion_model_to_fit.fixed_param_names:
                 param_data['t0'][i] = t0
             for j, param in enumerate(fit_params):
