@@ -507,9 +507,10 @@ def test_fit_velocities_all_detected():
     epochs = ['2005_F814W', '2010_F160W', '2013_F160W', '2015_F160W']
     epoch_cols = [['_'.join(_.split('_')[:2]) for _ in tab.meta['EPNAMES']].index(epoch) for epoch in epochs]
 
-    mm = motion_model.Linear(use_scipy=False, absolute_sigma=False)
+    mm = motion_model.Linear()
     tab.fit_velocities_all_detected(
         weighting='var',
+        use_scipy=False, absolute_sigma=False,
         motion_model_to_fit=mm,
         epoch_cols=epoch_cols,
         art_star=True
