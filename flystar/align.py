@@ -325,7 +325,7 @@ class MosaicSelfRef(object):
 
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
         # Hard-coded not to keep ref values for MosaicSelfRef
-        self.update_ref_table_aggregates(False)
+        self.update_ref_table_aggregates()
 
         ##########
         # Clean up output table.
@@ -498,7 +498,15 @@ class MosaicSelfRef(object):
 
             ### Update the "average" values to be used as the reference frame for the next list.
             keep_ref_orig = (self.update_ref_orig==False) or (self.update_ref_orig=='atend') or (self.update_ref_orig=='periter' and ii<(len(self.star_lists)-1))
-            self.update_ref_table_aggregates(keep_ref_orig)
+            if keep_ref_orig and ii<(len(self.star_lists)-1):
+                keep_orig = np.where(self.ref_table['ref_orig'] | np.isnan(self.ref_table['x'][:,ii]))[0]
+            elif keep_ref_orig:
+                keep_orig = np.where(self.ref_table['ref_orig'])[0]
+            elif ii<(len(self.star_lists)-1):
+                keep_orig = np.where(np.isnan(self.ref_table['x'][:,ii]))[0]
+            else:
+                keep_orig=None
+            self.update_ref_table_aggregates(keep_orig=keep_orig)
                 
             # Print out some metrics
             if self.verbose > 0:
@@ -797,7 +805,7 @@ class MosaicSelfRef(object):
                 
         return
     
-    def update_ref_table_aggregates(self, keep_ref_orig, n_boot=0):
+    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0):
         """
         Average positions or fit velocities.
         Average magnitudes.
@@ -809,20 +817,19 @@ class MosaicSelfRef(object):
         """
         # Keep track of the original reference values.
         # In certain cases, we will NOT update these.
-        if keep_ref_orig:
-            ref_orig_idx = np.where(self.ref_table['ref_orig'] == True)[0]
+        if keep_orig is not None:
             vals_orig = {}
-            vals_orig['m0'] = self.ref_table['m0'][ref_orig_idx]
-            vals_orig['m0_err'] = self.ref_table['m0_err'][ref_orig_idx]
+            vals_orig['m0'] = self.ref_table['m0'][keep_orig]
+            vals_orig['m0_err'] = self.ref_table['m0_err'][keep_orig]
             motion_model_class_names = self.ref_table['motion_model_input'].tolist()
             if 'motion_model_used' in self.ref_table.keys():
-                motion_model_class_names += self.ref_table['motion_model_used'][ref_orig_idx].tolist()
-                vals_orig['motion_model_used'] = self.ref_table['motion_model_used'][ref_orig_idx]
+                motion_model_class_names += self.ref_table['motion_model_used'][keep_orig].tolist()
+                vals_orig['motion_model_used'] = self.ref_table['motion_model_used'][keep_orig]
             motion_model_col_names = motion_model.get_list_motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
             for mm in motion_model_col_names:
                 if mm in self.ref_table.keys():
-                    vals_orig[mm] = self.ref_table[mm][ref_orig_idx]
-            fit_star_idxs = np.where(self.ref_table['ref_orig'] == False)[0]
+                    vals_orig[mm] = self.ref_table[mm][keep_orig]
+            fit_star_idxs = [idx for idx in range(len(self.ref_table)) if idx not in keep_orig]
         else:
             fit_star_idxs = None
         #pdb.set_trace()
@@ -847,9 +854,9 @@ class MosaicSelfRef(object):
             self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
         #pdb.set_trace()
         # Replace the originals if we are supposed to keep them fixed.
-        if keep_ref_orig:
+        if keep_orig is not None:
             for val in vals_orig.keys():
-                self.ref_table[val][ref_orig_idx] = vals_orig[val]
+                self.ref_table[val][keep_orig] = vals_orig[val]
                 
         #pdb.set_trace()
         return
@@ -1622,7 +1629,11 @@ class MosaicToRef(MosaicSelfRef):
 
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
         keep_ref_orig = (self.update_ref_orig==False)
-        self.update_ref_table_aggregates(keep_ref_orig)
+        if keep_ref_orig:
+            keep_orig = np.where(self.ref_table['ref_orig'])[0]
+        else:
+            keep_orig=None
+        self.update_ref_table_aggregates(keep_orig=keep_orig)
 
         ##########
         # Clean up output table.
