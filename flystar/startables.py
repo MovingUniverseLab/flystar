@@ -2,7 +2,6 @@ from astropy.table import Table, Column, MaskedColumn, hstack
 from astropy.stats import sigma_clipping
 from astropy.time import Time
 from scipy.optimize import curve_fit
-#from flystar.fit_velocity import linear_fit, calc_chi2, linear, fit_velocity
 from tqdm import tqdm
 import numpy as np
 import warnings
