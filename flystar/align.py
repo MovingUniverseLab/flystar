@@ -841,10 +841,15 @@ class MosaicSelfRef(object):
     
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
         else:
-            # Combine positions with a velocity fit.
-            self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose,
-                        default_motion_model=self.default_motion_model, select_stars=fit_star_idxs,
-                        motion_model_dict=self.motion_model_dict)
+
+
+            self.ref_table.fit_velocities(
+                bootstrap=n_boot, 
+                verbose=self.verbose,
+                default_motion_model=self.default_motion_model, 
+                select_stars=fit_star_idxs,
+                motion_model_dict=self.motion_model_dict
+            )
 
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
@@ -857,8 +862,6 @@ class MosaicSelfRef(object):
         if keep_orig is not None:
             for val in vals_orig.keys():
                 self.ref_table[val][keep_orig] = vals_orig[val]
-                
-        #pdb.set_trace()
         return
     
     def get_weights_for_lists(self, ref_list, star_list):
@@ -1233,7 +1236,11 @@ class MosaicSelfRef(object):
 
                 # Now, do proper motion calculation, making sure to fix t0 to the
                 # orig value (so we can get a reasonable error on x0, y0)
-                star_table.fit_velocities(fixed_t0=t0_arr, default_motion_model=self.default_motion_model, motion_model_dict=self.motion_model_dict)
+                star_table.fit_velocities(
+                    fixed_t0=t0_arr, 
+                    default_motion_model=self.default_motion_model, 
+                    motion_model_dict=self.motion_model_dict
+                )
 
                 # Save proper motion fit results to output arrays
                 for col in motion_col_list:
