@@ -187,6 +187,9 @@ class MosaicSelfRef(object):
         self.mag_trans = mag_trans
         self.mag_lim = mag_lim
         self.weights = weights
+        self.weighting = 'var'
+        if self.weights is not None:
+            self.weighting=self.weights.split(',')[-1]
         self.trans_input = trans_input
         self.trans_class = trans_class
         self.calc_trans_inverse = calc_trans_inverse
@@ -860,10 +863,15 @@ class MosaicSelfRef(object):
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
         else:
             # Combine positions with a velocity fit.
-            self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose, show_progress=(self.verbose>0),
-                        default_motion_model=self.default_motion_model, select_stars=fit_star_idxs,
+            self.ref_table.fit_velocities(bootstrap=n_boot,
+                        verbose=self.verbose,
+                        show_progress=(self.verbose>0),
+                        default_motion_model=self.default_motion_model,
+                        select_stars=fit_star_idxs,
                         motion_model_dict=self.motion_model_dict,
-                        weighting=self.weighting, use_scipy=self.use_scipy, absolute_sigma=self.absolute_sigma)
+                        weighting=self.weighting,
+                        use_scipy=self.use_scipy,
+                        absolute_sigma=self.absolute_sigma)
 
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:

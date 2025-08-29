@@ -660,7 +660,7 @@ class StarTable(Table):
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,
                                            mask_val=mask_val, mask_lists=mask_lists)
         else:
-            for ss in range(fit_star_idxs):
+            for ss in fit_star_idxs:
                 self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, bootstrap=bootstrap,
                                            use_scipy=use_scipy, absolute_sigma=absolute_sigma,
                                            fixed_t0=fixed_t0, default_motion_model=default_motion_model,
