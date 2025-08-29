@@ -1131,9 +1131,9 @@ def plot_quiver_residuals_all_epochs(tab, motion_model_dict={}, unit='arcsec', s
     n_ref = np.zeros(len(tab), dtype=int)
     
     motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
-    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    
+    complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in tab['t'].T])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(complete_times, motion_model_dict, allow_alt_models=True)
+
     for ee in range(tab['x'].shape[1]):
         xt_mod = xt_mod_all[:,ee]
         yt_mod = yt_mod_all[:,ee]

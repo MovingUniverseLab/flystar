@@ -71,7 +71,7 @@ class MotionModel(ABC):
         to determine new parameters for this motion model (MM).
         Best-fit parameters will be returned along with uncertainties.
         """
-        params, param_errs = self.run_fit(t, x, y, xe, ye, t0, weighting=weighting,
+        params, param_errs = self.run_fit(t, x, y, xe, ye, t0=t0, weighting=weighting,
                                             use_scipy=use_scipy, absolute_sigma=absolute_sigma)
         
         if bootstrap>0 and len(x)>(self.n_pts_req):
@@ -82,7 +82,7 @@ class MotionModel(ABC):
                 bdx = np.random.choice(edx, len(x))
                 while len(np.unique(bdx))<self.n_pts_req:
                     bdx = np.random.choice(edx, len(x))
-                params_bdx, param_errs_bdx = self.run_fit(t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], t0,
+                params_bdx, param_errs_bdx = self.run_fit(t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], t0=t0,
                     weighting=weighting, params_guess=params,
                     use_scipy=use_scipy, absolute_sigma=absolute_sigma)
                 bb_params.append(params_bdx)
@@ -111,7 +111,7 @@ class MotionModel(ABC):
             else:
                 chi2x, chi2y = chi2x/(len(x)-self.n_params), chi2y/(len(x)-self.n_params)
         return chi2x,chi2y
-    
+
 class Fixed(MotionModel):
     """
     A non-moving motion model for a star on the sky.
