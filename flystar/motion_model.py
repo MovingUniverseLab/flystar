@@ -41,7 +41,7 @@ class MotionModel(ABC):
         #return x, y, x_err, y_err
         pass
         
-    def run_fit(self, t, x, y, xe, ye, t0=0, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, t0, weighting='var',
                             use_scipy=True, absolute_sigma=True):
         # Run a single fit (used both for overall fit + bootstrap iterations)
         pass
@@ -64,7 +64,7 @@ class MotionModel(ABC):
             warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
             return errs
 
-    def fit_motion_model(self, t, x, y, xe, ye, t0=0, bootstrap=0, weighting='var',
+    def fit_motion_model(self, t, x, y, xe, ye, t0, bootstrap=0, weighting='var',
                             use_scipy=True, absolute_sigma=True):
         """
         Fit the input positions on the sky and errors
@@ -111,7 +111,7 @@ class MotionModel(ABC):
             else:
                 chi2x, chi2y = chi2x/(len(x)-self.n_params), chi2y/(len(x)-self.n_params)
         return chi2x,chi2y
-    
+
 class Fixed(MotionModel):
     """
     A non-moving motion model for a star on the sky.
@@ -142,7 +142,7 @@ class Fixed(MotionModel):
         else:
             return x0,y0,x0_err,y0_err
             
-    def run_fit(self, t, x, y, xe, ye, t0=0, weighting='var', params_guess=None,
+    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
                             use_scipy=True, absolute_sigma=True):
         if not use_scipy:
             Warning("Fixed model has no non-scipy fitter option. Running with scipy.")
@@ -200,7 +200,7 @@ class Linear(MotionModel):
             y_err = np.hypot(y0_err, vy_err*dt)
         return x,y,x_err,y_err
 
-    def run_fit(self, t, x, y, xe, ye, t0=0, weighting='var', params_guess=None,
+    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
                             use_scipy=True, absolute_sigma=True):
         dt = t-t0
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
