@@ -12,6 +12,7 @@ import os
 import pdb
 import time
 import warnings
+import pickle
 from astropy.utils.exceptions import AstropyUserWarning
 
 class MosaicSelfRef(object):
@@ -26,6 +27,9 @@ class MosaicSelfRef(object):
                  init_guess_mode='miracle', iter_callback=None,
                  default_motion_model='Fixed',
                  motion_model_dict = {},
+                 use_scipy=True, 
+                 absolute_sigma=False, 
+                 save_path=None, 
                  verbose=True):
         """
         Make a mosaic object by passing in a list of starlists and then running fit(). 
@@ -121,13 +125,22 @@ class MosaicSelfRef(object):
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state.
-            
+
         default_motion_model : string
             Name of motion model to use for new or unassigned stars
-            
+
         motion_model_dict : None or dict
             Dict of motion model name keys (strings) and corresponding MotionModel object values
 
+        use_scipy : bool, optional
+            If True, use scipy.optimize.curve_fit for velocity fitting. If False, use linear algebra fitting, by default True.
+
+        absolute_sigma : bool, optional
+            If True, the velocity fit will use absolute errors in the data. If False, relative errors will be used, by default False.
+
+        save_path : str, optional
+            Path to save the MosaicSelfRef object as a pickle file.
+        
         verbose : int (0 to 9, inclusive)
             Controls the verbosity of print statements. (0 least, 9 most verbose).
             For backwards compatibility, 0 = False, 9 = True.
@@ -178,9 +191,12 @@ class MosaicSelfRef(object):
         self.trans_class = trans_class
         self.calc_trans_inverse = calc_trans_inverse
         self.motion_model_dict = motion_model_dict
+        self.use_scipy = use_scipy
+        self.absolute_sigma = absolute_sigma
         self.default_motion_model = default_motion_model
         self.init_guess_mode = init_guess_mode
         self.iter_callback = iter_callback
+        self.save_path = save_path
         self.verbose = verbose
 
         # For backwards compatibility.
@@ -346,6 +362,9 @@ class MosaicSelfRef(object):
         if self.iter_callback != None:
             self.iter_callback(self.ref_table, nn)
         
+        if self.save_path:
+            with open(self.save_path, 'wb') as file:
+                pickle.dump(self, file)
         return
 
     def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args):
@@ -845,6 +864,8 @@ class MosaicSelfRef(object):
 
             self.ref_table.fit_velocities(
                 bootstrap=n_boot, 
+                use_scipy=self.use_scipy,
+                absolute_sigma=self.absolute_sigma, 
                 verbose=self.verbose,
                 default_motion_model=self.default_motion_model, 
                 select_stars=fit_star_idxs,
@@ -1239,7 +1260,9 @@ class MosaicSelfRef(object):
                 star_table.fit_velocities(
                     fixed_t0=t0_arr, 
                     default_motion_model=self.default_motion_model, 
-                    motion_model_dict=self.motion_model_dict
+                    motion_model_dict=self.motion_model_dict,
+                    use_scipy=self.use_scipy,
+                    absolute_sigma=self.absolute_sigma
                 )
 
                 # Save proper motion fit results to output arrays
@@ -1332,6 +1355,9 @@ class MosaicToRef(MosaicSelfRef):
                  iter_callback=None,
                  default_motion_model='Fixed',
                  motion_model_dict={},
+                 use_scipy=True,
+                 absolute_sigma=False,
+                 save_path=None,
                  verbose=True):
 
         """
@@ -1459,6 +1485,15 @@ class MosaicToRef(MosaicSelfRef):
         motion_model_dict : None or dict
             Dict of motion model name keys (strings) and corresponding MotionModel object values
 
+        use_scipy : bool, optional
+            If True, use scipy.optimize.curve_fit for velocity fitting. If False, use linear algebra fitting, by default True.
+
+        absolute_sigma : bool, optional
+            If True, the velocity fit will use absolute errors in the data. If False, relative errors will be used, by default False.
+
+        save_path : str, optional
+            Path to save the MosaicToRef object as a pickle file.
+
         Example
         ----------
         msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
@@ -1501,8 +1536,9 @@ class MosaicToRef(MosaicSelfRef):
                          init_guess_mode=init_guess_mode,
                          iter_callback=iter_callback,
                          motion_model_dict=motion_model_dict,
-                         verbose=verbose)
-        
+                         verbose=verbose, use_scipy=use_scipy,
+                         absolute_sigma=absolute_sigma, save_path=save_path)
+
         self.ref_list = copy.deepcopy(ref_list)
         self.ref_mag_lim = ref_mag_lim
         self.update_ref_orig = update_ref_orig
@@ -1660,6 +1696,10 @@ class MosaicToRef(MosaicSelfRef):
 
         if self.iter_callback != None:
             self.iter_callback(self.ref_table, nn)
+
+        if self.save_path:
+            with open(self.save_path, 'wb') as file:
+                pickle.dump(self, file)
         return
 
 def get_all_epochs(t):
