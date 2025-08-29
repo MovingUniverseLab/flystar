@@ -805,7 +805,7 @@ class MosaicSelfRef(object):
                 
         return
     
-    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0):
+    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0): #, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True
         """
         Average positions or fit velocities.
         Average magnitudes.
@@ -838,13 +838,13 @@ class MosaicSelfRef(object):
         if all_fixed:
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
-    
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
         else:
             # Combine positions with a velocity fit.
-            self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose,
+            self.ref_table.fit_velocities(bootstrap=n_boot, verbose=self.verbose, show_progress=(self.verbose>0),
                         default_motion_model=self.default_motion_model, select_stars=fit_star_idxs,
-                        motion_model_dict=self.motion_model_dict)
+                        motion_model_dict=self.motion_model_dict,
+                        weighting=self.weighting, use_scipy=self.use_scipy, absolute_sigma=self.absolute_sigma)
 
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
@@ -852,13 +852,11 @@ class MosaicSelfRef(object):
             else:
                 weights_col = 'me'
             self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
-        #pdb.set_trace()
         # Replace the originals if we are supposed to keep them fixed.
         if keep_orig is not None:
             for val in vals_orig.keys():
                 self.ref_table[val][keep_orig] = vals_orig[val]
                 
-        #pdb.set_trace()
         return
     
     def get_weights_for_lists(self, ref_list, star_list):
@@ -1021,7 +1019,7 @@ class MosaicSelfRef(object):
 
         return
     
-    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True):
+    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True):
         """
         Function to calculate bootstrap errors for the transformations as well
         as the proper motions. For each iteration, this will:
@@ -1061,7 +1059,18 @@ class MosaicSelfRef(object):
            stellar proper motions, as well as the bootstrap over reference stars
            to calculate positional alignment errors. If false, only 
            calculate position alignment errors.
-
+        
+        weighting: str
+            'var' or 'std' weighting for velocity fitting, by default 'var'. If 'var', use the variance of the residuals to weight the fit.
+            If 'std', use the standard deviation of the residuals to weight the fit.
+        
+        use_scipy: boolean
+            If True, use scipy.optimize.curve_fit to fit the velocity. If False, use flystar.fit_velocity.linear_fit, by default True.
+        
+        absolute_sigma: boolean
+            If True, use the absolute sigma in the velocity fitting. If False, use the relative sigma, by default False.
+        
+            
         Output:
         ------
         Seven new columns will be added to self.ref_table:
@@ -1233,7 +1242,11 @@ class MosaicSelfRef(object):
 
                 # Now, do proper motion calculation, making sure to fix t0 to the
                 # orig value (so we can get a reasonable error on x0, y0)
+<<<<<<< HEAD
                 star_table.fit_velocities(fixed_t0=t0_arr, default_motion_model=self.default_motion_model, motion_model_dict=self.motion_model_dict)
+=======
+                star_table.fit_velocities(weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, fixed_t0=t0_arr, show_progress=show_progress)
+>>>>>>> dev
 
                 # Save proper motion fit results to output arrays
                 for col in motion_col_list:

@@ -129,7 +129,7 @@ class StarTable(Table):
 
             # We have to have special handling of meta-data (i.e. info that has
             # dimensions of n_lists).
-            meta_tab = ('list_times', 'list_names')
+            meta_tab = ('LIST_TIMES', 'LIST_NAMES')
             meta_type = ((float, int), str)
             for mm in range(len(meta_tab)):
                 meta_test = meta_tab[mm]
@@ -568,9 +568,13 @@ class StarTable(Table):
         if weighting not in ['var', 'std']:
             raise ValueError(f"fit_velocities: Weighting must either be 'var' or 'std', not {weighting}!")
         
-        if ('t' not in self.colnames) and ('list_times' not in self.meta):
-            raise KeyError("fit_velocities: Failed to time values. No 't' column in table, no 'list_times' in meta.")
-
+        if ('t' not in self.colnames) and ('LIST_TIMES' not in self.meta):
+            raise KeyError("fit_velocities: Failed to access time values. No 't' column in table, no 'LIST_TIMES' in meta.")
+        
+        # Check if we have the required columns
+        if not all([_ in self.colnames for _ in ['x', 'y']]):
+            raise KeyError(f"fit_velocities: Missing required columns in the table: {', '.join(['x', 'y'])}!")
+        
         N_stars = len(self)
 
         if verbose:
@@ -611,25 +615,36 @@ class StarTable(Table):
         self.meta['n_fit_bootstrap'] = bootstrap
         
         # (FIXME: Do we need to catch the case where there's a single *unmasked* epoch?)
-        # Catch the case when there is only a single epoch. Just return
-        # the same input position for the x0/y0.
+        # Catch the case when there is only a single epoch. Just return 0 velocity
+        # and the same input position for the x0/y0.
+        if len(self['x'].shape) == 1:
+            self['motion_model_used'] = 'Fixed'
+            self['x0'] = self['x']
+            self['y0'] = self['y']
+            if 't' in self.colnames:
+                self['t0'] = self['t']
+            else:
+                self['t0'] = self.meta['LIST_TIMES'][0]
+            if 'xe' in self.colnames:
+                self['x0_err'] = self['xe']
+                self['y0_err'] = self['ye']
+            self['n_fit'] = 1
+            self['n_params'] = 1
+            return
+        
         if (self['x'].shape[1] == 1):
             self['motion_model_used'] = 'Fixed'
             self['x0'] = self['x'][:,0]
             self['y0'] = self['y'][:,0]
-
             if 't' in self.colnames:
                 self['t0'] = self['t'][:, 0]
             else:
-                self['t0'] = self.meta['list_times'][0]
-
+                self['t0'] = self.meta['LIST_TIMES'][0]
             if 'xe' in self.colnames:
                 self['x0_err'] = self['xe'][:,0]
                 self['y0_err'] = self['ye'][:,0]
-
             self['n_fit'] = 1
             self['n_params'] = 1
-
             return
             
         # Only fit selected stars, if list given
@@ -741,7 +756,7 @@ class StarTable(Table):
         if 't' in self.colnames:
             t = np.ma.masked_invalid(self['t'][ss, :].data)
         else:
-            t = np.ma.masked_invalid(self.meta['list_times'])
+            t = np.ma.masked_invalid(self.meta['LIST_TIMES'])
 
         if mask_val:
             t = np.ma.masked_values(t, mask_val)
