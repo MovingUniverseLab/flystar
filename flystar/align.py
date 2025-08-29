@@ -824,7 +824,7 @@ class MosaicSelfRef(object):
                 
         return
     
-    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0): #, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True
+    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0):
         """
         Average positions or fit velocities.
         Average magnitudes.
@@ -1082,9 +1082,6 @@ class MosaicSelfRef(object):
         weighting: str
             'var' or 'std' weighting for velocity fitting, by default 'var'. If 'var', use the variance of the residuals to weight the fit.
             If 'std', use the standard deviation of the residuals to weight the fit.
-        
-        use_scipy: boolean
-            If True, use scipy.optimize.curve_fit to fit the velocity. If False, use flystar.fit_velocity.linear_fit, by default True.
         
         absolute_sigma: boolean
             If True, use the absolute sigma in the velocity fitting. If False, use the relative sigma, by default False.
