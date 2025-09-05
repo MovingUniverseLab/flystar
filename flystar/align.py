@@ -21,7 +21,7 @@ class MosaicSelfRef(object):
                  outlier_tol=[None, None],
                  trans_args=[{'order': 2}, {'order': 2}],
                  init_order=1,
-                 mag_trans=True, mag_lim=None, weights=None,
+                 mag_trans=True, mag_lim=None, trans_weights=None, vel_weights='var',
                  trans_input=None, trans_class=transforms.PolyTransform,
                  calc_trans_inverse=False,
                  init_guess_mode='miracle', iter_callback=None,
@@ -89,11 +89,15 @@ class MosaicSelfRef(object):
             separately for each list and each iteration, you need to pass in a 2D array that
             has shape (N_lists, 2).
 
-        weights : str
+        trans_weights : str
             Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
             to weight by the positional uncertainties (variances) in the individual starlists, or also with
             the uncertainties in the reference frame itself.  Note weighting only works when there
             are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
+            
+        vel_weights : str
+            Either 'var' (def) or 'std', depending on whether you want to weight the motion model
+            fits by the variance or standard deviation of the position data
 
         trans_input : array or list of transform objects
             def = None. If not None, then this should contain an array or list of transform
@@ -186,10 +190,8 @@ class MosaicSelfRef(object):
         self.init_order = init_order
         self.mag_trans = mag_trans
         self.mag_lim = mag_lim
-        self.weights = weights
-        self.weighting = 'var'
-        if self.weights is not None:
-            self.weighting=self.weights.split(',')[-1]
+        self.trans_weights = trans_weights
+        self.vel_weights = vel_weights
         self.trans_input = trans_input
         self.trans_class = trans_class
         self.calc_trans_inverse = calc_trans_inverse
@@ -869,7 +871,7 @@ class MosaicSelfRef(object):
                         default_motion_model=self.default_motion_model,
                         select_stars=fit_star_idxs,
                         motion_model_dict=self.motion_model_dict,
-                        weighting=self.weighting,
+                        weighting=self.vel_weights,
                         use_scipy=self.use_scipy,
                         absolute_sigma=self.absolute_sigma)
 
@@ -901,18 +903,18 @@ class MosaicSelfRef(object):
             var_xlis = 0.0
             var_ylis = 0.0
 
-        if self.weights != None:
-            if self.weights == 'both,var':
+        if self.trans_weights != None:
+            if self.trans_weights == 'both,var':
                 weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
-            if self.weights == 'both,std':
+            if self.trans_weights == 'both,std':
                 weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
-            if self.weights == 'ref,var':
+            if self.trans_weights == 'ref,var':
                 weight = 1.0 / (var_xref + var_yref)
-            if self.weights == 'ref,std':
+            if self.trans_weights == 'ref,std':
                 weight = 1.0 / np.sqrt(var_xref + var_yref)
-            if self.weights == 'list,var':
+            if self.trans_weights == 'list,var':
                 weight = 1.0 / (var_xlis + var_ylis)
-            if self.weights == 'list,std':
+            if self.trans_weights == 'list,std':
                 weight = 1.0 / np.sqrt(var_xlis, var_ylis)
         else:
             weight = None
@@ -1193,7 +1195,7 @@ class MosaicSelfRef(object):
             
                 # Calculate weights based on weights keyword. If weights desired, will need to
                 # make starlist objects for this
-                if self.weights != None:
+                if self.trans_weights != None:
                     # In order for weights calculation to work, we need to apply a transformation
                     # to the star_list_T so it is in the same units as ref_boot. So, we'll apply
                     # the final transformation for the epoch to get close enough for the
@@ -1354,7 +1356,7 @@ class MosaicToRef(MosaicSelfRef):
                  trans_args=[{'order': 2}, {'order': 2}],
                  init_order=1,
                  mag_trans=True, mag_lim=None, ref_mag_lim=None,
-                 weights=None,
+                 trans_weights=None, vel_weights='var',
                  trans_input=None,
                  trans_class=transforms.PolyTransform,
                  calc_trans_inverse=False,
@@ -1428,11 +1430,15 @@ class MosaicToRef(MosaicSelfRef):
             If different from None, it indicates the minimum and maximum magnitude
             on the reference catalog for finding the transformations.
 
-        weights : str
+        trans_weights : str
             Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
             to weight by the positional uncertainties (variances) in the individual starlists, or also with
             the uncertainties in the reference frame itself.  Note weighting only works when there
             are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
+            
+        vel_weights : str
+            Either 'var' (def) or 'std', depending on whether you want to weight the motion model
+            fits by the variance or standard deviation of the position data
 
         trans_input : array or list of transform objects
             def = None. If not None, then this should contain an array or list of transform
@@ -1538,7 +1544,8 @@ class MosaicToRef(MosaicSelfRef):
                          dr_tol=dr_tol, dm_tol=dm_tol,
                          outlier_tol=outlier_tol, trans_args=trans_args,
                          init_order=init_order,
-                         mag_trans=mag_trans, mag_lim=mag_lim, weights=weights,
+                         mag_trans=mag_trans, mag_lim=mag_lim,
+                         trans_weights=trans_weights, vel_weights=vel_weights,
                          trans_input=trans_input, trans_class=trans_class,
                          calc_trans_inverse=calc_trans_inverse,
                          default_motion_model = default_motion_model,
@@ -1606,7 +1613,8 @@ class MosaicToRef(MosaicSelfRef):
             logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
             logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
             logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
-            logger(_log, '  weights = ' + str(self.weights), self.verbose)
+            logger(_log, '  trans_weights = ' + str(self.trans_weights), self.verbose)
+            logger(_log, '  vel_weights = ' + str(self.vel_weights), self.verbose)
             logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
             logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
             logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)

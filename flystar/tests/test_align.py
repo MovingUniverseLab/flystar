@@ -1073,7 +1073,7 @@ def test_MosaicToRef_hst_me():
                         use_ref_new=False,
                         update_ref_orig=False,
                         mag_trans=False,
-                        weights='both,std',
+                        trans_weights='both,std',
                         init_guess_mode='miracle', verbose=False)
     msc.fit()
     tab = msc.ref_table
@@ -1106,7 +1106,7 @@ def test_bootstrap():
     outlier_tol = None
     mag_lim = None
     ref_mag_lim = None
-    weights = 'both,var'
+    trans_weights = 'both,var'
     mag_trans = False
 
     n_boot = 15
@@ -1120,7 +1120,7 @@ def test_bootstrap():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  weights=weights,
+                                  trans_weights=trans_weights,
                                   default_motion_model='Linear',
                                   use_ref_new=False,
                                   update_ref_orig=False,
@@ -1154,7 +1154,7 @@ def test_bootstrap():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  weights=weights,
+                                  trans_weights=trans_weights,
                                   default_motion_model='Linear',
                                   use_ref_new=False,
                                   update_ref_orig=False,
@@ -1218,7 +1218,7 @@ def test_calc_vel_in_bootstrap():
     outlier_tol = None
     mag_lim = None
     ref_mag_lim = None
-    weights = 'both,var'
+    trans_weights = 'both,var'
     mag_trans = False
 
     n_boot = 15
@@ -1232,7 +1232,7 @@ def test_calc_vel_in_bootstrap():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  weights=weights,
+                                  trans_weights=trans_weights,
                                   default_motion_model='Linear',
                                   use_ref_new=False,
                                   update_ref_orig=False,
@@ -1286,7 +1286,7 @@ def test_transform_xym():
     outlier_tol = None
     mag_lim = None
     ref_mag_lim = None
-    weights = 'both,var'
+    trans_weights = 'both,var'
     n_boot = 15
 
     mag_trans = False
@@ -1299,7 +1299,7 @@ def test_transform_xym():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  weights=weights,
+                                  trans_weights=trans_weights,
                                   default_motion_model='Fixed',
                                   use_ref_new=False,
                                   update_ref_orig=False,
@@ -1334,7 +1334,7 @@ def test_transform_xym():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  weights=weights,
+                                  trans_weights=trans_weights,
                                   default_motion_model='Fixed',
                                   use_ref_new=False,
                                   update_ref_orig=False,

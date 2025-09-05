@@ -57,7 +57,7 @@ class MotionModel(ABC):
             
     def scale_errors(self, errs, weighting='var'):
         if weighting=='std':
-            return errs**2
+            return np.array(errs)**2
         elif weighting=='var':
             return errs
         else:
