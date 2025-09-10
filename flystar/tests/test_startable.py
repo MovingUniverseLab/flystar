@@ -554,9 +554,15 @@ def make_star_table():
     starlist_names = np.array(['file1', 'file2', 'file3', 'file4', 'file5', 'file6', 'file7', 'file8'])
 
     # Generate the startable
-    startable = StarTable(name=name_in, x=x_in, y=y_in, m=m_in, xe=xe_in, ye=ye_in, me=me_in, n=n_in,
-                              ref_list=1,
-                              list_times=starlist_times, list_names=starlist_names)
+    startable = StarTable(
+        name=name_in, 
+        x=x_in, y=y_in, m=m_in, 
+        xe=xe_in, ye=ye_in, me=me_in, 
+        n=n_in,
+        ref_list=1,
+        list_times=starlist_times, 
+        list_names=starlist_names
+    )
 
     return startable
 
