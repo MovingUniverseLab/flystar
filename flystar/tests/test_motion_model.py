@@ -1,6 +1,8 @@
 from flystar import motion_model
 import numpy as np
 import pytest
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
 
 def within_error(true_val, fit_val, fit_err, n_sigma=3):
     #print('True', true_val, 'Fit', fit_val, 'Fit err', fit_err)
@@ -278,3 +280,220 @@ def test_Parallax_PA():
     dat_pa90 = mod_pa90.get_pos_at_time([y0,vy,-x0,-vx,pi],[2020.0],t_set)
     assert (np.abs(dat_pa0[0]-(-dat_pa90[1]))<1e-10).all()
     assert (np.abs(dat_pa0[1]-(dat_pa90[0]))<1e-10).all()
+
+
+def test_Linear_fit_vs_scipy():
+    # Compare Linear fit results to scipy curve_fit results
+    t = np.array([0, 1., 2.2, 3.5, 5.])
+
+    x = np.array([
+        [0., 0.5, 2.1, 3.2, 6.0],                   # Increasing 5 Epochs
+        [10.0, 8.9, 9.2, 7.4, 7.0],                 # Decreasing 5 Epochs
+        [2.5, np.nan, 5.2, np.nan, 5.0],            # 3 Epochs
+        [np.nan, 6.2, np.nan, np.nan, 9.2],         # 2 Epochs
+        # [np.nan, 2.0, np.nan, np.nan, np.nan],      # 1 Epoch
+        # [np.nan, np.nan, np.nan, np.nan, np.nan]   # All NaNs
+    ])
+
+    y = np.array([
+        [10.2, 8.5, 9.1, 12.2, 13.0],                   # Increasing 5 Epochs
+        [8.0, 9.9, 8.2, 7.4, 7.0],                 # Decreasing 5 Epochs
+        [5.2, np.nan, 4.7, np.nan, 6.0],            # 3 Epochs
+        [np.nan, 1.2, np.nan, np.nan, 3.2],         # 2 Epochs
+        # [np.nan, 2.0, np.nan, np.nan, np.nan],      # 1 Epoch
+        # [np.nan, np.nan, np.nan, np.nan, np.nan]   # All NaNs
+    ])
+
+    xe = np.array([
+        [0.2, 0.5, 0.3, 0.4, 0.6],
+        [0.5, 0.2, 0.7, 0.3, 0.2],
+        [0.5, np.nan, 0.6, np.nan, 0.3],
+        [np.nan, 0.6, np.nan, np.nan, 0.3],
+        # [np.nan, 0.4, np.nan, np.nan, np.nan],
+        # [np.nan, np.nan, np.nan, np.nan, np.nan]
+    ])
+
+    ye = np.array([
+        [0.3, 0.2, 0.5, 0.2, 0.4],
+        [0.2, 0.5, 0.6, 0.4, 0.2],
+        [0.7, np.nan, 0.5, np.nan, 0.2],
+        [np.nan, 0.4, np.nan, np.nan, 0.5],
+        # [np.nan, 0.5, np.nan, np.nan, np.nan],
+        # [np.nan, np.nan, np.nan, np.nan, np.nan]
+    ])
+
+    x = np.ma.masked_invalid(x)
+    y = np.ma.masked_invalid(y)
+    xe = np.ma.masked_invalid(xe)
+    ye = np.ma.masked_invalid(ye)
+    mask = np.ma.getmaskarray(x) | np.ma.getmaskarray(y) | np.ma.getmaskarray(xe) | np.ma.getmaskarray(ye)
+
+    # tab = StarTable({
+    #     'x': x,
+    #     'y': y,
+    #     'xe': xe,
+    #     'ye': ye
+    # })
+    # tab.meta['LIST_TIMES'] = t
+    # tab.fit_velocities(use_scipy=True, absolute_sigma=True)
+
+    # Plot data
+    N = x.shape[0]
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+    for i in range(N):
+        line_mask = ~np.isnan(x[i]) & ~mask[i]
+        ax1.errorbar(t[line_mask], x[i][line_mask], yerr=xe[i][line_mask], fmt='o-', label=f'Line {i}')
+        ax2.errorbar(t[line_mask], y[i][line_mask], yerr=ye[i][line_mask], fmt='o-', label=f'Line {i}')
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('Position')
+    ax1.legend()
+    ax1.set_title('X vs Time')
+    ax2.set_xlabel('Time')
+    ax2.set_ylabel('Position')
+    ax2.legend()
+    ax2.set_title('Y vs Time')
+    plt.show()
+
+    N = len(x)
+    t0 = np.average(np.broadcast_to(t, x.shape), weights=1./np.hypot(xe, ye), axis=1)
+    dt = np.zeros_like(x)
+
+    # velfit
+    # vx_velfit = np.zeros(N)
+    # vxe_velfit = np.zeros(N)
+    # vy_velfit = np.zeros(N)
+    # vye_velfit = np.zeros(N)
+    # x0_velfit = np.zeros(N)
+    # x0e_velfit = np.zeros(N)
+    # y0_velfit = np.zeros(N)
+    # y0e_velfit = np.zeros(N)
+
+    # scipy
+    vx_scipy = np.zeros(N)
+    vxe_scipy = np.zeros(N)
+    vy_scipy = np.zeros(N)
+    vye_scipy = np.zeros(N)
+    x0_scipy = np.zeros(N)
+    x0e_scipy = np.zeros(N)
+    y0_scipy = np.zeros(N)
+    y0e_scipy = np.zeros(N)
+
+    # motion_model
+    mm = motion_model.Linear()
+
+    vx_mm_scipy = np.zeros(N)
+    vxe_mm_scipy = np.zeros(N)
+    vy_mm_scipy = np.zeros(N)
+    vye_mm_scipy = np.zeros(N)
+    x0_mm_scipy = np.zeros(N)
+    x0e_mm_scipy = np.zeros(N)
+    y0_mm_scipy = np.zeros(N)
+    y0e_mm_scipy = np.zeros(N)
+
+    vx_mm = np.zeros(N)
+    vxe_mm = np.zeros(N)
+    vy_mm = np.zeros(N)
+    vye_mm = np.zeros(N)
+    x0_mm = np.zeros(N)
+    x0e_mm = np.zeros(N)
+    y0_mm = np.zeros(N)
+    y0e_mm = np.zeros(N)
+
+    def linear(t, c0, c1):
+        return c0 + c1*t
+
+    # Absolute sigma
+    for absolute_sigma in [True, False]:
+        for i in range(N):
+            dt[i] = t - t0[i]
+
+            # # velfit.linear_fit
+            # vx_velfit_results = linear_fit(dt[i][~mask[i]], x[i][~mask[i]], sigma=xe[i][~mask[i]], absolute_sigma=absolute_sigma)
+            # vy_velfit_results = linear_fit(dt[i][~mask[i]], y[i][~mask[i]], sigma=ye[i][~mask[i]], absolute_sigma=absolute_sigma)
+
+            # vx_velfit[i] = vx_velfit_results['slope']
+            # vxe_velfit[i] = vx_velfit_results['e_slope']
+            # vy_velfit[i] = vy_velfit_results['slope']
+            # vye_velfit[i] = vy_velfit_results['e_slope']
+            # x0_velfit[i] = vx_velfit_results['intercept']
+            # x0e_velfit[i] = vx_velfit_results['e_intercept']
+            # y0_velfit[i] = vy_velfit_results['intercept']
+            # y0e_velfit[i] = vy_velfit_results['e_intercept']
+            
+            # scipy.curve_fit
+            p0x = np.array([0., x[i][~mask[i]].mean()])
+            p0y = np.array([0., y[i][~mask[i]].mean()])
+            popt_x, pcov_x = curve_fit(linear, dt[i][~mask[i]], x[i][~mask[i]], p0=p0x, sigma=xe[i][~mask[i]], absolute_sigma=absolute_sigma)
+            vx_scipy[i], vxe_scipy[i] = popt_x[1], np.sqrt(pcov_x[1, 1])
+            x0_scipy[i], x0e_scipy[i] = popt_x[0], np.sqrt(pcov_x[0, 0])
+            popt_y, pcov_y = curve_fit(linear, dt[i][~mask[i]], y[i][~mask[i]], p0=p0y, sigma=ye[i][~mask[i]], absolute_sigma=absolute_sigma)
+            vy_scipy[i], vye_scipy[i] = popt_y[1], np.sqrt(pcov_y[1, 1])
+            y0_scipy[i], y0e_scipy[i] = popt_y[0], np.sqrt(pcov_y[0, 0])
+
+            # motion_model without scipy
+            params, param_errs = mm.fit_motion_model(
+                t[~mask[i]], x[i][~mask[i]], y[i][~mask[i]], 
+                xe[i][~mask[i]], ye[i][~mask[i]], t0[i], 
+                weighting='var', 
+                use_scipy=False, 
+                absolute_sigma=absolute_sigma
+            )
+            vx_mm[i] = params[mm.fitter_param_names.index('vx')]
+            vy_mm[i] = params[mm.fitter_param_names.index('vy')]
+            vxe_mm[i] = param_errs[mm.fitter_param_names.index('vx')]
+            vye_mm[i] = param_errs[mm.fitter_param_names.index('vy')]
+            x0_mm[i] = params[mm.fitter_param_names.index('x0')]
+            y0_mm[i] = params[mm.fitter_param_names.index('y0')]
+            x0e_mm[i] = param_errs[mm.fitter_param_names.index('x0')]
+            y0e_mm[i] = param_errs[mm.fitter_param_names.index('y0')]
+
+            # motion_model with scipy
+            params, param_errs = mm.fit_motion_model(
+                t[~mask[i]], x[i][~mask[i]], y[i][~mask[i]], 
+                xe[i][~mask[i]], ye[i][~mask[i]], t0[i], 
+                weighting='var', 
+                use_scipy=True, 
+                absolute_sigma=absolute_sigma
+            )
+            vx_mm_scipy[i] = params[mm.fitter_param_names.index('vx')]
+            vy_mm_scipy[i] = params[mm.fitter_param_names.index('vy')]
+            vxe_mm_scipy[i] = param_errs[mm.fitter_param_names.index('vx')]
+            vye_mm_scipy[i] = param_errs[mm.fitter_param_names.index('vy')]
+            x0_mm_scipy[i] = params[mm.fitter_param_names.index('x0')]
+            y0_mm_scipy[i] = params[mm.fitter_param_names.index('y0')]
+            x0e_mm_scipy[i] = param_errs[mm.fitter_param_names.index('x0')]
+            y0e_mm_scipy[i] = param_errs[mm.fitter_param_names.index('y0')]
+
+        rtol = 1e-5
+        # np.testing.assert_allclose(vx_velfit, vx_scipy, rtol=rtol)
+        # np.testing.assert_allclose(vxe_velfit, vxe_scipy, rtol=rtol)
+        # np.testing.assert_allclose(vy_velfit, vy_scipy, rtol=rtol)
+        # np.testing.assert_allclose(vye_velfit, vye_scipy, rtol=rtol)
+        # np.testing.assert_allclose(x0_velfit, x0_scipy, rtol=rtol)
+        # np.testing.assert_allclose(x0e_velfit, x0e_scipy, rtol=rtol)
+        # np.testing.assert_allclose(y0_velfit, y0_scipy, rtol=rtol)
+        # np.testing.assert_allclose(y0e_velfit, y0e_scipy, rtol=rtol)
+        # np.testing.assert_allclose(vx_velfit, vx_mm, rtol=rtol)
+        # np.testing.assert_allclose(vxe_velfit, vxe_mm, rtol=rtol)
+        # np.testing.assert_allclose(vy_velfit, vy_mm, rtol=rtol)
+        # np.testing.assert_allclose(vye_velfit, vye_mm, rtol=rtol)
+        # np.testing.assert_allclose(x0_velfit, x0_mm, rtol=rtol)
+        # np.testing.assert_allclose(x0e_velfit, x0e_mm, rtol=rtol)
+        # np.testing.assert_allclose(y0_velfit, y0_mm, rtol=rtol)
+        # np.testing.assert_allclose(y0e_velfit, y0e_mm, rtol=rtol)
+        np.testing.assert_allclose(vx_scipy, vx_mm, rtol=rtol)
+        np.testing.assert_allclose(vxe_scipy, vxe_mm, rtol=rtol)
+        np.testing.assert_allclose(vy_scipy, vy_mm, rtol=rtol)
+        np.testing.assert_allclose(vye_scipy, vye_mm, rtol=rtol)
+        np.testing.assert_allclose(x0_scipy, x0_mm, rtol=rtol)
+        np.testing.assert_allclose(x0e_scipy, x0e_mm, rtol=rtol)
+        np.testing.assert_allclose(y0_scipy, y0_mm, rtol=rtol)
+        np.testing.assert_allclose(y0e_scipy, y0e_mm, rtol=rtol)
+        np.testing.assert_allclose(vx_scipy, vx_mm_scipy, rtol=rtol)
+        np.testing.assert_allclose(vxe_scipy, vxe_mm_scipy, rtol=rtol)
+        np.testing.assert_allclose(vy_scipy, vy_mm_scipy, rtol=rtol)
+        np.testing.assert_allclose(vye_scipy, vye_mm_scipy, rtol=rtol)
+        np.testing.assert_allclose(x0_scipy, x0_mm_scipy, rtol=rtol)
+        np.testing.assert_allclose(x0e_scipy, x0e_mm_scipy, rtol=rtol)
+        np.testing.assert_allclose(y0_scipy, y0_mm_scipy, rtol=rtol)
+        np.testing.assert_allclose(y0e_scipy, y0e_mm_scipy, rtol=rtol)
