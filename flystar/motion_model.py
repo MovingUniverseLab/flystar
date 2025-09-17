@@ -463,7 +463,7 @@ def validate_motion_model_dict(motion_model_dict, startable, default_motion_mode
         all_motion_model_names.append(default_motion_model)
     if 'motion_model_input' in startable.columns:
         all_motion_model_names += np.unique(startable['motion_model_input']).tolist()
-    if 'motion_model_input' in startable.columns:
+    if 'motion_model_used' in startable.columns:
         all_motion_model_names += np.unique(startable['motion_model_used']).tolist()
     all_motion_model_names = np.unique(all_motion_model_names)
     
