@@ -207,65 +207,87 @@ class Linear(MotionModel):
         if params_guess is None:
             params_guess = [x.mean(),0.0,y.mean(),0.0]
 
-        if use_scipy:
-            def linear(t, c0, c1):
-                return c0 + c1*t
-            x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=1/np.sqrt(x_wt), absolute_sigma=absolute_sigma)
-            y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=1/np.sqrt(y_wt), absolute_sigma=absolute_sigma)
-            x0, vx = x_opt
-            y0, vy = y_opt
-            x0e, vxe = np.sqrt(x_cov.diagonal())
-            y0e, vye = np.sqrt(y_cov.diagonal())
-            x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
+        # Handle 2-data point case
+        if len(np.unique(dt))==2:
+            if len(x)>2: # Catch case where bootstrap sends only 2 unique epochs
+                _,idx=np.unique(dt, return_index=True)
+                dt = dt[idx]
+                x = x[idx]
+                y = y[idx]
+                xe = xe[idx]
+                ye = ye[idx]
+            dx = np.diff(x)[0]
+            dy = np.diff(y)[0]
+            dt_diff = np.diff(dt)[0]
+            vx = dx / dt_diff
+            vy = dy / dt_diff
+            # TODO: still not sure about the error handling here
+            x0 = x[0] - dt[0]*vx # np.average(x, weights=x_wt) #
+            y0 = y[0] - dt[0]*vy # np.average(y, weights=y_wt) #
+            x0e = np.abs(dx) / 2**0.5 # np.sqrt(np.sum(xe**2)/2) #
+            y0e = np.abs(dy) / 2**0.5 # np.sqrt(np.sum(ye**2)/2) #
+            vxe = 0.0 #np.abs(vx) * np.sqrt(np.sum(xe**2/x**2))
+            vye = 0.0 #np.abs(vy) * np.sqrt(np.sum(ye**2/y**2))
         else:
-            # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution scheme
-            x = np.array(x)
-            y = np.array(y)
-            dt = np.array(dt)
-            X_mat_t = np.vander(dt, 2)
-            # x calculation
-            W_mat_x = np.diag(x_wt)
-            XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
-            pcov_x = np.linalg.inv(XTWX_mat_x)  # Covariance Matrix
-            popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
-            perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
-            # y calculation
-            W_mat_y = np.diag(y_wt)
-            XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t
-            pcov_y = np.linalg.inv(XTWX_mat_y)  # Covariance Matrix
-            popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
-            perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
-            # prepare values to return
-            vx, x0 = popt_x
-            vy, y0 = popt_y
-            vxe, x0e = perr_x
-            vye, y0e = perr_y
-            x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
-            
-            residual_x = x - X_mat_t @ popt_x
-            residual_y = y - X_mat_t @ popt_y
-            
-            chi2_x = residual_x.T @ W_mat_x @ residual_x
-            chi2_y = residual_y.T @ W_mat_y @ residual_y
-            
-            if not absolute_sigma:
-                degree_of_freedom = len(x) - 2
-                if degree_of_freedom > 0:
-                    reduced_chi2_x = chi2_x/(len(x) - 2)
-                    reduced_chi2_y = chi2_y/(len(x) - 2)
-                    x0e *= reduced_chi2_x**0.5
-                    y0e *= reduced_chi2_y**0.5
-                    vxe *= reduced_chi2_x**0.5
-                    vye *= reduced_chi2_y**0.5
-                else:
-                    warnings.warn(
-                        "Degree of freedom <= 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to infinity.",
-                        OptimizeWarning, stacklevel=2
-                    )
-                    x0e *= np.inf
-                    y0e *= np.inf
-                    vxe *= np.inf
-                    vye *= np.inf
+            if use_scipy:
+                def linear(t, c0, c1):
+                    return c0 + c1*t
+                x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=1/np.sqrt(x_wt), absolute_sigma=absolute_sigma)
+                y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=1/np.sqrt(y_wt), absolute_sigma=absolute_sigma)
+                x0, vx = x_opt
+                y0, vy = y_opt
+                x0e, vxe = np.sqrt(x_cov.diagonal())
+                y0e, vye = np.sqrt(y_cov.diagonal())
+                x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
+            else:
+                # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution scheme
+                x = np.array(x)
+                y = np.array(y)
+                dt = np.array(dt)
+                X_mat_t = np.vander(dt, 2)
+                # x calculation
+                W_mat_x = np.diag(x_wt)
+                XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
+                pcov_x = np.linalg.inv(XTWX_mat_x)  # Covariance Matrix
+                popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
+                perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
+                # y calculation
+                W_mat_y = np.diag(y_wt)
+                XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t
+                pcov_y = np.linalg.inv(XTWX_mat_y)  # Covariance Matrix
+                popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
+                perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
+                # prepare values to return
+                vx, x0 = popt_x
+                vy, y0 = popt_y
+                vxe, x0e = perr_x
+                vye, y0e = perr_y
+                x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
+                
+                residual_x = x - X_mat_t @ popt_x
+                residual_y = y - X_mat_t @ popt_y
+                
+                chi2_x = residual_x.T @ W_mat_x @ residual_x
+                chi2_y = residual_y.T @ W_mat_y @ residual_y
+                
+                if not absolute_sigma:
+                    degree_of_freedom = len(x) - 2
+                    if degree_of_freedom > 0:
+                        reduced_chi2_x = chi2_x/(len(x) - 2)
+                        reduced_chi2_y = chi2_y/(len(x) - 2)
+                        x0e *= reduced_chi2_x**0.5
+                        y0e *= reduced_chi2_y**0.5
+                        vxe *= reduced_chi2_x**0.5
+                        vye *= reduced_chi2_y**0.5
+                    else:
+                        warnings.warn(
+                            "Degree of freedom <= 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to infinity.",
+                            OptimizeWarning, stacklevel=2
+                        )
+                        x0e *= np.inf
+                        y0e *= np.inf
+                        vxe *= np.inf
+                        vye *= np.inf
         params = [x0, vx, y0, vy]
         param_errors = [x0e, vxe, y0e, vye]
         return params, param_errors
