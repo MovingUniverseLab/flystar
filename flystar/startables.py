@@ -828,7 +828,7 @@ class StarTable(Table):
         # If the points do not cover multiple times, go to a fixed model
         if (t == t[0]).all():
             motion_model_use = 'Fixed'
-            
+
         self['motion_model_used'][ss] = motion_model_use
 
 #        # Get the motion model object.
@@ -960,15 +960,8 @@ class StarTable(Table):
             valid_ye = np.all(self['ye'][select_stars, :][:, epoch_cols]!=0, axis=1) & np.all(np.isfinite(self['ye'][select_stars, :][:, epoch_cols]), axis=1)
 
             if mask_val:
-                x = np.ma.masked_values(self['x'][select_stars, :][:, epoch_cols], mask_val)
-                y = np.ma.masked_values(self['y'][select_stars, :][:, epoch_cols], mask_val)
-
-                # If no mask, convert x.mask to list
-                if not np.ma.is_masked(x):
-                    x.mask = np.zeros_like(self['x'][select_stars, :][:, epoch_cols].data, dtype=bool)
-                if not np.ma.is_masked(y):
-                    y.mask = np.zeros_like(self['y'][select_stars, :][:, epoch_cols].data, dtype=bool)
-
+                x = np.ma.masked_values(self['x'][select_stars, :][:, epoch_cols], mask_val, shrink=False)
+                y = np.ma.masked_values(self['y'][select_stars, :][:, epoch_cols], mask_val, shrink=False)
                 valid_x = ~np.any(x.mask, axis=1)
                 valid_y = ~np.any(y.mask, axis=1)
                 detected_in_all_epochs = np.logical_and.reduce((
