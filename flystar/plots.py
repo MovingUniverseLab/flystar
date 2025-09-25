@@ -262,7 +262,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     py.plot(x, norm.pdf(x,mean,sigma), 'g-', linewidth=2)
     
     # Annotate reduced chi-sqared values in plot: with outliers
-    xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
+    xstr = r'$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
     py.annotate(xstr, xy=(0.3, 0.77), xycoords='figure fraction', color='black')
     txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(diff_x), num_mod_params,
                                                  deg_freedom)
@@ -273,7 +273,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     py.annotate(xstr3, xy=(0.25, 0.80), xycoords='figure fraction', color='black')
     
     # Annotate reduced chi-sqared values in plot: without outliers
-    xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red_good, decimals=3))
+    xstr = r'$\chi^2_r$ = {0}'.format(np.round(chi_sq_red_good, decimals=3))
     py.annotate(xstr, xy=(0.7, 0.8), xycoords='figure fraction', color='black')
     txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(good[0]), num_mod_params,
                                                  deg_freedom_good)
@@ -2221,7 +2221,7 @@ def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_
     plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
     plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.legend()
@@ -2306,7 +2306,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, motion_model_dict={}, xlim=40, n_bin
     plt.hist(x[idx], bins=chi2_bins, histtype='stepfilled', label='RA', density=True, color='skyblue', alpha=0.8, edgecolor='k')
     plt.hist(y[idx], bins=chi2_bins, histtype='stepfilled', label='DEC', density=True, color='orange', alpha=0.8, edgecolor='k')
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
     #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.title(str(filter)+' (N = '+str(len(chi2_x_list))+')', fontsize=22)
     plt.xlim(0, xlim)
@@ -2593,7 +2593,7 @@ def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30, boot_err=False):
     plt.clf()
     plt.hist(chi2_m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.legend()
@@ -2642,7 +2642,7 @@ def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, fil
     plt.clf()
     plt.hist(chi2_m[idx], bins=np.arange(xlim*10), label='mag', histtype='stepfilled', density=True, color='green', alpha=0.7, edgecolor='k')
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
     #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.xlabel(r'$\chi^{2}$', fontsize=28)

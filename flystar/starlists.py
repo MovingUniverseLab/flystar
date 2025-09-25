@@ -421,7 +421,7 @@ def read_starlist(starlistFile, error=True):
     starlist astropy table.
     containing: name, m, x, y, xe, ye, t
     """
-    t_ref = Table.read(starlistFile, format='ascii', delimiter='\s')
+    t_ref = Table.read(starlistFile, format='ascii', delimiter=r'\s')
 
     # Check if this already has column names:
     cols = t_ref.colnames
@@ -624,7 +624,7 @@ class StarList(Table):
         ------
         starlists.StarList() object (subclass of Astropy Table).
         """
-        t_ref = Table.read(filename, format='ascii', delimiter='\s')
+        t_ref = Table.read(filename, format='ascii', delimiter=r'\s')
 
         # Check if this already has column names:
         cols = t_ref.colnames
