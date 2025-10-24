@@ -1276,7 +1276,6 @@ class MosaicSelfRef(object):
                 boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
                 while len(np.unique(boot_idx)) < motion_boot_min_epochs:
                     boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
-                print(boot_idx)
                 t_boot = t_arr[boot_idx]
             
                 star_table = StarTable(name=ref_table['name'],
@@ -1302,8 +1301,6 @@ class MosaicSelfRef(object):
                 for col in motion_col_list:
                     motion_boot_sum[col] += star_table[col]
                     motion2_boot_sum[col] += star_table[col]**2
-                print(t_boot)
-                print(star_table[['vx','x0']])
 
                 # Quick check to make sure bootstrap calc was valid: output t0 should be
                 # same as input t0_arr, since we used fixed_t0 option
@@ -1321,7 +1318,6 @@ class MosaicSelfRef(object):
         y_err_b = np.sqrt((y2_boot_sum - 2*y_boot_mean*y_boot_sum + n_boot*y_boot_mean**2)/n_boot)
         m_boot_mean = m_boot_sum/n_boot
         m_err_b = np.sqrt((m2_boot_sum - 2*m_boot_mean*m_boot_sum + n_boot*m_boot_mean**2)/n_boot)
-        pdb.set_trace()
 
         motion_data_err = {}
         if calc_vel_in_bootstrap:
