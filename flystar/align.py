@@ -1127,15 +1127,15 @@ class MosaicSelfRef(object):
         else:
             idx_good = np.arange(0, len(ref_table), 1)
         idx_ref = np.where(ref_table['use_in_trans'] == True)
-
-        # Initialize output arrays
-        x_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        y_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        m_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        xe_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        ye_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        me_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-
+        
+        # Initialize sums for output
+        x_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        x2_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        y_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        y2_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        m_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        m2_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        
         # Set up motion model parameters
         motion_model_list = ['Fixed', self.default_motion_model]
         if 'motion_model_used' in ref_table.keys():
@@ -1144,9 +1144,11 @@ class MosaicSelfRef(object):
             motion_model_list += ref_table['motion_model_input'].tolist()
         motion_col_list = motion_model.get_list_motion_model_param_names(np.unique(motion_model_list).tolist(), with_errors=False, with_fixed=False)
         if calc_vel_in_bootstrap:
-            motion_data = {}
+            motion_boot_sum = {}
+            motion2_boot_sum = {}
             for col in motion_col_list:
-                motion_data[col] = np.ones((len(ref_table['x']), n_boot)) * -999
+                motion_boot_sum[col] = np.zeros((len(ref_table['x'])))
+                motion2_boot_sum[col] = np.zeros((len(ref_table['x'])))
 
         ### IF MEMORY PROBLEMS HERE:
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
@@ -1158,6 +1160,15 @@ class MosaicSelfRef(object):
             # reference stars. Use a loop for each epoch here, so we
             # can handle case where different reference stars are used
             # in different epochs
+            
+            # Initialize data arrays
+            x_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            y_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            m_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            xe_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            ye_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            me_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            
             for jj in range(n_epochs):
                 # Extract bootstrap sample of matched reference stars
                 good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
@@ -1236,13 +1247,20 @@ class MosaicSelfRef(object):
                     starlist_T.transform_xy(trans)
                     
                 # Add output to pos arrays
-                x_trans_arr[:,ii,jj] = starlist_T['x']
-                y_trans_arr[:,ii,jj] = starlist_T['y']
-                m_trans_arr[:,ii,jj] = starlist_T['m']
-                xe_trans_arr[:,ii,jj] = starlist_T['xe']
-                ye_trans_arr[:,ii,jj] = starlist_T['ye']
-                me_trans_arr[:,ii,jj] = starlist_T['me']
- 
+                x_trans_arr[:,jj] = starlist_T['x']
+                y_trans_arr[:,jj] = starlist_T['y']
+                m_trans_arr[:,jj] = starlist_T['m']
+                xe_trans_arr[:,jj] = starlist_T['xe']
+                ye_trans_arr[:,jj] = starlist_T['ye']
+                me_trans_arr[:,jj] = starlist_T['me']
+                
+            x_boot_sum += x_trans_arr
+            x2_boot_sum += x_trans_arr**2
+            y_boot_sum += y_trans_arr
+            y2_boot_sum += y_trans_arr**2
+            m_boot_sum += m_trans_arr
+            m2_boot_sum += m_trans_arr**2
+            
             t2 = time.time()
             #print('=================================================')
             #print('Time to do {0} epochs: {1}s'.format(n_epochs,  t2-t1))
@@ -1258,12 +1276,12 @@ class MosaicSelfRef(object):
                 t_boot = t_arr[boot_idx]
             
                 star_table = StarTable(name=ref_table['name'],
-                                        x=x_trans_arr[:,ii,boot_idx],
-                                        y=y_trans_arr[:,ii,boot_idx],
-                                        m=m_trans_arr[:,ii,boot_idx],
-                                        xe=xe_trans_arr[:,ii,boot_idx],
-                                        ye=ye_trans_arr[:,ii,boot_idx],
-                                        me=me_trans_arr[:,ii,boot_idx],
+                                        x=x_trans_arr[:,boot_idx],
+                                        y=y_trans_arr[:,boot_idx],
+                                        m=m_trans_arr[:,boot_idx],
+                                        xe=xe_trans_arr[:,boot_idx],
+                                        ye=ye_trans_arr[:,boot_idx],
+                                        me=me_trans_arr[:,boot_idx],
                                         t=np.tile(t_boot, (len(ref_table),1)))
 
                 # Now, do proper motion calculation, making sure to fix t0 to the
@@ -1278,7 +1296,8 @@ class MosaicSelfRef(object):
 
                 # Save proper motion fit results to output arrays
                 for col in motion_col_list:
-                    motion_data[col][:,ii] = star_table[col]
+                    motion_boot_sum[col] += star_table[col]
+                    motion2_boot_sum[col] += star_table[col]**2
 
                 # Quick check to make sure bootstrap calc was valid: output t0 should be
                 # same as input t0_arr, since we used fixed_t0 option
@@ -1290,15 +1309,20 @@ class MosaicSelfRef(object):
                 #print('=================================================')
 
         # Calculate the bootstrap error values.
-        x_err_b = np.std(x_trans_arr, ddof=1, axis=1)
-        y_err_b = np.std(y_trans_arr, ddof=1, axis=1)
-        m_err_b = np.std(m_trans_arr, ddof=1, axis=1)
+        x_boot_mean = x_boot_sum/n_boot
+        x_err_b = np.sqrt((x2_boot_sum - 2*x_boot_mean*x_boot_sum + n_boot*x_boot_mean**2)/n_boot)
+        y_boot_mean = y_boot_sum/n_boot
+        y_err_b = np.sqrt((y2_boot_sum - 2*y_boot_mean*y_boot_sum + n_boot*y_boot_mean**2)/n_boot)
+        m_boot_mean = m_boot_sum/n_boot
+        m_err_b = np.sqrt((m2_boot_sum - 2*m_boot_mean*m_boot_sum + n_boot*m_boot_mean**2)/n_boot)
         #pdb.set_trace()
 
         motion_data_err = {}
         if calc_vel_in_bootstrap:
             for col in motion_col_list:
-                motion_data_err[col] = np.nanstd(motion_data[col], ddof=1,axis=1)
+                mot_boot_mean = motion_boot_sum[col]/n_boot
+                motion_data_err[col] = np.sqrt((motion2_boot_sum[col] -
+                    2*mot_boot_mean*motion_boot_sum[col] + n_boot*mot_boot_mean**2)/n_boot)
         else:
             for col in motion_col_list:
                 motion_data_err[col] = np.nan
