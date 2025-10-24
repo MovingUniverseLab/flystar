@@ -1149,6 +1149,8 @@ class MosaicSelfRef(object):
             for col in motion_col_list:
                 motion_boot_sum[col] = np.zeros((len(ref_table['x'])))
                 motion2_boot_sum[col] = np.zeros((len(ref_table['x'])))
+        motion_boot_min_epochs = np.max([self.motion_model_dict[mod].n_pts_req
+                                    for mod in np.unique(motion_model_list)])
 
         ### IF MEMORY PROBLEMS HERE:
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
@@ -1270,9 +1272,10 @@ class MosaicSelfRef(object):
             # for each star, if desired. Draw a full-sample bootstrap over the epochs
             # for each star, and then run it through the startable fit_velocities machinery
             if calc_vel_in_bootstrap:
-                # TODO: consider confirming we reach some threshold of unique time values here?
-                # TODO: Like, grab n_pts needed for the default motion model maybe
                 boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
+                while len(np.unique(boot_idx)) < motion_boot_min_epochs:
+                    boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
+                print(boot_idx)
                 t_boot = t_arr[boot_idx]
             
                 star_table = StarTable(name=ref_table['name'],
@@ -1298,6 +1301,8 @@ class MosaicSelfRef(object):
                 for col in motion_col_list:
                     motion_boot_sum[col] += star_table[col]
                     motion2_boot_sum[col] += star_table[col]**2
+                print(t_boot)
+                print(star_table[['vx','x0']])
 
                 # Quick check to make sure bootstrap calc was valid: output t0 should be
                 # same as input t0_arr, since we used fixed_t0 option
@@ -1315,7 +1320,7 @@ class MosaicSelfRef(object):
         y_err_b = np.sqrt((y2_boot_sum - 2*y_boot_mean*y_boot_sum + n_boot*y_boot_mean**2)/n_boot)
         m_boot_mean = m_boot_sum/n_boot
         m_err_b = np.sqrt((m2_boot_sum - 2*m_boot_mean*m_boot_sum + n_boot*m_boot_mean**2)/n_boot)
-        #pdb.set_trace()
+        pdb.set_trace()
 
         motion_data_err = {}
         if calc_vel_in_bootstrap:
