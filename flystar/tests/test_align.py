@@ -1141,6 +1141,7 @@ def test_bootstrap():
     assert np.sum(np.isnan(match1.ref_table['ye_boot'])) == 0
     assert np.sum(np.isnan(match1.ref_table['vx_err_boot'])) == 0
     assert np.sum(np.isnan(match1.ref_table['vy_err_boot'])) == 0
+    #pdb.set_trace()
 
     # Test 2: make sure boot_epochs_min is working
     # Eliminate some rows to list2, so some stars are only in 1 epoch.
