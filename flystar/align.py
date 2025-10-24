@@ -1260,8 +1260,9 @@ class MosaicSelfRef(object):
             x2_boot_sum += x_trans_arr**2
             y_boot_sum += y_trans_arr
             y2_boot_sum += y_trans_arr**2
-            m_boot_sum += m_trans_arr
-            m2_boot_sum += m_trans_arr**2
+            if self.mag_trans:
+                m_boot_sum += m_trans_arr
+                m2_boot_sum += m_trans_arr**2
             
             t2 = time.time()
             #print('=================================================')
