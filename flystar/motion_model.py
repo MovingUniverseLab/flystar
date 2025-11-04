@@ -430,20 +430,19 @@ class Parallax(MotionModel):
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         pvec = self.get_parallax_vector(t_mjd)
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
-        def fit_func(t, x0,vx, y0,vy, pi):
-            use_t = t[:int(len(t)/2)]
+        def fit_func(use_t, x0,vx, y0,vy, pi):
             x_res = x0 + vx*(use_t-t0) + pi*pvec[0]
             y_res = y0 + vy*(use_t-t0) + pi*pvec[1]
-            return np.append(x_res, y_res)
+            return np.hstack([x_res, y_res])
         # Initial guesses, x0,y0 as x,y averages;
         #     vx,vy as average velocity if first and last points are perfectly measured;
         #     pi for 10 pc disance
         if params_guess is None:
             idx_first, idx_last = np.argmin(t), np.argmax(t)
             params_guess = [x.mean(),(x[idx_last]-x[idx_first])/(t[idx_last]-t[idx_first]),
-                            y.mean(),(y[idx_last]-y[idx_first])/(t[idx_last]-t[idx_first]), 1]
-        res = curve_fit(fit_func, np.append(t,t), np.append(x,y),
-                        p0=params_guess, sigma = 1.0/np.append(x_wt,y_wt))
+                            y.mean(),(y[idx_last]-y[idx_first])/(t[idx_last]-t[idx_first]), 0.1]
+        res = curve_fit(fit_func, t, np.hstack([x,y]),
+                        p0=params_guess, sigma = 1.0/np.hstack([x_wt,y_wt]))
         x0,vx,y0,vy,pi = res[0]
         x0_err,vx_err,y0_err,vy_err,pi_err = self.scale_errors(np.sqrt(np.diag(res[1])), weighting=weighting)
 

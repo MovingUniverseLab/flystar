@@ -137,10 +137,12 @@ class MosaicSelfRef(object):
             Dict of motion model name keys (strings) and corresponding MotionModel object values
 
         use_scipy : bool, optional
-            If True, use scipy.optimize.curve_fit for velocity fitting. If False, use linear algebra fitting, by default True.
+            If True, use scipy.optimize.curve_fit for velocity fitting. If False, use linear
+            algebra fitting of posible, by default True.
 
         absolute_sigma : bool, optional
-            If True, the velocity fit will use absolute errors in the data. If False, relative errors will be used, by default False.
+            If True, the velocity fit will use absolute errors in the data. If False, relative
+            errors will be used, by default False.
 
         save_path : str, optional
             Path to save the MosaicSelfRef object as a pickle file.
