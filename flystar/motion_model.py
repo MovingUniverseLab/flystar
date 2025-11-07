@@ -129,14 +129,15 @@ class Fixed(MotionModel):
     A non-moving motion model for a star on the sky.
     """
     
+    n_pts_req = 1
+    n_params = 1
+    fitter_param_names = ['x0','y0']
+    fixed_param_names = []
+
     def __init__(self, **kwargs):
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
-        self.n_pts_req = 1
-        self.n_params = 1
-        self.fitter_param_names = ['x0','y0']
-        self.fixed_param_names = []
         return
         
     def get_pos_at_time(self, fit_params, fixed_params, t):
@@ -200,17 +201,19 @@ class Linear(MotionModel):
     """
     A 2D linear motion model for a star on the sky.
     """
+    
+    n_pts_req = 2
+    n_params = 2
+    fitter_param_names = ['x0', 'vx', 'y0', 'vy']
+    fixed_param_names = ['t0']
+
     def __init__(self, **kwargs):
         
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
-        self.n_pts_req = 2
-        self.n_params = 2
-        self.fitter_param_names = ['x0', 'vx', 'y0', 'vy']
-        self.fixed_param_names = ['t0']
         return
-        
+
     def get_pos_at_time(self, fit_params, fixed_params, t):
         fit_params_dict = dict(zip(self.fitter_param_names, fit_params))
         fixed_params_dict = dict(zip(self.fixed_param_names, fixed_params))
@@ -316,15 +319,16 @@ class Acceleration(MotionModel):
     """
     A 2D accelerating motion model for a star on the sky.
     """
+    n_pts_req = 4 # TODO: consider special case for 3 pts
+    n_params = 3
+    fitter_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
+    fixed_param_names = ['t0']
+    
     def __init__(self, x0=0, vx0=0, ax=0, y0=0, vy0=0, ay=0, t0=None,
                             x0_err=0, vx0_err=0, ax_err=0, y0_err=0, vy0_err=0, ay_err=0, **kwargs):
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
-        self.n_pts_req = 4 # TODO: consider special case for 3 pts
-        self.n_params = 3
-        self.fitter_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
-        self.fixed_param_names = ['t0']
         return
         
     def get_pos_at_time(self, fit_params, fixed_params, t):
@@ -396,17 +400,19 @@ class Parallax(MotionModel):
     Optional PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describes observer location, default is 'earth'.
     """
+    
+    n_pts_req = 4
+    n_params = 3
+    fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
+    fixed_param_names = ['t0']
+    fixed_meta_data = ['RA','Dec','PA','obs']
+    
     def __init__(self, RA, Dec, PA=0.0, obs='earth', **kwargs):
         self.RA = RA
         self.Dec = Dec
         self.PA = PA
         self.obs = obs
         self.plx_vector_cached = None
-        self.n_pts_req = 4
-        self.n_params = 3
-        self.fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
-        self.fixed_param_names = ['t0']
-        self.fixed_meta_data = ['RA','Dec','PA','obs']
         return
         
     def get_parallax_vector(self, t_mjd):
@@ -549,11 +555,19 @@ Get all the motion model parameters for all models given in motion_model_list.
 Optionally, include fixed and error parameters (included by default).
 """
 def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_fixed=True):
+    motion_model_map = {
+        'Fixed': Fixed,
+        'Linear': Linear,
+        'Acceleration': Acceleration,
+        'Parallax': Parallax
+    }
+    
     list_of_parameters = []
-    all_motion_models = [eval(mm) for mm in np.unique(motion_model_list).tolist()]
-    for aa in range(len(all_motion_models)):
-        param_names = getattr(all_motion_models[aa], 'fitter_param_names')
-        param_fixed_names = getattr(all_motion_models[aa], 'fixed_param_names')
+    # all_motion_models = [eval(mm) for mm in np.unique(motion_model_list).tolist()]
+    for mm in range(len(motion_model_list)):
+        motion_model = motion_model_map[motion_model_list[mm]]
+        param_names = motion_model.fitter_param_names
+        param_fixed_names = motion_model.fixed_param_names
         param_err_names = [par+'_err' for par in param_names]
 
         list_of_parameters += param_names
