@@ -2341,7 +2341,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, motion_model_dict={}, xlim=40, n_bin
     return
 
 
-def plot_chi2_dist_per_epoch(tab, Ndetect, motion_model_dict={}, mlim=[14,21], ylim = [-1, 1], target_idx = 0, boot_err=False):
+def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_idx = 0, motion_model_dict={}, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in

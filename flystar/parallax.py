@@ -1,3 +1,6 @@
+# Parallax calculation module for motion models involving parallax
+# Adapted from BAGLE's parallax.py
+
 import math
 
 import numpy as np
