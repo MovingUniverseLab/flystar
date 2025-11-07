@@ -41,8 +41,13 @@ class MotionModel(ABC):
         #return x, y, x_err, y_err
         pass
         
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var',
-                            use_scipy=True, absolute_sigma=True):
+    def run_fit(
+        self, t, x, y, xe, ye, t0, 
+        weighting='var',
+        use_scipy=True, 
+        absolute_sigma=True, 
+        fill_value=np.inf
+    ):
         # Run a single fit (used both for overall fit + bootstrap iterations)
         pass
         
@@ -54,37 +59,43 @@ class MotionModel(ABC):
         else:
             warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
             return 1./xe**2, 1./ye**2
-            
-    def scale_errors(self, errs, weighting='var'):
-        if weighting=='std':
-            return np.array(errs)**2
-        elif weighting=='var':
-            return errs
-        else:
-            warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
-            return errs
 
-    def fit_motion_model(self, t, x, y, xe, ye, t0, bootstrap=0, weighting='var',
-                            use_scipy=True, absolute_sigma=True):
+    def fit_motion_model(
+        self, t, x, y, xe, ye, t0, 
+        bootstrap=0, 
+        weighting='var',
+        use_scipy=True, 
+        absolute_sigma=True,
+        fill_value=np.inf,
+        rng=None
+    ):
         """
         Fit the input positions on the sky and errors
         to determine new parameters for this motion model (MM).
         Best-fit parameters will be returned along with uncertainties.
         """
-        params, param_errs = self.run_fit(t, x, y, xe, ye, t0=t0, weighting=weighting,
-                                            use_scipy=use_scipy, absolute_sigma=absolute_sigma)
-        
-        if bootstrap>0 and len(x)>(self.n_pts_req):
+        params, param_errs, chi2x, chi2y = self.run_fit(
+            t, x, y, xe, ye, t0=t0, 
+            weighting=weighting,
+            use_scipy=use_scipy, 
+            absolute_sigma=absolute_sigma,
+            fill_value=fill_value
+        )
+
+        if bootstrap > 0 and len(x) > (self.n_pts_req):
             edx = np.arange(len(x), dtype=int)
             bb_params = []
             bb_params_errs = []
             for bb in range(bootstrap):
-                bdx = np.random.choice(edx, len(x))
-                while len(np.unique(bdx))<self.n_pts_req:
-                    bdx = np.random.choice(edx, len(x))
-                params_bdx, param_errs_bdx = self.run_fit(t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], t0=t0,
-                    weighting=weighting, params_guess=params,
-                    use_scipy=use_scipy, absolute_sigma=absolute_sigma)
+                bdx = np.random.choice(edx, len(x), replace=False)
+                params_bdx, param_errs_bdx, chi2x_bdx, chi2y_bdx = self.run_fit(
+                    t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], t0=t0,
+                    weighting=weighting, 
+                    use_scipy=use_scipy, 
+                    absolute_sigma=absolute_sigma, 
+                    params_guess=params, 
+                    fill_value=fill_value
+                )
                 bb_params.append(params_bdx)
                 bb_params_errs.append(param_errs_bdx)
         
@@ -94,8 +105,8 @@ class MotionModel(ABC):
             # Account for odd case
             inf_errs = [np.all(arr==np.inf) for arr in np.transpose(np.array(bb_params_errs))]
             param_errs[inf_errs] = 0.0
-        
-        return params, param_errs
+
+        return params, param_errs, chi2x, chi2y
 
     def get_chi2(self, fit_params, fixed_params, t, x, y, xe, ye, reduced=False):
         """
@@ -103,28 +114,29 @@ class MotionModel(ABC):
         the input data.
         """
         x_pred, y_pred = self.get_pos_at_time(fit_params, fixed_params, t)
-        chi2x = np.sum((x-x_pred)**2 / xe**2)
-        chi2y = np.sum((y-y_pred)**2 / ye**2)
+        chi2x = np.sum((x - x_pred)**2 / xe**2)
+        chi2y = np.sum((y - y_pred)**2 / ye**2)
         if reduced:
-            if len(t)==self.n_params:
-                chi2x, chi2y = 0,0
+            if len(t) == self.n_params:
+                chi2x, chi2y = 0, 0
             else:
-                chi2x, chi2y = chi2x/(len(x)-self.n_params), chi2y/(len(x)-self.n_params)
-        return chi2x,chi2y
+                dof = len(x) - self.n_params
+                chi2x, chi2y = chi2x / dof, chi2y / dof
+        return chi2x, chi2y
 
 class Fixed(MotionModel):
     """
     A non-moving motion model for a star on the sky.
     """
-    n_pts_req = 1
-    n_params=1
-    fitter_param_names = ['x0','y0']
-    fixed_param_names = []
     
     def __init__(self, **kwargs):
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
+        self.n_pts_req = 1
+        self.n_params = 1
+        self.fitter_param_names = ['x0','y0']
+        self.fixed_param_names = []
         return
         
     def get_pos_at_time(self, fit_params, fixed_params, t):
@@ -142,40 +154,61 @@ class Fixed(MotionModel):
         else:
             return x0,y0,x0_err,y0_err
             
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
-                            use_scipy=True, absolute_sigma=True):
+    def run_fit(
+            self, t, x, y, xe, ye, t0, 
+            weighting='var', 
+            use_scipy=True, 
+            absolute_sigma=True,
+            params_guess=None,
+            fill_value=np.inf
+    ):
         if not use_scipy:
             Warning("Fixed model has no non-scipy fitter option. Running with scipy.")
         # Handle single data point case
         if len(x)==1:
-            x0,y0,x0e,y0e = x[0],y[0],xe[0],ye[0]
+            x0, y0, x0e, y0e = x[0], y[0], xe[0], ye[0]
     
         else:
-            x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
+            x_wt, y_wt = self.get_weights(xe, ye, weighting=weighting)
             x0 = np.average(x, weights=x_wt)
-            x0e = np.sqrt(np.average((x-x0)**2,weights=x_wt))
+            x0e = np.sqrt(np.average((x - x0)**2, weights=x_wt))
             y0 = np.average(y, weights=y_wt)
-            y0e = np.sqrt(np.average((y-y0)**2,weights=y_wt))
+            y0e = np.sqrt(np.average((y - y0)**2, weights=y_wt))
+
+        params = np.array([x0, y0])
+        param_errors = np.array([x0e, y0e])
         
-        params = [x0, y0]
-        param_errors = [x0e, y0e]
-        
-        return params, param_errors
-        
+        chi2x, chi2y = self.get_chi2(params, [], t, x, y, xe, ye)
+        degree_of_freedom = len(x) - 1
+        if not absolute_sigma:
+            if degree_of_freedom > 0:
+                reduced_chi2x = chi2x / degree_of_freedom
+                reduced_chi2y = chi2y / degree_of_freedom
+
+                param_errors[0] *= reduced_chi2x**0.5
+                param_errors[1] *= reduced_chi2y**0.5
+            else:
+                warnings.warn(
+                    f'Degree of freedom <= 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value {fill_value}.',
+                    OptimizeWarning, stacklevel=2
+                )
+                param_errors = np.full_like(param_errors, fill_value)
+
+        return params, param_errors, chi2x, chi2y
+
 class Linear(MotionModel):
     """
     A 2D linear motion model for a star on the sky.
     """
-    n_pts_req = 2
-    n_params=2
-    fitter_param_names = ['x0', 'vx', 'y0', 'vy']
-    fixed_param_names = ['t0']
-    
     def __init__(self, **kwargs):
         
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
+        self.n_pts_req = 2
+        self.n_params = 2
+        self.fitter_param_names = ['x0', 'vx', 'y0', 'vy']
+        self.fixed_param_names = ['t0']
         return
         
     def get_pos_at_time(self, fit_params, fixed_params, t):
@@ -183,7 +216,7 @@ class Linear(MotionModel):
         fixed_params_dict = dict(zip(self.fixed_param_names, fixed_params))
         dt = t-fixed_params_dict['t0']
         return fit_params_dict['x0'] + fit_params_dict['vx']*dt, fit_params_dict['y0'] + fit_params_dict['vy']*dt
-        
+
     def get_batch_pos_at_time(self, t, x0=[],vx=[], y0=[],vy=[], t0=[],
                 x0_err=[],vx_err=[], y0_err=[],vy_err=[], **kwargs):
         if hasattr(t, "__len__"):
@@ -200,113 +233,98 @@ class Linear(MotionModel):
             y_err = np.hypot(y0_err, vy_err*dt)
         return x,y,x_err,y_err
 
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
-                            use_scipy=True, absolute_sigma=True):
-        dt = t-t0
-        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
+    def run_fit(
+            self, t, x, y, xe, ye, t0, 
+            weighting='var', 
+            use_scipy=True, 
+            absolute_sigma=True,
+            params_guess=None,
+            fill_value=np.inf
+    ):
+        dt = t - t0
+        x_wt, y_wt = self.get_weights(xe, ye, weighting=weighting)
         if params_guess is None:
-            params_guess = [x.mean(),0.0,y.mean(),0.0]
+            params_guess = [x.mean(), 0., y.mean(), 0.]
 
-        # Handle 2-data point case
-        if len(np.unique(dt))==2:
-            if len(x)>2: # Catch case where bootstrap sends only 2 unique epochs
-                _,idx=np.unique(dt, return_index=True)
-                dt = dt[idx]
-                x = x[idx]
-                y = y[idx]
-                xe = xe[idx]
-                ye = ye[idx]
-            dx = np.diff(x)[0]
-            dy = np.diff(y)[0]
-            dt_diff = np.diff(dt)[0]
-            vx = dx / dt_diff
-            vy = dy / dt_diff
-            # TODO: still not sure about the error handling here
-            x0 = x[0] - dt[0]*vx # np.average(x, weights=x_wt) #
-            y0 = y[0] - dt[0]*vy # np.average(y, weights=y_wt) #
-            x0e = np.abs(dx) / 2**0.5 # np.sqrt(np.sum(xe**2)/2) #
-            y0e = np.abs(dy) / 2**0.5 # np.sqrt(np.sum(ye**2)/2) #
-            vxe = 0.0 #np.abs(vx) * np.sqrt(np.sum(xe**2/x**2))
-            vye = 0.0 #np.abs(vy) * np.sqrt(np.sum(ye**2/y**2))
+        if use_scipy:
+            def linear(t, c0, c1):
+                return c0 + c1*t
+            x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=1/np.sqrt(x_wt), absolute_sigma=absolute_sigma)
+            y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=1/np.sqrt(y_wt), absolute_sigma=absolute_sigma)
+            x0, vx = x_opt
+            y0, vy = y_opt
+            x0e, vxe = np.sqrt(x_cov.diagonal())
+            y0e, vye = np.sqrt(y_cov.diagonal())
+            params = np.array([x0, vx, y0, vy])
+            param_errors = np.array([x0e, vxe, y0e, vye])
+            chi2_x, chi2_y = self.get_chi2(params, [t0], t, x, y, xe, ye)
+            
         else:
-            if use_scipy:
-                def linear(t, c0, c1):
-                    return c0 + c1*t
-                x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=1/np.sqrt(x_wt), absolute_sigma=absolute_sigma)
-                y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=1/np.sqrt(y_wt), absolute_sigma=absolute_sigma)
-                x0, vx = x_opt
-                y0, vy = y_opt
-                x0e, vxe = np.sqrt(x_cov.diagonal())
-                y0e, vye = np.sqrt(y_cov.diagonal())
-                x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
-            else:
-                # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution scheme
-                x = np.array(x)
-                y = np.array(y)
-                dt = np.array(dt)
-                X_mat_t = np.vander(dt, 2)
-                # x calculation
-                W_mat_x = np.diag(x_wt)
-                XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
-                pcov_x = np.linalg.inv(XTWX_mat_x)  # Covariance Matrix
-                popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
-                perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
-                # y calculation
-                W_mat_y = np.diag(y_wt)
-                XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t
-                pcov_y = np.linalg.inv(XTWX_mat_y)  # Covariance Matrix
-                popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
-                perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
-                # prepare values to return
-                vx, x0 = popt_x
-                vy, y0 = popt_y
-                vxe, x0e = perr_x
-                vye, y0e = perr_y
-                x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
-                
-                residual_x = x - X_mat_t @ popt_x
-                residual_y = y - X_mat_t @ popt_y
-                
-                chi2_x = residual_x.T @ W_mat_x @ residual_x
-                chi2_y = residual_y.T @ W_mat_y @ residual_y
-                
-                if not absolute_sigma:
-                    degree_of_freedom = len(x) - 2
-                    if degree_of_freedom > 0:
-                        reduced_chi2_x = chi2_x/(len(x) - 2)
-                        reduced_chi2_y = chi2_y/(len(x) - 2)
-                        x0e *= reduced_chi2_x**0.5
-                        y0e *= reduced_chi2_y**0.5
-                        vxe *= reduced_chi2_x**0.5
-                        vye *= reduced_chi2_y**0.5
-                    else:
-                        warnings.warn(
-                            "Degree of freedom <= 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to infinity.",
-                            OptimizeWarning, stacklevel=2
-                        )
-                        x0e *= np.inf
-                        y0e *= np.inf
-                        vxe *= np.inf
-                        vye *= np.inf
-        params = [x0, vx, y0, vy]
-        param_errors = [x0e, vxe, y0e, vye]
-        return params, param_errors
-        
-        
+            # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution scheme
+            x = np.array(x)
+            y = np.array(y)
+            dt = np.array(dt)
+            X_mat_t = np.vander(dt, 2)
+            # x calculation
+            W_mat_x = np.diag(x_wt)
+            XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
+            pcov_x = np.linalg.inv(XTWX_mat_x)  # Covariance Matrix
+            popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
+            perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
+            # y calculation
+            W_mat_y = np.diag(y_wt)
+            XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t
+            pcov_y = np.linalg.inv(XTWX_mat_y)  # Covariance Matrix
+            popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
+            perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
+            # prepare values to return
+            vx, x0 = popt_x
+            vy, y0 = popt_y
+            vxe, x0e = perr_x
+            vye, y0e = perr_y
+
+            # Does not use get_chi2 to accelerate calculation
+            residual_x = x - X_mat_t @ popt_x
+            residual_y = y - X_mat_t @ popt_y
+            
+            
+            chi2_x = residual_x.T @ W_mat_x @ residual_x
+            chi2_y = residual_y.T @ W_mat_y @ residual_y
+
+            params = np.array([x0, vx, y0, vy])
+            param_errors = np.array([x0e, vxe, y0e, vye])
+
+            if not absolute_sigma:
+                degree_of_freedom = len(x) - 2
+                if degree_of_freedom > 0:
+                    reduced_chi2_x = chi2_x/(len(x) - 2)
+                    reduced_chi2_y = chi2_y/(len(x) - 2)
+                    
+                    param_errors[0:2] *= reduced_chi2_x**0.5
+                    param_errors[2:4] *= reduced_chi2_y**0.5
+
+                else:
+                    warnings.warn(
+                        f'Degree of freedom <= 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value {fill_value}.',
+                        OptimizeWarning, stacklevel=2
+                    )
+                    param_errors = np.full_like(param_errors, fill_value)
+
+        return params, param_errors, chi2_x, chi2_y
+
 class Acceleration(MotionModel):
     """
     A 2D accelerating motion model for a star on the sky.
     """
-    n_pts_req = 4 # TODO: consider special case for 3 pts
-    n_params=3
-    fitter_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
-    fixed_param_names = ['t0']
-    
     def __init__(self, x0=0, vx0=0, ax=0, y0=0, vy0=0, ay=0, t0=None,
                             x0_err=0, vx0_err=0, ax_err=0, y0_err=0, vy0_err=0, ay_err=0, **kwargs):
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
+        self.n_pts_req = 4 # TODO: consider special case for 3 pts
+        self.n_params = 3
+        self.fitter_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
+        self.fixed_param_names = ['t0']
         return
         
     def get_pos_at_time(self, fit_params, fixed_params, t):
@@ -334,18 +352,24 @@ class Acceleration(MotionModel):
             y_err = np.sqrt(y0_err**2 + (vy0_err*dt)**2 + (0.5*ay_err*dt**2)**2)
         return x,y,x_err,y_err
 
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
-                            use_scipy=True, absolute_sigma=True):
+    def run_fit(
+        self, t, x, y, xe, ye, t0, 
+        weighting='var', 
+        use_scipy=True, 
+        absolute_sigma=True, 
+        params_guess=None,
+        fill_value=np.inf
+    ):
         if not use_scipy:
             Warning("Acceleration model has no non-scipy fitter option. Running with scipy.")
-        dt = t-t0
+        dt = t - t0
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
         if params_guess is None:
-            params_guess = [x.mean(),0.0,0.0,y.mean(),0.0,0.0]
-            
-        def accel(t, c0,c1,c2):
+            params_guess = [x.mean(), 0., 0., y.mean(), 0., 0.]
+
+        def accel(t, c0, c1, c2):
             return c0 + c1*t + 0.5*c2*t**2
-            
+
         x_opt, x_cov = curve_fit(accel, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=True)
         y_opt, y_cov = curve_fit(accel, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=True)
         x0 = x_opt[0]
@@ -354,14 +378,13 @@ class Acceleration(MotionModel):
         vy0 = y_opt[1]
         ax = x_opt[2]
         ay = y_opt[2]
-        
+
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
         y0e, vy0e, aye = np.sqrt(y_cov.diagonal())
-        x0e, vx0e, axe, y0e, vy0e, aye = self.scale_errors([x0e, vx0e, axe, y0e, vy0e, aye], weighting=weighting)
 
         params = [x0, vx0, ax, y0, vy0, ay]
         param_errors = [x0e, vx0e, axe, y0e, vy0e, aye]
-        
+
         return params, param_errors
 
 class Parallax(MotionModel):
@@ -373,18 +396,17 @@ class Parallax(MotionModel):
     Optional PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describes observer location, default is 'earth'.
     """
-    n_pts_req = 4
-    n_params=3
-    fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
-    fixed_param_names = ['t0']
-    fixed_meta_data = ['RA','Dec','PA','obs']
-
     def __init__(self, RA, Dec, PA=0.0, obs='earth', **kwargs):
         self.RA = RA
         self.Dec = Dec
         self.PA = PA
         self.obs = obs
         self.plx_vector_cached = None
+        self.n_pts_req = 4
+        self.n_params = 3
+        self.fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
+        self.fixed_param_names = ['t0']
+        self.fixed_meta_data = ['RA','Dec','PA','obs']
         return
         
     def get_parallax_vector(self, t_mjd):
@@ -411,7 +433,7 @@ class Parallax(MotionModel):
     def get_pos_at_time(self, fit_params, fixed_params, t):
         fit_params_dict = dict(zip(self.fitter_param_names, fit_params))
         fixed_params_dict = dict(zip(self.fixed_param_names, fixed_params))
-        dt = t-fixed_params_dict['t0']
+        dt = t - fixed_params_dict['t0']
         
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         pvec = self.get_parallax_vector(t_mjd)
@@ -420,7 +442,7 @@ class Parallax(MotionModel):
         x = fit_params_dict['x0'] + fit_params_dict['vx']*dt + fit_params_dict['pi']*pvec_x
         y = fit_params_dict['y0'] + fit_params_dict['vy']*dt + fit_params_dict['pi']*pvec_y
         return x, y
-        
+
     def get_batch_pos_at_time(self, t,
                                 x0=[],vx=[], y0=[],vy=[], pi=[], t0=[],
                                 x0_err=[],vx_err=[], y0_err=[],vy_err=[], pi_err=[], **kwargs):
@@ -446,8 +468,14 @@ class Parallax(MotionModel):
                 x_err,y_err = [],[]
         return x,y,x_err,y_err
 
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
-                            use_scipy=True, absolute_sigma=True):
+    def run_fit(
+        self, t, x, y, xe, ye, t0, 
+        weighting='var', 
+        use_scipy=True, 
+        absolute_sigma=True, 
+        params_guess=None, 
+        fill_value=np.inf
+    ):
         if not use_scipy:
             Warning("Parallax model has no non-scipy fitter option. Running with scipy.")
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
@@ -467,8 +495,8 @@ class Parallax(MotionModel):
                             y.mean(),(y[idx_last]-y[idx_first])/(t[idx_last]-t[idx_first]), 1]
         res = curve_fit(fit_func, np.append(t,t), np.append(x,y),
                         p0=params_guess, sigma = 1.0/np.append(x_wt,y_wt))
-        x0,vx,y0,vy,pi = res[0]
-        x0_err,vx_err,y0_err,vy_err,pi_err = self.scale_errors(np.sqrt(np.diag(res[1])), weighting=weighting)
+        x0, vx, y0, vy, pi = res[0]
+        x0_err, vx_err, y0_err, vy_err, pi_err = np.sqrt(np.diag(res[1]))
 
         params = [x0, vx, y0, vy, pi]
         param_errors = [x0_err, vx_err, y0_err, vy_err, pi_err]
@@ -498,7 +526,7 @@ def validate_motion_model_dict(motion_model_dict, startable, default_motion_mode
                 raise ValueError(f"Cannot use {mm} motion model without required metadata. Please initialize with required metadata and provide in motion_model_dict.")
             else:
                 motion_model_dict[mm] = mm_obj()
-                warnings.warn(f"Using default model/fitter for {mm}.", UserWarning)
+                # warnings.warn(f"Using default model/fitter for {mm}.", UserWarning)
 
     return motion_model_dict
     
