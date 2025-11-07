@@ -845,13 +845,13 @@ class StarTable(Table):
         fixed_params = [self[par][ss] for par in mod.fixed_param_names]
 
         # Fit for the best parameters
-        params, param_errs = mod.fit_motion_model(t, x, y, xe, ye, t0, bootstrap=bootstrap,
+        params, param_errs, chi2_x, chi2_y = mod.fit_motion_model(t, x, y, xe, ye, t0, bootstrap=bootstrap,
                                         weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma)
-        chi2_x,chi2_y = mod.get_chi2(params,fixed_params, t,x,y,xe,ye)
+        # chi2_x,chi2_y = mod.get_chi2(params,fixed_params, t,x,y,xe,ye)
         self['chi2_x'][ss]=chi2_x
         self['chi2_y'][ss]=chi2_y
         self['n_params'][ss] = mod.n_params
-                
+
         # Save parameters and errors to table.
         for pp in range(len(mod.fitter_param_names)):
             par = mod.fitter_param_names[pp]
