@@ -241,15 +241,15 @@ class MosaicSelfRef(object):
     def fix_iterable_conditions(self):
         if not np.iterable(self.dr_tol):
             self.dr_tol = np.repeat(self.dr_tol, self.iters)
-        assert len(self.dr_tol) == self.iters
+        assert len(self.dr_tol) == self.iters, f'len(dr_tol)={len(self.dr_tol)} != iters={self.iters}'
 
         if not np.iterable(self.dm_tol):
             self.dm_tol = np.repeat(self.dm_tol, self.iters)
-        assert len(self.dm_tol) == self.iters
+        assert len(self.dm_tol) == self.iters, f'len(dm_tol)={len(self.dm_tol)} != iters={self.iters}'
 
         if not np.iterable(self.outlier_tol):
             self.outlier_tol = np.repeat(self.outlier_tol, self.iters)
-        assert len(self.outlier_tol) == self.iters
+        assert len(self.outlier_tol) == self.iters, f'len(outlier_tol)={len(self.outlier_tol)} != iters={self.iters}'
 
         if self.mag_lim is None:
             self.mag_lim = np.repeat([[None, None]], len(self.star_lists), axis=0)
@@ -367,6 +367,10 @@ class MosaicSelfRef(object):
         if self.iter_callback != None:
             self.iter_callback(self.ref_table, nn)
         
+        # Add times into ref_table meta data
+        complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in self.ref_table['t'].T])
+        self.ref_table.meta['LIST_TIMES'] = complete_times
+
         if self.save_path:
             with open(self.save_path, 'wb') as file:
                 pickle.dump(self, file)
@@ -504,7 +508,7 @@ class MosaicSelfRef(object):
                                      dy=(star_t['y'] - star_r['y']) * 1e3,
                                      dm=(star_t['m'] - star_r['m']),
                                      xo=star_s['x'], yo=star_s['y'], mo=star_s['m']))
-                    
+
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
@@ -515,7 +519,8 @@ class MosaicSelfRef(object):
 
             ## Make plot, if desired
             plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                  fileName='{0}'.format(star_list_T['t'][0]))
+                                  save_path=f"{self.save_path}/Transformed_Positions_{star_list_T['t'][0]}.png" if self.save_path else None,
+                                  show_plot=False)
 
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
@@ -1424,7 +1429,7 @@ class MosaicToRef(MosaicSelfRef):
             If different from None, it indicates the minimum and maximum magnitude
             on the catalogs for finding the transformations. Note, if you want specify the mag_lim
             separately for each list and each iteration, you need to pass in a 2D array that
-            has shape (N_lists, 2).
+            has shape (N_lists, N_iters).
 
         ref_mag_lim : array
             If different from None, it indicates the minimum and maximum magnitude
@@ -2485,7 +2490,7 @@ def transform_from_object(starlist, transform):
     keys = list(starlist.keys())
 
     # Check to see if velocities or motion_model are present in starlist.
-    vel = ('vx' in keys)and ~("motion_model_input" in keys)
+    vel = ('vx' in keys) and ("motion_model_input" not in keys)
     mot = ("motion_model_input" in keys)
     # If the only motion models used are Fixed and Linear, we can still transform velocities.
     if mot:
