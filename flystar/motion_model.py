@@ -50,16 +50,7 @@ class MotionModel(ABC):
     ):
         # Run a single fit (used both for overall fit + bootstrap iterations)
         pass
-    
-    def get_sigma(self, xe, ye, weighting='var'):
-        if weighting=='std':
-            return xe**0.5, ye**0.5
-        elif weighting=='var':
-            return xe, ye
-        else:
-            warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
-            return xe, ye
-    
+
     def get_weights(self, xe, ye, weighting='var'):
         if weighting=='std':
             return 1./xe, 1./ye
@@ -255,15 +246,15 @@ class Linear(MotionModel):
             fill_value=np.inf
     ):
         dt = t - t0
-        sigma_x, sigma_y = self.get_sigma(xe, ye, weighting=weighting)
+        x_wt, y_wt = self.get_weights(xe, ye, weighting=weighting)
         if params_guess is None:
             params_guess = [x.mean(), 0., y.mean(), 0.]
 
         if use_scipy:
             def linear(t, c0, c1):
                 return c0 + c1*t
-            x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=sigma_x, absolute_sigma=absolute_sigma)
-            y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=sigma_y, absolute_sigma=absolute_sigma)
+            x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma)
+            y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma)
             x0, vx = x_opt
             y0, vy = y_opt
             x0e, vxe = np.sqrt(x_cov.diagonal())
@@ -279,13 +270,13 @@ class Linear(MotionModel):
             dt = np.array(dt)
             X_mat_t = np.vander(dt, 2)
             # x calculation
-            W_mat_x = np.diag(1 / sigma_x**2)
+            W_mat_x = np.diag(x_wt)
             XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
             pcov_x = np.linalg.inv(XTWX_mat_x)  # Covariance Matrix
             popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
             perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
             # y calculation
-            W_mat_y = np.diag(1 / sigma_y**2)
+            W_mat_y = np.diag(y_wt)
             XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t
             pcov_y = np.linalg.inv(XTWX_mat_y)  # Covariance Matrix
             popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
