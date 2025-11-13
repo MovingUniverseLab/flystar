@@ -11,78 +11,74 @@ import time
 import copy
 from flystar import motion_model
 import pandas as pd
+from flystar.motion_model import Empty, Fixed, Linear
 
 class StarTable(Table):
-    """
-    A StarTable is an astropy.Table with stars matched from multiple starlists.
-
-    Required table columns (input as keywords):
-    -------------------------
-    name : 1D numpy.array with shape = N_stars
-        List of unique names for each of the stars in the table.
-
-    x : 2D numpy.array with shape = (N_stars, N_lists)
-        Positions of N_stars in each of N_lists in the x dimension.
-
-    y : 2D numpy.array with shape = (N_stars, N_lists)
-        Positions of N_stars in each of N_lists in the y dimension.
-
-    m : 2D numpy.array with shape = (N_stars, N_lists)
-        Magnitudes of N_stars in each of N_lists.
-
-    Optional table columns (input as keywords):
-    -------------------------
-    motion_model : 1D numpy.array with shape = N_stars
-        string indicating motion model type for each star
-        
-    xe : 2D numpy.array with shape = (N_stars, N_lists)
-        Position uncertainties of N_stars in each of N_lists in the x dimension.
-
-    ye : 2D numpy.array with shape = (N_stars, N_lists)
-        Position uncertainties of N_stars in each of N_lists in the y dimension.
-
-    me : 2D numpy.array with shape = (N_stars, N_lists)
-        Magnitude uncertainties of N_stars in each of N_lists.
-
-    ep_name : 2D numpy.array with shape = (N_stars, N_lists)
-        Names in each epoch for each of N_stars in each of N_lists. This is
-        useful for tracking purposes.
-    
-    corr : 2D numpy.array with shape = (N_stars, N_lists)
-        Fitting correlation for each of N_stars in each of N_lists.
-
-    Optional table meta data
-    -------------------------
-    list_names : list of strings
-        List of names, one for each of the starlists.
-
-    list_times : list of integers or floats
-        List of times/dates for each starlist.
-
-    ref_list : int
-        Specify which list is the reference list (if any).
-
-    Examples
-    --------------------------
-
-    t = startables.StarTable(name=name, x=x, y=y, m=m)
-
-    # Access the data:
-    print(t)
-    print(t['name'][0:10])  # print the first 10 star names
-    print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
-    """
     def __init__(self, *args, ref_list=0, **kwargs):
         """
+        A StarTable is an astropy.Table with stars matched from multiple starlists.
+
+        Required table columns (input as keywords):
+        -------------------------
+        name : 1D numpy.array with shape = N_stars
+            List of unique names for each of the stars in the table.
+
+        x : 2D numpy.array with shape = (N_stars, N_lists)
+            Positions of N_stars in each of N_lists in the x dimension.
+
+        y : 2D numpy.array with shape = (N_stars, N_lists)
+            Positions of N_stars in each of N_lists in the y dimension.
+
+        m : 2D numpy.array with shape = (N_stars, N_lists)
+            Magnitudes of N_stars in each of N_lists.
+
+        Optional table columns (input as keywords):
+        -------------------------
+        motion_model : 1D numpy.array with shape = N_stars
+            string indicating motion model type for each star
+            
+        xe : 2D numpy.array with shape = (N_stars, N_lists)
+            Position uncertainties of N_stars in each of N_lists in the x dimension.
+
+        ye : 2D numpy.array with shape = (N_stars, N_lists)
+            Position uncertainties of N_stars in each of N_lists in the y dimension.
+
+        me : 2D numpy.array with shape = (N_stars, N_lists)
+            Magnitude uncertainties of N_stars in each of N_lists.
+
+        ep_name : 2D numpy.array with shape = (N_stars, N_lists)
+            Names in each epoch for each of N_stars in each of N_lists. This is
+            useful for tracking purposes.
+        
+        corr : 2D numpy.array with shape = (N_stars, N_lists)
+            Fitting correlation for each of N_stars in each of N_lists.
+
+        Optional table meta data
+        -------------------------
+        list_names : list of strings
+            List of names, one for each of the starlists.
+
+        list_times : list of integers or floats
+            List of times/dates for each starlist.
+
+        ref_list : int
+            Specify which list is the reference list (if any).
+
+        Examples
+        --------------------------
+
+        t = startables.StarTable(name=name, x=x, y=y, m=m)
+
+        # Access the data:
+        print(t)
+        print(t['name'][0:10])  # print the first 10 star names
+        print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
         """
         
         # Check if the required arguments are present
         arg_req = ('name', 'x', 'y', 'm')
-        
-        found_all_required = True
-        for arg_test in arg_req:
-            if arg_test not in kwargs:
-                found_all_required = False
+
+        found_all_required = all(arg in kwargs for arg in arg_req)
 
         if not found_all_required:
             if len(args) > 1: # If there are no arguments, it's because the
@@ -151,7 +147,7 @@ class StarTable(Table):
                            names=('name', 'x', 'y', 'm'))
             self['name'] = self['name'].astype('U20')
             self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
-
+            
             for meta_arg in meta_tab:
                 if meta_arg in kwargs:
                     self.meta[meta_arg] = kwargs[meta_arg]
@@ -536,6 +532,200 @@ class StarTable(Table):
         
         return
     
+    def fit_velocities_new(
+            self, 
+            motion_models=['Empty', 'Fixed', 'Linear'],
+            weighting='var', 
+            use_scipy=False, 
+            absolute_sigma=True, 
+            bootstrap=0,
+            fixed_t0=False, 
+            verbose=True, 
+            mask_value=None, 
+            fill_value=np.nan,
+            show_progress=True
+    ):
+        """Fit velocity for star table
+
+        Parameters
+        ----------
+        motion_models : list, optional
+            Motion models name to use. 
+            If multiple models are supplied, prioritize the model with the most parameters to fit. 
+            If multiple models have the same number of parameters, raise AssertionError: not sure which to use.
+            When not enough data points, use the model with just enough parameters to fit, by default ['Empty, 'Fixed', 'Linear']
+        weighting : str, optional
+            Uncertainty weighting, 'std' for weight=1/xe(ye) or 'var' for weight=1/xe(ye)**2, by default 'var'
+        use_scipy : bool, optional
+            Use scipy.optimize.curve_fit or algebraic solution (for Linear model only), by default False
+        absolute_sigma : bool, optional
+            Use absolute sigma or not, see scipy curve_fit for details, by default True
+        bootstrap : int, optional
+            Number of bootstrap for uncertainty resampling, by default 0
+        fixed_t0 : bool or float, optional
+            If provided, use the fixed t0. Otherwise, use average t weighted by 1/np.hypot(xe, ye), by default False
+        verbose : bool, optional
+            Print verbose messages or not, by default True
+        mask_value : float, optional
+            Values to mask in data, by default None
+        fill_value : float, optional
+            Fill value when there is not enough data points to fit, by default np.nan
+        show_progress : bool, optional
+            Show progress bar or not, by default True
+
+        Raises
+        ------
+        ValueError
+            If weighting is not 'var' or 'std'.
+        KeyError
+            If time values are not found in the table or meta.
+        KeyError
+            If required columns 'x' and 'y' are missing in the table.
+        """
+        ###########################
+        ####### Check Params ######
+        ###########################
+        if weighting not in ['var', 'std']:
+            raise ValueError(f"fit_velocities: Weighting must either be 'var' or 'std', not {weighting}!")
+
+        if ('t' not in self.colnames) and ('LIST_TIMES' not in self.meta):
+            raise KeyError("fit_velocities: Failed to access time values. No 't' column in table, no 'LIST_TIMES' in meta.")
+
+        # Check if we have the required columns
+        if not all([_ in self.colnames for _ in ['x', 'y']]):
+            raise KeyError(f"fit_velocities: Missing required columns in the table: {', '.join(['x', 'y'])}!")
+
+        # Convert motion models from strings to classes
+        motion_model_map = motion_model.motion_model_map()
+        if 'Empty' not in motion_models:
+            motion_models.insert(0, 'Empty')  # Ensure Empty model is always included
+        motion_models = [motion_model_map[mm] for mm in motion_models]
+
+        ###########################
+        ####### Prepare Data ######
+        ###########################
+        # Prepare data for fitting
+        N_stars = len(self)
+        x_data = np.ma.masked_invalid(self['x'].data, copy=True)
+        y_data = np.ma.masked_invalid(self['y'].data, copy=True)
+        xe_data = np.ma.masked_invalid(self['xe'].data, copy=True) if 'xe' in self.colnames else None
+        ye_data = np.ma.masked_invalid(self['ye'].data, copy=True) if 'ye' in self.colnames else None
+        # t_data: 2d array with shape (N_stars, N_epochs)
+        # t0: 1d array with shape (N_stars,)
+        if 't' in self.colnames:
+            t_data = copy.deepcopy(self['t'].data)
+            t0 = np.average(t_data, axis=1, weights=1/np.hypot(xe_data, ye_data)) if not fixed_t0 else np.ones(N_stars)*fixed_t0
+        else:
+            t_data = copy.deepcopy(np.array(self.meta['LIST_TIMES']))
+            t_data = np.broadcast_to(t_data, x_data.shape)
+            t0 = np.average(t_data, axis=1, weights=1/np.hypot(xe_data, ye_data)) if not fixed_t0 else np.ones(N_stars)*fixed_t0
+        if mask_value:
+            x_data = np.ma.masked_values(x_data, mask_value)
+            y_data = np.ma.masked_values(y_data, mask_value)
+            if xe_data is not None:
+                xe_data = np.ma.masked_values(xe_data, mask_value)
+            if ye_data is not None:
+                ye_data = np.ma.masked_values(ye_data, mask_value)
+
+        # Calculate mask array
+        xy_mask = (~x_data.mask) & (~y_data.mask)
+        self['n_obs'] = xy_mask.sum(axis=1)
+
+        # Convert to lists of arrays for faster access during fitting
+        t_stars = [np.array(t_data[i][xy_mask[i]]) for i in range(N_stars)]
+        x_stars = [np.array(x_data[i][xy_mask[i]]) for i in range(N_stars)]
+        y_stars = [np.array(y_data[i][xy_mask[i]]) for i in range(N_stars)]
+        xe_stars = [np.array(xe_data[i][xy_mask[i]]) if xe_data is not None else None for i in range(N_stars)]
+        ye_stars = [np.array(ye_data[i][xy_mask[i]]) if ye_data is not None else None for i in range(N_stars)]
+
+
+        ###########################
+        ####### Determine MM ######
+        ###########################
+        mm_n_params = np.sort([mm.n_params for mm in motion_models])
+        # Assert that motion model n_params are unique and sorted
+        assert len(mm_n_params) == len(set(mm_n_params)), "fit_velocities: Provided motion model n_params are not unique! Cannot decide which motion model to use based on n_obs."
+
+        # Select motion model based on n_obs
+        mm_digitized = np.digitize(
+            x=self['n_obs'],
+            bins=mm_n_params
+        ) - 1  # -1 to convert to 0-based index
+        self['motion_model'] = np.array([motion_models[d].__name__ for d in mm_digitized])
+
+        # Fill table with all possible motion model parameter names as new columns.
+        new_col_list = motion_model.get_list_motion_model_param_names(motion_models, with_errors=True)
+        new_col_list += ['chi2_x', 'chi2_y', 'n_params']
+        if 't0' not in new_col_list:
+            new_col_list.append('t0')
+
+        # Replace old columns if they exist
+        for col in new_col_list:
+            if col.endswith('_err'):
+                self.add_column(
+                    Column(data=np.full(N_stars, np.inf, dtype=float), name=col),
+                    rename_duplicate=True
+                )
+            else:
+                self.add_column(
+                    Column(data=np.full(N_stars, np.nan, dtype=float), name=col),
+                    rename_duplicate=True
+                )
+
+        # Add a column to keep track of the number of points used in a fit and number of bootstrap used.
+        self['n_bootstrap'] = bootstrap
+
+        ###########################
+        ######### FITTING #########
+        ###########################
+        unique_motion_models, unique_inv_indices = np.unique(self['motion_model'], return_inverse=True)
+        indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
+    
+        for unique_motion_model, unique_index in indices_by_motion_model.items():
+            # Create motion model instance
+            motion_model_instance = motion_model_map[unique_motion_model]()
+            # Initialize arrays to store results
+            n_stars_this_model = len(unique_index)
+            n_params = len(motion_model_instance.fitter_param_names)
+
+            params_array = np.full((n_stars_this_model, n_params), fill_value, dtype=float)
+            param_errs_array = np.full((n_stars_this_model, n_params), np.inf, dtype=float)
+            chi2_x_array = np.full(n_stars_this_model, np.nan, dtype=float)
+            chi2_y_array = np.full(n_stars_this_model, np.nan, dtype=float)
+
+            for idx, i_star in enumerate(tqdm(unique_index, disable=not show_progress, desc=f"Fitting motion model {unique_motion_model}")):
+                # Fit the star
+                params, param_errs, chi2_x, chi2_y = motion_model_instance.fit_motion_model(
+                    t=t_stars[i_star],
+                    x=x_stars[i_star],
+                    y=y_stars[i_star],
+                    xe=xe_stars[i_star],
+                    ye=ye_stars[i_star],
+                    t0=t0[i_star],
+                    weighting=weighting,
+                    use_scipy=use_scipy,
+                    absolute_sigma=absolute_sigma,
+                    bootstrap=bootstrap,
+                    fill_value=fill_value,
+                    verbose=verbose
+                )
+                # Store results to arrays
+                params_array[idx] = params
+                param_errs_array[idx] = param_errs
+                chi2_x_array[idx] = chi2_x
+                chi2_y_array[idx] = chi2_y
+
+            # Store results back to the table
+            param_names = motion_model_instance.fitter_param_names
+            for j, param_name in enumerate(param_names):
+                self[param_name][unique_index] = params_array[:, j]
+                self[param_name + '_err'][unique_index] = param_errs_array[:, j]
+            self['chi2_x'][unique_index] = chi2_x_array
+            self['chi2_y'][unique_index] = chi2_y_array
+            self['n_params'][unique_index] = n_params
+            self['t0'][unique_index] = t0[unique_index]
+        return
+
     def fit_velocities(self, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=0,
                        fixed_t0=False, verbose=False, mask_val=None, mask_lists=False, show_progress=True,
                        default_motion_model='Linear', reassign_motion_model=False, select_stars=None, motion_model_dict={}):
