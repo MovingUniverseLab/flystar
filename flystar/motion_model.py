@@ -7,8 +7,6 @@ from scipy.optimize import curve_fit, OptimizeWarning
 import warnings
 
 class MotionModel(ABC):
-    # Number of data points required to fit model
-    n_pts_req = 0
     # Degrees of freedom for model
     n_params = 0
 
@@ -33,7 +31,7 @@ class MotionModel(ABC):
                 setattr(self, param, np.array([param_var]))'''
         return
 
-    def get_pos_at_time(self, params, t):
+    def get_pos_at_time(self, fit_params, fixed_params, t):
         #return x, y
         pass
         
@@ -46,10 +44,11 @@ class MotionModel(ABC):
         weighting='var',
         use_scipy=True, 
         absolute_sigma=True, 
-        fill_value=np.inf
+        fill_value=np.nan,
+        verbose=True
     ):
         # Run a single fit (used both for overall fit + bootstrap iterations)
-        pass
+        return np.full(self.n_params, fill_value), np.full(self.n_params, np.inf), np.nan, np.nan
 
     def get_weights(self, xe, ye, weighting='var'):
         if weighting=='std':
@@ -66,36 +65,74 @@ class MotionModel(ABC):
         weighting='var',
         use_scipy=True, 
         absolute_sigma=True,
-        fill_value=np.inf,
-        rng=None
+        fill_value=np.nan,
+        verbose=True,
+        seed=None
     ):
-        """
-        Fit the input positions on the sky and errors
-        to determine new parameters for this motion model (MM).
-        Best-fit parameters will be returned along with uncertainties.
+        """Fit stellar motion parameters
+
+        Parameters
+        ----------
+        t : array-like
+            Times of measurements
+        x : array-like
+            x-coordinates
+        y : array-like
+            y-coordinates
+        xe : array-like
+            Uncertainty of x
+        ye : array-like
+            Uncertainty of y
+        t0 : array-like
+            Reference time for fitting, i.e. dt = t - t0 will be used in fitting
+        bootstrap : int, optional
+            Bootstrapping uncertainties, by default 0
+        weighting : str, optional
+            Use standard error weighting ('std': w=1/xe, 1/ye) or variance weighting ('var': w=1/xe**2, 1/ye**2), by default 'var'
+        use_scipy : bool, optional
+            Use scipy for optmization. Otherwise, use linear algebraic solution (Linear model only), which is faster for < 300 epochs, by default True
+        absolute_sigma : bool, optional
+            Absolute sigma. See scipy.optimize.curve_fit for details, by default True
+        fill_value : float, optional
+            Fill value for parameters when not enough data points to fit model, by default np.nan
+        verbose : bool, optional
+            Print warning messages, by default True
+        seed : int, optional
+            Seed for the random number generator, by default None
+        Returns
+        -------
+        params, params_err, chi2_x, chi2_y
+            Parameters, uncertainties, and chi squares. The corresponding parameter names are in self.fitter_param_names.
         """
         params, param_errs, chi2_x, chi2_y = self.run_fit(
             t, x, y, xe, ye, t0=t0, 
             weighting=weighting,
             use_scipy=use_scipy, 
             absolute_sigma=absolute_sigma,
-            fill_value=fill_value
+            fill_value=fill_value,
+            verbose=verbose
         )
-
+        if seed is not None:
+            rng = np.random.default_rng(seed)
+        else:
+            rng = np.random.default_rng()
+        
         # Bootstrap errors
-        if bootstrap > 0 and len(x) > (self.n_pts_req):
-            edx = np.arange(len(x), dtype=int)
+        n_obs = len(t)
+        if bootstrap > 0 and n_obs > (self.n_params):
+            edx = np.arange(n_obs, dtype=int)
             bb_params = []
             bb_params_errs = []
             for bb in range(bootstrap):
-                bdx = np.random.choice(edx, len(x), replace=False)
+                bdx = rng.choice(edx, n_obs, replace=False)
                 params_bdx, param_errs_bdx, chi2x_bdx, chi2y_bdx = self.run_fit(
                     t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], t0=t0,
                     weighting=weighting, 
                     use_scipy=use_scipy, 
                     absolute_sigma=absolute_sigma, 
                     params_guess=params, 
-                    fill_value=fill_value
+                    fill_value=fill_value,
+                    verbose=verbose
                 )
                 bb_params.append(params_bdx)
                 bb_params_errs.append(param_errs_bdx)
@@ -125,12 +162,51 @@ class MotionModel(ABC):
                 chi2x, chi2y = chi2x / dof, chi2y / dof
         return chi2x, chi2y
 
+class Empty(MotionModel):
+    n_params = 0
+    fitter_param_names = []
+    fixed_param_names = []
+
+    def __init__(self, **kwargs):
+        """Empty motion model, returns nan for values and inf for uncertainties.
+        """
+        super().__init__()
+        return
+        
+    def get_pos_at_time(self, fit_params, fixed_params, t):
+        if hasattr(t, "__len__"):
+            return np.full(len(t), np.nan), np.full(len(t), np.nan)
+        else:
+            return np.nan, np.nan
+
+    def get_batch_pos_at_time(self,t,
+                                x0=[],y0=[],t0=[],
+                                x0_err=[], y0_err=[]):
+        if hasattr(t, "__len__"):
+            return np.full((len(x0), len(t)), np.nan), np.full((len(y0), len(t)), np.nan), np.full((len(x0), len(t)), np.nan), np.full((len(y0), len(t)), np.nan)
+        else:
+            return np.nan, np.nan, np.nan, np.nan
+
+    def run_fit(
+            self, t, x, y, xe, ye, t0, 
+            weighting='var', 
+            use_scipy=True, 
+            absolute_sigma=True,
+            fill_value=np.nan,
+            verbose=True
+    ):
+        if verbose:
+            warnings.warn(f"Empty data cannot be fit. Setting parameters to {fill_value} and uncertainties to np.inf.", OptimizeWarning, stacklevel=2)
+        params = np.full(self.n_params, fill_value)
+        param_errors = np.full(self.n_params, np.inf)
+        return params, param_errors, np.nan, np.nan
+
+
 class Fixed(MotionModel):
     """
     A non-moving motion model for a star on the sky.
     """
     
-    n_pts_req = 1
     n_params = 1
     fitter_param_names = ['x0','y0']
     fixed_param_names = []
@@ -154,7 +230,7 @@ class Fixed(MotionModel):
         if hasattr(t, "__len__"):
             return np.repeat(x0[:,np.newaxis],len(t),axis=1), np.repeat(y0[:,np.newaxis],len(t),axis=1), np.repeat(x0_err[:,np.newaxis],len(t),axis=1), np.repeat(y0_err[:,np.newaxis],len(t),axis=1)
         else:
-            return x0,y0,x0_err,y0_err
+            return x0, y0, x0_err, y0_err
             
     def run_fit(
             self, t, x, y, xe, ye, t0, 
@@ -162,26 +238,40 @@ class Fixed(MotionModel):
             use_scipy=True, 
             absolute_sigma=True,
             params_guess=None,
-            fill_value=np.inf
+            fill_value=np.nan,
+            verbose=True
     ):
-        if not use_scipy:
-            Warning("Fixed model has no non-scipy fitter option. Running with scipy.")
-        # Handle single data point case
-        if len(x)==1:
-            x0, y0, x0e, y0e = x[0], y[0], xe[0], ye[0]
-    
-        else:
-            x_wt, y_wt = self.get_weights(xe, ye, weighting=weighting)
-            x0 = np.average(x, weights=x_wt)
-            x0e = np.sqrt(np.average((x - x0)**2, weights=x_wt))
-            y0 = np.average(y, weights=y_wt)
-            y0e = np.sqrt(np.average((y - y0)**2, weights=y_wt))
+        if verbose and (not use_scipy):
+            warnings.warn("Fixed model has no non-scipy fitter option. Running with scipy.")
+
+        n_obs = len(t)
+        degree_of_freedom = n_obs - self.n_params
+        # Not enough data points to fit model
+        if degree_of_freedom < 0:
+            if verbose:
+                warnings.warn(
+                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+            params = np.full(self.n_params, fill_value)
+            param_errors = np.full(self.n_params, np.inf)
+            return params, param_errors, np.nan, np.nan
+        
+        # degree_of_freedom >= 0
+        # Calculate weighted average position
+        x_wt, y_wt = self.get_weights(xe, ye, weighting=weighting)
+        x_wt_norm = x_wt / np.sum(x_wt)
+        y_wt_norm = y_wt / np.sum(y_wt)
+        x0 = np.average(x, weights=x_wt)
+        x0e = (np.sum(x_wt_norm**2 * xe**2))**0.5 / n_obs  # Error propagation
+        y0 = np.average(y, weights=y_wt)
+        y0e = (np.sum(y_wt_norm**2 * ye**2))**0.5 / n_obs  # Error propagation
 
         params = np.array([x0, y0])
         param_errors = np.array([x0e, y0e])
         
         chi2x, chi2y = self.get_chi2(params, [], t, x, y, xe, ye)
-        degree_of_freedom = len(x) - 1
+        
         if not absolute_sigma:
             if degree_of_freedom > 0:
                 reduced_chi2x = chi2x / degree_of_freedom
@@ -190,11 +280,13 @@ class Fixed(MotionModel):
                 param_errors[0] *= reduced_chi2x**0.5
                 param_errors[1] *= reduced_chi2y**0.5
             else:
+                # degree_of_freedom == 0, as < 0 case already handled above
                 warnings.warn(
-                    f'Degree of freedom <= 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value {fill_value}.',
+                    f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value np.inf.',
                     OptimizeWarning, stacklevel=2
                 )
-                param_errors = np.full_like(param_errors, fill_value)
+                # Set parameter uncertainties to np.inf, same behavior as scipy.optimize.curve_fit
+                param_errors = np.full_like(param_errors, np.inf)
 
         return params, param_errors, chi2x, chi2y
 
@@ -202,8 +294,6 @@ class Linear(MotionModel):
     """
     A 2D linear motion model for a star on the sky.
     """
-    
-    n_pts_req = 2
     n_params = 2
     fitter_param_names = ['x0', 'vx', 'y0', 'vy']
     fixed_param_names = ['t0']
@@ -224,13 +314,13 @@ class Linear(MotionModel):
     def get_batch_pos_at_time(self, t, x0=[],vx=[], y0=[],vy=[], t0=[],
                 x0_err=[],vx_err=[], y0_err=[],vy_err=[], **kwargs):
         if hasattr(t, "__len__"):
-            dt = t-t0[:,np.newaxis]
+            dt = t - t0[:,np.newaxis]
             x = x0[:,np.newaxis] + dt*vx[:,np.newaxis]
             y = y0[:,np.newaxis] + dt*vy[:,np.newaxis]
             x_err = np.hypot(x0_err[:,np.newaxis], vx_err[:,np.newaxis]*dt)
             y_err = np.hypot(y0_err[:,np.newaxis], vy_err[:,np.newaxis]*dt)
         else:
-            dt = t-t0
+            dt = t - t0
             x = x0 + dt*vx
             y = y0 + dt*vy
             x_err = np.hypot(x0_err, vx_err*dt)
@@ -243,8 +333,23 @@ class Linear(MotionModel):
             use_scipy=True, 
             absolute_sigma=True,
             params_guess=None,
-            fill_value=np.inf
+            fill_value=np.nan,
+            verbose=True
     ):
+        n_obs = len(t)
+        degree_of_freedom = n_obs - self.n_params
+        # Not enough data points to fit model
+        if degree_of_freedom < 0:
+            if verbose:
+                warnings.warn(
+                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+            params = np.full(self.n_params, fill_value)
+            param_errors = np.full(self.n_params, np.inf)
+            return params, param_errors, np.nan, np.nan
+        
+        # degree_of_freedom >= 0
         dt = t - t0
         x_wt, y_wt = self.get_weights(xe, ye, weighting=weighting)
         if params_guess is None:
@@ -290,8 +395,7 @@ class Linear(MotionModel):
             # Does not use get_chi2 to accelerate calculation
             residual_x = x - X_mat_t @ popt_x
             residual_y = y - X_mat_t @ popt_y
-            
-            
+
             chi2_x = residual_x.T @ W_mat_x @ residual_x
             chi2_y = residual_y.T @ W_mat_y @ residual_y
 
@@ -299,20 +403,21 @@ class Linear(MotionModel):
             param_errors = np.array([x0e, vxe, y0e, vye])
 
             if not absolute_sigma:
-                degree_of_freedom = len(x) - 2
                 if degree_of_freedom > 0:
-                    reduced_chi2_x = chi2_x/(len(x) - 2)
-                    reduced_chi2_y = chi2_y/(len(x) - 2)
+                    reduced_chi2_x = chi2_x / degree_of_freedom
+                    reduced_chi2_y = chi2_y / degree_of_freedom
                     
                     param_errors[0:2] *= reduced_chi2_x**0.5
                     param_errors[2:4] *= reduced_chi2_y**0.5
 
                 else:
+                    # degree_of_freedom == 0, as < 0 case already handled above
                     warnings.warn(
-                        f'Degree of freedom <= 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value {fill_value}.',
+                        f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value np.inf.',
                         OptimizeWarning, stacklevel=2
                     )
-                    param_errors = np.full_like(param_errors, fill_value)
+                    # Set parameter uncertainties to np.inf, same behavior as scipy.optimize.curve_fit
+                    param_errors = np.full_like(param_errors, np.inf)
 
         return params, param_errors, chi2_x, chi2_y
 
@@ -320,7 +425,6 @@ class Acceleration(MotionModel):
     """
     A 2D accelerating motion model for a star on the sky.
     """
-    n_pts_req = 4 # TODO: consider special case for 3 pts
     n_params = 3
     fitter_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
     fixed_param_names = ['t0']
@@ -335,7 +439,7 @@ class Acceleration(MotionModel):
     def get_pos_at_time(self, fit_params, fixed_params, t):
         fit_params_dict = dict(zip(self.fitter_param_names, fit_params))
         fixed_params_dict = dict(zip(self.fixed_param_names, fixed_params))
-        dt = t-fixed_params_dict['t0']
+        dt = t - fixed_params_dict['t0']
         x = fit_params_dict['x0'] + fit_params_dict['vx0']*dt + 0.5*fit_params_dict['ax']*dt**2
         y = fit_params_dict['y0'] + fit_params_dict['vy0']*dt + 0.5*fit_params_dict['ay']*dt**2
         return x, y
@@ -344,18 +448,18 @@ class Acceleration(MotionModel):
                                 x0=[],vx0=[],ax=[], y0=[],vy0=[],ay=[], t0=[],
                                 x0_err=[],vx0_err=[],ax_err=[], y0_err=[],vy0_err=[],ay_err=[], **kwargs):
         if hasattr(t, "__len__"):
-            dt = t-t0[:,np.newaxis]
-            x = x0[:,np.newaxis] + dt*vx0[:,np.newaxis] + 0.5*dt**2*ax[:,np.newaxis]
-            y = y0[:,np.newaxis] + dt*vy0[:,np.newaxis] + 0.5*dt**2*ay[:,np.newaxis]
-            x_err = np.sqrt(x0_err[:,np.newaxis]**2 + (vx0_err[:,np.newaxis]*dt)**2 + (0.5*ax_err[:,np.newaxis]*dt**2)**2)
-            y_err = np.sqrt(y0_err[:,np.newaxis]**2 + (vy0_err[:,np.newaxis]*dt)**2 + (0.5*ay_err[:,np.newaxis]*dt**2)**2)
+            dt = t - t0[:,np.newaxis]
+            x = x0[:, np.newaxis] + dt * vx0[:, np.newaxis] + 0.5 * ax[:, np.newaxis] * dt**2
+            y = y0[:, np.newaxis] + dt * vy0[:, np.newaxis] + 0.5 * ay[:, np.newaxis] * dt**2
+            x_err = np.sqrt(x0_err[:, np.newaxis]**2 + (vx0_err[:, np.newaxis]*dt)**2 + (0.5*ax_err[:, np.newaxis]*dt**2)**2)
+            y_err = np.sqrt(y0_err[:, np.newaxis]**2 + (vy0_err[:, np.newaxis]*dt)**2 + (0.5*ay_err[:, np.newaxis]*dt**2)**2)
         else:
-            dt = t-t0
-            x = x0 + dt*vx0 + 0.5*dt**2*ax
-            y = y0 + dt*vy0 + 0.5*dt**2*ay
-            x_err = np.sqrt(x0_err**2 + (vx0_err*dt)**2 + (0.5*ax_err*dt**2)**2)
-            y_err = np.sqrt(y0_err**2 + (vy0_err*dt)**2 + (0.5*ay_err*dt**2)**2)
-        return x,y,x_err,y_err
+            dt = t - t0
+            x = x0 + dt * vx0 + 0.5 * ax * dt**2
+            y = y0 + dt * vy0 + 0.5 * ay * dt**2
+            x_err = np.sqrt(x0_err**2 + (vx0_err * dt)**2 + (0.5 * ax_err * dt**2)**2)
+            y_err = np.sqrt(y0_err**2 + (vy0_err * dt)**2 + (0.5 * ay_err * dt**2)**2)
+        return x, y, x_err, y_err
 
     def run_fit(
         self, t, x, y, xe, ye, t0, 
@@ -363,34 +467,50 @@ class Acceleration(MotionModel):
         use_scipy=True, 
         absolute_sigma=True, 
         params_guess=None,
-        fill_value=np.inf
+        fill_value=np.nan,
+        verbose=True
     ):
         if not use_scipy:
-            Warning("Acceleration model has no non-scipy fitter option. Running with scipy.")
+            if verbose:
+                warnings.warn("Acceleration model has no non-scipy fitter option. Running with scipy.")
+        
+        n_obs = len(t)
+        degree_of_freedom = n_obs - self.n_params
+        # Not enough data points to fit model
+        if degree_of_freedom < 0:
+            if verbose:
+                warnings.warn(
+                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+            params = np.full(self.n_params, fill_value)
+            param_errors = np.full(self.n_params, np.inf)
+            return params, param_errors, np.nan, np.nan
+
+        # degree_of_freedom >= 0
         dt = t - t0
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
         if params_guess is None:
-            params_guess = [x.mean(), 0., 0., y.mean(), 0., 0.]
+            # Initial guess for velocity:
+            idx_first, idx_last = np.argmin(t), np.argmax(t)
+            t_span = t[idx_last] - t[idx_first]
+            params_guess = [x.mean(), (x[idx_last] - x[idx_first]) / t_span, 0., y.mean(), (y[idx_last] - y[idx_first]) / t_span, 0.]
 
         def accel(t, c0, c1, c2):
             return c0 + c1*t + 0.5*c2*t**2
 
-        x_opt, x_cov = curve_fit(accel, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=True)
-        y_opt, y_cov = curve_fit(accel, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=True)
-        x0 = x_opt[0]
-        y0 = y_opt[0]
-        vx0 = x_opt[1]
-        vy0 = y_opt[1]
-        ax = x_opt[2]
-        ay = y_opt[2]
-
+        x_opt, x_cov = curve_fit(accel, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma)
+        y_opt, y_cov = curve_fit(accel, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma)
+        x0, vx0, ax = x_opt
+        y0, vy0, ay = y_opt
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
         y0e, vy0e, aye = np.sqrt(y_cov.diagonal())
 
-        params = [x0, vx0, ax, y0, vy0, ay]
-        param_errors = [x0e, vx0e, axe, y0e, vy0e, aye]
+        params = np.array([x0, vx0, ax, y0, vy0, ay])
+        param_errors = np.array([x0e, vx0e, axe, y0e, vy0e, aye])
+        chi2_x, chi2_y = self.get_chi2(params, [t0], t, x, y, xe, ye)
 
-        return params, param_errors
+        return params, param_errors, chi2_x, chi2_y
 
 class Parallax(MotionModel):
     """
@@ -401,8 +521,6 @@ class Parallax(MotionModel):
     Optional PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describes observer location, default is 'earth'.
     """
-    
-    n_pts_req = 4
     n_params = 3
     fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
     fixed_param_names = ['t0']
@@ -473,7 +591,7 @@ class Parallax(MotionModel):
                 y_err = np.sqrt(y0_err**2 + (vy_err*dt)**2 + (pi_err*pvec[1])**2)
             except:
                 x_err,y_err = [],[]
-        return x,y,x_err,y_err
+        return x, y, x_err, y_err
 
     def run_fit(
         self, t, x, y, xe, ye, t0, 
@@ -481,10 +599,27 @@ class Parallax(MotionModel):
         use_scipy=True, 
         absolute_sigma=True, 
         params_guess=None, 
-        fill_value=np.inf
+        fill_value=np.nan,
+        verbose=True
     ):
         if not use_scipy:
-            Warning("Parallax model has no non-scipy fitter option. Running with scipy.")
+            if verbose:
+                warnings.warn("Parallax model has no non-scipy fitter option. Running with scipy.", UserWarning)
+        
+        n_obs = len(t)
+        degree_of_freedom = n_obs - self.n_params
+        # Not enough data points to fit model
+        if degree_of_freedom < 0:
+            if verbose:
+                warnings.warn(
+                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+            params = np.full(self.n_params, fill_value)
+            param_errors = np.full(self.n_params, np.inf)
+            return params, param_errors
+        
+        # degree_of_freedom >= 0
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         pvec = self.get_parallax_vector(t_mjd)
         x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
@@ -494,107 +629,152 @@ class Parallax(MotionModel):
             return np.hstack([x_res, y_res])
         # Initial guesses, x0,y0 as x,y averages;
         #     vx,vy as average velocity if first and last points are perfectly measured;
-        #     pi for 10 pc disance
+        #     pi for 10 pc distance
         if params_guess is None:
             idx_first, idx_last = np.argmin(t), np.argmax(t)
-            params_guess = [x.mean(),(x[idx_last]-x[idx_first])/(t[idx_last]-t[idx_first]),
-                            y.mean(),(y[idx_last]-y[idx_first])/(t[idx_last]-t[idx_first]), 0.1]
-        res = curve_fit(fit_func, t, np.hstack([x,y]),
-                        p0=params_guess, sigma = 1.0/np.hstack([x_wt,y_wt]))
+            t_span = t[idx_last] - t[idx_first]
+            params_guess = [
+                x.mean(), (x[idx_last] - x[idx_first]) / t_span,
+                y.mean(), (y[idx_last] - y[idx_first]) / t_span, 
+                0.1
+            ]
+        res = curve_fit(
+            fit_func, t, np.hstack([x,y]),
+            p0=params_guess, sigma = 1.0/np.hstack([x_wt,y_wt]),
+            absolute_sigma=absolute_sigma
+        )
         x0, vx, y0, vy, pi = res[0]
         x0_err, vx_err, y0_err, vy_err, pi_err = np.sqrt(np.diag(res[1]))
 
-        params = [x0, vx, y0, vy, pi]
-        param_errors = [x0_err, vx_err, y0_err, vy_err, pi_err]
-        return params, param_errors
+        params = np.array([x0, vx, y0, vy, pi])
+        param_errors = np.array([x0_err, vx_err, y0_err, vy_err, pi_err])
+        chi2_x, chi2_y = self.get_chi2(params, [t0], t, x, y, xe, ye)
         
-"""
-Check that everything is set up properly for motion models to run and their
-required metadata.
-"""
-def validate_motion_model_dict(motion_model_dict, startable, default_motion_model):
-    # Collect names of all motion models that might get used.
-    all_motion_model_names = ['Fixed']
-    if default_motion_model is not None:
-        all_motion_model_names.append(default_motion_model)
-    if 'motion_model_input' in startable.columns:
-        all_motion_model_names += np.unique(startable['motion_model_input']).tolist()
-    if 'motion_model_used' in startable.columns:
-        all_motion_model_names += np.unique(startable['motion_model_used']).tolist()
-    all_motion_model_names = np.unique(all_motion_model_names)
-    
-    # Check whether all motion models are in the dict, and if not, try to add them
-    #   here or raise an error.
-    for mm in all_motion_model_names:
-        if mm not in motion_model_dict:
-            mm_obj = eval(mm)
-            if len(mm_obj.fixed_meta_data)>0:
-                raise ValueError(f"Cannot use {mm} motion model without required metadata. Please initialize with required metadata and provide in motion_model_dict.")
-            else:
-                motion_model_dict[mm] = mm_obj()
-                # warnings.warn(f"Using default model/fitter for {mm}.", UserWarning)
+        return params, param_errors, chi2_x, chi2_y
 
-    return motion_model_dict
-    
-"""
-Get all the motion model parameters for a given motion_model_name.
-Optionally, include fixed and error parameters (included by default).
-"""
-def get_one_motion_model_param_names(motion_model_name, with_errors=True, with_fixed=True):
-    mod = eval(motion_model_name)
-    list_of_parameters = []
-    list_of_parameters += getattr(mod, 'fitter_param_names')
-    if with_fixed:
-        list_of_parameters += getattr(mod, 'fixed_param_names')
-    if with_errors:
-        list_of_parameters += [par+'_err' for par in getattr(mod, 'fitter_param_names')]
-    return list_of_parameters
 
-"""
-Get all the motion model parameters for all models given in motion_model_list.
-Optionally, include fixed and error parameters (included by default).
-"""
-def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_fixed=True):
+def validate_motion_models(motion_models, startable, default_motion_model):
+    """Validate that all the unique motion models in startable and default_motion_model are in the motion_models. If not, add available models to the list.
+
+    Parameters
+    ----------
+    motion_models : list of MotionModels
+        List of MotionModels that are expected to encompass all the motion models
+    startable : StarTable
+        Star table that possibly contains 'motion_model_input' and 'motion_model_used'
+    default_motion_model : MotionModel
+        Default MotionModel
+    """
     motion_model_map = {
         'Fixed': Fixed,
         'Linear': Linear,
         'Acceleration': Acceleration,
         'Parallax': Parallax
     }
+    # Collect names of all motion models that might get used.
+    all_motion_model_names = set()
+    all_motion_model_names.add('Fixed')
+    if default_motion_model is not None:
+        all_motion_model_names.add(default_motion_model.__name__)
+    if 'motion_model_input' in startable.colnames:
+        all_motion_model_names.update(startable['motion_model_input'].tolist())
+    if 'motion_model_used' in startable.colnames:
+        all_motion_model_names.update(startable['motion_model_used'].tolist())
+
+    # Check whether all motion models are in the list, and if not, raise an error.
+    all_motion_models = [motion_model_map[mm] for mm in all_motion_model_names]
+    for mm in all_motion_models:
+        if mm not in motion_models:
+            if len(mm.fixed_meta_data) > 0:
+                raise ValueError(f"Cannot use {mm} motion model without required metadata. Please initialize with required metadata and provide in motion_models.")
+            else:
+                motion_models.append(mm)
+                warnings.warn(f"{mm} not found in motion_models list. Added default instance.", UserWarning)
+
+    return motion_models
+
+
+def get_one_motion_model_param_names(motion_model, with_errors=True, with_fixed=True):
+    """Get all the motion model parameters
+
+    Parameters
+    ----------
+    motion_model : MotionModel
+        MotionModel instance
+    with_errors : bool, optional
+        Add uncertainty names with '_err' suffix or not, by default True
+    with_fixed : bool, optional
+        Add fixed param names with '_fixed' suffix or not, by default True
     
+    Returns
+    -------
+    list
+        List of all parameter names for the motion model
+    """
     list_of_parameters = []
-    # all_motion_models = [eval(mm) for mm in np.unique(motion_model_list).tolist()]
-    for mm in range(len(motion_model_list)):
-        motion_model = motion_model_map[motion_model_list[mm]]
-        param_names = motion_model.fitter_param_names
-        param_fixed_names = motion_model.fixed_param_names
-        param_err_names = [par+'_err' for par in param_names]
-
-        list_of_parameters += param_names
-        if with_fixed:
-            list_of_parameters += param_fixed_names
-        if with_errors:
-            list_of_parameters += param_err_names
     
-    return np.unique(list_of_parameters).tolist()
+    def list_add(name):
+        if name not in list_of_parameters:
+            list_of_parameters.append(name)
 
-"""
-Get all the motion model parameters for all models defined in this module.
-Optionally, include fixed and error parameters (included by default).
-"""
-def get_all_motion_model_param_names(with_errors=True, with_fixed=True):
+    for param in motion_model.fitter_param_names:
+        # Fitter params
+        list_add(param)
+        # Error params
+        if with_errors:
+            list_add(param + '_err')
+    # Fixed params
+    if with_fixed:
+        for param in motion_model.fixed_param_names:
+            list_add(param)
+    return list_of_parameters
+
+
+def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_fixed=True):
+    """Get all the motion model parameters
+
+    Parameters
+    ----------
+    motion_model_list : list
+        List of MotionModels
+    with_errors : bool, optional
+        Add uncertainty names with '_err' suffix or not, by default True
+    with_fixed : bool, optional
+        Add fixed param names with '_fixed' suffix or not, by default True
+    
+    Returns
+    -------
+    list
+        List of all unique parameter names across all motion models
+    """
     list_of_parameters = []
-    all_motion_models = MotionModel.__subclasses__()
-    for aa in range(len(all_motion_models)):
-        param_names = getattr(all_motion_models[aa], 'fitter_param_names')
-        param_fixed_names = getattr(all_motion_models[aa], 'fixed_param_names')
-        param_err_names = [par+'_err' for par in param_names]
 
-        list_of_parameters += param_names
+    def list_add(name):
+        if name not in list_of_parameters:
+            list_of_parameters.append(name)
+
+    for mm in motion_model_list:
+        for param in mm.fitter_param_names:
+            # Fitter params
+            list_add(param)
+            # Error params
+            if with_errors:
+                list_add(param + '_err')
+        # Fixed params
         if with_fixed:
-            list_of_parameters += param_fixed_names
-        if with_errors:
-            list_of_parameters += param_err_names
-    
-    return np.unique(list_of_parameters).tolist()
-    
+            for param in mm.fixed_param_names:
+                list_add(param)
+    return list(list_of_parameters)
+
+
+def get_all_motion_model_names(with_errors=True, with_fixed=True):
+    return get_list_motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
+
+def motion_model_map():
+    return {
+        'Empty': Empty,
+        'Fixed': Fixed,
+        'Linear': Linear,
+        'Acceleration': Acceleration,
+        'Parallax': Parallax
+    }
