@@ -7,11 +7,11 @@ from scipy.optimize import curve_fit, OptimizeWarning
 import warnings
 
 class MotionModel(ABC):
-    # Degrees of freedom for model
-    n_params = 0
-
     # Fit paramters: Shared fit parameters
     fitter_param_names = []
+
+    # Number of fit parameters/required observations in each direction
+    n_params = int(np.ceil(len(fitter_param_names) / 2))
 
     # Fixed parameters: These are parameters that are required for the model, but are not 
     # fit quantities. For example, RA and Dec in a parallax model.
@@ -22,6 +22,7 @@ class MotionModel(ABC):
     # These parameters should be derived from the fit parameters and
     # they must exist as a variable on the model object
     optional_param_names = []
+    name = "MotionModel"
 
     def __init__(self, *args, **kwargs):
         # TODO: do we need this?
@@ -59,7 +60,7 @@ class MotionModel(ABC):
             warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
             return 1./xe**2, 1./ye**2
 
-    def fit_motion_model(
+    def fit(
         self, t, x, y, xe, ye, t0, 
         bootstrap=0, 
         weighting='var',
@@ -163,9 +164,11 @@ class MotionModel(ABC):
         return chi2x, chi2y
 
 class Empty(MotionModel):
-    n_params = 0
     fitter_param_names = []
     fixed_param_names = []
+    name = "Empty"
+    # Number of fit parameters/required observations in each direction
+    n_params = int(np.ceil(len(fitter_param_names) / 2))
 
     def __init__(self, **kwargs):
         """Empty motion model, returns nan for values and inf for uncertainties.
@@ -207,9 +210,12 @@ class Fixed(MotionModel):
     A non-moving motion model for a star on the sky.
     """
     
-    n_params = 1
     fitter_param_names = ['x0','y0']
     fixed_param_names = []
+    # Number of fit parameters/required observations in each direction
+    n_params = int(np.ceil(len(fitter_param_names) / 2))
+
+    name = "Fixed"
 
     def __init__(self, **kwargs):
         # Must call after setting parameters.
@@ -294,9 +300,13 @@ class Linear(MotionModel):
     """
     A 2D linear motion model for a star on the sky.
     """
-    n_params = 2
     fitter_param_names = ['x0', 'vx', 'y0', 'vy']
     fixed_param_names = ['t0']
+
+    # Number of fit parameters/required observations in each direction
+    n_params = int(np.ceil(len(fitter_param_names) / 2))
+
+    name = "Linear"
 
     def __init__(self, **kwargs):
         
@@ -348,7 +358,7 @@ class Linear(MotionModel):
             params = np.full(self.n_params, fill_value)
             param_errors = np.full(self.n_params, np.inf)
             return params, param_errors, np.nan, np.nan
-        
+
         # degree_of_freedom >= 0
         dt = t - t0
         x_wt, y_wt = self.get_weights(xe, ye, weighting=weighting)
@@ -425,9 +435,12 @@ class Acceleration(MotionModel):
     """
     A 2D accelerating motion model for a star on the sky.
     """
-    n_params = 3
     fitter_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
     fixed_param_names = ['t0']
+    name = "Acceleration"
+
+    # Number of fit parameters/required observations in each direction
+    n_params = int(np.ceil(len(fitter_param_names) / 2))
     
     def __init__(self, x0=0, vx0=0, ax=0, y0=0, vy0=0, ay=0, t0=None,
                             x0_err=0, vx0_err=0, ax_err=0, y0_err=0, vy0_err=0, ay_err=0, **kwargs):
@@ -521,10 +534,13 @@ class Parallax(MotionModel):
     Optional PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describes observer location, default is 'earth'.
     """
-    n_params = 3
     fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
     fixed_param_names = ['t0']
     fixed_meta_data = ['RA','Dec','PA','obs']
+    name = "Parallax"
+        
+    # Number of fit parameters/required observations in each direction
+    n_params = int(np.ceil(len(fitter_param_names) / 2))
     
     def __init__(self, RA, Dec, PA=0.0, obs='earth', **kwargs):
         self.RA = RA
@@ -771,10 +787,14 @@ def get_all_motion_model_names(with_errors=True, with_fixed=True):
     return get_list_motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
 
 def motion_model_map():
-    return {
+    mm_map = {
         'Empty': Empty,
         'Fixed': Fixed,
         'Linear': Linear,
         'Acceleration': Acceleration,
         'Parallax': Parallax
     }
+    
+    # Sort by n_params
+    mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].n_params))
+    return mm_map
