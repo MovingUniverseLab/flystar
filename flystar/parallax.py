@@ -24,20 +24,32 @@ cache_memory = Memory(cache_dir, verbose=0)
 cache_memory.reduce_size()
 
 @cache_memory.cache()
-def parallax_in_direction(RA, Dec, mjd, obsLocation='earth', PA=0):
+def parallax_in_direction(ra, dec, mjd, obsLocation='earth', PA=0.):
     """
-    | R.A. in degrees. (J2000)
-    | Dec. in degrees. (J2000)
-    | MJD
-    | PA in degrees. (counterclockwise offset of the image y-axis from North)
+    Calculate the parallax vector in a given direction following MulensModel.
 
-    Equations following MulensModel.
+    Parameters
+    ----------
+    RA : float
+        Right Ascension in degrees. (J2000)
+    Dec : float
+        Declination in degrees. (J2000)
+    mjd : float or array-like
+        Modified Julian Date.
+    obsLocation : str, optional
+        Observer location, by default 'earth'.
+    PA : float, optional
+        Position angle in degrees (counterclockwise offset of the image y-axis from North), by default 0.
+
+    Returns
+    -------
+    pvec : ndarray
+        Parallax vector components, shape of (N, 2), where N is the number of mjd entries.
     """
-    #print('parallax_in_direction: len(t) = ', len(mjd))
-
     # Munge inputs into astropy format.
-    times = Time(mjd + 2400000.5, format='jd', scale='tdb')
-    coord = SkyCoord(RA, Dec, unit=(units.deg, units.deg))
+    # times = Time(mjd + 2400000.5, format='jd', scale='tdb')
+    times = Time(mjd, format='mjd', scale='tdb')  # convert to TDB
+    coord = SkyCoord(ra, dec, unit=(units.deg, units.deg))
 
     direction = coord.cartesian.xyz.value
     north = np.array([0., 0., 1.])
@@ -58,13 +70,12 @@ def parallax_in_direction(RA, Dec, mjd, obsLocation='earth', PA=0):
     PA_rad = np.pi/180.0 * PA
     x = -e.value*np.cos(PA_rad) + n.value*np.sin(PA_rad)
     y =  e.value*np.sin(PA_rad) + n.value*np.cos(PA_rad)
-    
     pvec = np.array([x, y]).T
-    
+
     return pvec
 
 
-def dparallax_dt_in_direction(RA, Dec, mjd, obsLocation='earth'):
+def dparallax_dt_in_direction(ra, dec, mjd, obsLocation='earth'):
     """
     R.A. in degrees. (J2000)
     Dec. in degrees. (J2000)
@@ -76,8 +87,8 @@ def dparallax_dt_in_direction(RA, Dec, mjd, obsLocation='earth'):
     """
     # print('parallax_in_direction: len(t) = ', len(mjd))
     # Munge inputs into astropy format.
-    times = Time(mjd + 2400000.5, format='jd', scale='tdb')
-    coord = SkyCoord(RA, Dec, unit=(units.deg, units.deg))
+    times = Time(mjd, format='mjd', scale='tdb')
+    coord = SkyCoord(ra, dec, unit=(units.deg, units.deg))
 
     direction = coord.cartesian.xyz.value
     north = np.array([0., 0., 1.])

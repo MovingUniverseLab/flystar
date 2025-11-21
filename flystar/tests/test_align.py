@@ -990,7 +990,7 @@ def make_fake_starlists_poly1_par(seed=-1):
     for ss in range(len(times)):
         dt = times[ss] - lis['t0']
         
-        par_mod = motion_model.Parallax(PA=0,RA=18.0, Dec=-30.0)
+        par_mod = motion_model.Parallax(pa=0,ra=18.0, dec=-30.0)
         par_mod_dat = par_mod.get_batch_pos_at_time(dt+lis['t0'], x0=lis['x0'],vx=lis['vx']/1e3, pi=lis['pi'],
                             y0=lis['y0'], vy=lis['vy']/1e3, t0=lis['t0'])
         x,y = par_mod_dat[0], par_mod_dat[1]

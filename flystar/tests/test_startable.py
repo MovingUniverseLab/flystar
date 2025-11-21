@@ -305,7 +305,7 @@ def test_fit_velocities():
     tab = table.vstack((tab1, tab2, tab3))
     tab.meta = tab1.meta
 
-    tab.fit_velocities(verbose=True)
+    tab.fit_motion_model(verbose=True)
 
     # Test creation of new variables
     assert len(tab['vx']) == len(tab)
@@ -313,7 +313,7 @@ def test_fit_velocities():
     assert len(tab['vx_err']) == len(tab)
     assert len(tab['vy_err']) == len(tab)
     assert len(tab['n_fit']) == len(tab)
-    assert tab.meta['n_fit_bootstrap'] == 0
+    assert tab.meta['n_bootstrap'] == 0
 
     # Test no-fit for stars with N<2 epochs.
     n_epochs = (tab['x'] >= 0).sum(axis=1)
@@ -365,7 +365,7 @@ def test_fit_velocities():
     tab_b.meta = tab1.meta
     tab_b.fit_velocities(verbose=True, bootstrap=50)
     
-    assert tab_b.meta['n_fit_bootstrap'] == 50
+    assert tab_b.meta['n_bootstrap'] == 50
     assert tab_b['x0_err'][0] > tab['x0_err'][0]
     assert tab_b['vx_err'][0] > tab['vx_err'][0]
     assert tab_b['y0_err'][0] > tab['y0_err'][0]
@@ -559,10 +559,10 @@ def make_star_table():
         x=x_in, y=y_in, m=m_in, 
         xe=xe_in, ye=ye_in, me=me_in, 
         n=n_in,
-        ref_list=1,
-        list_times=starlist_times, 
-        list_names=starlist_names
+        ref_list=1
     )
+    startable.meta['LIST_TIMES'] = starlist_times
+    startable.meta['LIST_NAMES'] = starlist_names
 
     return startable
 

@@ -730,19 +730,19 @@ class StarTable(Table):
         unique_motion_models, unique_inv_indices = np.unique(self['motion_model_used'], return_inverse=True)
         indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
 
-        start_time = time.time()
         for unique_motion_model, unique_index in indices_by_motion_model.items():
             # Create motion model instance
             motion_model_instance = input_mm_map[unique_motion_model]
             # Initialize arrays to store results
             n_stars_this_model = len(unique_index)
-            n_params = len(motion_model_instance.fitter_param_names)
+            n_params = len(motion_model_instance.fit_param_names)
 
             params_array = np.full((n_stars_this_model, n_params), fill_value, dtype=float)
             param_errs_array = np.full((n_stars_this_model, n_params), np.inf, dtype=float)
             chi2_x_array = np.full(n_stars_this_model, np.nan, dtype=float)
             chi2_y_array = np.full(n_stars_this_model, np.nan, dtype=float)
 
+            # Expensive for loop! Prepare everything beforehand to speed up.
             for idx, i_star in enumerate(tqdm(unique_index, disable=not show_progress, desc=f"Fitting motion model {unique_motion_model}")):
                 # Fit the star
                 params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
@@ -759,14 +759,13 @@ class StarTable(Table):
                     fill_value=fill_value,
                     verbose=verbose
                 )
-                # print(f'{params_array.shape=}, {idx=}, {params=}')
                 params_array[idx] = params
                 param_errs_array[idx] = param_errs
                 chi2_x_array[idx] = chi2_x
                 chi2_y_array[idx] = chi2_y
 
             # Store results back to the table
-            param_names = motion_model_instance.fitter_param_names
+            param_names = motion_model_instance.fit_param_names
             for j, param_name in enumerate(param_names):
                 self[param_name][unique_index] = params_array[:, j]
                 self[param_name + '_err'][unique_index] = param_errs_array[:, j]
@@ -1077,7 +1076,7 @@ class StarTable(Table):
 #
 #        # Load up any prior information on parameters for this model.
 #        param_dict = {}
-#        for par in modClass.fitter_param_names+modClass.fixed_param_names:
+#        for par in modClass.fit_param_names+modClass.fixed_param_names:
 #            if ~np.isnan(self[par][ss]):
 #                param_dict[par] = self[par][ss]
 
@@ -1094,8 +1093,8 @@ class StarTable(Table):
         self['n_params'][ss] = mod.n_params
 
         # Save parameters and errors to table.
-        for pp in range(len(mod.fitter_param_names)):
-            par = mod.fitter_param_names[pp]
+        for pp in range(len(mod.fit_param_names)):
+            par = mod.fit_param_names[pp]
             par_err = par + '_err'
             self[par][ss] = params[pp]
             self[par_err][ss] = param_errs[pp]
@@ -1131,7 +1130,7 @@ class StarTable(Table):
                 mod = motion_model_dict[mm]
                 # Set up parameters
                 param_dict = {}
-                for par in mod.fitter_param_names + mod.fixed_param_names + [pm+'_err' for pm in mod.fitter_param_names]:
+                for par in mod.fit_param_names + mod.fixed_param_names + [pm+'_err' for pm in mod.fit_param_names]:
                     param_dict[par] = self[par][idx]
                 x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
             except:
@@ -1211,7 +1210,7 @@ class StarTable(Table):
                 detected_in_all_epochs = np.logical_and(valid_xe, valid_ye)
 
         N = len(self['x'][select_stars, :])
-        fit_params = motion_model_to_fit.fitter_param_names
+        fit_params = motion_model_to_fit.fit_param_names
         param_data = {p: np.zeros(N) for p in fit_params}
         param_data.update({p+'_err': np.zeros(N) for p in fit_params})
         param_data.update({p: np.zeros(N) for p in motion_model_to_fit.fixed_param_names})
