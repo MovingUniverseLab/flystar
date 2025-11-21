@@ -3117,6 +3117,11 @@ def plot_stars_nfilt(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_arr
     x = tab['x0']
     y = tab['y0']
     r = np.hypot(x, y)
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, motion_model_dict, allow_alt_models=True)
     
     for i in range(Nstars):
         for ea, epoch_array in enumerate(epoch_array_list):
@@ -3247,9 +3252,9 @@ def plot_stars_nfilt(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_arr
             ind = int((row-1)*Ncols + col)
     
             paxes = plt.subplot(Nrows, Ncols, ind)
-            plt.plot(time, fitLineX, 'b-')
-            plt.plot(time, fitLineX + fitSigX, 'b--')
-            plt.plot(time, fitLineX - fitSigX, 'b--')
+            plt.plot(cont_times, xt_cont_all[ii], 'b-')
+            plt.plot(cont_times, xt_cont_all[ii] + xt_cont_err[ii], 'b--')
+            plt.plot(cont_times, xt_cont_all[ii] - xt_cont_err[ii], 'b--')
             print(np.shape(xerr.reshape(len(xerr),)))
             if not color_time:
                 plt.errorbar(rs(time), rs(x), yerr=rs(xerr), marker='.', color=color, ls='none')
@@ -3280,9 +3285,9 @@ def plot_stars_nfilt(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_arr
             ind = int((row-1)*Ncols + col)
     
             paxes = plt.subplot(Nrows, Ncols, ind)
-            plt.plot(time, fitLineY, 'b-')
-            plt.plot(time, fitLineY + fitSigY, 'b--')
-            plt.plot(time, fitLineY - fitSigY, 'b--')
+            plt.plot(cont_times, yt_cont_all[ii], 'b-')
+            plt.plot(cont_times, yt_cont_all[ii] + yt_cont_err[ii], 'b--')
+            plt.plot(cont_times, yt_cont_all[ii] - yt_cont_err[ii], 'b--')
             if not color_time:
                 plt.errorbar(rs(time), rs(y), yerr=rs(yerr), marker='.', color=color, ls='none')
             else:
@@ -3343,8 +3348,8 @@ def plot_stars_nfilt(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_arr
     
             paxes = plt.subplot(Nrows, Ncols, ind)
             plt.plot(time, np.zeros(len(time)), 'b-')
-            plt.plot(time,  fitSigX*1e3, 'b--')
-            plt.plot(time, -fitSigX*1e3, 'b--')
+            plt.plot(cont_times,  xt_cont_err[ii]*1e3, 'b--')
+            plt.plot(cont_times, -xt_cont_err[ii]*1e3, 'b--')
             if not color_time:
                 plt.errorbar(rs(time), rs(x - fitLineX)*1e3, yerr=rs(xerr)*1e3, marker='.', color=color, ls='none')
             else:
@@ -3371,8 +3376,8 @@ def plot_stars_nfilt(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_arr
     
             paxes = plt.subplot(Nrows, Ncols, ind)
             plt.plot(time, np.zeros(len(time)), 'b-')
-            plt.plot(time,  fitSigY*1e3, 'b--')
-            plt.plot(time, -fitSigY*1e3, 'b--')
+            plt.plot(cont_times,  yt_cont_err[ii]*1e3, 'b--')
+            plt.plot(cont_times, -yt_cont_err[ii]*1e3, 'b--')
             if not color_time:
                 plt.errorbar(rs(time), rs(y - fitLineY)*1e3, yerr=rs(yerr)*1e3, marker='.', color=color, ls='none')
             else:
