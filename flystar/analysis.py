@@ -438,7 +438,8 @@ def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
     combined astrometry + uncombined photometry table.
     """
     # Multiples: ['x', 'y', 'm', 'name_in_list', 'xe', 'ye', 'me', 't',
-    #     'x_orig', 'y_orig', 'm_orig', 'xe_orig', 'ye_orig', 'me_orig', 'used_in_trans']
+    #     'x_orig', 'y_orig', 'm_orig', 'xe_orig', 'ye_orig', 'me_orig', 'used_in_trans',
+    #     'xe_boot','ye_boot','me_boot']
     # Single: ['name', 'm0', 'm0_err', 'use_in_trans', 'ref_orig', 'n_detect',
     #     'x0', 'vx', 'y0', 'vy', 'x0_err', 'vx_err', 'y0_err', 'vy_err', 't0']
     # Don't include n_vfit
@@ -446,8 +447,8 @@ def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
     new_tab = copy.deepcopy(tab)
     #new_tab.remove_column('n_fit')
     new_tab.remove_column('n_detect')
-    for col in ['x','y','m','xe','ye','me','t','x_orig','y_orig','m_orig',
-                'xe_orig','ye_orig','me_orig','used_in_trans']:
+    for col in ['x','y','m','name_in_list','xe','ye','me','t','x_orig','y_orig','m_orig',
+                'xe_orig','ye_orig','me_orig','used_in_trans','xe_boot','ye_boot','me_boot']:
         new_tab[col] = tab[col][:,idx]
 
     new_tab.combine_lists('m', weights_col='me', sigma=3, ismag=True)
