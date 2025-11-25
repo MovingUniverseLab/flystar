@@ -23,16 +23,16 @@ cache_memory = Memory(cache_dir, verbose=0)
 # Default cache size is 1 GB
 cache_memory.reduce_size()
 
-@cache_memory.cache()
-def parallax_in_direction(ra, dec, mjd, obsLocation='earth', PA=0.):
+# @cache_memory.cache()
+def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     """
     Calculate the parallax vector in a given direction following MulensModel.
 
     Parameters
     ----------
-    RA : float
+    RA : float or array-like
         Right Ascension in degrees. (J2000)
-    Dec : float
+    Dec : float or array-like
         Declination in degrees. (J2000)
     mjd : float or array-like
         Modified Julian Date.
@@ -44,33 +44,42 @@ def parallax_in_direction(ra, dec, mjd, obsLocation='earth', PA=0.):
     Returns
     -------
     pvec : ndarray
-        Parallax vector components, shape of (N, 2), where N is the number of mjd entries.
+        Parallax vector components, shape of (2, N) or (2,), where N is the number of stars.
     """
     # Munge inputs into astropy format.
     # times = Time(mjd + 2400000.5, format='jd', scale='tdb')
+    ra = np.atleast_1d(ra)
+    dec = np.atleast_1d(dec)
+    mjd = np.atleast_1d(mjd)
     times = Time(mjd, format='mjd', scale='tdb')  # convert to TDB
     coord = SkyCoord(ra, dec, unit=(units.deg, units.deg))
 
-    direction = coord.cartesian.xyz.value
+    directions = coord.cartesian.xyz.value.T # Shape (N_stars, 3)
     north = np.array([0., 0., 1.])
-    _east_projected = np.cross(north, direction) / np.linalg.norm(np.cross(north, direction))
-    _north_projected = np.cross(direction, _east_projected) / np.linalg.norm(np.cross(direction, _east_projected))
+    # Cross product of each star with north vector
+    _east_projected = np.cross(north, directions)
+    _east_projected /= np.linalg.norm(_east_projected, axis=1)[:, np.newaxis]   # Shape (N_stars, 3)
+    _north_projected = np.cross(directions, _east_projected)
+    _north_projected /= np.linalg.norm(_north_projected, axis=1)[:, np.newaxis] # Shape (N_stars, 3)
 
     obs_pos = get_observer_barycentric(obsLocation, times)
     sun_pos = get_body_barycentric(body='sun', time=times)
 
     sun_obs_pos = sun_pos - obs_pos
 
-    pos = sun_obs_pos.xyz.T.to(units.au)
+    pos = sun_obs_pos.xyz.T.to(units.au).value  # Shape (N_stars, 3)
 
-    e = np.dot(pos, _east_projected)
-    n = np.dot(pos, _north_projected)
-    
+    e = np.einsum('ij,ij->i', pos, _east_projected)    # Shape (N_stars,)
+    n = np.einsum('ij,ij->i', pos, _north_projected)   # Shape (N_stars,)
+
     # Rotate frame e,n->x,y accounting for PA
-    PA_rad = np.pi/180.0 * PA
-    x = -e.value*np.cos(PA_rad) + n.value*np.sin(PA_rad)
-    y =  e.value*np.sin(PA_rad) + n.value*np.cos(PA_rad)
-    pvec = np.array([x, y]).T
+    pa = np.deg2rad(pa)
+    x = -e * np.cos(pa) + n * np.sin(pa)
+    y =  e * np.sin(pa) + n * np.cos(pa)
+    pvec = np.array([x, y]) # Shape (2, N_stars)
+    
+    if pvec.shape[1] == 1:
+        pvec = pvec.flatten()
 
     return pvec
 
