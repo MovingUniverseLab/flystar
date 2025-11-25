@@ -209,12 +209,12 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     t_label.rename_column('col2', 'm')
     t_label.rename_column('col3', 'x0')
     t_label.rename_column('col4', 'y0')
-    t_label.rename_column('col5', 'x0e')
-    t_label.rename_column('col6', 'y0e')
+    t_label.rename_column('col5', 'x0_err')
+    t_label.rename_column('col6', 'y0_err')
     t_label.rename_column('col7', 'vx')
     t_label.rename_column('col8', 'vy')
-    t_label.rename_column('col9', 'vxe')
-    t_label.rename_column('col10','vye')
+    t_label.rename_column('col9', 'vx_err')
+    t_label.rename_column('col10','vy_err')
     t_label.rename_column('col11','t0')
     t_label.rename_column('col12','use')
     t_label.rename_column('col13','r0')
@@ -222,23 +222,23 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     # Convert velocities from mas/yr to arcsec/year
 #    t_label['vx'] *= 0.001
 #    t_label['vy'] *= 0.001
-#    t_label['vxe'] *= 0.001
-#    t_label['vye'] *= 0.001
+#    t_label['vx_err'] *= 0.001
+#    t_label['vy_err'] *= 0.001
     t_label['vx'] = t_label['vx'] * 0.001
     t_label['vy'] = t_label['vy'] * 0.001
-    t_label['vxe'] = t_label['vxe'] * 0.001
-    t_label['vye'] = t_label['vye'] * 0.001
+    t_label['vx_err'] = t_label['vx_err'] * 0.001
+    t_label['vy_err'] = t_label['vy_err'] * 0.001
 
     # propogate to prop_to_time if prop_to_time is given
     if prop_to_time != None:
         x0 = t_label['x0']
-        x0e = t_label['x0e']
+        x0e = t_label['x0_err']
         vx = t_label['vx']
-        vxe = t_label['vxe']
+        vxe = t_label['vx_err']
         y0 = t_label['y0']
-        y0e = t_label['y0e']
+        y0e = t_label['y0_err']
         vy = t_label['vy']
-        vye = t_label['vye']
+        vye = t_label['vy_err']
         t0 = t_label['t0']
         t_label['x'] = x0 + vx*(prop_to_time - t0)
         t_label['y'] = y0 + vy*(prop_to_time - t0)
@@ -316,12 +316,12 @@ def read_label_accel(labelFile, prop_to_time=None, flipX=True):
     t_label.rename_column('col2', 'm')
     t_label.rename_column('col3', 'x0')
     t_label.rename_column('col4', 'y0')
-    t_label.rename_column('col5', 'x0e')
-    t_label.rename_column('col6', 'y0e')
+    t_label.rename_column('col5', 'x0_err')
+    t_label.rename_column('col6', 'y0_err')
     t_label.rename_column('col7', 'vx')
     t_label.rename_column('col8', 'vy')
-    t_label.rename_column('col9', 'vxe')
-    t_label.rename_column('col10','vye')
+    t_label.rename_column('col9', 'vx_err')
+    t_label.rename_column('col10','vy_err')
     t_label.rename_column('col11', 'ax')
     t_label.rename_column('col12', 'ay')
     t_label.rename_column('col13', 'axe')
@@ -333,12 +333,12 @@ def read_label_accel(labelFile, prop_to_time=None, flipX=True):
     # Convert velocities from mas/yr to arcsec/year
 #    t_label['vx'] *= 0.001
 #    t_label['vy'] *= 0.001
-#    t_label['vxe'] *= 0.001
-#    t_label['vye'] *= 0.001
+#    t_label['vx_err'] *= 0.001
+#    t_label['vy_err'] *= 0.001
     t_label['vx'] = t_label['vx'] * 0.001
     t_label['vy'] = t_label['vy'] * 0.001
-    t_label['vxe'] = t_label['vxe'] * 0.001
-    t_label['vye'] = t_label['vye'] * 0.001
+    t_label['vx_err'] = t_label['vx_err'] * 0.001
+    t_label['vy_err'] = t_label['vy_err'] * 0.001
 
     t_label['ax'] = t_label['ax'] * 0.001
     t_label['ay'] = t_label['ay'] * 0.001
@@ -348,15 +348,15 @@ def read_label_accel(labelFile, prop_to_time=None, flipX=True):
     # propogate to prop_to_time if prop_to_time is given
     if prop_to_time != None:
         x0 = t_label['x0']
-        x0e = t_label['x0e']
+        x0e = t_label['x0_err']
         vx = t_label['vx']
-        vxe = t_label['vxe']
+        vxe = t_label['vx_err']
         ax = t_label['ax']
         axe = t_label['axe']
         y0 = t_label['y0']
-        y0e = t_label['y0e']
+        y0e = t_label['y0_err']
         vy = t_label['vy']
-        vye = t_label['vye']
+        vye = t_label['vy_err']
         ay = t_label['ay']
         aye = t_label['aye']
         t0 = t_label['t0']
@@ -534,6 +534,8 @@ class StarList(Table):
 
             # Check all the arrays.
             arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'corr')
+
+            #print(kwargs)
 
             for arg_test in arg_tab:
                 if arg_test in kwargs:

@@ -1,4 +1,4 @@
-from flystar import analysis
+from flystar import analysis, motion_model, startables
 import pylab as py
 import pylab as plt
 import numpy as np
@@ -14,6 +14,8 @@ import math
 import astropy
 from astropy.table import Table
 from astropy.io import ascii
+from astropy.coordinates import SkyCoord
+from astropy import units as u
 
 ####################################################
 # Code for making diagnostic plots for astrometry
@@ -518,8 +520,8 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     diff_vx = ref_mat['vx'] - starlist_mat['vx']
     diff_vy = ref_mat['vy'] - starlist_mat['vy']
     
-    vx_err = np.hypot(ref_mat['vxe'], starlist_mat['vxe'])
-    vy_err = np.hypot(ref_mat['vye'], starlist_mat['vye'])
+    vx_err = np.hypot(ref_mat['vx_err'], starlist_mat['vx_err'])
+    vy_err = np.hypot(ref_mat['vy_err'], starlist_mat['vy_err'])
 
     ratio_vx = diff_vx / vx_err
     ratio_vy = diff_vy / vy_err
@@ -589,10 +591,10 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
 
     # Error calculation depends on if we are converting to mas/yr
     if pscale != None:
-        xerr_frac = np.hypot((ref_mat['vxe'] / ref_mat['vx']),
-                             (starlist_trans_mat['vxe'] / starlist_trans_mat['vx']))
-        yerr_frac = np.hypot((ref_mat['vye'] / ref_mat['vy']),
-                             (starlist_trans_mat['vye'] / starlist_trans_mat['vy']))
+        xerr_frac = np.hypot((ref_mat['vx_err'] / ref_mat['vx']),
+                             (starlist_trans_mat['vx_err'] / starlist_trans_mat['vx']))
+        yerr_frac = np.hypot((ref_mat['vy_err'] / ref_mat['vy']),
+                             (starlist_trans_mat['vy_err'] / starlist_trans_mat['vy']))
 
         # Now apply the plate scale to convert to mas/yr
         diff_x *= pscale
@@ -600,8 +602,8 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
         xerr = diff_x * xerr_frac
         yerr = diff_y * yerr_frac
     else:
-        xerr = np.hypot(ref_mat['vxe'], starlist_trans_mat['vxe'])
-        yerr = np.hypot(ref_mat['vye'], starlist_trans_mat['vye'])
+        xerr = np.hypot(ref_mat['vx_err'], starlist_trans_mat['vx_err'])
+        yerr = np.hypot(ref_mat['vy_err'], starlist_trans_mat['vy_err'])
 
     # Plotting
     py.figure(figsize=(10,10))
@@ -1044,8 +1046,8 @@ def plot_gaia(gaia):
 def plot_pm_error(tab):
     plt.figure(figsize=(6,6))
     plt.clf()
-    plt.semilogy(tab['m0'], tab['vxe']*1e3, 'r.', label=r'$\sigma_{\mu_{\alpha *}}$', alpha=0.4)
-    plt.semilogy(tab['m0'], tab['vye']*1e3, 'b.', label=r'$\sigma_{\mu_{\delta}}$', alpha=0.4)
+    plt.semilogy(tab['m0'], tab['vx_err']*1e3, 'r.', label=r'$\sigma_{\mu_{\alpha *}}$', alpha=0.4)
+    plt.semilogy(tab['m0'], tab['vy_err']*1e3, 'b.', label=r'$\sigma_{\mu_{\delta}}$', alpha=0.4)
     plt.legend()
     plt.xlabel('Mag')
     plt.ylabel('PM Error (mas/yr)')
@@ -1055,24 +1057,24 @@ def plot_pm_error(tab):
 def plot_mag_error(tab):
     plt.figure(figsize=(6,6))
     plt.clf()
-    plt.semilogy(tab['m0'], tab['m0e'], 'r.', alpha=0.4)
+    plt.semilogy(tab['m0'], tab['m0_err'], 'r.', alpha=0.4)
     plt.legend()
     plt.xlabel('Mag')
     plt.ylabel('Mag Error (mag)')
 
     return
 
-def plot_mean_residuals_by_epoch(tab):
+def plot_mean_residuals_by_epoch(tab, motion_model_dict={}):
     """
     Plot mean position and magnitude residuals vs. epoch.
     Note we are plotting the mean( |dx} ) to see
     the size of the mean residual.
     """
     # Predicted model positions at each epoch
-    dt = tab['t'] - tab['t0'][:, np.newaxis]
-    xt_mod = tab['x0'][:, np.newaxis] + tab['vx'][:, np.newaxis] * dt
-    yt_mod = tab['y0'][:, np.newaxis] + tab['vy'][:, np.newaxis] * dt
-
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    
     # Residuals
     dx = tab['x'] - xt_mod
     dy = tab['y'] - yt_mod
@@ -1120,18 +1122,21 @@ def plot_mean_residuals_by_epoch(tab):
     
     return
 
-def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=None):
+def plot_quiver_residuals_all_epochs(tab, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
     n_good = np.zeros(len(tab), dtype=int)
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
+    
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in tab['t'].T])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(complete_times, motion_model_dict, allow_alt_models=True)
 
     for ee in range(tab['x'].shape[1]):
-        dt = tab['t'][:, ee] - tab['t0']
-        xt_mod = tab['x0'] + tab['vx'] * dt
-        yt_mod = tab['y0'] + tab['vy'] * dt
+        xt_mod = xt_mod_all[:,ee]
+        yt_mod = yt_mod_all[:,ee]
         
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
         ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
@@ -1184,18 +1189,22 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
     return
 
 
-def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None, cte_fit=None, mlim=15):
+def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None, scale_orig=None, cte_fit=None, mlim=15):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
     n_good = np.zeros(len(tab), dtype=int)
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
-
+    
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
-        xt_mod = tab['x0'] + tab['vx'] * dt
-        yt_mod = tab['y0'] + tab['vy'] * dt
+        xt_mod = xt_mod_all[ee]
+        yt_mod = yt_mod_all[ee]
         
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
         ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
@@ -1216,7 +1225,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                                    scale=scale_orig, plotlim=plotlim)
 
         plot_mag_scatter(tab['m'][:, ee], 
-                         tab['m0'], tab['m0e'],
+                         tab['m0'], tab['m0_err'],
                          tab['x'][:, ee], tab['y'][:, ee], 
                          tab['xe'][:, ee], tab['ye'][:, ee],
                          xt_mod, yt_mod, 
@@ -1226,7 +1235,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                          cte_fit=cte_fit, mlim=mlim)
 
         plot_y_scatter(tab['m'][:, ee], 
-                         tab['m0'], tab['m0e'],
+                         tab['m0'], tab['m0_err'],
                          tab['x'][:, ee], tab['y'][:, ee], 
                          tab['xe'][:, ee], tab['ye'][:, ee],
                          xt_mod, yt_mod, 
@@ -1287,7 +1296,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
     return
 
 
-def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None):
+def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None, scale_orig=None):
     m_t_list = []
     x_t_list = []
     y_t_list = []
@@ -1300,14 +1309,17 @@ def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arc
     da_list = []
 
     ntrans = len(tab_list)
-
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    
     for mm in range(ntrans):
         tab = tab_list[mm]
         trans_list = trans_list_list[mm]
         for ee in range(tab['x'].shape[1]):
             dt = tab['t'][:, ee] - tab['t0']
-            xt_mod = tab['x0'] + tab['vx'] * dt
-            yt_mod = tab['y0'] + tab['vy'] * dt
+            xt_mod = xt_mod_all[ee]
+            yt_mod = yt_mod_all[ee]
         
             good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
             ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
@@ -1842,7 +1854,7 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
 
     return (dx, dy)
 
-def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, plotlim=None, lower_mag=18, upper_mag=13):
+def plot_quiver_residuals_magcolor_all_epochs(tab, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None, lower_mag=18, upper_mag=13):
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
     n_good = np.zeros(len(tab), dtype=int)
@@ -1852,11 +1864,14 @@ def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, pl
     idx = np.where((tab['m0'] < lower_mag) & 
                    (tab['m0'] > upper_mag))[0]
     tab = tab[idx]
-
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
-        xt_mod = tab['x0'] + tab['vx'] * dt
-        yt_mod = tab['y0'] + tab['vy'] * dt
+        xt_mod = xt_mod_all[ee]
+        yt_mod = yt_mod_all[ee]
         mag = tab['m0']
 
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
@@ -2149,7 +2164,7 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     return
 
 
-def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
+def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2157,21 +2172,27 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
     chi2_x_list = []
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
+    
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
 
     for ii in range(len(tab)):
         # Ignore the NaNs 
         fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
-#        fnd = np.where(tab['xe'][ii, :] > 0)[0]
         fnd_list.append(len(fnd))
         
         x = tab['x'][ii, fnd]
         y = tab['y'][ii, fnd]
-        xerr = tab['xe'][ii, fnd]
-        yerr = tab['ye'][ii, fnd]
+        if boot_err:
+            xerr = np.hypot(tab['xe_boot'][ii, fnd], tab['xe'][ii, fnd])
+            yerr = np.hypot(tab['ye_boot'][ii, fnd], tab['ye'][ii, fnd])
+        else:
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
 
-        dt = tab['t'][ii, fnd] - tab['t0'][ii]
-        fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
-        fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
+        fitLineX = xt_mod_all[ii, fnd]
+        fitLineY = yt_mod_all[ii,fnd]
 
         diffX = x - fitLineX
         diffY = y - fitLineY
@@ -2189,7 +2210,9 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
     
     idx = np.where(fnd == Ndetect)[0]
     # Fitting position and velocity... so subtract 2 to get Ndof
-    Ndof = Ndetect - 2 
+    n_params = np.nanmean(tab['n_params'][idx])
+    Ndof = Ndetect - n_params
+    print(f"Ndof={Ndof}, Ndetect={Ndetect}, Nparams={n_params}")
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
 
@@ -2197,15 +2220,106 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
     plt.clf()
     plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
     plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
-    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6, 
+    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
              label='$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.legend()
 
-    chi2red_x = x / (fnd - 2)
-    chi2red_y = y / (fnd - 2)
-    chi2red_t = (x + y) / (2.0 * (fnd - 2))
+    chi2red_x = x / Ndof
+    chi2red_y = y / Ndof
+    chi2red_t = (x + y) / (2.0 * Ndof)
+    
+    print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
+    fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
+    med_chi2red_x_f = np.median(chi2red_x[idx])
+    med_chi2red_x_a = np.median(chi2red_x)
+    med_chi2red_y_f = np.median(chi2red_y[idx])
+    med_chi2red_y_a = np.median(chi2red_y)
+    med_chi2red_t_f = np.median(chi2red_t[idx])
+    med_chi2red_t_a = np.median(chi2red_t)
+    print(fmt.format('  X', med_chi2red_x_f, med_chi2red_x_a))
+    print(fmt.format('  Y', med_chi2red_y_f, med_chi2red_y_a))
+    print(fmt.format('Tot', med_chi2red_t_f, med_chi2red_t_a))
+
+    return
+
+def plot_chi2_dist_per_filter(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, filter=None, boot_err=False):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    chi2_x_list = []
+    chi2_y_list = []
+    fnd_list = [] # Number of non-NaN error measurements
+    
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+
+    for ii in range(len(tab)):
+        # Ignore the NaNs 
+        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
+        fnd_list.append(len(fnd))
+        
+        x = tab['x'][ii, fnd]
+        y = tab['y'][ii, fnd]
+        if boot_err:
+            xerr = np.hypot(tab['xe_boot'][ii, fnd], tab['xe'][ii, fnd])
+            yerr = np.hypot(tab['ye_boot'][ii, fnd], tab['ye'][ii, fnd])
+        else:
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
+
+        fitLineX = xt_mod_all[ii, fnd]
+        fitLineY = yt_mod_all[ii,fnd]
+
+        diffX = x - fitLineX
+        diffY = y - fitLineY
+        sigX = diffX / xerr
+        sigY = diffY / yerr
+        
+        chi2_x = np.sum(sigX**2)
+        chi2_y = np.sum(sigY**2)
+        chi2_x_list.append(chi2_x)
+        chi2_y_list.append(chi2_y)
+        #print(fitLineX, x, xerr)
+    #pdb.set_trace()
+
+    x = np.array(chi2_x_list)
+    y = np.array(chi2_y_list)
+    fnd = np.array(fnd_list)
+    
+    
+    idx = np.where(fnd == Ndetect)[0]
+    # Fitting position and velocity... so subtract n_params to get Ndof
+    n_params = np.nanmean(tab['n_params'][idx])
+    Ndof = Ndetect - n_params
+    print(f"Ndof={Ndof}, Ndetect={Ndetect}, Nparams={n_params}")
+    chi2_xaxis = np.linspace(0, xlim, xlim*3)
+    chi2_bins = np.linspace(0, xlim, n_bins)
+    print(x[idx])
+    #pdb.set_trace()
+
+    plt.figure(figsize=(6,4))
+    plt.clf()
+    plt.hist(x[idx], bins=chi2_bins, histtype='stepfilled', label='RA', density=True, color='skyblue', alpha=0.8, edgecolor='k')
+    plt.hist(y[idx], bins=chi2_bins, histtype='stepfilled', label='DEC', density=True, color='orange', alpha=0.8, edgecolor='k')
+    plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
+             label='$\chi^2$ ' + str(Ndof) + ' dof')
+    #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.title(str(filter)+' (N = '+str(len(chi2_x_list))+')', fontsize=22)
+    plt.xlim(0, xlim)
+    plt.ylabel(r'PDF', fontsize=28)
+    plt.legend(fontsize=20)
+
+    plt.tick_params(labelsize=20, direction='in', right=True, top=True)
+
+    plt.savefig(str(filter)+'_chi2_dist.png', dpi=400)
+
+    chi2red_x = x / Ndof
+    chi2red_y = y / Ndof
+    chi2red_t = (x + y) / (2.0 * Ndof)
     
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
     fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
@@ -2222,34 +2336,41 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50):
     return
 
 
-def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0):
+def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_idx = 0, motion_model_dict={}, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
     """
-    diffX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    diffY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    errX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    errY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    sigX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    sigY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-    m_arr = -99 * np.ones((len(tab['xe']), Ndetect))
-
+    diffX_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    diffY_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    errX_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    errY_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    sigX_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    sigY_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    m_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
+    
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    
     for ii in range(len(tab['xe'])):
         # Ignore the NaNs 
         fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
-        if len(fnd) == Ndetect:            
+        if len(fnd) == Ndetect and tab['use_in_trans'][ii]:            
             time = tab['t'][ii, fnd]
             x = tab['x'][ii, fnd]
             y = tab['y'][ii, fnd]
             m = tab['m'][ii, fnd]
 
-            xerr = tab['xe'][ii, fnd]
-            yerr = tab['ye'][ii, fnd]
+            if boot_err:
+                xerr = np.hypot(tab['xe_boot'][ii, fnd], tab['xe'][ii, fnd])
+                yerr = np.hypot(tab['ye_boot'][ii, fnd], tab['ye'][ii, fnd])
+            else:
+                xerr = tab['xe'][ii, fnd]
+                yerr = tab['ye'][ii, fnd]
 
-            dt = tab['t'][ii, fnd] - tab['t0'][ii]
-            fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
-            fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
+            fitLineX = xt_mod_all[ii, fnd]
+            fitLineY = yt_mod_all[ii, fnd]
             
             diffX = x - fitLineX
             diffY = y - fitLineY
@@ -2281,14 +2402,17 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
         if target_idx is not None:
             ax2.plot(m_arr[target_idx, ii], sigX_arr[target_idx, ii], 's', color='black', ms=5)
             ax2.plot(m_arr[target_idx, ii], sigY_arr[target_idx, ii], 'o', color='black', ms=5)
-        ax2.set_xlim(xlim[0], xlim[1])
+        ax2.set_xlim(mlim[0], mlim[1])
         ax2.set_ylim(-5, 5)
         ax2.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax2.axhline(y=np.nanmean(sigX_arr[:, ii]), color='tab:blue', alpha=0.9,linestyle='dotted', zorder=1001)
+        ax2.axhline(y=np.nanmean(sigY_arr[:, ii]), color='tab:orange', alpha=0.9,linestyle='dotted', zorder=1002)
         ax2.set_xlabel('mag')
         ax2.set_ylabel('sigma')
         ax2.set_title('Epoch {0}'.format(ii))
         ax2.legend()
 
+        #print(errX_arr[:, ii])
         ax3.errorbar(m_arr[:, ii], diffX_arr[:, ii]*1E3, yerr=errX_arr[:, ii]*1E3, 
                      marker='s', label = 'X', ls='none', color='tab:blue', alpha=0.4, ms=5)
         ax3.errorbar(m_arr[:, ii], diffY_arr[:, ii]*1E3, yerr=errY_arr[:, ii]*1E3, 
@@ -2298,15 +2422,189 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, xlim, ylim = [-1, 1], target_idx = 0)
                          marker='s', ls='none', color='black', ms=5)
             ax3.errorbar(m_arr[target_idx, ii], diffY_arr[target_idx, ii]*1E3, yerr=errY_arr[target_idx, ii]*1E3, 
                          marker='o', ls='none', color='black', ms=5)
-        ax3.set_xlim(xlim[0], xlim[1])
+        ax3.set_xlim(mlim[0], mlim[1])
         ax3.set_ylim(ylim[0], ylim[1])
         ax3.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax3.axhline(y=np.nanmean(diffX_arr[:, ii]*1E3), color='tab:blue', alpha=0.9,linestyle='dotted', zorder=1001)
+        ax3.axhline(y=np.nanmean(diffY_arr[:, ii]*1E3), color='tab:orange', alpha=0.9,linestyle='dotted', zorder=1002)
         ax3.set_xlabel('mag')
         ax3.set_ylabel('residual (mas)')
 
     return
+    
+# TODO: update for motion model
+def plot_chi2_ecliptic_per_epoch(tab, Ndetect,ra,dec, mlim=[14,21], ylim = [-1, 1], target_idx = 0):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    diffX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    diffY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    errX_arr = 99 * np.ones((len(tab['xe']), Ndetect))
+    errY_arr = 99 * np.ones((len(tab['xe']), Ndetect))
+    sigX_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    sigY_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    m_arr = -99 * np.ones((len(tab['xe']), Ndetect))
+    
+    rad_to_as = 180/np.pi * 60 * 60
+    deg_to_as = 60 * 60
+    def eq_to_ec(ra,dec):
+        e = 23.446 * np.pi/180
+        sinb = np.sin(dec)*np.cos(e) - np.cos(dec)*np.sin(e)*np.sin(ra)
+        cosb = np.cos(np.arcsin(sinb))
+        cosg = np.cos(ra)*np.cos(dec)/cosb
+        sing = (np.sin(dec)*np.sin(e) + np.cos(dec)*np.cos(e)*np.sin(ra))/cosb
+        g,b = np.arctan2(sing,cosg)*180/np.pi,np.arcsin(sinb)*180/np.pi
+        g = 360+g
+        return g*deg_to_as,b*deg_to_as
+    coord0 = SkyCoord(ra=ra,dec=dec,unit=(u.hourangle, u.deg),frame='icrs')
 
-def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
+    for ii in range(len(tab['xe'])):
+        # Ignore the NaNs
+        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
+        if len(fnd) == Ndetect and tab['use_in_trans'][ii]:
+            time = tab['t'][ii, fnd]
+            x = tab['x'][ii, fnd]
+            y = tab['y'][ii, fnd]
+            m = tab['m'][ii, fnd]
+            vx = tab['vx'][ii]
+            vy = tab['vy'][ii]
+            lambda_0,beta_0 = eq_to_ec((coord0.ra - tab['x0'][ii]*u.arcsec).radian,
+                                        (coord0.dec + tab['y0'][ii]*u.arcsec).radian)
+            x1 = coord0.ra - u.arcsec*x
+            y1 = coord0.dec + u.arcsec*y
+            ra_rad,dec_rad = x1.radian, y1.radian
+            lambda_obs,beta_obs = eq_to_ec(ra_rad,dec_rad)
+            x2 = coord0.ra - tab['x0'][ii]*u.arcsec - (time-tab['t0'][ii])*vx*u.arcsec
+            y2 = coord0.dec + tab['y0'][ii]*u.arcsec + (time-tab['t0'][ii])*vy*u.arcsec
+            ra_rad,dec_rad = x2.radian, y2.radian
+            lambda_pm,beta_pm = eq_to_ec(ra_rad,dec_rad)
+
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
+
+            dt = tab['t'][ii, fnd] - tab['t0'][ii]
+            fitLineX = lambda_pm
+            fitLineY = beta_pm
+            
+            diffX = lambda_obs - fitLineX
+            diffY = beta_obs - fitLineY
+            sigX = diffX / xerr
+            sigY = diffY / yerr
+
+            diffX_arr[ii] = diffX.reshape(Ndetect,)
+            diffY_arr[ii] = diffY.reshape(Ndetect,)
+            errX_arr[ii] = xerr.reshape(Ndetect,)
+            errY_arr[ii] = yerr.reshape(Ndetect,)
+            sigX_arr[ii] = sigX.reshape(Ndetect,)
+            sigY_arr[ii] = sigY.reshape(Ndetect,)
+            m_arr[ii] = m.reshape(Ndetect,)
+
+    ts_folded = tab['t'][0]%1
+    i_sort = np.argsort(ts_folded)
+    print(ts_folded,i_sort)
+    for ii in i_sort:
+#        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 4),
+#                                            gridspec_kw={'width_ratios': [1, 2, 2]})
+#        plt.subplots_adjust(wspace=0.5)
+#        ax1.hist(sigX_arr[:, ii], label = 'X', histtype='step', bins=np.linspace(-10, 10))
+#        ax1.hist(sigY_arr[:, ii], label = 'Y', histtype='step', bins=np.linspace(-10, 10))
+#        ax1.set_xlabel('sigma')
+#        ax1.legend()
+
+        fig, (ax2, ax3) = plt.subplots(1, 2, figsize=(14, 4))
+        plt.subplots_adjust(wspace=0.25)
+
+        '''ax2.plot(m_arr[:, ii], sigX_arr[:, ii], 's', label = 'lambda', color='tab:blue', alpha=0.4, ms=5)
+        ax2.plot(m_arr[:, ii], sigY_arr[:, ii], 'o', label = 'beta', color='tab:orange', alpha=0.4, ms=5)
+        if target_idx is not None:
+            ax2.plot(m_arr[target_idx, ii], sigX_arr[target_idx, ii], 's', color='black', ms=5)
+            ax2.plot(m_arr[target_idx, ii], sigY_arr[target_idx, ii], 'o', color='black', ms=5)
+        ax2.set_xlim(mlim[0], mlim[1])
+        ax2.set_ylim(-5, 5)
+        ax2.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax2.set_xlabel('mag')
+        ax2.set_ylabel('sigma')'''
+        ax2.set_title('Epoch {0}'.format(ii)+', phase='+str(tab['t'][0][ii]%1)[:5])
+
+        #print(errX_arr[:, ii])
+        ax2.errorbar(m_arr[:, ii], diffX_arr[:, ii]*1E3, yerr=errX_arr[:, ii]*1E3,
+                     marker='s', label = 'lambda', ls='none', color='tab:blue', alpha=0.4, ms=5)
+        ax3.errorbar(m_arr[:, ii], diffY_arr[:, ii]*1E3, yerr=errY_arr[:, ii]*1E3,
+                     marker='o', label = 'beta', ls='none', color='tab:orange', alpha=0.4, ms=5)
+        if target_idx is not None:
+            #print('target',m_arr[target_idx, ii],diffX_arr[target_idx, ii]*1E3,diffY_arr[target_idx, ii]*1E3)
+            ax2.errorbar(m_arr[target_idx, ii], diffX_arr[target_idx, ii]*1E3, yerr=errX_arr[target_idx, ii]*1E3,
+                         marker='s', ls='none', color='black', ms=5)
+            ax3.errorbar(m_arr[target_idx, ii], diffY_arr[target_idx, ii]*1E3, yerr=errY_arr[target_idx, ii]*1E3,
+                         marker='o', ls='none', color='black', ms=5)
+        ax2.legend()
+        ax3.legend()
+        ax2.set_xlim(mlim[0], mlim[1])
+        ax3.set_xlim(mlim[0], mlim[1])
+        ax2.set_ylim(ylim[0], ylim[1])
+        ax3.set_ylim(ylim[0], ylim[1])
+        ax2.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax3.axhline(y=0, color='black', alpha=0.9, zorder=1000)
+        ax2.set_xlabel('mag')
+        ax2.set_ylabel('residual (mas)')
+        ax3.set_xlabel('mag')
+        ax3.set_ylabel('residual (mas)')
+    return
+
+def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30, boot_err=False):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    chi2_m_list = []
+    fnd_list = [] # Number of non-NaN error measurements
+
+    for ii in range(len(tab['me'])):
+        # Ignore the NaNs 
+        fnd = np.argwhere(~np.isnan(tab['me'][ii,:]))
+        fnd_list.append(len(fnd))
+        
+        m = tab['m'][ii, fnd]
+        if boot_err:
+            merr = np.hypot(tab['me_boot'][ii, fnd], tab['me'][ii, fnd])
+        else:
+            merr = tab['me'][ii, fnd]
+        m0 = tab['m0'][ii]
+        m0err = tab['m0_err'][ii]
+
+        diff_m = m0 - m
+        sig_m = diff_m/merr
+        
+        chi2_m = np.sum(sig_m**2)
+        chi2_m_list.append(chi2_m)
+
+    chi2_m = np.array(chi2_m_list)
+    fnd = np.array(fnd_list)
+
+    idx = np.where(fnd == Ndetect)[0]
+
+    # Fitting mean magnitude... so subtract 1 to get Ndof
+    Ndof = Ndetect - 1
+    chi2_maxis = np.linspace(0, xlim, xlim*3)
+    chi2_bins = np.linspace(0, xlim, n_bins)
+
+    plt.figure(figsize=(6,4))
+    plt.clf()
+    plt.hist(chi2_m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
+    plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
+             label='$\chi^2$ ' + str(Ndof) + ' dof')
+    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.xlim(0, xlim)
+    plt.legend()
+
+    print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
+    fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
+    print(fmt.format('M', np.median(chi2_m[idx] / (fnd[idx] - 2)), np.median(chi2_m / (fnd - 2))))
+    
+    return
+
+def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, file_name=None, filter=None):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2322,7 +2620,7 @@ def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
         m = tab['m'][ii, fnd]
         merr = tab['me'][ii, fnd]
         m0 = tab['m0'][ii]
-        m0err = tab['m0e'][ii]
+        m0err = tab['m0_err'][ii]
 
         diff_m = m0 - m
         sig_m = diff_m/merr
@@ -2337,17 +2635,23 @@ def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
 
     # Fitting mean magnitude... so subtract 1 to get Ndof
     Ndof = Ndetect - 1
-    chi2_maxis = np.linspace(0, mlim, mlim*3)
-    chi2_bins = np.linspace(0, mlim, n_bins)
+    chi2_maxis = np.linspace(0, xlim, xlim*3)
+    chi2_bins = np.linspace(0, xlim, n_bins)
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(chi2_m[idx], bins=np.arange(mlim*10), histtype='step', density=True)
+    plt.hist(chi2_m[idx], bins=np.arange(xlim*10), label='mag', histtype='stepfilled', density=True, color='green', alpha=0.7, edgecolor='k')
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
              label='$\chi^2$ ' + str(Ndof) + ' dof')
-    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
-    plt.xlim(0, mlim)
-    plt.legend()
+    #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+    plt.xlim(0, xlim)
+    plt.xlabel(r'$\chi^{2}$', fontsize=28)
+    plt.ylabel(r'PDF', fontsize=28)
+    plt.legend(fontsize=20)
+
+    plt.tick_params(labelsize=20, direction='in', right=True, top=True)
+
+    plt.savefig(str(filter)+'_chi2_dist_mag.png', dpi=400)
 
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
     fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
@@ -2355,13 +2659,17 @@ def plot_chi2_dist_mag(tab, Ndetect, mlim=40, n_bins=30):
     
     return
 
-def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False):
+def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False, boot_err=False):
     """
     Plot a set of stars positions, flux and residuals over time. 
 
     epoch_array : None, array
         Array of the epoch indicies to plot. If None, plots all epochs.
     """
+    
+    def rs(x):
+        return x.reshape(len(x))
+    
     print( 'Creating residuals plots for star(s):' )
     print( star_names )
     
@@ -2379,6 +2687,11 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     x = tab['x0']
     y = tab['y0']
     r = np.hypot(x, y)
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, motion_model_dict, allow_alt_models=True)
     
     for i in range(Nstars):
         starName = star_names[i]
@@ -2402,19 +2715,25 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         y = tab['y'][ii, fnd]
         m = tab['m'][ii, fnd]
 
-        xerr = tab['xe'][ii, fnd]
-        yerr = tab['ye'][ii, fnd]
-        merr = tab['me'][ii, fnd]
+        if boot_err:
+            xerr = np.hypot(tab['xe'][ii, fnd], tab['xe_boot'][ii, fnd])
+            yerr = np.hypot(tab['ye'][ii, fnd], tab['ye_boot'][ii, fnd])
+            merr = np.hypot(tab['me'][ii, fnd], tab['me_boot'][ii, fnd])
+        else:
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
+            merr = tab['me'][ii, fnd]
 
         dt = tab['t'][ii, fnd] - tab['t0'][ii]
-        fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
-        fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
+        
+        fitLineX = xt_mod_all[ii, fnd]
+        fitLineY = yt_mod_all[ii, fnd]
 
-        fitSigX = np.hypot(tab['x0e'][ii], tab['vxe'][ii]*dt)
-        fitSigY = np.hypot(tab['y0e'][ii], tab['vye'][ii]*dt)
+        fitSigX = xt_mod_err[ii, fnd]
+        fitSigY = yt_mod_err[ii, fnd]
 
         fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
-        fitSigM = np.repeat(tab['m0e'][ii], len(dt)).reshape(len(dt),1)
+        fitSigM = np.repeat(tab['m0_err'][ii], len(dt)).reshape(len(dt),1)
 
         diffX = x - fitLineX
         diffY = y - fitLineY
@@ -2452,6 +2771,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
               (chi2_red_y, chi2_y, dof))
         print( '\tM Chi^2 = %5.2f (%6.2f for %2d dof)' % 
               (chi2_red_m, chi2_m, dofM))
+        if 'motion_model_used' in tab.keys():
+            print('\tMotion model:', tab['motion_model_used'][ii])
 
         tmin = time.min()
         tmax = time.max()
@@ -2502,11 +2823,16 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         ind = int((row-1)*Ncols + col)
 
         paxes = plt.subplot(Nrows, Ncols, ind)
-        plt.plot(time, fitLineX, 'b-')
-        plt.plot(time, fitLineX + fitSigX, 'b--')
-        plt.plot(time, fitLineX - fitSigX, 'b--')
+        plt.plot(cont_times, xt_cont_all[ii], 'b-')
+        plt.plot(cont_times, xt_cont_all[ii] + xt_cont_err[ii], 'b--')
+        plt.plot(cont_times, xt_cont_all[ii] - xt_cont_err[ii], 'b--')
         if not color_time:
-            plt.errorbar(time, x, yerr=xerr.reshape(len(xerr),), fmt='k.')
+            #print('x:',x)
+            #print('xerr:',xerr)
+            #print('xerr_reshaped:', xerr.reshape(len(xerr),))
+            #plt.errorbar(time, x, yerr=xerr.reshape(len(xerr)), fmt='k.')
+            plt.errorbar(rs(time), rs(x), yerr=rs(xerr), fmt='k.')
+            #plt.errorbar(time, x, yerr=xerr, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2534,11 +2860,11 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         ind = int((row-1)*Ncols + col)
 
         paxes = plt.subplot(Nrows, Ncols, ind)
-        plt.plot(time, fitLineY, 'b-')
-        plt.plot(time, fitLineY + fitSigY, 'b--')
-        plt.plot(time, fitLineY - fitSigY, 'b--')
+        plt.plot(cont_times, yt_cont_all[ii], 'b-')
+        plt.plot(cont_times, yt_cont_all[ii] + yt_cont_err[ii], 'b--')
+        plt.plot(cont_times, yt_cont_all[ii] - yt_cont_err[ii], 'b--')
         if not color_time:
-            plt.errorbar(time, y, yerr=yerr.reshape(len(yerr),), fmt='k.')
+            plt.errorbar(rs(time), rs(y), yerr=rs(yerr), fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2568,7 +2894,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         plt.plot(time, fitLineM + fitSigM, 'g--')
         plt.plot(time, fitLineM - fitSigM, 'g--')
         if not color_time:
-            plt.errorbar(time, m, yerr=merr.reshape(len(merr),), fmt='k.')
+            plt.errorbar(rs(time), rs(m), yerr=rs(merr), fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2597,10 +2923,10 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, np.zeros(len(time)), 'b-')
-        plt.plot(time,  fitSigX*1e3, 'b--')
-        plt.plot(time, -fitSigX*1e3, 'b--')
+        plt.plot(cont_times,  xt_cont_err[ii]*1e3, 'b--')
+        plt.plot(cont_times, -xt_cont_err[ii]*1e3, 'b--')
         if not color_time:
-            plt.errorbar(time, (x - fitLineX)*1e3, yerr=xerr.reshape(len(xerr),)*1e3, fmt='k.')
+            plt.errorbar(rs(time), rs(x - fitLineX)*1e3, yerr=rs(xerr)*1e3, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2625,10 +2951,10 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         plt.plot(time, np.zeros(len(time)), 'b-')
-        plt.plot(time,  fitSigY*1e3, 'b--')
-        plt.plot(time, -fitSigY*1e3, 'b--')
+        plt.plot(cont_times,  yt_cont_err[ii]*1e3, 'b--')
+        plt.plot(cont_times, -yt_cont_err[ii]*1e3, 'b--')
         if not color_time:
-            plt.errorbar(time, (y - fitLineY)*1e3, yerr=yerr.reshape(len(yerr),)*1e3, fmt='k.')
+            plt.errorbar(rs(time), rs(y - fitLineY)*1e3, yerr=rs(yerr)*1e3, fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2656,7 +2982,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         plt.plot(time,  fitSigM*1e3, 'g--')
         plt.plot(time, -fitSigM*1e3, 'g--')
         if not color_time:
-            plt.errorbar(time, (m - fitLineM), yerr=merr.reshape(len(merr),), fmt='k.')
+            plt.errorbar(rs(time), rs(m - fitLineM), yerr=rs(merr), fmt='k.')
         else:
             norm = colors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2683,8 +3009,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
         paxes = plt.subplot(Nrows, Ncols, ind)
         if not color_time:
-            plt.errorbar(x,y, xerr=xerr.reshape(len(xerr),), 
-                         yerr=yerr.reshape(len(yerr),), fmt='k.')
+            plt.errorbar(rs(x),rs(y), xerr=rs(xerr),
+                         yerr=rs(yerr), fmt='k.')
         else:
             sc = plt.scatter(x, y, s=0, c=dtime, vmin=0, vmax=1, cmap='hsv')
             clb = plt.colorbar(sc)
@@ -2701,8 +3027,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         paxes.xaxis.set_major_formatter(FormatStrFormatter('%.3f'))
         plt.xlabel('X (asec)', fontsize=fontsize1)
         plt.ylabel('Y (asec)', fontsize=fontsize1)
-        plt.plot(fitLineX, fitLineY, 'b-')    
-
+        plt.plot(xt_cont_all[ii], yt_cont_all[ii], 'b-')
+        
         ##########
         # X, Y Histogram of Residuals
         ##########
@@ -2752,10 +3078,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
     return
 
-
-
-def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None,
-                         figsize=(15,25), color_time=False, resTicRng=None):
+def plot_stars_nfilt(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array_list = None, color_list = None,
+                         figsize=(15,25), color_time=False, resTicRng=None, save_name=None, boot_err=False):
     """
     Plot a set of stars positions, flux and residuals over time. 
 
@@ -2767,6 +3091,12 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     """
     print( 'Creating residuals plots for star(s):' )
     print( star_names )
+    def rs(x):
+        return x.reshape(len(x))
+    
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
     
     Nstars = len(star_names)
     Ncols = 3 * np.min([Nstars, NcolMax])
@@ -2782,6 +3112,11 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     x = tab['x0']
     y = tab['y0']
     r = np.hypot(x, y)
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, motion_model_dict, allow_alt_models=True)
     
     for i in range(Nstars):
         for ea, epoch_array in enumerate(epoch_array_list):
@@ -2807,19 +3142,23 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             y = tab['y'][ii, fnd]
             m = tab['m'][ii, fnd]
     
-            xerr = tab['xe'][ii, fnd]
-            yerr = tab['ye'][ii, fnd]
-            merr = tab['me'][ii, fnd]
+            if boot_err:
+                xerr = np.hypot(tab['xe'][ii, fnd], tab['xe_boot'][ii, fnd])
+                yerr = np.hypot(tab['ye'][ii, fnd], tab['ye_boot'][ii, fnd])
+                merr = np.hypot(tab['me'][ii, fnd], tab['me_boot'][ii, fnd])
+            else:
+                xerr = tab['xe'][ii, fnd]
+                yerr = tab['ye'][ii, fnd]
+                merr = tab['me'][ii, fnd]
     
-            dt = tab['t'][ii, fnd] - tab['t0'][ii]
-            fitLineX = tab['x0'][ii] + (tab['vx'][ii] * dt)
-            fitLineY = tab['y0'][ii] + (tab['vy'][ii] * dt)
+            fitLineX = xt_mod_all[ii, fnd]
+            fitLineY = yt_mod_all[ii, fnd]
     
-            fitSigX = np.hypot(tab['x0e'][ii], tab['vxe'][ii]*dt)
-            fitSigY = np.hypot(tab['y0e'][ii], tab['vye'][ii]*dt)
+            fitSigX = xt_mod_err[ii, fnd]
+            fitSigY = yt_mod_err[ii, fnd]
     
-            fitLineM = np.repeat(tab['m0'][ii], len(dt)).reshape(len(dt),1)
-            fitSigM = np.repeat(tab['m0e'][ii], len(dt)).reshape(len(dt),1)
+            fitLineM = np.repeat(tab['m0'][ii], len(time)).reshape(len(time),1)
+            fitSigM = np.repeat(tab['m0_err'][ii], len(time)).reshape(len(time),1)
     
             diffX = x - fitLineX
             diffY = y - fitLineY
@@ -2908,11 +3247,12 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             ind = int((row-1)*Ncols + col)
     
             paxes = plt.subplot(Nrows, Ncols, ind)
-            plt.plot(time, fitLineX, 'b-')
-            plt.plot(time, fitLineX + fitSigX, 'b--')
-            plt.plot(time, fitLineX - fitSigX, 'b--')
+            plt.plot(cont_times, xt_cont_all[ii], 'b-')
+            plt.plot(cont_times, xt_cont_all[ii] + xt_cont_err[ii], 'b--')
+            plt.plot(cont_times, xt_cont_all[ii] - xt_cont_err[ii], 'b--')
+            print(np.shape(xerr.reshape(len(xerr),)))
             if not color_time:
-                plt.errorbar(time, x, yerr=xerr.reshape(len(xerr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(x), yerr=rs(xerr), marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2940,11 +3280,11 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             ind = int((row-1)*Ncols + col)
     
             paxes = plt.subplot(Nrows, Ncols, ind)
-            plt.plot(time, fitLineY, 'b-')
-            plt.plot(time, fitLineY + fitSigY, 'b--')
-            plt.plot(time, fitLineY - fitSigY, 'b--')
+            plt.plot(cont_times, yt_cont_all[ii], 'b-')
+            plt.plot(cont_times, yt_cont_all[ii] + yt_cont_err[ii], 'b--')
+            plt.plot(cont_times, yt_cont_all[ii] - yt_cont_err[ii], 'b--')
             if not color_time:
-                plt.errorbar(time, y, yerr=yerr.reshape(len(yerr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(y), yerr=rs(yerr), marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -2974,7 +3314,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.plot(time, fitLineM + fitSigM, 'g--')
             plt.plot(time, fitLineM - fitSigM, 'g--')
             if not color_time:
-                plt.errorbar(time, m, yerr=merr.reshape(len(merr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(m), yerr=rs(merr), marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3003,10 +3343,10 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     
             paxes = plt.subplot(Nrows, Ncols, ind)
             plt.plot(time, np.zeros(len(time)), 'b-')
-            plt.plot(time,  fitSigX*1e3, 'b--')
-            plt.plot(time, -fitSigX*1e3, 'b--')
+            plt.plot(cont_times,  xt_cont_err[ii]*1e3, 'b--')
+            plt.plot(cont_times, -xt_cont_err[ii]*1e3, 'b--')
             if not color_time:
-                plt.errorbar(time, (x - fitLineX)*1e3, yerr=xerr.reshape(len(xerr),)*1e3, marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(x - fitLineX)*1e3, yerr=rs(xerr)*1e3, marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3031,10 +3371,10 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     
             paxes = plt.subplot(Nrows, Ncols, ind)
             plt.plot(time, np.zeros(len(time)), 'b-')
-            plt.plot(time,  fitSigY*1e3, 'b--')
-            plt.plot(time, -fitSigY*1e3, 'b--')
+            plt.plot(cont_times,  yt_cont_err[ii]*1e3, 'b--')
+            plt.plot(cont_times, -yt_cont_err[ii]*1e3, 'b--')
             if not color_time:
-                plt.errorbar(time, (y - fitLineY)*1e3, yerr=yerr.reshape(len(yerr),)*1e3, marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(y - fitLineY)*1e3, yerr=rs(yerr)*1e3, marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3062,7 +3402,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.plot(time,  fitSigM*1e3, 'g--')
             plt.plot(time, -fitSigM*1e3, 'g--')
             if not color_time:
-                plt.errorbar(time, (m - fitLineM), yerr=merr.reshape(len(merr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(m - fitLineM), yerr=rs(merr), marker='.', color=color, ls='none')
             else:
                 norm = colors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
@@ -3089,8 +3429,8 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     
             paxes = plt.subplot(Nrows, Ncols, ind)
             if not color_time:
-                plt.errorbar(x,y, xerr=xerr.reshape(len(xerr),), 
-                             yerr=yerr.reshape(len(yerr),), marker='.', color=color, ls='none')
+                plt.errorbar(rs(x),rs(y), xerr=rs(xerr),
+                             yerr=rs(yerr), marker='.', color=color, ls='none')
             else:
                 sc = plt.scatter(x, y, s=0, c=dtime, vmin=0, vmax=1, cmap='hsv')
                 clb = plt.colorbar(sc)
@@ -3153,7 +3493,8 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
         plt.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
         # plt.savefig(rootDir+'plots/plotStar_all.png')
         plt.show()
-
+    if save_name is not None:
+        plt.savefig(save_name + '.png')
     plt.show()
 
     return
@@ -3166,8 +3507,8 @@ def plot_errors_vs_r_m(star_tab, vmax_perr=0.75, vmax_pmerr=0.75):
     two axis (as is used in pick_good_ref_stars()). 
     """
     r = np.hypot(star_tab['x0'], star_tab['y0'])
-    p_err = np.mean((star_tab['x0e'], star_tab['y0e']), axis=0) * 1e3
-    pm_err = np.mean((star_tab['vxe'], star_tab['vye']), axis=0) * 1e3
+    p_err = np.mean((star_tab['x0_err'], star_tab['y0_err']), axis=0) * 1e3
+    pm_err = np.mean((star_tab['vx_err'], star_tab['vy_err']), axis=0) * 1e3
 
     plt.figure(figsize=(12, 6))
     plt.clf()
@@ -3186,7 +3527,19 @@ def plot_errors_vs_r_m(star_tab, vmax_perr=0.75, vmax_pmerr=0.75):
     plt.ylabel('Radius (")')
 
     return
- 
+
+def plot_plxs(star_tab, target_idx=0):
+    fig,ax = plt.subplots(nrows=1,ncols=2,figsize=(10,5))
+    ax[0].errorbar(star_tab['m0'],star_tab['pi']*1e3, yerr=star_tab['pi_err']*1e3,marker='.',linestyle='none')
+    if target_idx is not None:
+        ax[0].errorbar(star_tab['m0'][target_idx],star_tab['pi'][target_idx]*1e3, yerr=star_tab['pi_err'][target_idx]*1e3,marker='*',linestyle='none', color='orange', markersize=10)
+    ax[0].axhline(0, c='gray')
+    ax[0].set_ylabel('Plx (mas)')
+    ax[0].set_xlabel('Mag')
+    ax[1].hist(star_tab['pi']/star_tab['pi_err'], bins=range(-10,10))
+    ax[1].set_ylabel('N stars')
+    ax[1].set_xlabel('Plx/Plx_err')
+    plt.tight_layout()
        
 def plot_sky(stars_tab,
             plot_errors=False, center_star=None, range=0.4,

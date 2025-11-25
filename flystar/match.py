@@ -15,7 +15,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
                          Nbins_vmax=200, Nbins_angle=360,verbose=False):
     """
     Take two input starlists and select the <Nbrite> brightest stars from
-    each. Then performa a triangle matching algorithm along the lines of
+    each. Then perform a triangle matching algorithm along the lines of
     Groth 1986.
 
     For every possible triangle (combination of 3 stars) in a starlist,
@@ -279,8 +279,11 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     idxs2 = np.ones(x1.size, dtype=int) * -1
 
     # The matching will be done using a KDTree.
-    kdt = KDT(coords2, balanced_tree=False)
-
+    #kdt = KDT(coords2, balanced_tree=False)
+    #KDTree handling of NaNs throws error in scipy v1.10.1 and newer.
+    #Replace NaNs in coords2 with zero (0). -SKT
+    kdt = KDT(np.where(np.isfinite(coords2), coords2, 0), balanced_tree=False)
+    
     # This returns the number of neighbors within the specified
     # radius. We will use this to find those stars that have no or one
     # match and deal with them easily. The more complicated conflict
@@ -342,7 +345,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
 
                 # Double check that "min" choice is still within our
                 # detla-mag tolerence.
-                dm_tmp = np.array([dm.T[dm_min[I]][I] for I in np.lib.index_tricks.ndindex(dm_min.shape)])
+                dm_tmp = np.array([dm.T[dm_min[I]][I] for I in np.ndindex(dm_min.shape)])
 
                 keep = (dm_min == dr_min) & (dm_tmp < dm_tol)
             else:
@@ -389,7 +392,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
             keep[dups[dm_min]] = True
         else:
             if verbose:
-                print('    confused, dropping')
+                print('    confused, dropping star at',x2[idxs2[dups]][0],y2[idxs2[dups]][0])
 
 
     # Clean up the duplicates
