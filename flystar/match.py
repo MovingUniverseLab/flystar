@@ -388,7 +388,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
         if dm_min == dr_min:
             keep[dups[dm_min]] = True
         else:
-            if verbose:
+            if verbose > 8:
                 print('    confused, dropping')
 
 
