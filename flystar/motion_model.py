@@ -26,14 +26,14 @@ class MotionModel(ABC):
     optional_param_names = []
 
     def __init__(self, *args, **kwargs):
-    """
-    Make a motion model object. This object defines the fitter and fixed parameters,
-    and if needed stores metadata such as RA and Dec for Parallax,
-    for the given motion model and contains functions to fit these values to data
-    and apply the values to compute expected positions at given times. Each instance
-    corresponds to a given motion model, not an individual star, and thus the fit
-    values are only input/returned in functions and not stored in the object.
-    """
+        """
+        Make a motion model object. This object defines the fitter and fixed parameters,
+        and if needed stores metadata such as RA and Dec for Parallax,
+        for the given motion model and contains functions to fit these values to data
+        and apply the values to compute expected positions at given times. Each instance
+        corresponds to a given motion model, not an individual star, and thus the fit
+        values are only input/returned in functions and not stored in the object.
+        """
         return
 
     def get_pos_at_time(self, params, t):
