@@ -135,21 +135,10 @@ class MotionModel(ABC):
             rng = np.random.default_rng(seed)
             edx = np.arange(n_obs, dtype=int)
             # Precompute All Bootstrap Draws at Once
-            bdx_all = rng.choice(edx, size=(bootstrap, m), replace=True)
-
-            # Count unique indices per bootstrap sample
-            uniq_counts = np.apply_along_axis(lambda x: len(np.unique(x)), 1, bdx_all)
-
-            # Identify invalid samples
-            bad = uniq_counts < self.n_params
-            n_bad = bad.sum()
-
-            while n_bad > 0:
-                # Resample only bad rows
-                bdx_all[bad] = rng.choice(edx, size=(n_bad, m), replace=True)
-                uniq_counts = np.apply_along_axis(lambda x: len(np.unique(x)), 1, bdx_all)
-                bad = uniq_counts < self.n_params
-                n_bad = bad.sum()
+            # Ensure there are enough unique points in each bootstrap sample
+            bdx_unique = rng.choice(edx, size=(bootstrap, self.n_params), replace=False)
+            bdx_extra = rng.choice(edx, size=(bootstrap, m - self.n_params), replace=True)
+            bdx_all = np.hstack((bdx_unique, bdx_extra))
 
             bb_params = []
             bb_params_errs = []
@@ -936,9 +925,9 @@ class Parallax(MotionModel):
         dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd  # Shape (N_times,)
         self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (2, N_times)
-        xy = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis], y0[:, np.newaxis], vy[:, np.newaxis], pi[:, np.newaxis])  # Shape (N_stars, N_times)
-        x = xy[:, :N_times]  # Shape (N_stars, N_times)
-        y = xy[:, N_times:]  # Shape (N_stars, N_times)
+        x, y = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis], y0[:, np.newaxis], vy[:, np.newaxis], pi[:, np.newaxis])  # Shape (N_stars, N_times)
+        # x = xy[:, :N_times]  # Shape (N_stars, N_times)
+        # y = xy[:, N_times:]  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays

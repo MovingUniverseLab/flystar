@@ -11,19 +11,13 @@ def test_Fixed():
     true_params = {'x0': 1.0, 'y0':0.5, 'x0_err':0.1, 'y0_err':0.1}
     mod = motion_model.Fixed()
     param_list = mod.fit_param_names
-    fixed_param_list = mod.fixed_param_names
     # Confirm return of proper values for single t and array t
-    # x_t, y_t = mod.get_pos_at_time([true_params[p] for p in param_list],
-    #                                     [true_params[p] for p in fixed_param_list], 0.0)
     x_t, y_t = mod.model(
         0.0,
         fit_params=np.array([true_params['x0'], true_params['y0']]).T
     )
     assert x_t==true_params['x0']
     assert y_t==true_params['y0']
-    # x_t, y_t = mod.get_pos_at_time([true_params[p] for p in param_list],
-    #                                     [true_params[p] for p in fixed_param_list],
-    #                                     [0.0,2025.0,10000])
     x_t, y_t = mod.model(
         [0.0,2025.0,10000],
         fit_params=np.array([true_params['x0'], true_params['y0']]).T
@@ -31,15 +25,13 @@ def test_Fixed():
     assert (x_t==true_params['x0']).all()
     assert (y_t==true_params['y0']).all()
     
-    # Check behavior of get_batch_pos_at_time
+    # Check behavior of model
     x0_batch = np.random.uniform(-2.0,2.0, 50)
     y0_batch = np.random.uniform(-2.0,2.0, 50)
     x0_err_batch = np.repeat(0.1, 50)
     y0_err_batch = np.repeat(0.1, 50)
     # Single epoch
     t_batch=2020.0
-    # x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.get_batch_pos_at_time(t_batch,
-    #                         x0=x0_batch, y0=y0_batch, x0_err=x0_err_batch, y0_err=y0_err_batch)
     x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.model(
         t_batch,
         fit_params=np.array([x0_batch, y0_batch]).T,
@@ -51,8 +43,6 @@ def test_Fixed():
     assert (y_err_t_batch==y0_err_batch).all()
     # Multiple times
     t_batch = np.arange(2015.0,2025.0, 0.5)
-    # x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.get_batch_pos_at_time(t_batch,
-    #                         x0=x0_batch, y0=y0_batch, x0_err=x0_err_batch, y0_err=y0_err_batch)
     x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.model(
         t_batch,
         fit_params=np.array([x0_batch, y0_batch]).T,
@@ -66,8 +56,6 @@ def test_Fixed():
     # Test fitter
     t = np.arange(2015.0,2025.0, 0.5)
     # Get values from model and add scatter
-    # x_true, y_true = mod.get_pos_at_time([true_params[p] for p in param_list],
-    #                         [true_params[p] for p in fixed_param_list], t)
     x_true, y_true = mod.model(
         t, 
         fit_params=np.array([true_params['x0'], true_params['y0']])
@@ -125,7 +113,7 @@ def test_Linear():
     assert (x_t==(true_params['x0'] + (t_arr-true_params['t0'])*true_params['vx'])).all()
     assert (y_t==(true_params['y0'] + (t_arr-true_params['t0'])*true_params['vy'])).all()
 
-    # Check behavior of get_batch_pos_at_time
+    # Check behavior of model
     x0_batch = np.random.uniform(-2.0,2.0, 50)
     y0_batch = np.random.uniform(-2.0,2.0, 50)
     vx_batch = np.random.uniform(-2.0,2.0, 50)
@@ -166,8 +154,6 @@ def test_Linear():
     # Test fitter
     t = np.arange(2015.0,2025.0, 0.5)
     # Get values from model and add scatter
-    # x_true, y_true = mod.get_pos_at_time([true_params[p] for p in param_list],
-    #                                     [true_params[p] for p in fixed_param_list],t)
     x_true, y_true = mod.model(
         t=t,
         fit_params=np.array([true_params[p] for p in param_list]).T,
@@ -234,7 +220,6 @@ def test_Linear():
     y_sim = np.random.normal(y_true, y_true_err)
     # Run fit
     params, param_errs = mod.fit(t, x_sim, y_sim, x_true_err, y_true_err, fixed_params_dict={'t0': true_params['t0']}, bootstrap=10)
-    print(param_errs)
     # Confirm true value is within error bar of fit value
     assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
 
@@ -264,7 +249,7 @@ def test_Acceleration():
     np.testing.assert_allclose(x_t, true_params['x0'] + (t_arr-true_params['t0'])*true_params['vx0'] + 0.5*(t_arr-true_params['t0'])**2*true_params['ax'])
     np.testing.assert_allclose(y_t, true_params['y0'] + (t_arr-true_params['t0'])*true_params['vy0'] + 0.5*(t_arr-true_params['t0'])**2*true_params['ay'])
     
-    # Check behavior of get_batch_pos_at_time
+    # Check behavior of model
     x0_batch = np.random.uniform(-2.0,2.0, 50)
     y0_batch = np.random.uniform(-2.0,2.0, 50)
     vx0_batch = np.random.uniform(-2.0,2.0, 50)
@@ -342,21 +327,44 @@ def test_Parallax():
                     't0':2020.0, 'obsLocation': 'earth'}
     mod = motion_model.Parallax()
     param_list = mod.fit_param_names
-    fixed_param_list = mod.fixed_param_names
-
+    fixed_params_dict = {
+        't0': true_params['t0'],
+        'ra': true_params['ra'],
+        'dec': true_params['dec'],
+        'pa': true_params['pa'],
+        'obsLocation': true_params['obsLocation']
+    }
+    
     # Test fitter
     t = np.arange(2015.0,2025.0, 0.5)
     # Get values from model and add scatter
     x_true, y_true = mod.model(
         t=t,
         fit_params=np.array([true_params[p] for p in param_list]).T,
-        fixed_params_dict={p: true_params[p] for p in fixed_param_list}
+        fixed_params_dict=fixed_params_dict
     )
     x_true_err, y_true_err = np.ones_like(t)*true_params['x0_err'], np.ones_like(t)*true_params['y0_err']
     x_sim = np.random.normal(x_true, x_true_err)
     y_sim = np.random.normal(y_true, y_true_err)
     # Run fit
-    params, param_errs = mod.fit(t, x_sim,y_sim, x_true_err, y_true_err, fixed_params_dict={p: true_params[p] for p in fixed_param_list})
+    params, param_errs = mod.fit(t, x_sim,y_sim, x_true_err, y_true_err, fixed_params_dict=fixed_params_dict)
+
+    x_model, y_model = mod.model(
+        t=t,
+        fit_params=params,
+        fixed_params_dict=fixed_params_dict
+    )
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    ax1.plot(t, x_true, 'k-', label='True x')
+    ax1.errorbar(t, x_sim, yerr=x_true_err, fmt='ro', label='Sim x')
+    ax1.plot(t, x_model, 'r-', label='Model x')
+    ax1.set_xlabel('t')
+    ax1.set_ylabel('x')
+    ax1.legend()
+    ax2.plot(t, y_true, 'k-', label='True x')
+    ax2.errorbar(t, y_sim, yerr=x_true_err, fmt='ro', label='Sim x')
+    ax2.plot(t, y_model, 'r-', label='Model x')
+    ax2.set_xlabel('t')
     # Confirm true value is within error bar of fit value
     assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
 
