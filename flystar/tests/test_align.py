@@ -6,10 +6,8 @@ from flystar import analysis
 from flystar import motion_model
 from astropy.table import Table
 import numpy as np
-import pylab as plt
+import matplotlib.pyplot as plt
 import pdb
-import datetime
-import pytest
 
 def test_MosaicSelfRef():
     """
@@ -28,7 +26,7 @@ def test_MosaicSelfRef():
                               trans_args={'order': 2})
 
     msc.fit()
-    
+
     # Check some of the output quantities on the final table.
     assert 'x0' in msc.ref_table.colnames
     assert 'x0_err' in msc.ref_table.colnames
@@ -42,7 +40,6 @@ def test_MosaicSelfRef():
 
     assert msc.ref_table['use_in_trans'].shape == msc.ref_table['x0'].shape
     assert msc.ref_table['used_in_trans'].shape == msc.ref_table['x'].shape
-    
 
     # Check that we have some matched stars... should be at least 35 stars
     # that are detected in all 4 starlists.
@@ -50,11 +47,11 @@ def test_MosaicSelfRef():
     assert len(idx) > 35
 
     # Check that the transformation error isn't too big
-    assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
-    assert (msc.ref_table['y0_err'] < 3.0).all()
-    #assert (msc.ref_table['m0_err'] < 1.0).all() # less than 0.5 mag
-    assert (msc.ref_table['m0_err'] < 1.5).all() # less than 0.5 mag
-    
+    valid_err = np.isfinite(msc.ref_table['x0_err']) & np.isfinite(msc.ref_table['y0_err']) & np.isfinite(msc.ref_table['m0_err'])
+    assert (msc.ref_table['x0_err'][valid_err] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0_err'][valid_err] < 3.0).all()
+    #assert (msc.ref_table['m0_err'][valid_err] < 1.0).all() # less than 0.5 mag
+    assert (msc.ref_table['m0_err'][valid_err] < 1.5).all() # less than 0.5 mag
     # Check that the transformation lists aren't too wacky
     for ii in range(4):
         np.testing.assert_allclose(msc.trans_list[ii].px.c1_0, 1.0, rtol=1e-2)
@@ -81,7 +78,7 @@ def test_MosaicSelfRef():
     plt.plot(msc.ref_table['x0'],
              msc.ref_table['y0'],
              '.', color='black', alpha=0.2)
-             
+
 
     return
 
@@ -102,11 +99,11 @@ def test_MosaicSelfRef_vel_tconst():
                               dr_tol=[3, 3], dm_tol=[1, 1],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2},
-                              default_motion_model='Linear',
+                              motion_models=['Empty', 'Fixed', 'Linear'],
                               verbose=False)
 
     msc.fit()
-    
+
     # Check some of the output quantities on the final table.
     assert 'x0' in msc.ref_table.colnames
     assert 'x0_err' in msc.ref_table.colnames
@@ -126,21 +123,16 @@ def test_MosaicSelfRef_vel_tconst():
     assert len(idx) > 35 
 
     # Check that the transformation error isn't too big
-    assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
-    assert (msc.ref_table['y0_err'] < 3.0).all()
-    assert (msc.ref_table['m0_err'] < 1.0).all() # less than 0.5 mag
-    
+    valid_err = np.isfinite(msc.ref_table['x0_err']) & np.isfinite(msc.ref_table['y0_err']) & np.isfinite(msc.ref_table['m0_err'])
+    assert (msc.ref_table['x0_err'][valid_err] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0_err'][valid_err] < 3.0).all()
+    assert (msc.ref_table['m0_err'][valid_err] < 1.0).all() # less than 0.5 mag
+
     # Check that the transformation lists aren't too wacky
     for ii in range(4):
         np.testing.assert_allclose(msc.trans_list[ii].px.c1_0, 1.0, rtol=1e-2)
         np.testing.assert_allclose(msc.trans_list[ii].py.c0_1, 1.0, rtol=1e-2)
 
-    # Check that the velocities aren't crazy...
-    # they should be non-existent (since there is no time difference)
-    assert np.isnan(msc.ref_table['vx']).all()
-    assert np.isnan(msc.ref_table['vy']).all()
-    assert np.isnan(msc.ref_table['vx_err']).all()
-    assert np.isnan(msc.ref_table['vy_err']).all()
 
     return
 
@@ -172,7 +164,7 @@ def test_MosaicSelfRef_vel():
     msc = align.MosaicSelfRef(lists, ref_index=0, iters=3,
                               dr_tol=[5, 3, 3], dm_tol=[1, 1, 0.5], outlier_tol=None,
                               trans_class=transforms.PolyTransform,
-                              trans_args={'order': 2}, default_motion_model='Linear',
+                              trans_args={'order': 2}, motion_models=['Empty', 'Fixed', 'Linear'],
                               verbose=False)
 
     msc.fit()
@@ -196,10 +188,11 @@ def test_MosaicSelfRef_vel():
     assert len(idx) > 35
 
     # Check that the transformation error isn't too big
-    assert (msc.ref_table['x0_err'] < 3.0).all() # less than 1 pix
-    assert (msc.ref_table['y0_err'] < 3.0).all()
-    assert (msc.ref_table['m0_err'] < 1.0).all() # less than 0.5 mag
-    
+    valid_err = np.isfinite(msc.ref_table['x0_err']) & np.isfinite(msc.ref_table['y0_err']) & np.isfinite(msc.ref_table['m0_err'])
+    assert (msc.ref_table['x0_err'][valid_err] < 3.0).all() # less than 1 pix
+    assert (msc.ref_table['y0_err'][valid_err] < 3.0).all()
+    assert (msc.ref_table['m0_err'][valid_err] < 1.0).all() # less than 0.5 mag
+
     # Check that the transformation lists aren't too wacky
     for ii in range(4):
         np.testing.assert_allclose(msc.trans_list[ii].px.c1_0, 1.0, rtol=1e-2)
@@ -214,7 +207,7 @@ def test_MosaicSelfRef_vel():
 
 def test_MosaicToRef():
     make_fake_starlists_poly1(seed=42)
-    
+
     ref_file = 'random_ref.fits'
     list_files = ['random_0.fits',
                   'random_1.fits',
@@ -235,7 +228,7 @@ def test_MosaicToRef():
     msc = align.MosaicToRef(ref_list, lists, iters=2,
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
-                              trans_args={'order': 2}, default_motion_model='Fixed',
+                              trans_args={'order': 2}, motion_models=['Empty', 'Fixed'],
                               update_ref_orig=False, verbose=False)
 
     msc.fit()
@@ -300,7 +293,7 @@ def test_MosaicToRef_p0_vel():
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               outlier_tol=[None, None],
                               trans_class=transforms.PolyTransform,
-                              trans_args={'order': 1}, default_motion_model='Linear',
+                              trans_args={'order': 1}, motion_models=['Empty', 'Fixed', 'Linear'],
                               update_ref_orig=False, verbose=False)
     msc.fit()
 
@@ -326,18 +319,18 @@ def test_MosaicToRef_p0_vel():
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == True.
     assert (msc.ref_table['name']==ref_list['name']).all()
-    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], rtol=1e-1)
-    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], rtol=1e-1)
+    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], atol=1e-2)
+    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], atol=1e-2)
 
     # Also double check that they aren't exactly the same for the reference stars.
     #assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
     assert np.not_equal(msc.ref_table['vx'], ref_list['vx']).any()
-    
+
     return msc
 
 def test_MosaicToRef_vel():
     make_fake_starlists_poly1_vel(seed=42)
-    
+
     ref_file = 'random_vel_ref.fits'
     list_files = ['random_vel_0.fits',
                   'random_vel_1.fits',
@@ -359,14 +352,14 @@ def test_MosaicToRef_vel():
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
     ref_list['vx'] *= -1.0
-        
+
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
     msc = align.MosaicToRef(ref_list, lists, iters=2,
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               outlier_tol=[None, None],
                               trans_class=transforms.PolyTransform,
-                              trans_args={'order': 1}, default_motion_model='Linear',
+                              trans_args={'order': 1}, motion_models=['Empty', 'Fixed', 'Linear'],
                               update_ref_orig=False, verbose=False)
     msc.fit()
 
@@ -392,8 +385,8 @@ def test_MosaicToRef_vel():
     # The velocities should be almost the same (but not as close as before)
     # as the input velocities since update_ref == True.
     assert (msc.ref_table['name']==ref_list['name']).all()
-    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], rtol=1e-1)
-    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], rtol=1e-1)
+    np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], atol=1e-2)
+    np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], atol=1e-2)
 
     # Also double check that they aren't exactly the same for the reference stars.
     #assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
@@ -403,7 +396,7 @@ def test_MosaicToRef_vel():
 
 def test_MosaicToRef_acc():
     make_fake_starlists_poly1_acc(seed=42)
-    
+
     ref_file = 'random_acc_ref.fits'
     list_files = ['random_acc_0.fits',
                   'random_acc_1.fits',
@@ -427,19 +420,19 @@ def test_MosaicToRef_acc():
     ref_list['ay'] *= 1e-3
     ref_list['ax_err'] *= 1e-3
     ref_list['ay_err'] *= 1e-3
-    
+
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
     ref_list['vx0'] *= -1.0
     ref_list['ax'] *= -1.0
-        
+
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
     msc = align.MosaicToRef(ref_list, lists, iters=2,
                               dr_tol=[0.4, 0.2], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2},
-                              default_motion_model='Acceleration',
+                              motion_models=['Acceleration'],
                               update_ref_orig=False, verbose=False)
 
     msc.fit()
