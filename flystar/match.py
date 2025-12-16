@@ -1,5 +1,7 @@
 import numpy as np
-from flystar import starlists, transforms, startables, align
+from . import starlists
+from . import transforms
+from . import startables
 from collections import Counter
 from scipy.spatial import cKDTree as KDT
 from astropy.table import Column, Table
@@ -526,6 +528,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
         Startable of the two matched catalogs
 
     """
+    from . import align
     
     #  Check the input StarLists and transform them into astropy Tables
     if not isinstance(sl1, starlists.StarList):

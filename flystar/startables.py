@@ -227,7 +227,7 @@ class StarTable(Table):
         lis_meta_keys = list(starlist.meta.keys())
         # append 's' to the end to pluralize the input starlist.
         lis_meta_keys_plural = [lis_meta_key + 's' for lis_meta_key in lis_meta_keys]
-        
+
         for kk in range(len(tab_meta_keys)):
             tab_key = tab_meta_keys[kk]
 
@@ -237,9 +237,9 @@ class StarTable(Table):
 
                 # If we find the key in the starlists' meta argument, then add the new values.
                 # Otherwise, add "None".
-                idx = np.where(lis_meta_keys_plural == tab_key)[0]
-                if len(idx) > 0:
-                    lis_key = lis_meta_keys[idx[0]]
+                idx = lis_meta_keys_plural.index(tab_key) if tab_key in lis_meta_keys_plural else None
+                if idx is not None:
+                    lis_key = lis_meta_keys[idx]
                     self.meta[tab_key] = np.append(self.meta[tab_key], [starlist.meta[lis_key]])
                 else:
                     self._append_invalid_meta_values(tab_key)
@@ -550,7 +550,7 @@ class StarTable(Table):
 
         Parameters
         ----------
-        motion_models : list of MotionModel, optional
+        motion_models : list of MotionModel or str, optional
             Motion models to use.
             Empty and Fixed models are always added automatically for stars with n_fit = 0 or 1.
             The behavior is as follows:
@@ -612,9 +612,16 @@ class StarTable(Table):
         if fixed_params_dict is not None:
             if not isinstance(fixed_params_dict, dict):
                 raise ValueError("fit_velocities: fixed_params_dict must be a dictionary!")
-
+        
+        # Convert motion_models to MotionModel objects if they are strings:
+        all_mm_map = motion_model.motion_model_map()
+        if all(isinstance(mm, str) for mm in motion_models):
+            mm_names = motion_models
+            motion_models = [all_mm_map[mm] for mm in motion_models]
+        else:
+            mm_names = [mm.name for mm in motion_models]
+        
         # Always add Empty and Fixed in motion models
-        mm_names = [mm.name for mm in motion_models]
         if 'Fixed' not in mm_names:
             motion_models.insert(0, Fixed)
         if 'Empty' not in mm_names:
@@ -622,17 +629,13 @@ class StarTable(Table):
         mm_names = [mm.name for mm in motion_models]
 
         # Construct motion models if motion_model_input column exists
-        all_mm_map = motion_model.motion_model_map()
         if 'motion_model_input' in self.colnames:
             input_mm_names = np.unique(self['motion_model_input'])
             assert all([name in all_mm_map.keys() for name in input_mm_names]), \
                 f"fit_velocities: Unknown motion model name(s) in 'motion_model_input' column. Available motion models are: {', '.join(all_mm_map.keys())}."
             for mm_name in input_mm_names:
                 if mm_name not in mm_names:
-                    try:
-                        motion_models.append(all_mm_map[mm_name]())
-                    except Exception as e:
-                        raise ValueError(f"fit_velocities: An instance of motion model {mm_name} with initialization parameters is missing in motion_models: {e}")
+                    motion_models.append(all_mm_map[mm_name])
 
             # Sort motion models by n_params
             motion_models = sorted(motion_models, key=lambda mm: mm.n_params)
@@ -673,15 +676,16 @@ class StarTable(Table):
         # Add default t0 if not provided in fixed_params_dict
         if fixed_params_dict is None:
             weights = 1/np.hypot(xe_data, ye_data) if xe_data is not None else None
-            t0 = np.average(t_data, axis=1, weights=weights)
-            fixed_params_dict = {'t0': t0}
+            fixed_params_dict = {'t0': np.average(t_data, axis=1, weights=weights)}
+
         elif 't0' not in fixed_params_dict:
             weights = 1/np.hypot(xe_data, ye_data) if xe_data is not None else None
             fixed_params_dict['t0'] = np.average(t_data, axis=1, weights=weights)
         else:
             if np.ndim(fixed_params_dict['t0']) == 0:
                 fixed_params_dict['t0'] = np.full(N_stars, fixed_params_dict['t0'])
-            t0 = fixed_params_dict['t0']
+
+        t0 = fixed_params_dict['t0']
                 
 
         # Prepare fixed_params_dict for each star
@@ -739,7 +743,7 @@ class StarTable(Table):
             ) - 1  # Convert to 0-based index
         
         # Assign motion models to stars
-        self['motion_model_used'] = np.array([motion_models[d].name for d in mm_digitized])
+        self['motion_model_used'] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
 
 
         ############################
@@ -747,8 +751,9 @@ class StarTable(Table):
         ############################
         # Fill table with all possible motion model parameter names as new columns.
         motion_model_used = [all_mm_map[name] for name in np.unique(self['motion_model_used'])]
-        new_col_list = motion_model.get_list_motion_model_param_names(motion_model_used, with_errors=True)
+        new_col_list = motion_model.get_list_motion_model_param_names(motion_model_used, with_errors=True, with_fixed=False)
         new_col_list += ['chi2_x', 'chi2_y', 'n_params']
+
         if 't0' not in new_col_list:
             new_col_list.append('t0')
 
@@ -764,6 +769,32 @@ class StarTable(Table):
                     Column(data=np.full(N_stars, fill_value, dtype=float), name=col),
                     rename_duplicate=True
                 )
+
+        # Add fixed parameter columns if they do not exist
+        fixed_param_names = []
+        for mm in motion_model_used:
+            for param in mm.fixed_param_names:
+                if param not in fixed_param_names:
+                    fixed_param_names.append(param)
+        if 't0' in fixed_param_names:
+            fixed_param_names.remove('t0')
+
+        # Add fixed parameter columns
+        for param in fixed_param_names:
+            coldata = np.array([fixed_params_stars[i][param] for i in range(N_stars)])
+            if param in self.colnames:
+                # If the column already exists, check if the data are the same
+                if np.allclose(self[param], coldata, equal_nan=True):
+                    # Same data, skip
+                    continue
+                else:
+                    # Different data, add with _mm suffix to avoid name conflict
+                    colname = param + '_mm'
+            else:
+                colname = param
+
+            self.add_column(Column(data=coldata, name=colname))
+
 
         # Add a column to keep track of the number of points used in a fit and number of bootstrap used.
         self.meta['n_bootstrap'] = bootstrap
@@ -822,332 +853,87 @@ class StarTable(Table):
             self['t0'][unique_index] = t0[unique_index]
         return
 
-
-    def fit_velocities(self, weighting='var', use_scipy=True, absolute_sigma=True, bootstrap=0,
-                       fixed_t0=False, verbose=False, mask_val=None, mask_lists=False, show_progress=True,
-                       default_motion_model='Linear', reassign_motion_model=False, select_stars=None, motion_model_dict={}):
-        """Fit velocities for all stars in the table and add to the columns 'vx', 'vxe', 'vy', 'vye', 'x0', 'x0e', 'y0', 'y0e'.
+    def infer_positions(self, times, fill_value=np.nan):
+        """Infer star positions at given times using fitted motion models.
 
         Parameters
         ----------
-        weighting : str, optional
-            Weight by variance 'var' or standard deviation 'std', by default 'var'
-        bootstrap : int, optional
-            Calculate uncertainty using bootstraping or not, by default 0
-        fixed_t0 : bool or array-like, optional
-            Fix the t0 in dt = time - t0 if user provides an array with the same length of the table, or automatically calculate t0 = np.average(time, weights=1/np.hypot(xe, ye)) if False, by default False
-        verbose : bool, optional
-            Output verbose information or not, by default False
-        mask_val : float, optional
-            Value that needs to be masked in the data, e.g. -100000, by default None
-        mask_lists : list, optional
-            Columns that needs to be masked, by default False
-        show_progress : bool, optional
-            Show progress bar or not, by default True
+        times : array_like
+            Times at which to predict positions.
+        fill_value : float, optional
+            Value to use for missing data, by default np.nan
 
-        Raises
-        ------
-        ValueError
-            If weighting is neither 'var' or 'std'
-        KeyError
-            If there's not time information in the table
+        Returns
+        -------
+        x, y, xe, ye : ndarray
+            Arrays of predicted x, y positions and their uncertainties xe, ye, with shape (N_stars, N_times) or (N_stars,) if N_times=1, or (N_times,) if N_stars=1, or scalar.
         """
-        if weighting not in ['var', 'std']:
-            raise ValueError(f"fit_velocities: Weighting must either be 'var' or 'std', not {weighting}!")
-        
-        if ('t' not in self.colnames) and ('list_times' not in self.meta):
-            raise KeyError("fit_velocities: Failed to access time values. No 't' column in table, no 'list_times' in meta.")
-        
-        # Check if we have the required columns
-        if not all([_ in self.colnames for _ in ['x', 'y']]):
-            raise KeyError(f"fit_velocities: Missing required columns in the table: {', '.join(['x', 'y'])}!")
-        
+        assert 'motion_model_used' in self.colnames, \
+            "infer_positions: 'motion_model_used' column not found in the table. Please run fit_motion_model() first."
+
         N_stars = len(self)
-
-        if verbose:
-            start_time = time.time()
-            msg = 'Starting startable.fit_velocities for {0:d} stars with n={1:d} bootstrap'
-            print(msg.format(N_stars, bootstrap))
-
-        # Set all to default_motion_model if none assigned already.
-        # Reset motion_model_used to the inputs for now -> will change as fits run
-        if ('motion_model_input' not in self.colnames) or reassign_motion_model:
-            self['motion_model_input'] = default_motion_model
-        self['motion_model_used'] = self['motion_model_input']
-
-        motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, self, default_motion_model)
-
-        #
-        # Fill table with all possible motion model parameter names as new
-        # columns. Make everything empty for now.
-        #
-        all_motion_models = np.unique(self['motion_model_input'].tolist() + ['Fixed']+[default_motion_model]).tolist()
-        new_col_list = motion_model.get_list_motion_model_param_names(all_motion_models, with_errors=True)
-        # Append goodness of fit metrics and t0.
-        new_col_list += ['chi2_x', 'chi2_y', 'n_params']
-        if 't0' not in new_col_list:
-            new_col_list.append('t0')
-
-        # Define output arrays for the best-fit parameters.
-        for col in new_col_list:
-            # Clean/remove up old arrays.
-            if col in self.colnames: self.remove_column(col)
-            # Add column #TODO: is this good for filling???
-            self.add_column(Column(data = np.full(N_stars, np.nan, dtype=float), name = col))
-
-        # Add a column to keep track of the number of points used in a fit.
-        self['n_fit'] = 0
+        times = np.atleast_1d(times)
+        N_times = len(times)
         
-        # Preserve the number of bootstraps that will be run (if any).
-        self.meta['n_fit_bootstrap'] = bootstrap
-        
-        # (FIXME: Do we need to catch the case where there's a single *unmasked* epoch?)
-        # Catch the case when there is only a single epoch. Just return 0 velocity
-        # and the same input position for the x0/y0.
-        if len(self['x'].shape) == 1:
-            self['motion_model_used'] = 'Fixed'
-            self['x0'] = self['x']
-            self['y0'] = self['y']
-            if 't' in self.colnames:
-                self['t0'] = self['t']
-            else:
-                self['t0'] = self.meta['list_times'][0]
-            if 'xe' in self.colnames:
-                self['x0_err'] = self['xe']
-                self['y0_err'] = self['ye']
-            self['n_fit'] = 1
-            self['n_params'] = 1
-            return
-        
-        if (self['x'].shape[1] == 1):
-            self['motion_model_used'] = 'Fixed'
-            self['x0'] = self['x'][:,0]
-            self['y0'] = self['y'][:,0]
-            if 't' in self.colnames:
-                self['t0'] = self['t'][:, 0]
-            else:
-                self['t0'] = self.meta['list_times'][0]
-            if 'xe' in self.colnames:
-                self['x0_err'] = self['xe'][:,0]
-                self['y0_err'] = self['ye'][:,0]
-            self['n_fit'] = 1
-            self['n_params'] = 1
-            return
-            
-        # Only fit selected stars, if list given
-        fit_star_idxs = range(N_stars)
-        if select_stars is not None:
-            fit_star_idxs = select_stars
-        # STARS LOOP through the stars and work on them 1 at a time.
-        # This is slow; but robust.
-        if show_progress:
-            for ss in tqdm(fit_star_idxs):
-                self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, bootstrap=bootstrap,
-                                           use_scipy=use_scipy, absolute_sigma=absolute_sigma,
-                                           fixed_t0=fixed_t0, default_motion_model=default_motion_model,
-                                           mask_val=mask_val, mask_lists=mask_lists)
+        if (N_stars > 1) and (N_times > 1):
+            x_pred = np.full((N_stars, N_times), fill_value, dtype=float)
+            y_pred = np.full((N_stars, N_times), fill_value, dtype=float)
+            xe_pred = np.full((N_stars, N_times), np.inf, dtype=float)
+            ye_pred = np.full((N_stars, N_times), np.inf, dtype=float)
+        elif N_stars==1:
+            x_pred = np.full(N_times, fill_value, dtype=float)
+            y_pred = np.full(N_times, fill_value, dtype=float)
+            xe_pred = np.full(N_times, np.inf, dtype=float)
+            ye_pred = np.full(N_times, np.inf, dtype=float)
         else:
-            for ss in fit_star_idxs:
-                self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, bootstrap=bootstrap,
-                                           use_scipy=use_scipy, absolute_sigma=absolute_sigma,
-                                           fixed_t0=fixed_t0, default_motion_model=default_motion_model,
-                                           mask_val=mask_val, mask_lists=mask_lists)
-        if verbose:
-            stop_time = time.time()
-            print('startable.fit_velocities runtime = {0:.0f} s for {1:d} stars'.format(stop_time - start_time, N_stars))
+            x_pred = np.full(N_stars, fill_value, dtype=float)
+            y_pred = np.full(N_stars, fill_value, dtype=float)
+            xe_pred = np.full(N_stars, np.inf, dtype=float)
+            ye_pred = np.full(N_stars, np.inf, dtype=float)
+
+
+        unique_motion_models, unique_inv_indices = np.unique(self['motion_model_used'], return_inverse=True)
+        indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
         
-        return
-
-    def fit_velocity_for_star(self, ss, motion_model_dict, weighting='var', use_scipy=True, absolute_sigma=True,
-                              bootstrap=False, fixed_t0=False, mask_val=None, mask_lists=False,
-                              default_motion_model='Linear'):
-        # TODO: "weighting" is not used
-        # 
-        # Make a mask of invalid (NaN) values and a user-specified invalid value.
-        #
+        # Prepare fit_params, fixed_params, fit_param_errs for each star
         
-        x = np.ma.masked_invalid(self['x'][ss, :].data)
-        y = np.ma.masked_invalid(self['y'][ss, :].data)
-        if mask_val:
-            x = np.ma.masked_values(x, mask_val)
-            y = np.ma.masked_values(y, mask_val)
-            # If no mask, convert x.mask to list
-            if not np.ma.is_masked(x):
-                x.mask = np.zeros_like(x.data, dtype=bool)
-            if not np.ma.is_masked(y):
-                y.mask = np.zeros_like(y.data, dtype=bool)
-                
-        if mask_lists is not False:
-            # Remove a list
-            if isinstance(mask_lists, list):
-                if all(isinstance(item, int) for item in mask_lists):
-                    x.mask[mask_lists] = True
-                    y.mask[mask_lists] = True
-                
-            # Throw a warning if mask_lists is not a list
-            if not isinstance(mask_lists, list):
-                raise RuntimeError('mask_lists needs to be a list.')
-        #
-        # Assign the appropriate positional errors
-        #
-        if 'xe' in self.colnames:
-            # Make a mask of invalid (NaN) values and a user-specified invalid value.
-            xe = np.ma.masked_invalid(self['xe'][ss, :].data)
-            ye = np.ma.masked_invalid(self['ye'][ss, :].data)
+        for unique_motion_model, unique_index in indices_by_motion_model.items():
+            # Create motion model instance
+            motion_model_instance = motion_model.motion_model_map()[unique_motion_model]()
+            # Prepare parameters for prediction
+            fit_params = np.array([
+                self[param_name][unique_index] for param_name in motion_model_instance.fit_param_names
+            ]).T # shape (N_stars_this_model, N_params)
 
-            # Catch the case where we have positions but no errors for
-            # some of the entries... we need to "fill in" reasonable
-            # weights for these... just use the average weights over
-            # all the other epochs.
-            pos_no_err = np.where((np.isfinite(x) & np.isfinite(y)) &
-                                  (np.isfinite(xe) == False) & (np.isfinite(ye) == False))[0]
-            pos_with_err = np.where((np.isfinite(x) & np.isfinite(y)) &
-                                  (np.isfinite(xe) & np.isfinite(ye)))[0]
+            fit_param_errs = np.array([
+                self[param_name + '_err'][unique_index] for param_name in motion_model_instance.fit_param_names
+            ]).T # shape (N_stars_this_model, N_params)
 
-            if len(pos_with_err) > 0:
-                xe[pos_no_err] = xe[pos_with_err].mean()
-                ye[pos_no_err] = ye[pos_with_err].mean()
-            else:
-                xe[pos_no_err] = 1.0
-                ye[pos_no_err] = 1.0
-        else:
-            N_epochs = len(x)
-            xe = np.ones(N_epochs, dtype=float)
-            ye = np.ones(N_epochs, dtype=float)
-            xe = np.ma.masked_invalid(xe)
-            ye = np.ma.masked_invalid(xe)
-
-        if mask_val:
-            xe = np.ma.masked_values(xe, mask_val)
-            ye = np.ma.masked_values(ye, mask_val)
-            # If no mask, convert xe.mask to list
-            if not np.ma.is_masked(xe):
-                xe.mask = np.zeros_like(xe.data, dtype=bool)
-            if not np.ma.is_masked(ye):
-                ye.mask = np.zeros_like(ye.data, dtype=bool)
+            fixed_params = {}
+            for param_name in motion_model_instance.fixed_param_names:
+                col_name = param_name
+                if param_name + '_mm' in self.colnames:
+                    col_name = param_name + '_mm'
+                fixed_params[param_name] = self[col_name][unique_index]
             
-        if mask_lists is not False:
-            # Remove a list
-            if isinstance(mask_lists, list):
-                if all(isinstance(item, int) for item in mask_lists):
-                    xe.mask[mask_lists] = True
-                    ye.mask[mask_lists] = True
-                    
-            # Throw a warning if mask_lists is not a list
-            if not isinstance(mask_lists, list):
-                raise RuntimeError('mask_lists needs to be a list.')    
+                # TODO: vectorize obsLocation handling in motion models
+                if (param_name == 'obsLocation'):
+                    assert np.unique(fixed_params[param_name]).size == 1, \
+                        "infer_positions: obsLocation fixed parameter has different values for different stars. Vectorized handling not implemented yet."
+                    fixed_params[param_name] = fixed_params[param_name][0]
 
-        #
-        # Make a mask of invalid (NaN) values and a user-specified invalid value.
-        #
-        if 't' in self.colnames:
-            t = np.ma.masked_invalid(self['t'][ss, :].data)
-        else:
-            t = np.ma.masked_invalid(self.meta['list_times'])
+            # Predict positions
+            x, y, xe, ye = motion_model_instance.model(
+                times, fit_params, fixed_params, fit_param_errs
+            )
+            x_pred[unique_index] = x
+            y_pred[unique_index] = y
+            xe_pred[unique_index] = xe
+            ye_pred[unique_index] = ye
 
-        if mask_val:
-            t = np.ma.masked_values(t, mask_val)
-            if not np.ma.is_masked(t):
-                t.mask = np.zeros_like(t.data, dtype=bool)
-            
-        if mask_lists is not False:
-            # Remove a list
-            if isinstance(mask_lists, list):
-                if all(isinstance(item, int) for item in mask_lists):
-                    t.mask[mask_lists] = True
+        return x_pred, y_pred, xe_pred, ye_pred
 
-            # Throw a warning if mask_lists is not a list
-            if not isinstance(mask_lists, list):
-                raise RuntimeError('mask_lists needs to be a list.')    
 
-        # For inconsistent masks, mask the star if any of the values are masked.
-        new_mask = np.logical_or.reduce((t.mask, x.mask, y.mask, xe.mask, ye.mask))
-        
-        #
-        # Figure out where we have detections (as indicated by error columns)
-        #
-        good = np.where((xe != 0) & (ye != 0) &
-                        np.isfinite(xe) & np.isfinite(ye) &
-                        np.isfinite(x) & np.isfinite(y) & ~new_mask)[0]
-
-        N_good = len(good)
-
-        # Catch the case where there is NO good data. 
-        if N_good == 0:
-            #self['motion_model_used'][ss] = 'None'
-            self['n_fit'][ss] = N_good
-            self['n_params'][ss] = 0
-            return
-
-        # Everything below has N_good >= 1
-        x = x[good]
-        y = y[good]
-        t = t[good]
-        xe = xe[good]
-        ye = ye[good]
-
-        #
-        # Unless t0 is fixed, calculate the t0 for the stars.
-        #
-        if fixed_t0 is False:
-            t_weight = 1.0 / np.hypot(xe, ye)
-            t0 = np.average(t, weights=t_weight)
-        elif fixed_t0 is True:
-            t0 = self.t0
-        else:
-            t0 = fixed_t0[ss]
-        self['t0'][ss] = t0
-        self['n_fit'][ss] = N_good
-
-        #
-        # Decide which motion_model to fit.
-        #
-        motion_model_use = self['motion_model_input'][ss]
-        # Go to default model if not enough points for assigned but enough for default
-        # TODO: think about whether we want other fallbacks besides the singular default and Fixed
-        if (N_good < motion_model_dict[motion_model_use].n_pts_req) and \
-            (N_good >= motion_model_dict[default_motion_model].n_pts_req):
-            motion_model_use = default_motion_model
-        # If not enough points for either, go to a fixed model
-        elif (N_good < motion_model_dict[motion_model_use].n_pts_req) and \
-            (N_good < motion_model_dict[default_motion_model].n_pts_req):
-            motion_model_use = 'Fixed'
-        # If the points do not cover multiple times, go to a fixed model
-        if (t == t[0]).all():
-            motion_model_use = 'Fixed'
-
-        self['motion_model_used'][ss] = motion_model_use
-
-#        # Get the motion model object.
-#        modClass = motion_model_dict[motion_model_use]
-#
-#        # Load up any prior information on parameters for this model.
-#        param_dict = {}
-#        for par in modClass.fit_param_names+modClass.fixed_param_names:
-#            if ~np.isnan(self[par][ss]):
-#                param_dict[par] = self[par][ss]
-
-        # Model object
-        mod = motion_model_dict[motion_model_use]
-        fixed_params = [self[par][ss] for par in mod.fixed_param_names]
-
-        # Fit for the best parameters
-        params, param_errs, chi2_x, chi2_y = mod.fit_motion_model(t, x, y, xe, ye, t0, bootstrap=bootstrap,
-                                        weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma)
-        # chi2_x,chi2_y = mod.get_chi2(params,fixed_params, t,x,y,xe,ye)
-        self['chi2_x'][ss]=chi2_x
-        self['chi2_y'][ss]=chi2_y
-        self['n_params'][ss] = mod.n_params
-
-        # Save parameters and errors to table.
-        for pp in range(len(mod.fit_param_names)):
-            par = mod.fit_param_names[pp]
-            par_err = par + '_err'
-            self[par][ss] = params[pp]
-            self[par_err][ss] = param_errs[pp]
-            
-        return
-        
     # New function, to use in align
     def get_star_positions_at_time(self, t, motion_model_dict, allow_alt_models=True):
         """ Get current x,y positions of each star according to its motion_model
@@ -1200,137 +986,6 @@ class StarTable(Table):
         return x, y, xe, ye
                 
 
-    def fit_velocities_all_detected(self, motion_model_to_fit, weighting='var', use_scipy=True, absolute_sigma=True, times=None,
-                    select_stars=None, epoch_cols='all', mask_val=None, art_star=False, return_result=False):
-        """Fit velocities for stars detected in all epochs specified by epoch_cols. 
-        Criterion: xe/ye error > 0 and finite, x/y not masked.
-
-        Parameters
-        ----------
-        motion_model_to_fit : MotionModel
-            Motion model object to use for fitting all stars
-        weighting : str, optional
-            Variance weighting('var') or standard deviation weighting ('std'), by default 'var'
-        select_idx : array-like, optional
-            Indices of stars to select for fitting, by default None (fit all detected stars)
-        epoch_cols : str or list of intergers, optional
-            List of epoch column indices used for fitting velocity, by default 'all'
-        mask_val : float, optional
-            Values in x, y to be masked
-        art_star : bool, optional
-            Artificial star or observation star catalog. If artificial star, use 'det' column to select stars detected in all epochs, by default False
-        return_result : bool, optional
-            Return the velocity results or not, by default False
-        
-        Returns
-        -------
-        vel_result : astropy Table
-            Astropy Table with velocity results
-        """
-        
-        N_stars = len(self)
-        if select_stars is None:
-            select_stars = np.arange(N_stars)
-        else:
-            select_stars = np.asarray(select_stars)
-
-        if epoch_cols == 'all':
-            epoch_cols = np.arange(np.shape(self['x'])[1])
-        
-        # Artificial Star
-        if art_star:
-            detected_in_all_epochs = np.all(self['det'][select_stars, :][:, epoch_cols], axis=1)
-
-        # Observation Star
-        else:
-            valid_xe = np.all(self['xe'][select_stars, :][:, epoch_cols]!=0, axis=1) & np.all(np.isfinite(self['xe'][select_stars, :][:, epoch_cols]), axis=1)
-            valid_ye = np.all(self['ye'][select_stars, :][:, epoch_cols]!=0, axis=1) & np.all(np.isfinite(self['ye'][select_stars, :][:, epoch_cols]), axis=1)
-
-            if mask_val:
-                x = np.ma.masked_values(self['x'][select_stars, :][:, epoch_cols], mask_val, shrink=False)
-                y = np.ma.masked_values(self['y'][select_stars, :][:, epoch_cols], mask_val, shrink=False)
-                valid_x = ~np.any(x.mask, axis=1)
-                valid_y = ~np.any(y.mask, axis=1)
-                detected_in_all_epochs = np.logical_and.reduce((
-                    valid_x, valid_y, valid_xe, valid_ye))
-            else:
-                detected_in_all_epochs = np.logical_and(valid_xe, valid_ye)
-
-        N = len(self['x'][select_stars, :])
-        fit_params = motion_model_to_fit.fit_param_names
-        param_data = {p: np.zeros(N) for p in fit_params}
-        param_data.update({p+'_err': np.zeros(N) for p in fit_params})
-        param_data.update({p: np.zeros(N) for p in motion_model_to_fit.fixed_param_names})
-        param_data['chi2_x'] = np.zeros(N)
-        param_data['chi2_y'] = np.zeros(N)
-
-        if times is None:
-            if 'YEARS' in self.meta:
-                times = np.array(self.meta['YEARS'])[epoch_cols]
-            elif 't' in self.colnames:
-                times = self['t'][0, epoch_cols]
-            else:
-                raise ValueError("No valid time column found.")
-        
-        if not art_star:
-            x_arr = self['x'][select_stars, :][:, epoch_cols]
-            y_arr = self['y'][select_stars, :][:, epoch_cols]
-        else:
-            x_arr = self['x'][select_stars, :][:, epoch_cols, 1]
-            y_arr = self['y'][select_stars, :][:, epoch_cols, 1]
-
-        xe_arr = self['xe'][select_stars, :][:, epoch_cols]
-        ye_arr = self['ye'][select_stars, :][:, epoch_cols]
-        
-        # Only fit for >1 epochs, otherwise all velocities will be 0
-        if len(epoch_cols) > 1:
-            # For each star
-            for i in tqdm(range(N)):
-                x = x_arr[i]
-                y = y_arr[i]
-                xe = xe_arr[i]
-                ye = ye_arr[i]
-                t0 = np.average(times, weights=1. / np.hypot(xe, ye))
-
-                # Run fit and record results
-                params, param_errs = motion_model_to_fit.fit_motion_model(
-                    times, x, y, xe, ye, t0, weighting=weighting,
-                    use_scipy=use_scipy, absolute_sigma=absolute_sigma
-                )
-                if 't0' in motion_model_to_fit.fixed_param_names:
-                    param_data['t0'][i] = t0
-                for j, param in enumerate(fit_params):
-                    param_data[param][i] = params[j]
-                    param_data[f'{param}_err'][i] = param_errs[j]
-                chi2x, chi2y = motion_model_to_fit.get_chi2(params, [t0], times, x, y, xe, ye)
-                param_data['chi2_x'][i] = chi2x
-                param_data['chi2_y'][i] = chi2y
-
-        vel_result = Table.from_pandas(pd.DataFrame(param_data))
-
-        # Add n_vfit
-        n_fit = len(epoch_cols)
-        vel_result['n_fit'] = n_fit
-
-        # Clean/remove up old arrays.
-        columns = [*vel_result.keys(), 'n_fit']
-        for column in columns:
-            if column in self.colnames: self.remove_column(column)
-
-        # Update self
-        for column in columns:
-            column_array = MaskedColumn(np.ma.zeros(N_stars), dtype=float, name=column)
-            column_array[select_stars] = vel_result[column]
-            column_array[select_stars][~detected_in_all_epochs] = np.nan
-            column_array.mask[select_stars] = ~detected_in_all_epochs
-            # Mask unselected indices
-            column_array.mask[~np.isin(np.arange(N_stars), select_stars)] = True
-            self[column] = column_array
-
-        if return_result:
-            return vel_result
-        else:
-            return
 
     def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
                                 motion_model_dict={}):

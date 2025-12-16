@@ -538,8 +538,7 @@ class Linear(MotionModel):
             return_chi2=False,
             verbose=True
     ):
-        assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Linear model."
-        t0 = fixed_params_dict['t0']
+        t0 = fixed_params_dict.get('t0', np.average(t, weights=1./np.hypot(xe, ye)))
         t = np.atleast_1d(t)
         x = np.atleast_1d(x)
         y = np.atleast_1d(y)
@@ -742,8 +741,7 @@ class Acceleration(MotionModel):
         return_chi2=False,
         verbose=True
     ):
-        assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Acceleration model."
-        t0 = fixed_params_dict['t0']
+        t0 = fixed_params_dict.get('t0', np.average(t, weights=1./np.hypot(xe, ye)))
         t = np.atleast_1d(t)
         x = np.atleast_1d(x)
         y = np.atleast_1d(y)
@@ -839,7 +837,7 @@ class Parallax(MotionModel):
         if self.plx_vector_cached is not None:
             t_mjd = np.atleast_1d(t_mjd)
             t_mjd_cached = self.plx_vector_cached[0]
-            if np.allclose(t_mjd, t_mjd_cached):
+            if np.array_equal(t_mjd, t_mjd_cached):
                 # If cached values match input times, return cached values
                 return self.plx_vector_cached[1]
 
@@ -901,7 +899,7 @@ class Parallax(MotionModel):
             - ra, shape (N_stars,) or (1,).
             - dec, shape (N_stars,) or (1,).
             - pa, optional, shape (N_stars,) or (1,), by default 0.
-            - obsLocation, optional,shape (N_stars,) or (1,), by default 'earth'
+            - obsLocation, optional, string, by default 'earth'
         fit_param_errs : array-like, optional
             Uncertainties in fit parameters, by default None
 
@@ -910,6 +908,9 @@ class Parallax(MotionModel):
         x, y (, xe, ye)
             Predicted positions (and uncertainties, if fit_param_errs is provided) with shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
         """
+
+        assert all([_ in fixed_params_dict for _ in ['t0', 'ra', 'dec']]), "Fixed parameters t0, ra, and dec are required for Parallax model."
+
         t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
         N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
@@ -922,12 +923,13 @@ class Parallax(MotionModel):
         pa = np.atleast_1d(fixed_params_dict.get('pa', 0.0))
         obsLocation = fixed_params_dict.get('obsLocation', 'earth')
 
+        # TODO: vectorize parallax.parallax_in_direction to handle multiple obsLocation?
+        assert type(obsLocation) == str, "obsLocation must be a single string for all stars at this time."
+
         dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd  # Shape (N_times,)
         self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (2, N_times)
         x, y = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis], y0[:, np.newaxis], vy[:, np.newaxis], pi[:, np.newaxis])  # Shape (N_stars, N_times)
-        # x = xy[:, :N_times]  # Shape (N_stars, N_times)
-        # y = xy[:, N_times:]  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays
@@ -1068,14 +1070,18 @@ def get_one_motion_model_param_names(motion_model, with_errors=True, with_fixed=
         Add uncertainty names with '_err' suffix or not, by default True
     with_fixed : bool, optional
         Add fixed param names with '_fixed' suffix or not, by default True
-    
+
     Returns
     -------
     list
         List of all parameter names for the motion model
     """
-    list_of_parameters = []
+    if isinstance(motion_model, str):
+        all_mm_map = motion_model_map()
+        motion_model = all_mm_map[motion_model]
     
+    list_of_parameters = []
+
     def list_add(name):
         if name not in list_of_parameters:
             list_of_parameters.append(name)
@@ -1112,6 +1118,10 @@ def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_
     """
     list_of_parameters = []
 
+    if len(motion_model_list) > 0 and isinstance(motion_model_list[0], str):
+        all_mm_map = motion_model_map()
+        motion_model_list = [all_mm_map[mm_name] for mm_name in motion_model_list]
+
     def list_add(name):
         if name not in list_of_parameters:
             list_of_parameters.append(name)
@@ -1130,12 +1140,12 @@ def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_
     return list(list_of_parameters)
 
 
-def get_all_motion_model_names(with_errors=True, with_fixed=True):
+def get_all_motion_model_param_names(with_errors=True, with_fixed=True):
     return get_list_motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
 
 def motion_model_map():
     mm_map = dict(
-        [(mm.__name__, mm()) for mm in MotionModel.__subclasses__()]
+        [(mm.__name__, mm) for mm in MotionModel.__subclasses__()]
     )
     # Sort by n_params
     mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].n_params))

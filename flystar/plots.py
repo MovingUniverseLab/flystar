@@ -1,4 +1,4 @@
-from flystar import analysis, motion_model, startables
+from . import motion_model, startables
 import numpy as np
 import matplotlib.mlab as mlab
 import matplotlib
@@ -193,6 +193,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
         an outlier. 
         
     """
+    from . import analysis
     diff_x = ref_mat['x'] - starlist_mat['x']
     diff_y = ref_mat['y'] - starlist_mat['y']
 
@@ -1069,16 +1070,15 @@ def plot_mag_error(tab):
 
     return
 
-def plot_mean_residuals_by_epoch(tab, motion_model_dict={}):
+def plot_mean_residuals_by_epoch(tab):
     """
     Plot mean position and magnitude residuals vs. epoch.
     Note we are plotting the mean( |dx} ) to see
     the size of the mean residual.
     """
     # Predicted model positions at each epoch
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
     
     # Residuals
     dx = tab['x'] - xt_mod

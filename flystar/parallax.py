@@ -44,7 +44,7 @@ def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     Returns
     -------
     pvec : ndarray
-        Parallax vector components, shape of (2, N) or (2,), where N is the number of stars.
+        Parallax vector components, shape of (2, N_stars, N_times), or (2, N_stars) if N_times=1, or (2, N_times) if N_stars=1.
     """
     # Munge inputs into astropy format.
     # times = Time(mjd + 2400000.5, format='jd', scale='tdb')
@@ -62,24 +62,24 @@ def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     _north_projected = np.cross(directions, _east_projected)
     _north_projected /= np.linalg.norm(_north_projected, axis=1)[:, np.newaxis] # Shape (N_stars, 3)
 
-    obs_pos = get_observer_barycentric(obsLocation, times)
-    sun_pos = get_body_barycentric(body='sun', time=times)
+    obs_pos = get_observer_barycentric(obsLocation, times)  # Shape (N_times,)
+    sun_pos = get_body_barycentric(body='sun', time=times)  # Shape (N_times,)
 
     sun_obs_pos = sun_pos - obs_pos
 
-    pos = sun_obs_pos.xyz.T.to(units.au).value  # Shape (N_stars, 3)
+    pos = sun_obs_pos.xyz.T.to(units.au).value  # Shape (N_times, 3)
 
-    e = np.einsum('ij,ij->i', pos, _east_projected)    # Shape (N_stars,)
-    n = np.einsum('ij,ij->i', pos, _north_projected)   # Shape (N_stars,)
+    e = np.einsum('ti,si->st', pos, _east_projected)    # Shape (N_stars, N_times)
+    n = np.einsum('ti,si->st', pos, _north_projected)   # Shape (N_stars, N_times)
 
     # Rotate frame e,n->x,y accounting for PA
-    pa = np.deg2rad(pa)
-    x = -e * np.cos(pa) + n * np.sin(pa)
-    y =  e * np.sin(pa) + n * np.cos(pa)
-    pvec = np.array([x, y]) # Shape (2, N_stars)
+    pa = np.deg2rad(pa) # shape (N_stars,)
+    x = -e * np.cos(pa[:, np.newaxis]) + n * np.sin(pa[:, np.newaxis])  # Shape (N_stars, N_times)
+    y =  e * np.sin(pa[:, np.newaxis]) + n * np.cos(pa[:, np.newaxis])  # Shape (N_stars, N_times)
+    pvec = np.array([x, y]) # Shape (2, N_stars, N_times)
     
-    if pvec.shape[1] == 1:
-        pvec = pvec.flatten()
+    if pvec.shape[1] == 1 or pvec.shape[2] == 1:
+        pvec = pvec.reshape(2, -1)  # Shape (2, N_stars) or (2, N_times)
 
     return pvec
 
