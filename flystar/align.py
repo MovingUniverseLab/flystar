@@ -1,10 +1,7 @@
 import numpy as np
-from . import match
-from . import transforms
-from . import plots
+from . import match, transforms, plots, motion_model
 from .starlists import StarList
 from .startables import StarTable
-from . import motion_model
 from astropy.table import Table, Column, vstack
 import datetime
 import copy
@@ -411,7 +408,6 @@ class MosaicSelfRef(object):
                 print("   **********")
 
             star_list = self.star_lists[ii]
-            pdb.set_trance()
             ref_list = self.get_ref_list_from_table(star_list['t'][0])
             trans = self.trans_list[ii]
 
@@ -880,9 +876,9 @@ class MosaicSelfRef(object):
             for mm in motion_model_col_names:
                 if mm in self.ref_table.keys():
                     vals_orig[mm] = self.ref_table[mm][keep_orig]
-            fit_star_idxs = [idx for idx in range(len(self.ref_table)) if idx not in keep_orig]
-        else:
-            fit_star_idxs = None
+            # fit_star_idxs = [idx for idx in range(len(self.ref_table)) if idx not in keep_orig]
+        # else:
+            # fit_star_idxs = None
 
         # Figure out whether motion fits are necessary
         if ('motion_model_input' in self.ref_table.keys()) and np.all(self.ref_table['motion_model_input']=='Fixed'):
@@ -2331,10 +2327,10 @@ def find_transform_new(table1_mat, table2_mat,
 
         if transInit != None:
             table1T_mat = table1_mat.copy()
-            table1T_mat = transform_by_object(table1T_mat, transInit)
+            table1T_mat = transform_from_object(table1T_mat, transInit)
 
-            x1e = table1T_mag['xe']
-            y1e = table1T_mag['ye']
+            x1e = table1T_mat['xe']
+            y1e = table1T_mat['ye']
 
         # Calculate weights as to user specification
         if weights == 'both':
@@ -2419,8 +2415,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
         Xcoeff = transform.px.parameters
         Ycoeff = transform.py.parameters
     else:
-        print(( '{0} not yet supported!'.format(transType)))
-        return
+        raise Exception(f'{trans_name} not yet supported!')
         
     # Write output
     _out = open(outFile, 'w')
@@ -2437,7 +2432,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
     _out.write('## N_trans: {0}\n'.format(N_trans))
     _out.write('## Delta Mag: {0}\n'.format(deltaMag))
     _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
-    
+
     # Write the coefficients such that the orders are together as defined in
     # documentation. This is a pain because PolyTransform output is weird.
     # (see astropy Polynomial2D documentation)
@@ -2648,7 +2643,7 @@ def position_transform_from_object(x, y, xe, ye, transform):
         order = transform.order
     else:
         txt = 'Transform not yet supported by position_transform_from_object'
-        raise StandardError(txt)
+        raise Exception(txt)
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
@@ -2747,7 +2742,7 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
         order = transform.order
     else:
         txt = 'Transform not yet supported by velocity_transform_from_object'
-        raise StandardError(txt)
+        raise Exception(txt)
         
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
@@ -2939,13 +2934,15 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         else:
             mref = ref_list['m0']
             
-        N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(star_list['x'],
-                                                                     star_list['y'],
-                                                                     star_list['m'],
-                                                                     xref,
-                                                                     yref,
-                                                                     mref,
-                                                                     briteN)
+        N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(
+            star_list['x'],
+            star_list['y'],
+            star_list['m'],
+            xref,
+            yref,
+            mref,
+            briteN
+        )
         
     err_msg = 'Failed to find more than '+str(n_req_match)
     err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
@@ -3066,7 +3063,7 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
     """
     # Optionally propogate the reference positions forward in time.
     xref, yref = get_pos_in_time(star_list['t'][0], ref_list)
-    
+
     # Residuals
     x_resid_on_old_trans = star_list['x'] - xref
     y_resid_on_old_trans = star_list['y'] - yref

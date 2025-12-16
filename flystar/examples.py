@@ -1,11 +1,5 @@
-from flystar import transforms
-from flystar import match
-from flystar import align
-from flystar import starlists
-from flystar import plots
 import numpy as np
-import copy
-import pdb
+from . import transforms, match, align, starlists, plots
 
 
 def align_example(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,
@@ -83,7 +77,7 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
         
         trans, N_trans = align.find_transform(label[idx_label],
                                               label_trans[idx_label],
-                                              starlist_mat[idx_starlist],
+                                              starlist[idx_starlist],
                                               transModel=transModel,
                                               order=order, weights=weights)
 

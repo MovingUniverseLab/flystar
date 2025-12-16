@@ -1098,7 +1098,7 @@ def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_
 
     Parameters
     ----------
-    motion_model_list : list
+    motion_model_list : list of MotionModels or str
         List of MotionModels
     with_errors : bool, optional
         Add uncertainty names with '_err' suffix or not, by default True
@@ -1116,7 +1116,10 @@ def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_
         if name not in list_of_parameters:
             list_of_parameters.append(name)
 
+    mm_map = motion_model_map()
     for mm in motion_model_list:
+        if isinstance(mm, str):
+            mm = mm_map[mm]
         for param in mm.fit_param_names:
             # Fitter params
             list_add(param)
@@ -1130,7 +1133,7 @@ def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_
     return list(list_of_parameters)
 
 
-def get_all_motion_model_names(with_errors=True, with_fixed=True):
+def get_all_motion_model_param_names(with_errors=True, with_fixed=True):
     return get_list_motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
 
 def motion_model_map():

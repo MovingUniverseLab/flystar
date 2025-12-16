@@ -1,14 +1,10 @@
 import numpy as np
-from flystar import starlists, transforms, startables, align
+from . import starlists, transforms, startables, align
 from collections import Counter
 from scipy.spatial import cKDTree as KDT
-from astropy.table import Column, Table
+from astropy.table import Column
 import itertools
 import copy
-import scipy.signal
-from scipy.spatial import distance
-import math
-import pdb
 
 
 def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
