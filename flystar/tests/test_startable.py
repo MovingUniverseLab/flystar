@@ -81,7 +81,6 @@ def test_StarTable_init2():
 
     assert len(tab) == len(list1)
 
-    
     return
     
 def test_combine_lists():
@@ -174,39 +173,37 @@ def test_add_starlist():
     t.add_starlist(x=x_new, y=y_new, m=m_new, xe=xe_new, ye=ye_new, me=me_new,
                    meta={'list_times': t_new})
 
-    assert len(t) == len(t_orig)
+    np.testing.assert_equal(len(t), len(t_orig))
 
     expected_shape = np.array(t_orig['x'].shape)
     expected_shape[1] += 1
-    
-    assert len(t['x'].shape) == len(expected_shape)
-    assert t['x'].shape[0] == expected_shape[0]
+
+    np.testing.assert_equal(len(t['x'].shape), len(expected_shape))
+    np.testing.assert_equal(t['x'].shape[0], expected_shape[0])
     assert t['x'].shape[1] == expected_shape[1]
 
-    assert len(t['y'].shape) == len(expected_shape)
-    assert t['y'].shape[0] == expected_shape[0]
+    np.testing.assert_equal(len(t['y'].shape), len(expected_shape))
+    np.testing.assert_equal(t['y'].shape[0], expected_shape[0])
     assert t['y'].shape[1] == expected_shape[1]
 
-    assert len(t['m'].shape) == len(expected_shape)
-    assert t['m'].shape[0] == expected_shape[0]
+    np.testing.assert_equal(len(t['m'].shape), len(expected_shape))
+    np.testing.assert_equal(t['m'].shape[0], expected_shape[0])
     assert t['m'].shape[1] == expected_shape[1]
 
-    assert len(t['xe'].shape) == len(expected_shape)
-    assert t['xe'].shape[0] == expected_shape[0]
-    assert t['xe'].shape[1] == expected_shape[1]
+    np.testing.assert_equal(len(t['xe'].shape), len(expected_shape))
+    np.testing.assert_equal(t['xe'].shape[0], expected_shape[0])
+    np.testing.assert_equal(t['xe'].shape[1], expected_shape[1])
 
-    assert len(t['ye'].shape) == len(expected_shape)
-    assert t['ye'].shape[0] == expected_shape[0]
-    assert t['ye'].shape[1] == expected_shape[1]
+    np.testing.assert_equal(len(t['ye'].shape), len(expected_shape))
+    np.testing.assert_equal(t['ye'].shape[0], expected_shape[0])
+    np.testing.assert_equal(t['ye'].shape[1], expected_shape[1])
+    np.testing.assert_equal(len(t['me'].shape), len(expected_shape))
+    np.testing.assert_equal(t['me'].shape[0], expected_shape[0])
+    np.testing.assert_equal(t['me'].shape[1], expected_shape[1])
 
-    assert len(t['me'].shape) == len(expected_shape)
-    assert t['me'].shape[0] == expected_shape[0]
-    assert t['me'].shape[1] == expected_shape[1]
-
-    assert len(t['name']) == len(t_orig['name'])
-    assert len(t.meta['list_times']) == expected_shape[1]
-    assert t.meta['n_lists'] == 9
-
+    np.testing.assert_equal(len(t['name']), len(t_orig['name']))
+    np.testing.assert_equal(len(t.meta['list_times']), expected_shape[1])
+    np.testing.assert_equal(t.meta['n_lists'], 9)
     # Test 2: Add as starlist rather than with keywords.
     starlist = StarList(
         name=t_orig['name'], 
@@ -218,38 +215,37 @@ def test_add_starlist():
     t = make_star_table()
     t.add_starlist(starlist=starlist)
 
-    assert len(t) == len(t_orig)
+    np.testing.assert_equal(len(t), len(t_orig))
 
     expected_shape = np.array(t_orig['x'].shape)
     expected_shape[1] += 1
-    
-    assert len(t['x'].shape) == len(expected_shape)
-    assert t['x'].shape[0] == expected_shape[0]
-    assert t['x'].shape[1] == expected_shape[1]
 
-    assert len(t['y'].shape) == len(expected_shape)
-    assert t['y'].shape[0] == expected_shape[0]
-    assert t['y'].shape[1] == expected_shape[1]
+    np.testing.assert_equal(len(t['x'].shape), len(expected_shape))
+    np.testing.assert_equal(t['x'].shape[0], expected_shape[0])
+    np.testing.assert_equal(t['x'].shape[1], expected_shape[1])
 
-    assert len(t['m'].shape) == len(expected_shape)
-    assert t['m'].shape[0] == expected_shape[0]
-    assert t['m'].shape[1] == expected_shape[1]
+    np.testing.assert_equal(len(t['y'].shape), len(expected_shape))
+    np.testing.assert_equal(t['y'].shape[0], expected_shape[0])
+    np.testing.assert_equal(t['y'].shape[1], expected_shape[1])
 
-    assert len(t['xe'].shape) == len(expected_shape)
-    assert t['xe'].shape[0] == expected_shape[0]
-    assert t['xe'].shape[1] == expected_shape[1]
+    np.testing.assert_equal(len(t['m'].shape), len(expected_shape))
+    np.testing.assert_equal(t['m'].shape[0], expected_shape[0])
+    np.testing.assert_equal(t['m'].shape[1], expected_shape[1])
 
-    assert len(t['ye'].shape) == len(expected_shape)
-    assert t['ye'].shape[0] == expected_shape[0]
-    assert t['ye'].shape[1] == expected_shape[1]
+    np.testing.assert_equal(len(t['xe'].shape), len(expected_shape))
+    np.testing.assert_equal(t['xe'].shape[0], expected_shape[0])
+    np.testing.assert_equal(t['xe'].shape[1], expected_shape[1])
+    np.testing.assert_equal(len(t['ye'].shape), len(expected_shape))
+    np.testing.assert_equal(t['ye'].shape[0], expected_shape[0])
+    np.testing.assert_equal(t['ye'].shape[1], expected_shape[1])
 
-    assert len(t['me'].shape) == len(expected_shape)
-    assert t['me'].shape[0] == expected_shape[0]
-    assert t['me'].shape[1] == expected_shape[1]
+    np.testing.assert_equal(len(t['me'].shape), len(expected_shape))
+    np.testing.assert_equal(t['me'].shape[0], expected_shape[0])
+    np.testing.assert_equal(t['me'].shape[1], expected_shape[1])
 
-    assert len(t['name']) == len(t_orig['name'])
-    assert len(t.meta['list_times']) == expected_shape[1]
-    assert t.meta['n_lists'] == 9
+    np.testing.assert_equal(len(t['name']), len(t_orig['name']))
+    np.testing.assert_equal(len(t.meta['list_times']), expected_shape[1])
+    np.testing.assert_equal(t.meta['n_lists'], 9)
 
     return
 
@@ -297,11 +293,11 @@ def test_combine_1col():
 
     t.combine_lists('x', weights_col='xe')
 
-    assert t['x0'][0] == t['x'][0]
+    np.testing.assert_equal(t['x0'][0], t['x'][0])
 
     return
 
-def test_fit_velocities():
+def test_fit_motion_models():
     tab = make_star_table()
     tt = make_tiny_star_table()
 
@@ -316,26 +312,25 @@ def test_fit_velocities():
     tab.fit_motion_model(verbose=True, mask_value=-100000.)
 
     # Test creation of new variables
-    assert len(tab['vx']) == len(tab)
-    assert len(tab['vy']) == len(tab)
-    assert len(tab['vx_err']) == len(tab)
-    assert len(tab['vy_err']) == len(tab)
-    assert len(tab['n_fit']) == len(tab)
-    assert tab.meta['n_bootstrap'] == 0
+    np.testing.assert_equal(len(tab['vx']), len(tab))
+    np.testing.assert_equal(len(tab['vy']), len(tab))
+    np.testing.assert_equal(len(tab['vx_err']), len(tab))
+    np.testing.assert_equal(len(tab['vy_err']), len(tab))
+    np.testing.assert_equal(len(tab['n_fit']), len(tab))
+    np.testing.assert_equal(tab.meta['n_bootstrap'], 0)
 
     # Test no-fit for stars with N<2 epochs.
     n_epochs = (tab['x'] >= 0).sum(axis=1)
     idx = np.where(n_epochs < 2)[0]
-    assert (tab['vx'][idx] == 0).all()
-    assert (tab['vx_err'][idx] == 0).all()
-    assert (tab['n_fit'][idx] == 2).all()
+    np.testing.assert_equal((tab['vx'][idx] == 0).all(), True)
+    np.testing.assert_equal((tab['vx_err'][idx] == 0).all(), True)
+    np.testing.assert_equal((tab['n_fit'][idx] == 2).all(), True)
 
     # Test that the velocity errors were calculated.
-    assert (~(tab['vx_err'][0:100] < 0)).all()
-    assert (~(tab['x0_err'][0:100] < 0)).all()
-    assert (~(tab['vy_err'][0:100] < 0)).all()
-    assert (~(tab['y0_err'][0:100] < 0)).all()
-
+    np.testing.assert_equal((~(tab['vx_err'][0:100] < 0)).all(), True)
+    np.testing.assert_equal((~(tab['x0_err'][0:100] < 0)).all(), True)
+    np.testing.assert_equal((~(tab['vy_err'][0:100] < 0)).all(), True)
+    np.testing.assert_equal((~(tab['y0_err'][0:100] < 0)).all(), True)
 
     ##########
     # Test running a second time. We should get the same results.
@@ -365,11 +360,11 @@ def test_fit_velocities():
     tab_b.meta = tab1.meta
     tab_b.fit_motion_model(verbose=True, bootstrap=50)
 
-    assert tab_b.meta['n_bootstrap'] == 50
-    assert tab_b['x0_err'][0] > tab['x0_err'][0]
-    assert tab_b['vx_err'][0] > tab['vx_err'][0]
-    assert tab_b['y0_err'][0] > tab['y0_err'][0]
-    assert tab_b['vy_err'][0] > tab['vy_err'][0]
+    np.testing.assert_equal(tab_b.meta['n_bootstrap'], 50)
+    np.testing.assert_array_less(tab['x0_err'][0], tab_b['x0_err'][0])
+    np.testing.assert_array_less(tab['vx_err'][0], tab_b['vx_err'][0])
+    np.testing.assert_array_less(tab['y0_err'][0], tab_b['y0_err'][0])
+    np.testing.assert_array_less(tab['vy_err'][0], tab_b['vy_err'][0])
 
     ##########
     # Test what happens with no velocity errors
@@ -377,15 +372,15 @@ def test_fit_velocities():
     tab.remove_columns(['xe', 'ye', 'x0', 'y0', 'x0_err', 'y0_err', 'vx', 'vy', 'vx_err', 'vy_err', 'n_fit'])
     tab.fit_motion_model(verbose=False)
 
-    assert len(tab['vx']) == len(tab)
-    assert len(tab['vy']) == len(tab)
-    assert len(tab['vx_err']) == len(tab)
-    assert len(tab['vy_err']) == len(tab)
-    assert len(tab['n_fit']) == len(tab)
-    assert (~(tab['vx_err'][0:100] < 0)).all()
-    assert (~(tab['x0_err'][0:100] < 0)).all()
-    assert (~(tab['vy_err'][0:100] < 0)).all()
-    assert (~(tab['y0_err'][0:100] < 0)).all()
+    np.testing.assert_equal(len(tab['vx']), len(tab))
+    np.testing.assert_equal(len(tab['vy']), len(tab))
+    np.testing.assert_equal(len(tab['vx_err']), len(tab))
+    np.testing.assert_equal(len(tab['vy_err']), len(tab))
+    np.testing.assert_equal(len(tab['n_fit']), len(tab))
+    np.testing.assert_equal((~(tab['vx_err'][0:100] < 0)).all(), True)
+    np.testing.assert_equal((~(tab['x0_err'][0:100] < 0)).all(), True)
+    np.testing.assert_equal((~(tab['vy_err'][0:100] < 0)).all(), True)
+    np.testing.assert_equal((~(tab['y0_err'][0:100] < 0)).all(), True)
 
     #########
     # Test mask_list
@@ -407,7 +402,6 @@ def test_fit_velocities():
 
 
 def test_fit_velocities_2epoch():
-    
     ##########
     # Test: only 2 epoch2
     ##########
@@ -423,30 +417,21 @@ def test_fit_velocities_2epoch():
 
     tab_2.fit_motion_model(verbose=False, mask_value=-100000.)
 
-    assert 'n_fit' in tab_2.colnames
-    assert 't0' in tab_2.colnames
-    assert 'x0' in tab_2.colnames
-    assert 'y0' in tab_2.colnames
-    assert 'vx' in tab_2.colnames
-    assert 'vy' in tab_2.colnames
-    assert 'x0_err' in tab_2.colnames
-    assert 'y0_err' in tab_2.colnames
-    assert 'vx_err' in tab_2.colnames
-    assert 'vy_err' in tab_2.colnames
+    assert all([_ in tab_2.colnames for _ in ['n_fit', 't0', 'x0', 'y0', 'vx', 'vy', 'x0_err', 'y0_err', 'vx_err', 'vy_err']])
 
     # 2 detections
     print(tab1.meta)
     np.testing.assert_almost_equal(tab_2['x0'][0], tab_2['x'][0,0], 1)
-    assert tab_2['n_fit'][0] == 2
+    np.testing.assert_equal(tab_2['n_fit'][0], 2)
     
     # 1 detection
-    assert tab_2['x0'][100] == tab_2['x'][100, 0]
-    assert tab_2['n_fit'][100] == 1
-    
+    np.testing.assert_equal(tab_2['x0'][100], tab_2['x'][100, 0])
+    np.testing.assert_equal(tab_2['n_fit'][100], 1)
+
     # 0 detections
-    assert np.isnan(tab_2['x0'][-1])
-    assert tab_2['n_fit'][-1] == 0
-    
+    np.testing.assert_equal(np.isnan(tab_2['x0'][-1]), True)
+    np.testing.assert_equal(tab_2['n_fit'][-1], 0)
+
     return
 
 

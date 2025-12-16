@@ -522,6 +522,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
         Startable of the two matched catalogs
 
     """
+    from . import align
     
     #  Check the input StarLists and transform them into astropy Tables
     if not isinstance(sl1, starlists.StarList):

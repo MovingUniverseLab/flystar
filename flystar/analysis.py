@@ -6,8 +6,6 @@ from astropy.table import Table, Column
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astropy.wcs import WCS
-from astroquery.gaia import Gaia
-from astroquery.mast import Observations, Catalogs
 import pdb, copy
 import math
 from scipy.stats import f
@@ -38,6 +36,7 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
     table_name : string
         Options are 'gaiadr2' or 'gaiaedr3'
     """
+    from astroquery.gaia import Gaia
     target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
     ra = target_coords.ra.degree
     dec = target_coords.dec.degree
