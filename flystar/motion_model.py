@@ -136,8 +136,14 @@ class MotionModel(ABC):
             edx = np.arange(n_obs, dtype=int)
             # Precompute All Bootstrap Draws at Once
             # Ensure there are enough unique points in each bootstrap sample
-            bdx_unique = rng.choice(edx, size=(bootstrap, self.n_params), replace=False)
-            bdx_extra = rng.choice(edx, size=(bootstrap, m - self.n_params), replace=True)
+            bdx_unique = np.stack([
+                rng.choice(edx, size=self.n_params, replace=False)
+                for _ in range(bootstrap)
+            ])
+            bdx_extra = np.stack([
+                rng.choice(edx, size=self.n_params, replace=True)
+                for _ in range(bootstrap)
+            ])
             bdx_all = np.hstack((bdx_unique, bdx_extra))
 
             bb_params = []

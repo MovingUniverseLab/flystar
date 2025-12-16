@@ -340,7 +340,7 @@ def test_fit_motion_models():
     vxe_orig = tab['vx_err']
     x0e_orig = tab['x0_err']
     tab.fit_motion_model(verbose=False, mask_value=-100000.)
-    
+
     np.testing.assert_allclose(tab['vx'], vx_orig)
     np.testing.assert_allclose(tab['x0'], x0_orig)
     np.testing.assert_allclose(tab['vx_err'], vxe_orig)
@@ -423,7 +423,7 @@ def test_fit_velocities_2epoch():
     print(tab1.meta)
     np.testing.assert_almost_equal(tab_2['x0'][0], tab_2['x'][0,0], 1)
     np.testing.assert_equal(tab_2['n_fit'][0], 2)
-    
+
     # 1 detection
     np.testing.assert_equal(tab_2['x0'][100], tab_2['x'][100, 0])
     np.testing.assert_equal(tab_2['n_fit'][100], 1)
