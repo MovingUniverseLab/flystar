@@ -23,7 +23,7 @@ class MosaicSelfRef(object):
                  calc_trans_inverse=False,
                  init_guess_mode='miracle', iter_callback=None,
                  motion_models=['Empty', 'Fixed'],
-                 fixed_params_dict = None,
+                 fixed_params_dict=None,
                  use_scipy=True, 
                  absolute_sigma=False, 
                  save_path=None, 
@@ -301,7 +301,7 @@ class MosaicSelfRef(object):
         #    x_orig, y_orig, m_orig, (opt. errors) -- the transformed errors for the lists: 2D
         #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
         ##########
-        self.ref_table = self.setup_ref_table_from_starlist(self.star_lists[self.ref_index],motion_model_used='Fixed')
+        self.ref_table = self.setup_ref_table_from_starlist(self.star_lists[self.ref_index])
         # Save the reference index to the meta data on the reference list.
         self.ref_table.meta['ref_list'] = self.ref_index
 
@@ -423,11 +423,10 @@ class MosaicSelfRef(object):
             if trans is None:
                 # Only use "use_in_trans" reference stars, even for initial guessing.
                 keepers = np.where(ref_list['use_in_trans'] == True)[0]
-
                 trans = trans_initial_guess(
-                    ref_list[keepers], 
-                    star_list_orig_trim, 
-                    self.trans_args[0], 
+                    ref_list[keepers],
+                    star_list_orig_trim,
+                    self.trans_args[0],
                     mode=self.init_guess_mode,
                     order=self.init_order,
                     verbose=self.verbose,
@@ -603,12 +602,12 @@ class MosaicSelfRef(object):
 
         # Add inverse trans list, if desired
         if self.calc_trans_inverse:
-            trans_list_inverse = [None for ii in range(N_lists)]
+            trans_list_inverse = [None] * N_lists
             self.trans_list_inverse = trans_list_inverse
 
         return
 
-    def setup_ref_table_from_starlist(self, star_list, motion_model_used=None):
+    def setup_ref_table_from_starlist(self, star_list):
         """ 
         Start with the reference list.... this will change and grow
         over time, so make a copy that we will keep updating.
@@ -616,7 +615,7 @@ class MosaicSelfRef(object):
         array in the original reference star list.
         """
         col_arrays = {}
-        motion_model_col_names = motion_model.get_all_motion_model_param_names(with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
+        motion_model_col_names = motion_model.motion_model_param_names(self.motion_models, with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
         for col_name in star_list.colnames:
             if col_name == 'name':
                 # The "name" column will be 1D; but we will also add a "name_in_list" column.
@@ -829,7 +828,12 @@ class MosaicSelfRef(object):
         self.ref_table['used_in_trans'][idx_ref_in_trans, ii] = True
 
         ### Add the unmatched stars and grow the size of the reference table.
-        self.ref_table, idx_lis_new, idx_ref_new = add_rows_for_new_stars(self.ref_table, star_list, idx_lis)
+        self.ref_table, idx_lis_new, idx_ref_new = add_rows_for_new_stars(
+            self.ref_table, 
+            star_list, 
+            idx_lis,
+            motion_model=self.motion_models[-1].name
+        )
         if len(idx_ref_new) > 0:
             if self.verbose > 0:
                 print('    Adding {0:d} new stars to the reference table.'.format(len(idx_ref_new)))
@@ -862,7 +866,7 @@ class MosaicSelfRef(object):
         """
         # Keep track of the original reference values.
         # In certain cases, we will NOT update these.
-        if keep_orig is not None:
+        if (keep_orig is not None) and (len(keep_orig) > 0):
             vals_orig = {}
             vals_orig['m0'] = self.ref_table['m0'][keep_orig]
             vals_orig['m0_err'] = self.ref_table['m0_err'][keep_orig]
@@ -872,21 +876,20 @@ class MosaicSelfRef(object):
             if 'motion_model_used' in self.ref_table.keys():
                 motion_model_class_names += self.ref_table['motion_model_used'][keep_orig].tolist()
                 vals_orig['motion_model_used'] = self.ref_table['motion_model_used'][keep_orig]
-            motion_model_col_names = motion_model.get_list_motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
+            motion_model_col_names = motion_model.motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
             for mm in motion_model_col_names:
                 if mm in self.ref_table.keys():
                     vals_orig[mm] = self.ref_table[mm][keep_orig]
-            # fit_star_idxs = [idx for idx in range(len(self.ref_table)) if idx not in keep_orig]
-        # else:
-            # fit_star_idxs = None
+            fit_star_idxs = np.array([idx for idx in range(len(self.ref_table)) if idx not in keep_orig], dtype=int)
+        else:
+            fit_star_idxs = None
 
         # Figure out whether motion fits are necessary
         if ('motion_model_input' in self.ref_table.keys()) and np.all(self.ref_table['motion_model_input']=='Fixed'):
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
-        else:
-            # Combine positions with a velocity fit.
+        elif fit_star_idxs is None:
             self.ref_table.fit_motion_model(
                 motion_models=self.motion_models,
                 fixed_params_dict=self.fixed_params_dict,
@@ -896,6 +899,44 @@ class MosaicSelfRef(object):
                 bootstrap=n_boot,
                 verbose=self.verbose
             )
+            # Combine (transformed) magnitudes
+            if 'me' in self.ref_table.colnames:
+                weights_col = None
+            else:
+                weights_col = 'me'
+            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
+
+        else:
+            # Combine positions with a velocity fit.
+            update_ref_table = self.ref_table[fit_star_idxs]
+            keep_ref_table = self.ref_table[keep_orig]
+            update_ref_table.fit_motion_model(
+                motion_models=self.motion_models,
+                fixed_params_dict=self.fixed_params_dict,
+                weighting=self.vel_weighting,
+                use_scipy=self.use_scipy,
+                absolute_sigma=self.absolute_sigma,
+                bootstrap=n_boot,
+                verbose=self.verbose
+            )
+
+            # Determine motion models for keep_ref_table
+            pdb.set_trace()
+            if 'motion_model_used' not in keep_ref_table.colnames:
+                all_mm_map = motion_model.motion_model_map()
+                mm_n_params = np.sort([mm.n_params for mm in self.motion_models])
+                required_params = np.array([all_mm_map[mm_name].n_params for mm_name in keep_ref_table['motion_model_input']])
+                mm_digitized = np.digitize(
+                    x=np.minimum(np.array(keep_ref_table['n_detect']), required_params),
+                    bins=mm_n_params
+                ) - 1
+                keep_ref_table['motion_model_used'] = np.array([self.motion_models[d].name for d in mm_digitized])
+
+            # Merge back into the full ref_table
+            new_ref_table = vstack([keep_ref_table, update_ref_table])
+            self.ref_table = new_ref_table.copy()
+            self.ref_table[keep_orig] = new_ref_table[0:len(keep_orig)]
+            self.ref_table[fit_star_idxs] = new_ref_table[len(keep_orig):]
 
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
@@ -903,8 +944,9 @@ class MosaicSelfRef(object):
             else:
                 weights_col = 'me'
             self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
+
         # Replace the originals if we are supposed to keep them fixed.
-        if keep_orig is not None:
+        if (keep_orig is not None) and (len(keep_orig) > 0):
             for val in vals_orig.keys():
                 self.ref_table[val][keep_orig] = vals_orig[val]
 
@@ -977,14 +1019,14 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xym(self.trans_list[ii])
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
-            
+
             xref, yref = infer_positions(star_list_T['t'][0], self.ref_table)
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    xref, yref, mref,
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-            
+
             if self.verbose > 0:
                 fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} +/- {4:6.4f}, dm = {5:5.2f} +/- {6:4.2f}'
                 print(fmt.format(len(idx_lis), len(star_list_T), ii, dr.mean(), dr.std(), dm.mean(), dm.std()))
@@ -1012,7 +1054,6 @@ class MosaicSelfRef(object):
         name = self.ref_table['name']
 
         if ('motion_model_used' in self.ref_table.colnames):
-            print(f'{epoch=}, {epoch.shape=}')
             x, y, xe, ye = self.ref_table.infer_positions(epoch)
         else:
             # No velocities... just used average positions.
@@ -1158,17 +1199,19 @@ class MosaicSelfRef(object):
         y2_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
         m_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
         m2_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
-        
+
         # Set up motion model parameters
         if 'motion_model_used' in ref_table.keys():
             motion_model_list = np.unique(ref_table['motion_model_used']).tolist()
         elif 'motion_model_input' in ref_table.keys():
             motion_model_list = np.unique(ref_table['motion_model_input']).tolist()
 
-        all_mm_map = motion_model.motion_model_map()
-        motion_model_list = [all_mm_map[mm_name] for mm_name in motion_model_list]
+        if 'Empty' not in motion_model_list:
+            motion_model_list.append('Empty')
+        if 'Fixed' not in motion_model_list:
+            motion_model_list.append('Fixed')
 
-        motion_col_list = motion_model.get_list_motion_model_param_names(motion_model_list, with_errors=False, with_fixed=False)
+        motion_col_list = motion_model.motion_model_param_names(motion_model_list, with_errors=False, with_fixed=False)
         if calc_vel_in_bootstrap:
             motion_boot_sum = {}
             motion2_boot_sum = {}
@@ -1177,7 +1220,8 @@ class MosaicSelfRef(object):
                 motion2_boot_sum[col] = np.zeros((len(ref_table['x'])))
         
         all_mm_map = motion_model.motion_model_map()
-        motion_boot_min_epochs = np.max([all_mm_map[mm].n_params for mm in motion_model_list])
+        motion_model_list = [all_mm_map[mm_name] for mm_name in motion_model_list]
+        motion_boot_min_epochs = np.max([mm.n_params for mm in motion_model_list])
 
         ### IF MEMORY PROBLEMS HERE:
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
@@ -1257,7 +1301,6 @@ class MosaicSelfRef(object):
                                                                    m=starlist_boot['m'], mref=ref_boot['m'],
                                                                    weights=weight, mag_trans=self.mag_trans)
                 #print(jj)
-                #pdb.set_trace()
 
                 # Apply transformation to *all* orig positions in this epoch. Need to make a new
                 # FLYSTAR starlist object with the original positions for this. We don't
@@ -1337,7 +1380,7 @@ class MosaicSelfRef(object):
 
                 # Quick check to make sure bootstrap calc was valid: output t0 should be
                 # same as input t0_arr, since we used fixed_t0 option
-                assert np.sum(abs(star_table['t0'] - t0_arr) == 0)
+                np.testing.assert_array_equal(star_table['t0'], t0_arr)
 
                 #t3 = time.time()
                 #print('=================================================')
@@ -1376,7 +1419,19 @@ class MosaicSelfRef(object):
             col[idx_good] = data_dict[ff]
             self.ref_table.add_column(col)
             
-        # Calculate chi^2 with bootstrap positional errors
+        # # Calculate chi^2 with bootstrap positional errors
+        # # Determine which motion model to use:
+        # motion_model_list = sorted(motion_model_list, key=lambda mm: mm.n_params)
+        # mm_n_params = np.sort([mm.n_params for mm in motion_model_list])
+
+        # required_params = [all_mm_map[mm_name].n_params for mm_name in self.ref_table['motion_model_input']]
+        # mm_digitized = np.digitize(
+        #     x=np.minimum(np.array(self.ref_table['n_detect']), required_params),
+        #     bins=mm_n_params
+        # ) - 1
+        # self.ref_table['motion_model_used'] = np.array([motion_model_list[d].name for d in mm_digitized], dtype='U20')
+
+
         x_pred, y_pred, _, _ = self.ref_table.infer_positions(t_arr)
         xe_comb = np.hypot(self.ref_table['xe'], self.ref_table['xe_boot'])
         ye_comb = np.hypot(self.ref_table['ye'], self.ref_table['ye_boot'])
@@ -1551,9 +1606,6 @@ class MosaicToRef(MosaicSelfRef):
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state.
-            
-        default_motion_model : string
-            Name of motion model to use for new or unassigned stars
 
         motion_models : list of str or MotionModel objects
             List of motion model names (strings) or MotionModel objects to use
@@ -1702,7 +1754,6 @@ class MosaicToRef(MosaicSelfRef):
         #
         ##########
         for nn in range(self.iters):
-            
             # If we are on subsequent iterations, remove matching results from the 
             # prior iteration. This leaves aggregated (1D) columns alone.
             if nn > 0:
@@ -1749,11 +1800,10 @@ class MosaicToRef(MosaicSelfRef):
             print("**********")
 
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
-        keep_ref_orig = (self.update_ref_orig==False)
-        if keep_ref_orig:
-            keep_orig = np.where(self.ref_table['ref_orig'])[0]
-        else:
+        if self.update_ref_orig:
             keep_orig=None
+        else:
+            keep_orig = np.where(self.ref_table['ref_orig'])[0]
         self.update_ref_table_aggregates(keep_orig=keep_orig)
 
         ##########
@@ -1804,7 +1854,7 @@ def get_all_epochs(t):
     return all_epochs
     
 
-def setup_ref_table_from_starlist(star_list):
+def setup_ref_table_from_starlist(star_list, motion_models):
     """ 
     Start with the reference list.... this will change and grow
     over time, so make a copy that we will keep updating.
@@ -1812,7 +1862,7 @@ def setup_ref_table_from_starlist(star_list):
     array in the original reference star list.
     """
     col_arrays = {}
-    motion_model_col_names = motion_model.get_all_motion_model_param_names(with_errors=True)
+    motion_model_col_names = motion_model.motion_model_param_names(motion_models, with_errors=True)
     for col_name in star_list.colnames:
         if col_name == 'name':
             # The "name" column will be 1D; but we will also add a "name_in_list" column.
@@ -1820,7 +1870,7 @@ def setup_ref_table_from_starlist(star_list):
             new_col_name = "name_in_list"
         else:
             new_col_name = col_name
-            
+
         # Make every column's 2D arrays except "name" and those
         # columns used for the motion model.
         if col_name in motion_model_col_names:
@@ -1856,7 +1906,7 @@ def setup_ref_table_from_starlist(star_list):
         if not new_cols_arr[ii] in ref_cols:
             # Some munging to convert data shape from (N,1) to (N,),
             # since these are all 1D cols
-            vals = np.transpose(np.array(ref_table[orig_cols_arr[ii]]))[0]
+            vals =np.array(ref_table[orig_cols_arr[ii]]).flatten()
 
             # Now add to ref_table
             new_col = Column(vals, name=new_cols_arr[ii])
@@ -1926,7 +1976,7 @@ def reset_ref_values(ref_table):
                 
     return
 
-def add_rows_for_new_stars(ref_table, star_list, idx_lis):
+def add_rows_for_new_stars(ref_table, star_list, idx_lis, motion_model='Fixed'):
     """
     For each star that is in star_list and NOT in idx_list, make a 
     new row in the reference table. The values will be empty (None, NAN, etc.). 
@@ -1935,13 +1985,13 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis):
     ----------
     ref_table : StarTable
         The reference table that the rows will be added to.
-
     star_list : StarList
         The starlist that will be used to estimate how many new stars there are.
-
     idx_lis : array or list
         The indices of the non-new stars (those that matched already). The complement
         of this array will be used as the new stars.
+    motion_model : str
+        The motion model to assign to the new stars.
 
     Returns
     ----------
@@ -1957,8 +2007,9 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis):
 
     idx_lis_orig = np.arange(len(star_list))
     idx_lis_new = np.array(list(set(idx_lis_orig) - set(idx_lis)))
+    N_newstars = len(idx_lis_new)
 
-    if len(idx_lis_new) > 0:
+    if N_newstars > 0:
         col_arrays = {}
 
         for col_name in ref_table.colnames:
@@ -1971,16 +2022,16 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis):
             elif ref_table[col_name].dtype == np.dtype('bool'):
                 new_col_empty = False
             elif col_name=='motion_model_input':
-                new_col_empty = 'Empty'
+                new_col_empty = motion_model
             elif col_name=='motion_model_used':
-                new_col_empty = 'Empty'
+                new_col_empty = 'Fixed'
             else:
                 new_col_empty = np.nan
-
+            
             if len(ref_table[col_name].shape) == 1:
-                new_col_shape = len(idx_lis_new)
+                new_col_shape = N_newstars
             else:
-                new_col_shape = [len(idx_lis_new), ref_table[col_name].shape[1]]
+                new_col_shape = [N_newstars, ref_table[col_name].shape[1]]
 
             new_col_data = Column(data=np.tile(new_col_empty, new_col_shape),
                                   name=col_name, dtype=ref_table[col_name].dtype)
@@ -2609,7 +2660,7 @@ def transform_from_object(starlist, transform):
     # For more complicated motion_models,
     #  we can't easily transform them, set the values to nans and refit later.
     if mot:
-        motion_model_params = motion_model.get_all_motion_model_param_names()
+        motion_model_params = motion_model.motion_model_param_names()
         for param in motion_model_params:
             if param in keys:
                 starlist_f[param] = np.nan
@@ -2933,7 +2984,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
             mref = ref_list['m']
         else:
             mref = ref_list['m0']
-            
+
         N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(
             star_list['x'],
             star_list['y'],
@@ -2943,10 +2994,9 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
             mref,
             briteN
         )
-        
-    err_msg = 'Failed to find more than '+str(n_req_match)
-    err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
-    assert len(x1m) >= n_req_match, err_msg
+
+    assert len(x1m) >= n_req_match, \
+        f'Failed to find more than {n_req_match} (only {len(x1m)}) matches, giving up.'
     if verbose > 1:
         print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
@@ -2965,12 +3015,12 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         trans.mag_offset = np.mean(m2m - m1m)
     else:
         trans.mag_offset = 0
-        
+
     if verbose > 1:
         print('init guess: ', trans.px.parameters, trans.py.parameters)
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
-        
+
     return trans
 
 
@@ -3062,7 +3112,7 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
         The indicies of the stars to keep. 
     """
     # Optionally propogate the reference positions forward in time.
-    xref, yref = get_pos_in_time(star_list['t'][0], ref_list)
+    xref, yref = infer_positions(star_list['t'][0], ref_list)
 
     # Residuals
     x_resid_on_old_trans = star_list['x'] - xref
@@ -3176,12 +3226,19 @@ def infer_positions(t, startable):
     to the desired epoch. If no motion/velocities exist, then just
     use ['x0', 'y0'] or ['x', 'y']
 
-    Inputs
+    Parameters
     ----------
     t_array : float
         The time to propogate to. Usually in decimal years; 
         but it should be in the same units
         as the 't0' column in starlist.
+    startable : StarTable
+        Startable that needs to be inferred.
+
+    Returns
+    -------
+    x, y : tuple
+        Inferred position at time t
     """
     # Check for motion model
     if 'motion_model_used' in startable.colnames:
@@ -3201,7 +3258,7 @@ def infer_positions(t, startable):
         x = startable['x']
         y = startable['y']
 
-    return (x, y)
+    return x, y
 
 def logger(logfile, message, verbose = 9):
     if verbose > 4:

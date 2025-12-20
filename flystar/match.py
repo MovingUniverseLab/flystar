@@ -1,5 +1,5 @@
 import numpy as np
-from . import starlists, transforms, startables, align
+from . import starlists, transforms, startables
 from collections import Counter
 from scipy.spatial import cKDTree as KDT
 from astropy.table import Column

@@ -730,7 +730,7 @@ class StarTable(Table):
         if 'motion_model_input' in self.colnames:
             # Determine which motion model to use based on motion_model_input column
             # If n_fit < required n_params for the input motion model, use the most complicated motion model with n_fit >= n_params
-            required_params = [all_mm_map[mm_name].n_params for mm_name in self['motion_model_input']]
+            required_params = np.array([all_mm_map[mm_name].n_params for mm_name in self['motion_model_input']])
             mm_digitized = np.digitize(
                 x=np.minimum(np.array(self['n_fit']), required_params),
                 bins=mm_n_params
@@ -751,7 +751,7 @@ class StarTable(Table):
         ############################
         # Fill table with all possible motion model parameter names as new columns.
         motion_model_used = [all_mm_map[name] for name in np.unique(self['motion_model_used'])]
-        new_col_list = motion_model.get_list_motion_model_param_names(motion_model_used, with_errors=True, with_fixed=False)
+        new_col_list = motion_model.motion_model_param_names(motion_model_used, with_errors=True, with_fixed=False)
         new_col_list += ['chi2_x', 'chi2_y', 'n_params']
 
         if 't0' not in new_col_list:
@@ -810,9 +810,10 @@ class StarTable(Table):
         for unique_motion_model, unique_index in indices_by_motion_model.items():
             # Create motion model instance
             motion_model_instance = input_mm_map[unique_motion_model]()
+            param_names = motion_model_instance.fit_param_names
             # Initialize arrays to store results
             n_stars_this_model = len(unique_index)
-            n_params = len(motion_model_instance.fit_param_names)
+            n_params = len(param_names)
 
             params_array = np.full((n_stars_this_model, n_params), fill_value, dtype=float)
             param_errs_array = np.full((n_stars_this_model, n_params), np.inf, dtype=float)
@@ -843,7 +844,6 @@ class StarTable(Table):
                 chi2_y_array[idx] = chi2_y
 
             # Store results back to the table
-            param_names = motion_model_instance.fit_param_names
             for j, param_name in enumerate(param_names):
                 self[param_name][unique_index] = params_array[:, j]
                 self[param_name + '_err'][unique_index] = param_errs_array[:, j]

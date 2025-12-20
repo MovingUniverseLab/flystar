@@ -259,12 +259,12 @@ def test_MosaicToRef():
     # Also double check that they aren't exactly the same for the reference stars.
     assert np.not_equal(msc.ref_table['x0'], ref_list['x0']).all()
     assert np.not_equal(msc.ref_table['y0'], ref_list['y0']).all()
-    
+
     return msc
 
 def test_MosaicToRef_p0_vel():
     make_fake_starlists_poly0_vel(seed=42)
-    
+
     ref_file = 'random_vel_ref.fits'
     list_files = ['random_vel_p0_0.fits',
                   'random_vel_p0_1.fits',
@@ -286,7 +286,8 @@ def test_MosaicToRef_p0_vel():
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
     ref_list['vx'] *= -1.0
-        
+    ref_list['motion_model_used'] = 'Linear'
+
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
     msc = align.MosaicToRef(ref_list, lists, iters=2,
@@ -391,7 +392,7 @@ def test_MosaicToRef_vel():
     # Also double check that they aren't exactly the same for the reference stars.
     #assert np.any(np.not_equal(msc.ref_table['vx'], ref_list['vx']))
     assert np.not_equal(msc.ref_table['vx'], ref_list['vx']).any()
-    
+
     return msc
 
 def test_MosaicToRef_acc():
@@ -469,12 +470,13 @@ def test_MosaicToRef_acc():
             if ~np.isnan(msc.ref_table['ax'][ix_fit]):
                 i_orig.append(i)
                 i_fit.append(ix_fit)
-    np.testing.assert_allclose(msc.ref_table['ax'][i_fit], ref_list['ax'][i_orig], rtol=1e-1)
-    np.testing.assert_allclose(msc.ref_table['ay'][i_fit], ref_list['ay'][i_orig], rtol=1e-1)
+    # Accelerations all too small, rtol doesn't work well here.
+    np.testing.assert_allclose(msc.ref_table['ax'][i_fit], ref_list['ax'][i_orig], atol=1e-3)
+    np.testing.assert_allclose(msc.ref_table['ay'][i_fit], ref_list['ay'][i_orig], atol=1e-3)
 
     # Also double check that they aren't exactly the same for the reference stars.
-    assert np.any(np.not_equal(msc.ref_table['ax'], ref_list['ax']))
-    
+    assert np.any(np.not_equal(msc.ref_table['ax'][i_fit], ref_list['ax'][i_orig]))
+
     return msc
 
 
@@ -483,12 +485,12 @@ def make_fake_starlists_shifts():
     x = np.random.rand(N_stars) * 1000
     y = np.random.rand(N_stars) * 1000
     m = (np.random.rand(N_stars) * 8) + 9
-        
+
     sdx = np.argsort(m)
     x = x[sdx]
     y = y[sdx]
     m = m[sdx]
-    
+
     name = ['star_{0:03d}'.format(ii) for ii in range(N_stars)]
 
     # Save original positions as reference (1st) list.
@@ -1016,7 +1018,7 @@ def make_fake_starlists_poly1_par(seed=-1):
 
     return (xy_trans, mag_trans)
 
-                     
+
 def test_MosaicToRef_hst_me():
     """
     Test Casey's issue with 'me' not getting propogated 
@@ -1025,30 +1027,30 @@ def test_MosaicToRef_hst_me():
     Use data from MB10-364 microlensing target for the test. 
     """
     # Target RA and Dec (MOA data download)
-    ra = '17:57:05.401'
-    dec = '-34:27:05.01'
-    
+    # ra = '17:57:05.401'
+    # dec = '-34:27:05.01'
+
     # Load up a Gaia catalog (queried around the RA/Dec above)
     my_gaia = Table.read('mb10364_data/my_gaia.fits')
     my_gaia['me'] = 0.01
-    
+
     # Gather the list of starlists. For first pass, don't modify the starlists.
     # Loop through the observations and read them in, in prep for alignment with Gaia
     epochs = [2011.83, 2012.73, 2013.81]
     starlist_names = ['mb10364_data/2011_10_31_F606W_MATCHUP_XYMEEE_final.calib',
                       'mb10364_data/2012_09_25_F606W_MATCHUP_XYMEEE_final.calib',
                       'mb10364_data/2013_10_24_F606W_MATCHUP_XYMEEE_final.calib']
-        
+
     list_of_starlists = []
-    
+
     # Just using the F606W filters first.
     for ee in range(len(starlist_names)):
         lis = starlists.StarList.from_lis_file(starlist_names[ee])
-        
+
         # # Add additive error term. MAYBE YOU DON'T NEED THIS
         # lis['xe'] = np.hypot(lis['xe'], 0.01)  # Adding 0.01 pix (0.1 mas) in quadrature.
         # lis['ye'] = np.hypot(lis['ye'], 0.01)
-        
+
         lis['t'] = epochs[ee]
 
         # Lets dump the faint stars.
@@ -1056,23 +1058,21 @@ def test_MosaicToRef_hst_me():
         lis = lis[idx]
 
         list_of_starlists.append(lis)
-        
+
     msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
                         dr_tol=[0.1], dm_tol=[5],
                         outlier_tol=[None], mag_lim=[13, 21],
                         trans_class=transforms.PolyTransform,
                         trans_args=[{'order': 1}],
-                        default_motion_model='Fixed',
+                        motion_models=['Empty', 'Fixed'],
                         use_ref_new=False,
                         update_ref_orig=False,
                         mag_trans=False,
-                        trans_weights='both,std',
+                        trans_weighting='both,std',
                         init_guess_mode='miracle', verbose=False)
     msc.fit()
-    tab = msc.ref_table
 
-    assert 'me' in tab.colnames
-
+    assert 'me' in msc.ref_table.colnames
     return
 
 def test_bootstrap():
@@ -1099,7 +1099,7 @@ def test_bootstrap():
     outlier_tol = None
     mag_lim = None
     ref_mag_lim = None
-    trans_weights = 'both,var'
+    trans_weighting = 'both,var'
     mag_trans = False
 
     n_boot = 15
@@ -1113,8 +1113,8 @@ def test_bootstrap():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  trans_weights=trans_weights,
-                                  default_motion_model='Linear',
+                                  trans_weighting=trans_weighting,
+                                  motion_models=['Linear'],
                                   use_ref_new=False,
                                   update_ref_orig=False,
                                   init_guess_mode='name',
@@ -1134,7 +1134,6 @@ def test_bootstrap():
     assert np.sum(np.isnan(match1.ref_table['ye_boot'])) == 0
     assert np.sum(np.isnan(match1.ref_table['vx_err_boot'])) == 0
     assert np.sum(np.isnan(match1.ref_table['vy_err_boot'])) == 0
-    #pdb.set_trace()
 
     # Test 2: make sure boot_epochs_min is working
     # Eliminate some rows to list2, so some stars are only in 1 epoch.
@@ -1148,8 +1147,8 @@ def test_bootstrap():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  trans_weights=trans_weights,
-                                  default_motion_model='Linear',
+                                  trans_weighting=trans_weighting,
+                                  motion_models=['Linear'],
                                   use_ref_new=False,
                                   update_ref_orig=False,
                                   init_guess_mode='name',
@@ -1171,10 +1170,10 @@ def test_bootstrap():
     assert len(good[0]) > 0
 
     # For "good" stars: all bootstrap vals should be present
-    assert np.sum(np.isnan(out['xe_boot'][good])) == 0
-    assert np.sum(np.isnan(out['ye_boot'][good])) == 0
-    assert np.sum(np.isnan(out['vx_err_boot'][good])) == 0
-    assert np.sum(np.isnan(out['vy_err_boot'][good])) == 0
+    assert np.sum(~np.isfinite(out['xe_boot'][good])) == 0
+    assert np.sum(~np.isfinite(out['ye_boot'][good])) == 0
+    assert np.sum(~np.isfinite(out['vx_err_boot'][good])) == 0
+    assert np.sum(~np.isfinite(out['vy_err_boot'][good])) == 0
 
     # For "bad" stars, all bootstrap vals should be nans
     assert np.sum(np.isfinite(out['xe_boot'][bad])) == 0
@@ -1193,7 +1192,7 @@ def test_calc_vel_in_bootstrap():
 
     """
     import copy
-    
+
     # Define match parameters
     ref = Table.read('ref_vel.lis', format='ascii')
 
@@ -1212,7 +1211,7 @@ def test_calc_vel_in_bootstrap():
     outlier_tol = None
     mag_lim = None
     ref_mag_lim = None
-    trans_weights = 'both,var'
+    trans_weighting = 'both,var'
     mag_trans = False
 
     n_boot = 15
@@ -1226,8 +1225,8 @@ def test_calc_vel_in_bootstrap():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  trans_weights=trans_weights,
-                                  default_motion_model='Linear',
+                                  trans_weighting=trans_weighting,
+                                  motion_models=['Linear'],
                                   use_ref_new=False,
                                   update_ref_orig=False,
                                   init_guess_mode='name',
@@ -1280,7 +1279,7 @@ def test_transform_xym():
     outlier_tol = None
     mag_lim = None
     ref_mag_lim = None
-    trans_weights = 'both,var'
+    trans_weighting = 'both,var'
     n_boot = 15
 
     mag_trans = False
@@ -1293,8 +1292,8 @@ def test_transform_xym():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  trans_weights=trans_weights,
-                                  default_motion_model='Fixed',
+                                  trans_weighting=trans_weighting,
+                                  motion_models=['Fixed'],
                                   use_ref_new=False,
                                   update_ref_orig=False,
                                   init_guess_mode='name',
@@ -1328,7 +1327,7 @@ def test_transform_xym():
                                   mag_trans=mag_trans,
                                   mag_lim=mag_lim,
                                   ref_mag_lim=ref_mag_lim,
-                                  trans_weights=trans_weights,
+                                  trans_weighting=trans_weighting,
                                   default_motion_model='Fixed',
                                   use_ref_new=False,
                                   update_ref_orig=False,
@@ -1372,7 +1371,7 @@ def test_MosaicToRef_mag_bug():
                               outlier_tol=None,
                               trans_class=transforms.PolyTransform,
                               trans_args=[{'order': 1}],
-                              default_motion_model='Fixed',
+                              motion_models=['Fixed'],
                               use_ref_new=False,
                               update_ref_orig=False,
                               verbose=True)
@@ -1400,15 +1399,16 @@ def test_masked_cols():
     """
     # Get gaia reference stars using analysis.py
     # around a test location.
-    target = 'ob150029'
+    # target = 'ob150029'
     ra = '17:59:46.60'
     dec = '-28:38:41.8'
 
     # Coordinates are arcsecs offset +x to the East.
-    targets_dict = {'ob150029':   [0.0, 0.0],
-                'S005': [1.1416,    3.7405],
-                'S002': [-4.421,    0.027]
-               }
+    targets_dict = {
+        'ob150029':   [0.0, 0.0],
+        'S005': [1.1416,    3.7405],
+        'S002': [-4.421,    0.027]
+    }
 
     # Get gaia catalog stars. Note that this produces a masked column table
     search_rad = 10.0   # arcsec
@@ -1418,7 +1418,7 @@ def test_masked_cols():
     assert isinstance(my_gaia, Table)
 
     # Let's make sure the entire align runs, just to be safe
-    
+
     # Get starlists to align to gaia
     epochs = ['15jun07','16jul14', '17may21']
 
@@ -1427,7 +1427,6 @@ def test_masked_cols():
     for ee in range(len(epochs)):
         lis_file = 'mag' + epochs[ee] + '_ob150029_kp_rms_named.lis'
         lis = starlists.StarList.from_lis_file(lis_file)
-    
         list_of_starlists.append(lis)
 
     # Run the align
@@ -1435,12 +1434,11 @@ def test_masked_cols():
                         dr_tol=[0.2, 0.1], dm_tol=[1, 1],
                         trans_class=transforms.PolyTransform,
                         trans_args=[{'order': 1}, {'order': 1}], 
-                        default_motion_model='Linear',
+                        motion_models=['Linear'],
                         use_ref_new=False,
                         update_ref_orig=False, 
                         mag_trans=True,
                         init_guess_mode='name', verbose=True)
 
     msc.fit()
-
     return

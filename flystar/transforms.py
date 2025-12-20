@@ -127,7 +127,7 @@ class Transform2D(object):
                 complex_motion_model=False
         # Cannot transform more complex motion models - set values to nan
         if complex_motion_model:
-            motion_params = motion_model.get_list_motion_model_param_names(new_list['motion_model_input'], with_errors=True, with_fixed=False)
+            motion_params = motion_model.motion_model_param_names(new_list['motion_model_input'], with_errors=True, with_fixed=False)
             for param in motion_params:
                 if param in new_list.colnames:
                     new_list[param] = np.nan

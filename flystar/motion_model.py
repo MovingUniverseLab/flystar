@@ -1065,53 +1065,13 @@ def validate_motion_models(motion_models, startable, default_motion_model):
     return motion_models
 
 
-def get_one_motion_model_param_names(motion_model, with_errors=True, with_fixed=True):
-    """Get all the motion model parameters
+def motion_model_param_names(motion_models, with_errors=True, with_fixed=True):
+    """Get the motion model parameter names from a list of MotionModels.
 
     Parameters
     ----------
-    motion_model : MotionModel
-        MotionModel instance
-    with_errors : bool, optional
-        Add uncertainty names with '_err' suffix or not, by default True
-    with_fixed : bool, optional
-        Add fixed param names with '_fixed' suffix or not, by default True
-
-    Returns
-    -------
-    list
-        List of all parameter names for the motion model
-    """
-    if isinstance(motion_model, str):
-        all_mm_map = motion_model_map()
-        motion_model = all_mm_map[motion_model]
-
-    list_of_parameters = []
-
-    def list_add(name):
-        if name not in list_of_parameters:
-            list_of_parameters.append(name)
-
-    for param in motion_model.fit_param_names:
-        # Fitter params
-        list_add(param)
-        # Error params
-        if with_errors:
-            list_add(param + '_err')
-    # Fixed params
-    if with_fixed:
-        for param in motion_model.fixed_param_names:
-            list_add(param)
-    return list_of_parameters
-
-
-def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_fixed=True):
-    """Get all the motion model parameters
-
-    Parameters
-    ----------
-    motion_model_list : list of MotionModels or str
-        List of MotionModels
+    motion_models : MotionModel, str, or list of MotionModels/strings.
+        Motion model to query parameter names from. If str, should be the name of a MotionModel class.
     with_errors : bool, optional
         Add uncertainty names with '_err' suffix or not, by default True
     with_fixed : bool, optional
@@ -1127,9 +1087,10 @@ def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_
     def list_add(name):
         if name not in list_of_parameters:
             list_of_parameters.append(name)
-
+    
+    motion_models = np.atleast_1d(motion_models)
     mm_map = motion_model_map()
-    for mm in motion_model_list:
+    for mm in motion_models:
         if isinstance(mm, str):
             mm = mm_map[mm]
         for param in mm.fit_param_names:
@@ -1142,11 +1103,11 @@ def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_
         if with_fixed:
             for param in mm.fixed_param_names:
                 list_add(param)
-    return list(list_of_parameters)
+    return list_of_parameters
 
 
-def get_all_motion_model_param_names(with_errors=True, with_fixed=True):
-    return get_list_motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
+def all_motion_model_param_names(with_errors=True, with_fixed=True):
+    return motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
 
 def motion_model_map():
     mm_map = dict(
