@@ -834,6 +834,7 @@ class MosaicSelfRef(object):
             idx_lis,
             motion_model=self.motion_models[-1].name
         )
+        pdb.set_trace()
         if len(idx_ref_new) > 0:
             if self.verbose > 0:
                 print('    Adding {0:d} new stars to the reference table.'.format(len(idx_ref_new)))
@@ -889,54 +890,18 @@ class MosaicSelfRef(object):
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
-        elif fit_star_idxs is None:
+
+        else:
             self.ref_table.fit_motion_model(
                 motion_models=self.motion_models,
                 fixed_params_dict=self.fixed_params_dict,
                 weighting=self.vel_weighting,
                 use_scipy=self.use_scipy,
                 absolute_sigma=self.absolute_sigma,
+                select_stars=fit_star_idxs,
                 bootstrap=n_boot,
                 verbose=self.verbose
             )
-            # Combine (transformed) magnitudes
-            if 'me' in self.ref_table.colnames:
-                weights_col = None
-            else:
-                weights_col = 'me'
-            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
-
-        else:
-            # Combine positions with a velocity fit.
-            update_ref_table = self.ref_table[fit_star_idxs]
-            keep_ref_table = self.ref_table[keep_orig]
-            update_ref_table.fit_motion_model(
-                motion_models=self.motion_models,
-                fixed_params_dict=self.fixed_params_dict,
-                weighting=self.vel_weighting,
-                use_scipy=self.use_scipy,
-                absolute_sigma=self.absolute_sigma,
-                bootstrap=n_boot,
-                verbose=self.verbose
-            )
-
-            # Determine motion models for keep_ref_table
-            pdb.set_trace()
-            if 'motion_model_used' not in keep_ref_table.colnames:
-                all_mm_map = motion_model.motion_model_map()
-                mm_n_params = np.sort([mm.n_params for mm in self.motion_models])
-                required_params = np.array([all_mm_map[mm_name].n_params for mm_name in keep_ref_table['motion_model_input']])
-                mm_digitized = np.digitize(
-                    x=np.minimum(np.array(keep_ref_table['n_detect']), required_params),
-                    bins=mm_n_params
-                ) - 1
-                keep_ref_table['motion_model_used'] = np.array([self.motion_models[d].name for d in mm_digitized])
-
-            # Merge back into the full ref_table
-            new_ref_table = vstack([keep_ref_table, update_ref_table])
-            self.ref_table = new_ref_table.copy()
-            self.ref_table[keep_orig] = new_ref_table[0:len(keep_orig)]
-            self.ref_table[fit_star_idxs] = new_ref_table[len(keep_orig):]
 
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
@@ -1949,6 +1914,7 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
         The indices into the star_list or star_list_T where values are copied from.
     """
     for col_name in ref_table.colnames:
+        if col_name=='x': pdb.set_trace()
         if col_name in star_list_T.colnames:
             if col_name == 'name':
                 ref_table['name_in_list'][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]
@@ -1976,7 +1942,7 @@ def reset_ref_values(ref_table):
                 
     return
 
-def add_rows_for_new_stars(ref_table, star_list, idx_lis, motion_model='Fixed'):
+def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model='Fixed'):
     """
     For each star that is in star_list and NOT in idx_list, make a 
     new row in the reference table. The values will be empty (None, NAN, etc.). 
@@ -1987,7 +1953,7 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis, motion_model='Fixed'):
         The reference table that the rows will be added to.
     star_list : StarList
         The starlist that will be used to estimate how many new stars there are.
-    idx_lis : array or list
+    idx_list : array or list
         The indices of the non-new stars (those that matched already). The complement
         of this array will be used as the new stars.
     motion_model : str
@@ -2006,7 +1972,7 @@ def add_rows_for_new_stars(ref_table, star_list, idx_lis, motion_model='Fixed'):
     last_star_idx = len(ref_table)
 
     idx_lis_orig = np.arange(len(star_list))
-    idx_lis_new = np.array(list(set(idx_lis_orig) - set(idx_lis)))
+    idx_lis_new = np.array(list(set(idx_lis_orig) - set(idx_list)))
     N_newstars = len(idx_lis_new)
 
     if N_newstars > 0:

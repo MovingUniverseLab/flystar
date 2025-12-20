@@ -539,6 +539,7 @@ class StarTable(Table):
             weighting='var', 
             use_scipy=False, 
             absolute_sigma=True, 
+            select_stars=None,
             bootstrap=0,
             verbose=True, 
             mask_value=None, 
@@ -573,6 +574,8 @@ class StarTable(Table):
             Use scipy.optimize.curve_fit or algebraic solution (for Linear model only), by default False
         absolute_sigma : bool, optional
             Use absolute sigma or not, see scipy curve_fit for details, by default True
+        select_stars : list of int, optional
+            Indices of stars to fit, by default None (fit all stars)
         bootstrap : int, optional
             Number of bootstrap for uncertainty resampling, by default 0
         verbose : bool, optional
@@ -757,8 +760,11 @@ class StarTable(Table):
         if 't0' not in new_col_list:
             new_col_list.append('t0')
 
-        # Replace old columns if they exist
+        # Add new columns if they do not exist
         for col in new_col_list:
+            if col in self.colnames:
+                # Keep old data if the column already exists
+                continue
             if col.endswith('_err'):
                 self.add_column(
                     Column(data=np.full(N_stars, np.inf, dtype=float), name=col),
@@ -804,7 +810,14 @@ class StarTable(Table):
         ######### FITTING #########
         ###########################
         unique_motion_models, unique_inv_indices = np.unique(self['motion_model_used'], return_inverse=True)
-        indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
+        if select_stars is not None:
+            select_stars = np.asarray(select_stars)
+            if select_stars.dtype == bool:
+                select_stars = np.flatnonzero(select_stars)
+            indices_by_motion_model = {key: np.intersect1d(select_stars, np.flatnonzero(unique_inv_indices == k)) for k, key in enumerate(unique_motion_models)}
+        else:
+            indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
+
 
         # Expensive for loop! Prepare everything beforehand to speed up.
         for unique_motion_model, unique_index in indices_by_motion_model.items():

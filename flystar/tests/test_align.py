@@ -286,7 +286,6 @@ def test_MosaicToRef_p0_vel():
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
     ref_list['vx'] *= -1.0
-    ref_list['motion_model_used'] = 'Linear'
 
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
