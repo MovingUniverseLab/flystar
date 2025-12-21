@@ -184,8 +184,7 @@ class MotionModel(ABC):
 
     def calc_chi2(self, t, x, y, xe, ye, fit_params, fixed_params_dict=None, reduced=False):
         """
-        Get the chi^2 value for the current MM and
-        the input data.
+        Get the chi^2 value for the input motion model parameters and data.
         """
         x_pred, y_pred = self.model(t, fit_params, fixed_params_dict)
         chi2x = np.sum((x - x_pred)**2 / xe**2)
@@ -1034,41 +1033,6 @@ class Parallax(MotionModel):
         else:
             return params, param_errors
 
-def validate_motion_models(motion_models, startable, default_motion_model):
-    """Validate that all the unique motion models in startable and default_motion_model are in the motion_models. If not, add available models to the list.
-
-    Parameters
-    ----------
-    motion_models : list of MotionModels
-        List of MotionModels that are expected to encompass all the motion models
-    startable : StarTable
-        Star table that possibly contains 'motion_model_input' and 'motion_model_used'
-    default_motion_model : MotionModel
-        Default MotionModel
-    """
-    motion_model_map = motion_model_map()
-    # Collect names of all motion models that might get used.
-    all_motion_model_names = set()
-    all_motion_model_names.add('Fixed')
-    if default_motion_model is not None:
-        all_motion_model_names.add(default_motion_model.__name__)
-    if 'motion_model_input' in startable.colnames:
-        all_motion_model_names.update(startable['motion_model_input'].tolist())
-    if 'motion_model_used' in startable.colnames:
-        all_motion_model_names.update(startable['motion_model_used'].tolist())
-
-    # Check whether all motion models are in the list, and if not, raise an error.
-    all_motion_models = [motion_model_map[mm] for mm in all_motion_model_names]
-    for mm in all_motion_models:
-        if mm not in motion_models:
-            if len(mm.fixed_meta_data) > 0:
-                raise ValueError(f"Cannot use {mm} motion model without required metadata. Please initialize with required metadata and provide in motion_models.")
-            else:
-                motion_models.append(mm)
-                warnings.warn(f"{mm} not found in motion_models list. Added default instance.", UserWarning)
-
-    return motion_models
-
 
 def motion_model_param_names(motion_models, with_errors=True, with_fixed=True):
     """Get the motion model parameter names from a list of MotionModels.
@@ -1112,9 +1076,30 @@ def motion_model_param_names(motion_models, with_errors=True, with_fixed=True):
 
 
 def all_motion_model_param_names(with_errors=True, with_fixed=True):
+    """Get all motion model parameter names from all available MotionModels.
+
+    Parameters
+    ----------
+    with_errors : bool, optional
+        Add uncertainty names with '_err' suffix or not, by default True
+    with_fixed : bool, optional
+        Add fixed param names with '_fixed' suffix or not, by default True
+
+    Returns
+    -------
+    list
+        List of all unique parameter names across all motion models
+    """
     return motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
 
 def motion_model_map():
+    """Get a dictionary mapping motion model names to MotionModel classes.
+
+    Returns
+    -------
+    mm_map : dict
+        Dictionary mapping motion model names to MotionModel classes.
+    """
     mm_map = dict(
         [(mm.__name__, mm) for mm in MotionModel.__subclasses__()]
     )

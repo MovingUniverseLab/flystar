@@ -126,6 +126,7 @@ class StarTable(Table):
             # We have to have special handling of meta-data (i.e. info that has
             # dimensions of n_lists).
             meta_tab = ('list_times', 'list_names')
+            meta_tab = ('list_times', 'list_names')
             meta_type = ((float, int), str)
             for mm in range(len(meta_tab)):
                 meta_test = meta_tab[mm]
@@ -151,6 +152,9 @@ class StarTable(Table):
             for meta_arg in meta_tab:
                 if meta_arg in kwargs:
                     self.meta[meta_arg] = kwargs[meta_arg]
+                    del kwargs[meta_arg]
+                elif meta_arg.upper() in kwargs:
+                    self.meta[meta_arg] = kwargs[meta_arg.upper()]
                     del kwargs[meta_arg]
 
             for arg in kwargs:
