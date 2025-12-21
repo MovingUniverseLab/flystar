@@ -401,7 +401,7 @@ def test_fit_motion_models():
     return
 
 
-def test_fit_velocities_2epoch():
+def test_fit_motion_model_2epoch():
     ##########
     # Test: only 2 epoch2
     ##########

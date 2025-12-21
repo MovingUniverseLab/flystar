@@ -616,6 +616,8 @@ class MosaicSelfRef(object):
         """
         col_arrays = {}
         motion_model_col_names = motion_model.motion_model_param_names(self.motion_models, with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
+        if 't0' not in motion_model_col_names:
+            motion_model_col_names.insert(0, 't0')
         for col_name in star_list.colnames:
             if col_name == 'name':
                 # The "name" column will be 1D; but we will also add a "name_in_list" column.
@@ -657,7 +659,7 @@ class MosaicSelfRef(object):
             if not new_cols_arr[ii] in ref_cols:
                 # Some munging to convert data shape from (N,1) to (N,),
                 # since these are all 1D cols
-                vals = np.transpose(np.array(ref_table[orig_cols_arr[ii]]))[0]
+                vals = np.array(ref_table[orig_cols_arr[ii]]).flatten()
 
                 # Now add to ref_table
                 new_col = Column(vals, name=new_cols_arr[ii])
@@ -717,11 +719,14 @@ class MosaicSelfRef(object):
 
         if 'motion_model_input' not in ref_table.colnames:
             ref_table.add_column(Column(np.repeat(self.motion_models[-1].name, len(ref_table)), name='motion_model_input'))
-        # if 'motion_model_used' not in ref_table.colnames:
-        #     if motion_model_used is None:
-        #         ref_table.add_column(Column(np.repeat(self.default_motion_model, len(ref_table)), name='motion_model_used'))
-        #     else:
-        #         ref_table.add_column(Column(np.repeat(motion_model_used, len(ref_table)), name='motion_model_used'))
+        if 'motion_model_used' not in ref_table.colnames:
+            # Order self.motion_models by decreasing n_params
+            sorted_mms = sorted(self.motion_models, key=lambda mm: mm.n_params, reverse=True)
+            # Save the most complex motion model that can infer the positions with the existing columns.
+            for mm in sorted_mms:
+                if all([_ in ref_table.colnames for _ in mm.fit_param_names]) and all([_ in ref_table.colnames for _ in mm.fixed_param_names]):
+                    ref_table.add_column(Column(np.repeat(mm.name, len(ref_table)), name='motion_model_used'))
+                    break
 
         return ref_table
 
@@ -834,7 +839,7 @@ class MosaicSelfRef(object):
             idx_lis,
             motion_model=self.motion_models[-1].name
         )
-        pdb.set_trace()
+
         if len(idx_ref_new) > 0:
             if self.verbose > 0:
                 print('    Adding {0:d} new stars to the reference table.'.format(len(idx_ref_new)))
@@ -1880,10 +1885,10 @@ def setup_ref_table_from_starlist(star_list, motion_models):
     if 'use_in_trans' not in ref_table.colnames:
         new_col = Column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
         ref_table.add_column(new_col)
-        
+
     # Now reset the original values to invalids... they will be filled in
     # at later times. Preserve content only in the columns: name, x0, y0, m0 (and 0e).
-    # Note that these are all the 1D columsn.
+    # Note that these are all the 1D columns.
     for col_name in ref_table.colnames:
         if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
             ref_table._set_invalid_list_values(col_name, -1)    
@@ -1914,7 +1919,6 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
         The indices into the star_list or star_list_T where values are copied from.
     """
     for col_name in ref_table.colnames:
-        if col_name=='x': pdb.set_trace()
         if col_name in star_list_T.colnames:
             if col_name == 'name':
                 ref_table['name_in_list'][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]

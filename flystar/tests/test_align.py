@@ -470,14 +470,461 @@ def test_MosaicToRef_acc():
                 i_orig.append(i)
                 i_fit.append(ix_fit)
     # Accelerations all too small, rtol doesn't work well here.
-    np.testing.assert_allclose(msc.ref_table['ax'][i_fit], ref_list['ax'][i_orig], atol=1e-3)
-    np.testing.assert_allclose(msc.ref_table['ay'][i_fit], ref_list['ay'][i_orig], atol=1e-3)
+    atol = 3e-4
+    np.testing.assert_allclose(msc.ref_table['ax'][i_fit], ref_list['ax'][i_orig], atol=atol)
+    np.testing.assert_allclose(msc.ref_table['ay'][i_fit], ref_list['ay'][i_orig], atol=atol)
+
+    ax_min = np.min(ref_list['ax'][i_orig])
+    ax_max = np.max(ref_list['ax'][i_orig])
+    ay_min = np.min(ref_list['ay'][i_orig])
+    ay_max = np.max(ref_list['ay'][i_orig])
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    ax1.plot(ref_list['ax'][i_orig], msc.ref_table['ax'][i_fit], '.')
+    ax1.plot([ax_min, ax_max], [ax_min, ax_max], color='C3')
+    ax1.plot([ax_min, ax_max], [ax_min - atol, ax_max - atol], ls='--', color='C3')
+    ax1.plot([ax_min, ax_max], [ax_min + atol, ax_max + atol], ls='--', color='C3')
+    ax1.set_xlabel('Input ax')
+    ax1.set_ylabel('Ref Table ax')
+    ax1.set_title('Acceleration in X')
+    
+    ax2.plot(ref_list['ay'][i_orig], msc.ref_table['ay'][i_fit], '.')
+    ax2.plot([ay_min, ay_max], [ay_min, ay_max], color='C3')
+    ax2.plot([ay_min, ay_max], [ay_min - atol, ay_max - atol], ls='--', color='C3')
+    ax2.plot([ay_min, ay_max], [ay_min + atol, ay_max + atol], ls='--', color='C3')
+    ax2.set_xlabel('Input ay')
+    ax2.set_ylabel('Ref Table ay')
+    ax2.set_title('Acceleration in Y')
+    plt.tight_layout()
+    plt.show()
 
     # Also double check that they aren't exactly the same for the reference stars.
     assert np.any(np.not_equal(msc.ref_table['ax'][i_fit], ref_list['ax'][i_orig]))
 
     return msc
 
+def test_MosaicToRef_hst_me():
+    """
+    Test Casey's issue with 'me' not getting propogated 
+    from the input starlists to the output table.
+
+    Use data from MB10-364 microlensing target for the test. 
+    """
+    # Target RA and Dec (MOA data download)
+    # ra = '17:57:05.401'
+    # dec = '-34:27:05.01'
+
+    # Load up a Gaia catalog (queried around the RA/Dec above)
+    my_gaia = Table.read('mb10364_data/my_gaia.fits')
+    my_gaia['me'] = 0.01
+
+    # Gather the list of starlists. For first pass, don't modify the starlists.
+    # Loop through the observations and read them in, in prep for alignment with Gaia
+    epochs = [2011.83, 2012.73, 2013.81]
+    starlist_names = ['mb10364_data/2011_10_31_F606W_MATCHUP_XYMEEE_final.calib',
+                      'mb10364_data/2012_09_25_F606W_MATCHUP_XYMEEE_final.calib',
+                      'mb10364_data/2013_10_24_F606W_MATCHUP_XYMEEE_final.calib']
+
+    list_of_starlists = []
+
+    # Just using the F606W filters first.
+    for ee in range(len(starlist_names)):
+        lis = starlists.StarList.from_lis_file(starlist_names[ee])
+
+        # # Add additive error term. MAYBE YOU DON'T NEED THIS
+        # lis['xe'] = np.hypot(lis['xe'], 0.01)  # Adding 0.01 pix (0.1 mas) in quadrature.
+        # lis['ye'] = np.hypot(lis['ye'], 0.01)
+
+        lis['t'] = epochs[ee]
+
+        # Lets dump the faint stars.
+        idx = np.where(lis['m'] < 20.0)[0]
+        lis = lis[idx]
+
+        list_of_starlists.append(lis)
+
+    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
+                        dr_tol=[0.1], dm_tol=[5],
+                        outlier_tol=[None], mag_lim=[13, 21],
+                        trans_class=transforms.PolyTransform,
+                        trans_args=[{'order': 1}],
+                        motion_models=['Empty', 'Fixed'],
+                        use_ref_new=False,
+                        update_ref_orig=False,
+                        mag_trans=False,
+                        trans_weighting='both,std',
+                        init_guess_mode='miracle', verbose=False)
+    msc.fit()
+
+    assert 'me' in msc.ref_table.colnames
+    return
+
+def test_bootstrap():
+    """
+    Test to make sure calc_bootstrap_error() call is working 
+    properly (e.g., only called when user calls calc_bootstrap_error,
+    n_boot param for calc_bootstrap_error only, boot_epochs_min working,
+    etc.)
+    """
+    # Read in starlists for MosaicToRef
+    ref = Table.read('ref_vel.lis', format='ascii')
+    list1 = Table.read('E.lis', format='ascii')
+    list2 = Table.read('F.lis', format='ascii')
+
+    list1 = starlists.StarList.from_table(list1)
+    list2 = starlists.StarList.from_table(list2)
+        
+    # Set parameters for alignment
+    transModel = transforms.PolyTransform
+    trans_args = {'order':2}
+    N_loop = 1
+    dr_tol = 0.08
+    dm_tol = 99
+    outlier_tol = None
+    mag_lim = None
+    ref_mag_lim = None
+    trans_weighting = 'both,var'
+    mag_trans = False
+
+    n_boot = 15
+    boot_epochs_min=-1
+
+    # Run FLYSTAR, no bootstraps yet!
+    match1 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
+                                  trans_class=transModel,
+                                  trans_args=trans_args,
+                                  mag_trans=mag_trans,
+                                  mag_lim=mag_lim,
+                                  ref_mag_lim=ref_mag_lim,
+                                  trans_weighting=trans_weighting,
+                                  motion_models=['Linear'],
+                                  use_ref_new=False,
+                                  update_ref_orig=False,
+                                  init_guess_mode='name',
+                                  verbose=False)
+    match1.fit()
+
+    # Make sure no bootstrap columns exist
+    assert 'xe_boot' not in match1.ref_table.keys()
+    assert 'ye_boot' not in match1.ref_table.keys()
+    assert 'vxe_boot' not in match1.ref_table.keys()
+    assert 'vye_boot' not in match1.ref_table.keys()
+
+    # Run bootstrap: no boot_epochs_min
+    match1.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min)
+    # Make sure columns exist, and none of them are nan values
+    assert np.sum(np.isnan(match1.ref_table['xe_boot'])) == 0
+    assert np.sum(np.isnan(match1.ref_table['ye_boot'])) == 0
+    assert np.sum(np.isnan(match1.ref_table['vx_err_boot'])) == 0
+    assert np.sum(np.isnan(match1.ref_table['vy_err_boot'])) == 0
+
+    # Test 2: make sure boot_epochs_min is working
+    # Eliminate some rows to list2, so some stars are only in 1 epoch.
+    # Rerun align. Some stars should only be detected in 1 epoch
+    list3 = list2[0:60]
+
+    match2 = align.MosaicToRef(ref, [list1, list3], iters=N_loop, dr_tol=dr_tol,
+                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
+                                  trans_class=transModel,
+                                  trans_args=trans_args,
+                                  mag_trans=mag_trans,
+                                  mag_lim=mag_lim,
+                                  ref_mag_lim=ref_mag_lim,
+                                  trans_weighting=trans_weighting,
+                                  motion_models=['Linear'],
+                                  use_ref_new=False,
+                                  update_ref_orig=False,
+                                  init_guess_mode='name',
+                                  verbose=False)
+    match2.fit()
+
+    # Now run_calc_bootstrap_error, with boot_epochs_min engaged
+    boot_epochs_min2 = 2
+    match2.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min2)
+
+    # Make sure boot_epochs_min cut worked as intended
+    out = match2.ref_table
+    bad = np.where( (out['n_detect'] == 1) & (out['use_in_trans'] == False) )
+    good = np.where(out['n_detect'] == 2)
+
+    # Some stars must exist in both "good" and "bad" criteria,
+    # otherwise this test isn't as useful as intended.
+    assert len(bad[0]) > 0
+    assert len(good[0]) > 0
+
+    # For "good" stars: all bootstrap vals should be present
+    assert np.sum(~np.isfinite(out['xe_boot'][good])) == 0
+    assert np.sum(~np.isfinite(out['ye_boot'][good])) == 0
+    assert np.sum(~np.isfinite(out['vx_err_boot'][good])) == 0
+    assert np.sum(~np.isfinite(out['vy_err_boot'][good])) == 0
+
+    # For "bad" stars, all bootstrap vals should be nans
+    assert np.sum(np.isfinite(out['xe_boot'][bad])) == 0
+    assert np.sum(np.isfinite(out['ye_boot'][bad])) == 0
+    assert np.sum(np.isfinite(out['vx_err_boot'][bad])) == 0
+    assert np.sum(np.isfinite(out['vy_err_boot'][bad])) == 0
+
+    return
+
+def test_calc_vel_in_bootstrap():
+    """
+    Check calc_vel_in_bootstrap performance in calc_bootstrap_errors()
+    
+    Only calculate velocity bootstrap (e.g., bootstrap over epochs and 
+    calculating proper motions) if calc_vel_in_bootstrap=True.
+
+    """
+    import copy
+
+    # Define match parameters
+    ref = Table.read('ref_vel.lis', format='ascii')
+
+    list1 = Table.read('E.lis', format='ascii')
+    list2 = Table.read('F.lis', format='ascii')
+
+    list1 = starlists.StarList.from_table(list1)
+    list2 = starlists.StarList.from_table(list2)
+        
+    # Set parameters for alignment
+    transModel = transforms.PolyTransform
+    trans_args = {'order':2}
+    N_loop = 1
+    dr_tol = 0.08
+    dm_tol = 99
+    outlier_tol = None
+    mag_lim = None
+    ref_mag_lim = None
+    trans_weighting = 'both,var'
+    mag_trans = False
+
+    n_boot = 15
+    boot_epochs_min=-1
+
+    # Run match
+    match = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
+                                  trans_class=transModel,
+                                  trans_args=trans_args,
+                                  mag_trans=mag_trans,
+                                  mag_lim=mag_lim,
+                                  ref_mag_lim=ref_mag_lim,
+                                  trans_weighting=trans_weighting,
+                                  motion_models=['Linear'],
+                                  use_ref_new=False,
+                                  update_ref_orig=False,
+                                  init_guess_mode='name',
+                                  verbose=False)
+    match.fit()
+
+    # Make 2 copies of match object: one to test
+    # each case of calc_vel_in_bootstrap
+    match_vel = copy.deepcopy(match)
+
+    # Run calc_bootstrap_error function with calc_vel_in_bootstrap=True.
+    # Make sure bootstrap velocity errors are calculated and valid
+    n_boot = 50
+    match_vel.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=True)
+
+    assert 'xe_boot' in match_vel.ref_table.keys()
+    assert np.sum(np.isnan(match_vel.ref_table['xe_boot'])) == 0
+    assert 'vx_err_boot' in match_vel.ref_table.keys()
+    assert np.sum(np.isnan(match_vel.ref_table['vx_err_boot'])) == 0
+
+    # Run without calc_vel_in_bootstrap, make sure velocities are NOT calculated
+    match.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=False)
+
+    assert 'xe_boot' in match.ref_table.keys()
+    assert np.sum(np.isnan(match.ref_table['xe_boot'])) == 0
+    assert 'vx_err_boot' not in match.ref_table.keys()
+    
+    return
+
+def test_transform_xym():
+    """
+    Test to make sure transforms are being done to mags only
+    if mag_trans = True. This can cause subtle bugs 
+    otherwise
+    """
+    #---Align 1: self.mag_Trans = False---#
+    ref = Table.read('ref_vel.lis', format='ascii')
+    list1 = Table.read('E.lis', format='ascii')
+    list2 = Table.read('F.lis', format='ascii')
+
+    list1 = starlists.StarList.from_table(list1)
+    list2 = starlists.StarList.from_table(list2)
+
+    # Set parameters for alignment
+    transModel = transforms.PolyTransform
+    trans_args = {'order':2}
+    N_loop = 1
+    dr_tol = 0.08
+    dm_tol = 99
+    outlier_tol = None
+    mag_lim = None
+    ref_mag_lim = None
+    trans_weighting = 'both,var'
+    n_boot = 15
+
+    mag_trans = False
+
+    # Run FLYSTAR, with bootstraps
+    match1 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
+                                  trans_class=transModel,
+                                  trans_args=trans_args,
+                                  mag_trans=mag_trans,
+                                  mag_lim=mag_lim,
+                                  ref_mag_lim=ref_mag_lim,
+                                  trans_weighting=trans_weighting,
+                                  motion_models=['Fixed'],
+                                  use_ref_new=False,
+                                  update_ref_orig=False,
+                                  init_guess_mode='name',
+                                  verbose=False)
+
+    match1.fit()
+    match1.calc_bootstrap_errors(n_boot=n_boot)
+
+    # Make sure all transformations have mag_offset = 0 
+    trans_list = match1.trans_list
+
+    for ii in trans_list:
+        assert ii.mag_offset == 0
+
+    # Check that no mag transformation has been applied to m col in ref_table
+    tab1 = match1.ref_table
+    assert np.all(tab1['m'] == tab1['m_orig'])
+    
+    # Check me_boost == 0 or really small (should be the case
+    # since we don't transform mags)
+    assert np.isclose(np.max(tab1['me_boot']), 0, rtol=10**-5)
+    print('Done mag_trans = False case')
+
+    #---Align 2: self.mag_Trans = True---#
+    # Repeat, this time with mag_trans = False
+    mag_trans = True
+    match2 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
+                                  trans_class=transModel,
+                                  trans_args=trans_args,
+                                  mag_trans=mag_trans,
+                                  mag_lim=mag_lim,
+                                  ref_mag_lim=ref_mag_lim,
+                                  trans_weighting=trans_weighting,
+                                  motion_models=['Fixed'],
+                                  use_ref_new=False,
+                                  update_ref_orig=False,
+                                  init_guess_mode='name',
+                                  verbose=False)
+
+    match2.fit()
+    match2.calc_bootstrap_errors(n_boot=n_boot)
+
+
+    # Make sure all transformations have correct mag offset
+    trans_list2 = match2.trans_list
+
+    for ii in trans_list2:
+        assert ii.mag_offset > 20
+
+    # Make sure final table mags have transform applied (i.e, 
+    tab2 = match2.ref_table
+    assert np.all(tab2['m'] != tab2['m_orig'])
+    
+    # Check me_boost > 0
+    assert np.min(tab2['me_boot']) > 10**-3
+
+    print('Done mag_trans = True case')
+   
+    return
+
+def test_MosaicToRef_mag_bug():
+    """
+    Bug found by Tuan Do on 2020-04-12.
+    """
+    make_fake_starlists_poly1_vel()
+
+    ref_list = starlists.StarList.read('random_vel_0.fits')
+    lists = [ref_list]
+
+    msc = align.MosaicToRef(ref_list, lists, 
+                              mag_trans=True,
+                              iters=1,                              
+                              dr_tol=[0.2], dm_tol=[1],
+                              outlier_tol=None,
+                              trans_class=transforms.PolyTransform,
+                              trans_args=[{'order': 1}],
+                              motion_models=['Fixed'],
+                              use_ref_new=False,
+                              update_ref_orig=False,
+                              verbose=True)
+
+    msc.fit()
+
+    out_tab = msc.ref_table
+
+    # The issue is that in the initial guess with
+    #   mag_trans = True
+    # somehow the transformed magnitudes are nan.
+    # This causes zero matches to occur.
+    assert len(out_tab) == len(ref_list)
+
+    return
+
+def test_masked_cols():
+    """
+    Test to make sure analysis.prepare_gaia_for_flystar
+    produces an astropy.table.Table, NOT a masked column 
+    table. MosaicToRef cannot handle masked column tables.
+
+    Also make sure this example works, since we use it for the examples
+    jupyter notebook.
+    """
+    # Get gaia reference stars using analysis.py
+    # around a test location.
+    # target = 'ob150029'
+    ra = '17:59:46.60'
+    dec = '-28:38:41.8'
+
+    # Coordinates are arcsecs offset +x to the East.
+    targets_dict = {
+        'ob150029':   [0.0, 0.0],
+        'S005': [1.1416,    3.7405],
+        'S002': [-4.421,    0.027]
+    }
+
+    # Get gaia catalog stars. Note that this produces a masked column table
+    search_rad = 10.0   # arcsec
+    gaia = analysis.query_gaia(ra, dec, search_radius=search_rad)
+    my_gaia = analysis.prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=targets_dict)
+
+    assert isinstance(my_gaia, Table)
+
+    # Let's make sure the entire align runs, just to be safe
+
+    # Get starlists to align to gaia
+    epochs = ['15jun07','16jul14', '17may21']
+
+    list_of_starlists = []
+
+    for ee in range(len(epochs)):
+        lis_file = 'mag' + epochs[ee] + '_ob150029_kp_rms_named.lis'
+        lis = starlists.StarList.from_lis_file(lis_file)
+        list_of_starlists.append(lis)
+
+    # Run the align
+    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=2,
+                        dr_tol=[0.2, 0.1], dm_tol=[1, 1],
+                        trans_class=transforms.PolyTransform,
+                        trans_args=[{'order': 1}, {'order': 1}], 
+                        motion_models=['Linear'],
+                        use_ref_new=False,
+                        update_ref_orig=False, 
+                        mag_trans=True,
+                        init_guess_mode='name', verbose=True)
+
+    msc.fit()
+    return
 
 def make_fake_starlists_shifts():
     N_stars = 200
@@ -1016,428 +1463,3 @@ def make_fake_starlists_poly1_par(seed=-1):
         new_lis.write('random_par_{0:d}.fits'.format(ss), overwrite=True)
 
     return (xy_trans, mag_trans)
-
-
-def test_MosaicToRef_hst_me():
-    """
-    Test Casey's issue with 'me' not getting propogated 
-    from the input starlists to the output table.
-
-    Use data from MB10-364 microlensing target for the test. 
-    """
-    # Target RA and Dec (MOA data download)
-    # ra = '17:57:05.401'
-    # dec = '-34:27:05.01'
-
-    # Load up a Gaia catalog (queried around the RA/Dec above)
-    my_gaia = Table.read('mb10364_data/my_gaia.fits')
-    my_gaia['me'] = 0.01
-
-    # Gather the list of starlists. For first pass, don't modify the starlists.
-    # Loop through the observations and read them in, in prep for alignment with Gaia
-    epochs = [2011.83, 2012.73, 2013.81]
-    starlist_names = ['mb10364_data/2011_10_31_F606W_MATCHUP_XYMEEE_final.calib',
-                      'mb10364_data/2012_09_25_F606W_MATCHUP_XYMEEE_final.calib',
-                      'mb10364_data/2013_10_24_F606W_MATCHUP_XYMEEE_final.calib']
-
-    list_of_starlists = []
-
-    # Just using the F606W filters first.
-    for ee in range(len(starlist_names)):
-        lis = starlists.StarList.from_lis_file(starlist_names[ee])
-
-        # # Add additive error term. MAYBE YOU DON'T NEED THIS
-        # lis['xe'] = np.hypot(lis['xe'], 0.01)  # Adding 0.01 pix (0.1 mas) in quadrature.
-        # lis['ye'] = np.hypot(lis['ye'], 0.01)
-
-        lis['t'] = epochs[ee]
-
-        # Lets dump the faint stars.
-        idx = np.where(lis['m'] < 20.0)[0]
-        lis = lis[idx]
-
-        list_of_starlists.append(lis)
-
-    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
-                        dr_tol=[0.1], dm_tol=[5],
-                        outlier_tol=[None], mag_lim=[13, 21],
-                        trans_class=transforms.PolyTransform,
-                        trans_args=[{'order': 1}],
-                        motion_models=['Empty', 'Fixed'],
-                        use_ref_new=False,
-                        update_ref_orig=False,
-                        mag_trans=False,
-                        trans_weighting='both,std',
-                        init_guess_mode='miracle', verbose=False)
-    msc.fit()
-
-    assert 'me' in msc.ref_table.colnames
-    return
-
-def test_bootstrap():
-    """
-    Test to make sure calc_bootstrap_error() call is working 
-    properly (e.g., only called when user calls calc_bootstrap_error,
-    n_boot param for calc_bootstrap_error only, boot_epochs_min working,
-    etc.)
-    """
-    # Read in starlists for MosaicToRef
-    ref = Table.read('ref_vel.lis', format='ascii')
-    list1 = Table.read('E.lis', format='ascii')
-    list2 = Table.read('F.lis', format='ascii')
-
-    list1 = starlists.StarList.from_table(list1)
-    list2 = starlists.StarList.from_table(list2)
-        
-    # Set parameters for alignment
-    transModel = transforms.PolyTransform
-    trans_args = {'order':2}
-    N_loop = 1
-    dr_tol = 0.08
-    dm_tol = 99
-    outlier_tol = None
-    mag_lim = None
-    ref_mag_lim = None
-    trans_weighting = 'both,var'
-    mag_trans = False
-
-    n_boot = 15
-    boot_epochs_min=-1
-
-    # Run FLYSTAR, no bootstraps yet!
-    match1 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
-                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
-                                  trans_class=transModel,
-                                  trans_args=trans_args,
-                                  mag_trans=mag_trans,
-                                  mag_lim=mag_lim,
-                                  ref_mag_lim=ref_mag_lim,
-                                  trans_weighting=trans_weighting,
-                                  motion_models=['Linear'],
-                                  use_ref_new=False,
-                                  update_ref_orig=False,
-                                  init_guess_mode='name',
-                                  verbose=False)
-    match1.fit()
-
-    # Make sure no bootstrap columns exist
-    assert 'xe_boot' not in match1.ref_table.keys()
-    assert 'ye_boot' not in match1.ref_table.keys()
-    assert 'vxe_boot' not in match1.ref_table.keys()
-    assert 'vye_boot' not in match1.ref_table.keys()
-
-    # Run bootstrap: no boot_epochs_min
-    match1.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min)
-    # Make sure columns exist, and none of them are nan values
-    assert np.sum(np.isnan(match1.ref_table['xe_boot'])) == 0
-    assert np.sum(np.isnan(match1.ref_table['ye_boot'])) == 0
-    assert np.sum(np.isnan(match1.ref_table['vx_err_boot'])) == 0
-    assert np.sum(np.isnan(match1.ref_table['vy_err_boot'])) == 0
-
-    # Test 2: make sure boot_epochs_min is working
-    # Eliminate some rows to list2, so some stars are only in 1 epoch.
-    # Rerun align. Some stars should only be detected in 1 epoch
-    list3 = list2[0:60]
-
-    match2 = align.MosaicToRef(ref, [list1, list3], iters=N_loop, dr_tol=dr_tol,
-                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
-                                  trans_class=transModel,
-                                  trans_args=trans_args,
-                                  mag_trans=mag_trans,
-                                  mag_lim=mag_lim,
-                                  ref_mag_lim=ref_mag_lim,
-                                  trans_weighting=trans_weighting,
-                                  motion_models=['Linear'],
-                                  use_ref_new=False,
-                                  update_ref_orig=False,
-                                  init_guess_mode='name',
-                                  verbose=False)
-    match2.fit()
-
-    # Now run_calc_bootstrap_error, with boot_epochs_min engaged
-    boot_epochs_min2 = 2
-    match2.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min2)
-
-    # Make sure boot_epochs_min cut worked as intended
-    out = match2.ref_table
-    bad = np.where( (out['n_detect'] == 1) & (out['use_in_trans'] == False) )
-    good = np.where(out['n_detect'] == 2)
-
-    # Some stars must exist in both "good" and "bad" criteria,
-    # otherwise this test isn't as useful as intended.
-    assert len(bad[0]) > 0
-    assert len(good[0]) > 0
-
-    # For "good" stars: all bootstrap vals should be present
-    assert np.sum(~np.isfinite(out['xe_boot'][good])) == 0
-    assert np.sum(~np.isfinite(out['ye_boot'][good])) == 0
-    assert np.sum(~np.isfinite(out['vx_err_boot'][good])) == 0
-    assert np.sum(~np.isfinite(out['vy_err_boot'][good])) == 0
-
-    # For "bad" stars, all bootstrap vals should be nans
-    assert np.sum(np.isfinite(out['xe_boot'][bad])) == 0
-    assert np.sum(np.isfinite(out['ye_boot'][bad])) == 0
-    assert np.sum(np.isfinite(out['vx_err_boot'][bad])) == 0
-    assert np.sum(np.isfinite(out['vy_err_boot'][bad])) == 0
-
-    return
-
-def test_calc_vel_in_bootstrap():
-    """
-    Check calc_vel_in_bootstrap performance in calc_bootstrap_errors()
-    
-    Only calculate velocity bootstrap (e.g., bootstrap over epochs and 
-    calculating proper motions) if calc_vel_in_bootstrap=True.
-
-    """
-    import copy
-
-    # Define match parameters
-    ref = Table.read('ref_vel.lis', format='ascii')
-
-    list1 = Table.read('E.lis', format='ascii')
-    list2 = Table.read('F.lis', format='ascii')
-
-    list1 = starlists.StarList.from_table(list1)
-    list2 = starlists.StarList.from_table(list2)
-        
-    # Set parameters for alignment
-    transModel = transforms.PolyTransform
-    trans_args = {'order':2}
-    N_loop = 1
-    dr_tol = 0.08
-    dm_tol = 99
-    outlier_tol = None
-    mag_lim = None
-    ref_mag_lim = None
-    trans_weighting = 'both,var'
-    mag_trans = False
-
-    n_boot = 15
-    boot_epochs_min=-1
-
-    # Run match
-    match = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
-                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
-                                  trans_class=transModel,
-                                  trans_args=trans_args,
-                                  mag_trans=mag_trans,
-                                  mag_lim=mag_lim,
-                                  ref_mag_lim=ref_mag_lim,
-                                  trans_weighting=trans_weighting,
-                                  motion_models=['Linear'],
-                                  use_ref_new=False,
-                                  update_ref_orig=False,
-                                  init_guess_mode='name',
-                                  verbose=False)
-    match.fit()
-
-    # Make 2 copies of match object: one to test
-    # each case of calc_vel_in_bootstrap
-    match_vel = copy.deepcopy(match)
-
-    # Run calc_bootstrap_error function with calc_vel_in_bootstrap=True.
-    # Make sure bootstrap velocity errors are calculated and valid
-    n_boot = 50
-    match_vel.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=True)
-
-    assert 'xe_boot' in match_vel.ref_table.keys()
-    assert np.sum(np.isnan(match_vel.ref_table['xe_boot'])) == 0
-    assert 'vx_err_boot' in match_vel.ref_table.keys()
-    assert np.sum(np.isnan(match_vel.ref_table['vx_err_boot'])) == 0
-
-    # Run without calc_vel_in_bootstrap, make sure velocities are NOT calculated
-    match.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=False)
-
-    assert 'xe_boot' in match.ref_table.keys()
-    assert np.sum(np.isnan(match.ref_table['xe_boot'])) == 0
-    assert 'vx_err_boot' not in match.ref_table.keys()
-    
-    return
-
-def test_transform_xym():
-    """
-    Test to make sure transforms are being done to mags only
-    if mag_trans = True. This can cause subtle bugs 
-    otherwise
-    """
-    #---Align 1: self.mag_Trans = False---#
-    ref = Table.read('ref_vel.lis', format='ascii')
-    list1 = Table.read('E.lis', format='ascii')
-    list2 = Table.read('F.lis', format='ascii')
-
-    list1 = starlists.StarList.from_table(list1)
-    list2 = starlists.StarList.from_table(list2)
-    
-    # Set parameters for alignment
-    transModel = transforms.PolyTransform
-    trans_args = {'order':2}
-    N_loop = 1
-    dr_tol = 0.08
-    dm_tol = 99
-    outlier_tol = None
-    mag_lim = None
-    ref_mag_lim = None
-    trans_weighting = 'both,var'
-    n_boot = 15
-
-    mag_trans = False
-
-    # Run FLYSTAR, with bootstraps
-    match1 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
-                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
-                                  trans_class=transModel,
-                                  trans_args=trans_args,
-                                  mag_trans=mag_trans,
-                                  mag_lim=mag_lim,
-                                  ref_mag_lim=ref_mag_lim,
-                                  trans_weighting=trans_weighting,
-                                  motion_models=['Fixed'],
-                                  use_ref_new=False,
-                                  update_ref_orig=False,
-                                  init_guess_mode='name',
-                                  verbose=False)
-
-    match1.fit()
-    match1.calc_bootstrap_errors(n_boot=n_boot)
-
-    # Make sure all transformations have mag_offset = 0 
-    trans_list = match1.trans_list
-
-    for ii in trans_list:
-        assert ii.mag_offset == 0
-
-    # Check that no mag transformation has been applied to m col in ref_table
-    tab1 = match1.ref_table
-    assert np.all(tab1['m'] == tab1['m_orig'])
-    
-    # Check me_boost == 0 or really small (should be the case
-    # since we don't transform mags)
-    assert np.isclose(np.max(tab1['me_boot']), 0, rtol=10**-5)
-    print('Done mag_trans = False case')
-
-    #---Align 2: self.mag_Trans = True---#
-    # Repeat, this time with mag_trans = False
-    mag_trans = True
-    match2 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
-                                  dm_tol=dm_tol, outlier_tol=outlier_tol,
-                                  trans_class=transModel,
-                                  trans_args=trans_args,
-                                  mag_trans=mag_trans,
-                                  mag_lim=mag_lim,
-                                  ref_mag_lim=ref_mag_lim,
-                                  trans_weighting=trans_weighting,
-                                  default_motion_model='Fixed',
-                                  use_ref_new=False,
-                                  update_ref_orig=False,
-                                  init_guess_mode='name',
-                                  verbose=False)
-
-    match2.fit()
-    match2.calc_bootstrap_errors(n_boot=n_boot)
-
-
-    # Make sure all transformations have correct mag offset
-    trans_list2 = match2.trans_list
-
-    for ii in trans_list2:
-        assert ii.mag_offset > 20
-
-    # Make sure final table mags have transform applied (i.e, 
-    tab2 = match2.ref_table
-    assert np.all(tab2['m'] != tab2['m_orig'])
-    
-    # Check me_boost > 0
-    assert np.min(tab2['me_boot']) > 10**-3
-
-    print('Done mag_trans = True case')
-   
-    return
-
-def test_MosaicToRef_mag_bug():
-    """
-    Bug found by Tuan Do on 2020-04-12.
-    """
-    make_fake_starlists_poly1_vel()
-
-    ref_list = starlists.StarList.read('random_vel_0.fits')
-    lists = [ref_list]
-
-    msc = align.MosaicToRef(ref_list, lists, 
-                              mag_trans=True,
-                              iters=1,                              
-                              dr_tol=[0.2], dm_tol=[1],
-                              outlier_tol=None,
-                              trans_class=transforms.PolyTransform,
-                              trans_args=[{'order': 1}],
-                              motion_models=['Fixed'],
-                              use_ref_new=False,
-                              update_ref_orig=False,
-                              verbose=True)
-
-    msc.fit()
-
-    out_tab = msc.ref_table
-
-    # The issue is that in the initial guess with
-    #   mag_trans = True
-    # somehow the transformed magnitudes are nan.
-    # This causes zero matches to occur.
-    assert len(out_tab) == len(ref_list)
-
-    return
-
-def test_masked_cols():
-    """
-    Test to make sure analysis.prepare_gaia_for_flystar
-    produces an astropy.table.Table, NOT a masked column 
-    table. MosaicToRef cannot handle masked column tables.
-
-    Also make sure this example works, since we use it for the examples
-    jupyter notebook.
-    """
-    # Get gaia reference stars using analysis.py
-    # around a test location.
-    # target = 'ob150029'
-    ra = '17:59:46.60'
-    dec = '-28:38:41.8'
-
-    # Coordinates are arcsecs offset +x to the East.
-    targets_dict = {
-        'ob150029':   [0.0, 0.0],
-        'S005': [1.1416,    3.7405],
-        'S002': [-4.421,    0.027]
-    }
-
-    # Get gaia catalog stars. Note that this produces a masked column table
-    search_rad = 10.0   # arcsec
-    gaia = analysis.query_gaia(ra, dec, search_radius=search_rad)
-    my_gaia = analysis.prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=targets_dict)
-
-    assert isinstance(my_gaia, Table)
-
-    # Let's make sure the entire align runs, just to be safe
-
-    # Get starlists to align to gaia
-    epochs = ['15jun07','16jul14', '17may21']
-
-    list_of_starlists = []
-
-    for ee in range(len(epochs)):
-        lis_file = 'mag' + epochs[ee] + '_ob150029_kp_rms_named.lis'
-        lis = starlists.StarList.from_lis_file(lis_file)
-        list_of_starlists.append(lis)
-
-    # Run the align
-    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=2,
-                        dr_tol=[0.2, 0.1], dm_tol=[1, 1],
-                        trans_class=transforms.PolyTransform,
-                        trans_args=[{'order': 1}, {'order': 1}], 
-                        motion_models=['Linear'],
-                        use_ref_new=False,
-                        update_ref_orig=False, 
-                        mag_trans=True,
-                        init_guess_mode='name', verbose=True)
-
-    msc.fit()
-    return

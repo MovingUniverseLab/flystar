@@ -602,19 +602,19 @@ class StarTable(Table):
         ####### Check Params ######
         ###########################
         if weighting not in ['var', 'std']:
-            raise ValueError(f"fit_velocities: Weighting must either be 'var' or 'std', not {weighting}!")
+            raise ValueError(f"fit_motion_model: Weighting must either be 'var' or 'std', not {weighting}!")
 
         if ('t' not in self.colnames) and ('list_times' not in self.meta):
-            raise KeyError("fit_velocities: Failed to access time values. No 't' column in table, no 'list_times' in meta.")
+            raise KeyError("fit_motion_model: Failed to access time values. No 't' column in table, no 'list_times' in meta.")
 
         # Check if we have the required columns
         if not all([_ in self.colnames for _ in ['x', 'y']]):
-            raise KeyError(f"fit_velocities: Missing required columns in the table: {', '.join(['x', 'y'])}!")
+            raise KeyError(f"fit_motion_model: Missing required columns in the table: {', '.join(['x', 'y'])}!")
 
         # Check fixed_params_dict is a dict
         if fixed_params_dict is not None:
             if not isinstance(fixed_params_dict, dict):
-                raise ValueError("fit_velocities: fixed_params_dict must be a dictionary!")
+                raise ValueError("fit_motion_model: fixed_params_dict must be a dictionary!")
         
         # Convert motion_models to MotionModel objects if they are strings:
         all_mm_map = motion_model.motion_model_map()
@@ -635,7 +635,7 @@ class StarTable(Table):
         if 'motion_model_input' in self.colnames:
             input_mm_names = np.unique(self['motion_model_input'])
             assert all([name in all_mm_map.keys() for name in input_mm_names]), \
-                f"fit_velocities: Unknown motion model name(s) in 'motion_model_input' column. Available motion models are: {', '.join(all_mm_map.keys())}."
+                f"fit_motion_model: Unknown motion model name(s) in 'motion_model_input' column. Available motion models are: {', '.join(all_mm_map.keys())}."
             for mm_name in input_mm_names:
                 if mm_name not in mm_names:
                     motion_models.append(all_mm_map[mm_name])
@@ -649,7 +649,7 @@ class StarTable(Table):
         if 'motion_model_input' not in self.colnames:
             # If motion_model_input column is not provided, assert that motion model n_params are unique and sorted
             # Otherwise the fitter does not know which motion model to use based on n_obs
-            assert len(mm_n_params) == len(set(mm_n_params)), "fit_velocities: Provided motion model n_params are not unique! Cannot decide which motion model to use based on n_obs. Please provide unique motion_models or a 'motion_model_input' column."
+            assert len(mm_n_params) == len(set(mm_n_params)), "fit_motion_model: Provided motion model n_params are not unique! Cannot decide which motion model to use based on n_obs. Please provide unique motion_models or a 'motion_model_input' column."
 
 
         ###########################
@@ -814,6 +814,8 @@ class StarTable(Table):
             select_stars = np.asarray(select_stars)
             if select_stars.dtype == bool:
                 select_stars = np.flatnonzero(select_stars)
+            else:
+                select_stars = np.asarray(select_stars, dtype=int)
             indices_by_motion_model = {key: np.intersect1d(select_stars, np.flatnonzero(unique_inv_indices == k)) for k, key in enumerate(unique_motion_models)}
         else:
             indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
