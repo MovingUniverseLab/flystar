@@ -24,6 +24,12 @@ class MotionModel(ABC):
     name = "MotionModel"
 
     def __init__(self, *args, **kwargs):
+        """
+        Make a motion model object. This object defines the fit and fixed parameters,
+        and contains functions to fit the model to data and infer positions at given times. 
+        Each instance corresponds to a given motion model, not an individual star, 
+        and thus the fit values are only input/returned in functions, not stored in the object.
+        """
         return
     
     def model_fit(self, dt):
@@ -802,8 +808,7 @@ class Parallax(MotionModel):
     """
     Motion model for linear proper motion + parallax
     
-    Requires RA, Dec, and PA parameters (degrees) for parallax calculation.
-        RA, Dec in J2000
+    Requires RA and Dec J2000 (degrees) for parallax calculation.
     Optional PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describes observer location, default is 'earth'.
     """
