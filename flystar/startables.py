@@ -538,7 +538,7 @@ class StarTable(Table):
     
     def fit_motion_model(
             self, 
-            motion_models=[Empty, Fixed, Linear],
+            motion_models=None,
             fixed_params_dict=None,
             weighting='var', 
             use_scipy=False, 
@@ -556,7 +556,7 @@ class StarTable(Table):
         Parameters
         ----------
         motion_models : list of MotionModel or str, optional
-            Motion models to use.
+            Motion models to use, by default Empty, Fixed and Linear.
             Empty and Fixed models are always added automatically for stars with n_fit = 0 or 1.
             The behavior is as follows:
             1. If 'motion_model_input' column is NOT in table:
@@ -619,8 +619,12 @@ class StarTable(Table):
         if fixed_params_dict is not None:
             if not isinstance(fixed_params_dict, dict):
                 raise ValueError("fit_motion_model: fixed_params_dict must be a dictionary!")
-        
+
         # Convert motion_models to MotionModel objects if they are strings:
+        if motion_models is None:
+            # Setting the default to None to avoid mutable default argument issue
+            # See https://stackoverflow.com/questions/15189245/assigning-class-variable-as-default-value-to-class-method-argument
+            motion_models = [Empty, Fixed, Linear]
         all_mm_map = motion_model.motion_model_map()
         if all(isinstance(mm, str) for mm in motion_models):
             mm_names = motion_models
@@ -653,7 +657,8 @@ class StarTable(Table):
         if 'motion_model_input' not in self.colnames:
             # If motion_model_input column is not provided, assert that motion model n_params are unique and sorted
             # Otherwise the fitter does not know which motion model to use based on n_obs
-            assert len(mm_n_params) == len(set(mm_n_params)), "fit_motion_model: Provided motion model n_params are not unique! Cannot decide which motion model to use based on n_obs. Please provide unique motion_models or a 'motion_model_input' column."
+            assert len(mm_n_params) == len(set(mm_n_params)), \
+                f"fit_motion_model: Provided motion model n_params are not unique! Motion Models are: {[_.name for _ in motion_models]} Cannot decide which motion model to use based on n_obs. Please provide unique motion_models or a 'motion_model_input' column."
 
 
         ###########################
@@ -684,7 +689,6 @@ class StarTable(Table):
         if fixed_params_dict is None:
             weights = 1/np.hypot(xe_data, ye_data) if xe_data is not None else None
             fixed_params_dict = {'t0': np.average(t_data, axis=1, weights=weights)}
-
         elif 't0' not in fixed_params_dict:
             weights = 1/np.hypot(xe_data, ye_data) if xe_data is not None else None
             fixed_params_dict['t0'] = np.average(t_data, axis=1, weights=weights)
@@ -692,8 +696,7 @@ class StarTable(Table):
             if np.ndim(fixed_params_dict['t0']) == 0:
                 fixed_params_dict['t0'] = np.full(N_stars, fixed_params_dict['t0'])
 
-        t0 = fixed_params_dict['t0']
-                
+        t0 = fixed_params_dict['t0']                
 
         # Prepare fixed_params_dict for each star
         # This avoids checking types and slicing inside the fitting loop
@@ -734,24 +737,35 @@ class StarTable(Table):
         ###########################
         ####### Determine MM ######
         ###########################
+        n_fit = np.array(self['n_fit'])
         if 'motion_model_input' in self.colnames:
             # Determine which motion model to use based on motion_model_input column
             # If n_fit < required n_params for the input motion model, use the most complicated motion model with n_fit >= n_params
             required_params = np.array([all_mm_map[mm_name].n_params for mm_name in self['motion_model_input']])
+            reassign_mm = n_fit < required_params
+
             mm_digitized = np.digitize(
-                x=np.minimum(np.array(self['n_fit']), required_params),
+                x=n_fit[reassign_mm],
                 bins=mm_n_params
             ) - 1  # Convert to 0-based index
+
+            # Assign motion models to stars
+            self['motion_model_used'] = self['motion_model_input']
+            self['motion_model_used'][reassign_mm] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
 
         else:
             mm_digitized = np.digitize(
-                x=np.array(self['n_fit']),
+                x=n_fit,
                 bins=mm_n_params
             ) - 1  # Convert to 0-based index
         
-        # Assign motion models to stars
-        self['motion_model_used'] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
+            # Assign motion models to stars
+            self['motion_model_used'] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
 
+        # Add default obsLocation if not provided in fixed_params_dict
+        mm_used = np.unique(self['motion_model_used'].name)
+        if 'Parallax' in mm_used and 'obsLocation' not in fixed_params_dict:
+            fixed_params_dict['obsLocation'] = 'earth'
 
         ############################
         ####### Prepare Table ######
@@ -786,6 +800,7 @@ class StarTable(Table):
             for param in mm.fixed_param_names:
                 if param not in fixed_param_names:
                     fixed_param_names.append(param)
+        # Remove t0 from fixed_param_names as it will be saved during fitting
         if 't0' in fixed_param_names:
             fixed_param_names.remove('t0')
 
@@ -943,7 +958,7 @@ class StarTable(Table):
 
             # Predict positions
             x, y, xe, ye = motion_model_instance.model(
-                times, fit_params, fixed_params, fit_param_errs
+                times, fit_params, fit_param_errs, fixed_params
             )
             x_pred[unique_index] = x
             y_pred[unique_index] = y

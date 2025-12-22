@@ -410,10 +410,10 @@ def test_MosaicToRef_acc():
     ref_list = Table.read(ref_file)
 
     # Convert velocities to arcsec/yr
-    ref_list['vx0'] *= 1e-3
-    ref_list['vy0'] *= 1e-3
-    ref_list['vx0_err'] *= 1e-3
-    ref_list['vy0_err'] *= 1e-3
+    ref_list['vx'] *= 1e-3
+    ref_list['vy'] *= 1e-3
+    ref_list['vx_err'] *= 1e-3
+    ref_list['vy_err'] *= 1e-3
 
     # Convert accelerations to arcsec/yr**2
     ref_list['ax'] *= 1e-3
@@ -423,7 +423,7 @@ def test_MosaicToRef_acc():
 
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
-    ref_list['vx0'] *= -1.0
+    ref_list['vx'] *= -1.0
     ref_list['ax'] *= -1.0
 
     lists = [starlists.StarList.read(lf) for lf in list_files]
