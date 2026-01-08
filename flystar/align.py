@@ -1128,7 +1128,8 @@ class MosaicSelfRef(object):
             t0_arr = t0_arr[idx_good]
         else:
             idx_good = np.arange(0, len(ref_table), 1)
-        idx_ref = np.where(ref_table['use_in_trans'] == True)
+            
+        #idx_ref = np.where(ref_table['use_in_trans'] == True)
         
         # Initialize sums for output
         x_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
@@ -1174,40 +1175,45 @@ class MosaicSelfRef(object):
             me_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
             
             for jj in range(n_epochs):
-                # Extract bootstrap sample of matched reference stars
-                good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
+                # Extract bootstrap sample of matched reference stars for this epoch
+                #good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
+                good = np.where(ref_table['used_in_trans'][:,jj] == True)
                 samp_idx = np.random.choice(good[0], len(good[0]), replace=True)
                 
                 # Get reference star positions in particular epoch from ref_list.
                 t_epoch = t_arr[jj]
                 ref_orig = self.get_ref_list_from_table(t_epoch)
 
-                # Get idx of reference stars in bootstrap sample in the ref_orig.
-                # Then, use these to build reference starlist for the alignment
-                idx_tmp = []
-                for ff in range(len(samp_idx)):
-                    name_tmp = ref_table['name'][idx_ref][samp_idx[ff]]
-                    foo = np.where(ref_orig['name'] == name_tmp)[0][0]
-                    idx_tmp.append(foo)
+                ## Get idx of reference stars in bootstrap sample in the ref_orig.
+                ## Then, use these to build reference starlist for the alignment
+                #idx_tmp = []
+                #for ff in range(len(samp_idx)):
+                #    name_tmp = ref_table['name'][idx_ref][samp_idx[ff]]
+                #    foo = np.where(ref_orig['name'] == name_tmp)[0][0]
+                #    idx_tmp.append(foo)
 
-                ref_boot = StarList(name=ref_orig['name'][idx_tmp],
-                                       x=ref_orig['x'][idx_tmp],
-                                       y=ref_orig['y'][idx_tmp],
-                                       m=ref_orig['m'][idx_tmp],
-                                       xe=ref_orig['xe'][idx_tmp],
-                                       ye=ref_orig['ye'][idx_tmp],
-                                       me=ref_orig['me'][idx_tmp])
+                ref_boot = StarList(name=ref_orig['name'][samp_idx],
+                                       x=ref_orig['x'][samp_idx],
+                                       y=ref_orig['y'][samp_idx],
+                                       m=ref_orig['m'][samp_idx],
+                                       xe=ref_orig['xe'][samp_idx],
+                                       ye=ref_orig['ye'][samp_idx],
+                                       me=ref_orig['me'][samp_idx])
 
                 # Now build star list with original positions of the reference stars
                 # in the bootstrap sample
-                starlist_boot = StarList(name=ref_table['name'][idx_ref][samp_idx],
-                                         x=ref_table['x_orig'][:,jj][idx_ref][samp_idx],
-                                         y=ref_table['y_orig'][:,jj][idx_ref][samp_idx],
-                                         m=ref_table['m_orig'][:,jj][idx_ref][samp_idx],
-                                         xe=ref_table['xe_orig'][:,jj][idx_ref][samp_idx],
-                                         ye=ref_table['ye_orig'][:,jj][idx_ref][samp_idx],
-                                         me=ref_table['me_orig'][:,jj][idx_ref][samp_idx])
-            
+                starlist_boot = StarList(name=ref_table['name'][samp_idx],
+                                         x=ref_table['x_orig'][:,jj][samp_idx],
+                                         y=ref_table['y_orig'][:,jj][samp_idx],
+                                         m=ref_table['m_orig'][:,jj][samp_idx],
+                                         xe=ref_table['xe_orig'][:,jj][samp_idx],
+                                         ye=ref_table['ye_orig'][:,jj][samp_idx],
+                                         me=ref_table['me_orig'][:,jj][samp_idx])
+
+                # Sanity check: makes sure names match between ref_boot and starlist_boot,
+                # since they need to line up
+                assert np.all(ref_boot['name'] == starlist_boot['name'])
+                
                 # Calculate weights based on weights keyword. If weights desired, will need to
                 # make starlist objects for this
                 if self.trans_weights != None:
