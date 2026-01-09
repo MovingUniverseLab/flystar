@@ -129,7 +129,7 @@ class StarTable(Table):
 
             # We have to have special handling of meta-data (i.e. info that has
             # dimensions of n_lists).
-            meta_tab = ('LIST_TIMES', 'LIST_NAMES')
+            meta_tab = ('list_times', 'list_names')
             meta_type = ((float, int), str)
             for mm in range(len(meta_tab)):
                 meta_test = meta_tab[mm]
@@ -155,6 +155,9 @@ class StarTable(Table):
             for meta_arg in meta_tab:
                 if meta_arg in kwargs:
                     self.meta[meta_arg] = kwargs[meta_arg]
+                    del kwargs[meta_arg]
+                elif meta_arg.upper() in kwargs:
+                    self.meta[meta_arg] = kwargs[meta_arg.upper()]
                     del kwargs[meta_arg]
 
             for arg in kwargs:
@@ -568,8 +571,8 @@ class StarTable(Table):
         if weighting not in ['var', 'std']:
             raise ValueError(f"fit_velocities: Weighting must either be 'var' or 'std', not {weighting}!")
         
-        if ('t' not in self.colnames) and ('LIST_TIMES' not in self.meta):
-            raise KeyError("fit_velocities: Failed to access time values. No 't' column in table, no 'LIST_TIMES' in meta.")
+        if ('t' not in self.colnames) and ('list_times' not in self.meta):
+            raise KeyError("fit_velocities: Failed to access time values. No 't' column in table, no 'list_times' in meta.")
         
         # Check if we have the required columns
         if not all([_ in self.colnames for _ in ['x', 'y']]):
@@ -624,7 +627,7 @@ class StarTable(Table):
             if 't' in self.colnames:
                 self['t0'] = self['t']
             else:
-                self['t0'] = self.meta['LIST_TIMES'][0]
+                self['t0'] = self.meta['list_times'][0]
             if 'xe' in self.colnames:
                 self['x0_err'] = self['xe']
                 self['y0_err'] = self['ye']
@@ -639,7 +642,7 @@ class StarTable(Table):
             if 't' in self.colnames:
                 self['t0'] = self['t'][:, 0]
             else:
-                self['t0'] = self.meta['LIST_TIMES'][0]
+                self['t0'] = self.meta['list_times'][0]
             if 'xe' in self.colnames:
                 self['x0_err'] = self['xe'][:,0]
                 self['y0_err'] = self['ye'][:,0]
@@ -756,7 +759,7 @@ class StarTable(Table):
         if 't' in self.colnames:
             t = np.ma.masked_invalid(self['t'][ss, :].data)
         else:
-            t = np.ma.masked_invalid(self.meta['LIST_TIMES'])
+            t = np.ma.masked_invalid(self.meta['list_times'])
 
         if mask_val:
             t = np.ma.masked_values(t, mask_val)
@@ -1086,3 +1089,38 @@ class StarTable(Table):
             self['x'] += delta_pi*pvec[0]
             self['y'] += delta_pi*pvec[1]
         return
+
+def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
+                            motion_model_dict={}):
+    """
+    After completing an alignment, shift from your relative reference frame to
+    the absolute frame using either Gaia or a Galactic model. This modified the
+    motion model fit parameters as well as the time series astrometry, assuming
+    zero error on the shift values.
+    
+    Parameters
+    ----------
+    delta_vx : float, optional
+        velocity shift in x-direction (as/yr)
+    delta_vy : float, optional
+        velocity shift in y-direction (as/yr)
+    delta_pi : float, optional
+        parallax shift (as)
+    """
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, table, None)
+    if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
+        print("No shifts input, reference frame unchanged.")
+        print("Specify delta_vx, delta_vy, and/or delta_pi to perform a reference frame shift.")
+        return
+    table['vx'] += delta_vx
+    table['x'] += delta_vx*(table['t']-table['t0'][:, np.newaxis])
+    table['vy'] += delta_vy
+    table['y'] += delta_vy*(table['t']-table['t0'][:, np.newaxis])
+    if delta_pi!=0.0:
+        t_all = table['t'][np.where(~np.any(np.isnan(table['t']), axis=1))[0][0]]
+        t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
+        pvec = motion_model_dict['Parallax'].get_parallax_vector(t_mjd)
+        table['pi'] += delta_pi
+        table['x'] += delta_pi*pvec[0]
+        table['y'] += delta_pi*pvec[1]
+    return table

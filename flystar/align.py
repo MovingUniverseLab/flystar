@@ -1294,6 +1294,8 @@ class MosaicSelfRef(object):
                                         ye=ye_trans_arr[:,boot_idx],
                                         me=me_trans_arr[:,boot_idx],
                                         t=np.tile(t_boot, (len(ref_table),1)))
+                if 'motion_model_used' in ref_table.columns:
+                    star_table['motion_model_input'] = ref_table['motion_model_used']
 
                 # Now, do proper motion calculation, making sure to fix t0 to the
                 # orig value (so we can get a reasonable error on x0, y0)

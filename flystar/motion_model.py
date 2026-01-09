@@ -26,27 +26,47 @@ class MotionModel(ABC):
     optional_param_names = []
 
     def __init__(self, *args, **kwargs):
-        # TODO: do we need this?
-        '''for param in self.fitter_param_names:
-            param_var = getattr(self, param)
-            if not isinstance(param_var, (list, np.ndarray)):
-                setattr(self, param, np.array([param_var]))'''
+        """
+        Make a motion model object. This object defines the fitter and fixed parameters,
+        and if needed stores metadata such as RA and Dec for Parallax,
+        for the given motion model and contains functions to fit these values to data
+        and apply the values to compute expected positions at given times. Each instance
+        corresponds to a given motion model, not an individual star, and thus the fit
+        values are only input/returned in functions and not stored in the object.
+        """
         return
 
     def get_pos_at_time(self, params, t):
+        """
+        Position calculator for a single star using a given motion model and input
+        model parameters and times.
+        """
         #return x, y
         pass
         
     def get_batch_pos_at_time(self, t):
+        """
+        Position calculator for a set of stars using a given motion model and input
+        model parameters and times.
+        """
         #return x, y, x_err, y_err
         pass
         
     def run_fit(self, t, x, y, xe, ye, t0, weighting='var',
                             use_scipy=True, absolute_sigma=True):
+        """
+        Run a single fit of the data to the motion model and return the best parameters.
+        This function is used by the overall fit_motion_model function once for a basic fit
+        or several times for a bootstrap fit.
+        """
         # Run a single fit (used both for overall fit + bootstrap iterations)
         pass
         
     def get_weights(self, xe, ye, weighting='var'):
+        """
+        Get the weights for each data point for fitting. Options are 'var' (default)
+        and 'std'.
+        """
         if weighting=='std':
             return 1./xe, 1./ye
         elif weighting=='var':
@@ -56,6 +76,9 @@ class MotionModel(ABC):
             return 1./xe**2, 1./ye**2
             
     def scale_errors(self, errs, weighting='var'):
+        """
+        Rescale the fit result errors as needed, according to the weighting scheme used.
+        """
         if weighting=='std':
             return np.array(errs)**2
         elif weighting=='var':
@@ -70,6 +93,7 @@ class MotionModel(ABC):
         Fit the input positions on the sky and errors
         to determine new parameters for this motion model (MM).
         Best-fit parameters will be returned along with uncertainties.
+        Optionally, bootstrap error estimation can be performed.
         """
         params, param_errs = self.run_fit(t, x, y, xe, ye, t0=t0, weighting=weighting,
                                             use_scipy=use_scipy, absolute_sigma=absolute_sigma)
@@ -99,8 +123,7 @@ class MotionModel(ABC):
 
     def get_chi2(self, fit_params, fixed_params, t, x, y, xe, ye, reduced=False):
         """
-        Get the chi^2 value for the current MM and
-        the input data.
+        Get the chi^2 value for the input motion model parameters and data.
         """
         x_pred, y_pred = self.get_pos_at_time(fit_params, fixed_params, t)
         chi2x = np.sum((x-x_pred)**2 / xe**2)
@@ -345,8 +368,7 @@ class Parallax(MotionModel):
     """
     Motion model for linear proper motion + parallax
     
-    Requires RA, Dec, and PA parameters (degrees) for parallax calculation.
-        RA, Dec in J2000
+    Requires RA & Dec (J2000) for parallax calculation.
     Optional PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describes observer location, default is 'earth'.
     """
@@ -450,11 +472,13 @@ class Parallax(MotionModel):
         param_errors = [x0_err, vx_err, y0_err, vy_err, pi_err]
         return params, param_errors
         
-"""
-Check that everything is set up properly for motion models to run and their
-required metadata.
-"""
+
 def validate_motion_model_dict(motion_model_dict, startable, default_motion_model):
+    """
+    Check that everything is set up properly for motion models to run and their
+    required metadata.
+    """
+
     # Collect names of all motion models that might get used.
     all_motion_model_names = ['Fixed']
     if default_motion_model is not None:
@@ -478,11 +502,12 @@ def validate_motion_model_dict(motion_model_dict, startable, default_motion_mode
 
     return motion_model_dict
     
-"""
-Get all the motion model parameters for a given motion_model_name.
-Optionally, include fixed and error parameters (included by default).
-"""
+
 def get_one_motion_model_param_names(motion_model_name, with_errors=True, with_fixed=True):
+    """
+    Get all the motion model parameters for a given motion_model_name.
+    Optionally, include fixed and error parameters (included by default).
+    """
     mod = eval(motion_model_name)
     list_of_parameters = []
     list_of_parameters += getattr(mod, 'fitter_param_names')
@@ -492,11 +517,12 @@ def get_one_motion_model_param_names(motion_model_name, with_errors=True, with_f
         list_of_parameters += [par+'_err' for par in getattr(mod, 'fitter_param_names')]
     return list_of_parameters
 
-"""
-Get all the motion model parameters for all models given in motion_model_list.
-Optionally, include fixed and error parameters (included by default).
-"""
+
 def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_fixed=True):
+    """
+    Get all the motion model parameters for all models given in motion_model_list.
+    Optionally, include fixed and error parameters (included by default).
+    """
     list_of_parameters = []
     all_motion_models = [eval(mm) for mm in np.unique(motion_model_list).tolist()]
     for aa in range(len(all_motion_models)):
@@ -512,11 +538,12 @@ def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_
     
     return np.unique(list_of_parameters).tolist()
 
-"""
-Get all the motion model parameters for all models defined in this module.
-Optionally, include fixed and error parameters (included by default).
-"""
+
 def get_all_motion_model_param_names(with_errors=True, with_fixed=True):
+    """
+    Get all the motion model parameters for all models defined in this module.
+    Optionally, include fixed and error parameters (included by default).
+    """
     list_of_parameters = []
     all_motion_models = MotionModel.__subclasses__()
     for aa in range(len(all_motion_models)):
