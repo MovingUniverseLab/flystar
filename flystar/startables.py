@@ -1086,3 +1086,38 @@ class StarTable(Table):
             self['x'] += delta_pi*pvec[0]
             self['y'] += delta_pi*pvec[1]
         return
+
+def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
+                            motion_model_dict={}):
+    """
+    After completing an alignment, shift from your relative reference frame to
+    the absolute frame using either Gaia or a Galactic model. This modified the
+    motion model fit parameters as well as the time series astrometry, assuming
+    zero error on the shift values.
+    
+    Parameters
+    ----------
+    delta_vx : float, optional
+        velocity shift in x-direction (as/yr)
+    delta_vy : float, optional
+        velocity shift in y-direction (as/yr)
+    delta_pi : float, optional
+        parallax shift (as)
+    """
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, table, None)
+    if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
+        print("No shifts input, reference frame unchanged.")
+        print("Specify delta_vx, delta_vy, and/or delta_pi to perform a reference frame shift.")
+        return
+    table['vx'] += delta_vx
+    table['x'] += delta_vx*(table['t']-table['t0'][:, np.newaxis])
+    table['vy'] += delta_vy
+    table['y'] += delta_vy*(table['t']-table['t0'][:, np.newaxis])
+    if delta_pi!=0.0:
+        t_all = table['t'][np.where(~np.any(np.isnan(table['t']), axis=1))[0][0]]
+        t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
+        pvec = motion_model_dict['Parallax'].get_parallax_vector(t_mjd)
+        table['pi'] += delta_pi
+        table['x'] += delta_pi*pvec[0]
+        table['y'] += delta_pi*pvec[1]
+    return table
