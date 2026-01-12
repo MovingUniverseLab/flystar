@@ -2301,10 +2301,10 @@ def plot_chi2_reduced_dist(tab, Ndetect, motion_model_dict={}, xlim=8, n_bins=50
 
     plt.figure(figsize=(6,4))
     plt.clf()
-    plt.hist(x[idx]/Ndof[idx], bins=chi2_bins, histtype='step', label='X', density=True, color='tab:blue')
-    plt.hist(y[idx]/Ndof[idx], bins=chi2_bins, histtype='step', label='Y', density=True, color='tab:orange')
-    plt.axvline(np.median(x[idx]/Ndof[idx]), color='tab:blue', linestyle='--', label='X median')
-    plt.axvline(np.median(y[idx]/Ndof[idx]), color='tab:orange', linestyle='--', label='Y median')
+    plt.hist(x[idx]/Ndof[idx], bins=chi2_bins, histtype='step', label='X', density=True)
+    plt.hist(y[idx]/Ndof[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
+    plt.axvline(np.median(x[idx]/Ndof[idx]), color='C0', linestyle='--', label='X median')
+    plt.axvline(np.median(y[idx]/Ndof[idx]), color='C1', linestyle='--', label='Y median')
     plt.title('Reduced chi2, $N_{epoch} = $' + str(Ndetect))
     plt.xlim(0, xlim)
     plt.legend()
@@ -2840,7 +2840,7 @@ def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = N
         chi2_y = np.sum(sigY**2)
         chi2_m = np.sum(sigM**2)
 
-        dof = int(tab['n_fit'][ii]-tab['n_params'][ii])
+        dof = (len(tab['x'][ii])-tab['n_params'][ii]).astype(int)
         dofM = len(m) - 1
 
         chi2_red_x = chi2_x / dof
@@ -3624,6 +3624,7 @@ def plot_plxs(star_tab, target_idx=0):
     ax[1].set_ylabel('N stars')
     ax[1].set_xlabel('Plx/Plx_err')
     plt.tight_layout()
+    ax[0].set_ylim(-5,5)
        
 def plot_sky(stars_tab,
             plot_errors=False, center_star=None, range=0.4,
