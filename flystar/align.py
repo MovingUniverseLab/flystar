@@ -973,7 +973,7 @@ class MosaicSelfRef(object):
 
         return
 
-    def get_ref_list_from_table(self, epoch, select_idxs=None):
+    def get_ref_list_from_table(self, epoch):
         """
         Convert the averaged quantites in self.ref_table into a StarList object
         appropriate for the specified epoch. 
@@ -1029,9 +1029,6 @@ class MosaicSelfRef(object):
 
         if me is not None:
             ref_list['me'] = me
-
-        if select_idxs is not None:
-            ref_list = ref_list[select_idxs]
 
         return ref_list
 
@@ -1185,7 +1182,7 @@ class MosaicSelfRef(object):
                 
                 # Get reference star positions in particular epoch from ref_list.
                 t_epoch = t_arr[jj]
-                ref_orig = self.get_ref_list_from_table(t_epoch, select_idxs=idx_good)
+                ref_orig = self.get_ref_list_from_table(t_epoch)[idx_good]
 
                 ## Get idx of reference stars in bootstrap sample in the ref_orig.
                 ## Then, use these to build reference starlist for the alignment
