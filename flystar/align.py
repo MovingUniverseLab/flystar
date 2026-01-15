@@ -1050,7 +1050,7 @@ class MosaicSelfRef(object):
 
         return
     
-    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True):
+    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True, update_errors=False):
         """
         Function to calculate bootstrap errors for the transformations as well
         as the proper motions. For each iteration, this will:
@@ -1098,10 +1098,12 @@ class MosaicSelfRef(object):
         absolute_sigma: boolean
             If True, use the absolute sigma in the velocity fitting. If False, use the relative sigma, by default False.
         
+        update_errors: boolean
+            If True, save the starlist errors as xe_list, bootstrap errors as xe_boot, and their quad sum as xe (and likewise for ye and me). If False (default), leave the starlist errors in place as xe and bootstrap errors as xe_boot.
             
         Output:
         ------
-        Seven new columns will be added to self.ref_table:
+        New columns will be added to self.ref_table:
         'xe_boot', 2D column: bootstrap x pos uncertainties due to transformation for each epoch
         'ye_boot', 2D column: bootstrap y pos uncertainties due to transformation for each epoch
         'me_boot', 2D column: bootstrap mag uncertainties due to transformation for each epoch
@@ -1381,6 +1383,17 @@ class MosaicSelfRef(object):
         print('===============================')
         print('Done with bootstrap')
         print('===============================')
+        
+        if update_errors:
+            self.ref_table['xe_list'] = self.ref_table['xe']
+            self.ref_table['ye_list'] = self.ref_table['ye']
+            self.ref_table['me_list'] = self.ref_table['me']
+            self.ref_table['xe'] = np.hypot(self.ref_table['xe_list'], self.ref_table['xe_boot'])
+            self.ref_table['ye'] = np.hypot(self.ref_table['ye_list'], self.ref_table['ye_boot'])
+            self.ref_table['me'] = np.hypot(self.ref_table['me_list'], self.ref_table['me_boot'])
+            print("Saved starlist errors to xe_list and added xe_boot to xe in quadrature.")
+            print("The same was done for ye and me.")
+
         
         return
     
