@@ -138,8 +138,6 @@ class MotionModel(ABC):
         n_obs = len(t)
 
         if bootstrap > 0 and n_obs > (self.n_params):
-            # Use m out of n bootstrap to ensure enough unique points
-            m = np.max([self.n_params, int(len(t) * 0.8)])
             rng = np.random.default_rng(seed)
             edx = np.arange(n_obs, dtype=int)
             # Precompute All Bootstrap Draws at Once
@@ -148,8 +146,9 @@ class MotionModel(ABC):
                 rng.choice(edx, size=self.n_params, replace=False)
                 for _ in range(bootstrap)
             ])
+            # Draw with replacement for the rest
             bdx_extra = np.stack([
-                rng.choice(edx, size=self.n_params, replace=True)
+                rng.choice(edx, size=n_obs - self.n_params, replace=True)
                 for _ in range(bootstrap)
             ])
             bdx_all = np.hstack((bdx_unique, bdx_extra))
