@@ -10,7 +10,7 @@ class MotionModel(ABC):
     fit_param_names = []
 
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     # Fixed parameters: These are parameters that are required for the model, but are not 
     # fit quantities. For example, RA and Dec in a parallax model.
@@ -203,7 +203,7 @@ class Empty(MotionModel):
     fixed_param_names = []
     name = "Empty"
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     def __init__(self, **kwargs):
         """Empty motion model, returns nan for values and inf for uncertainties.
@@ -305,7 +305,7 @@ class Fixed(MotionModel):
     fit_param_names = ['x0','y0']
     fixed_param_names = []
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     name = "Fixed"
 
@@ -460,7 +460,7 @@ class Linear(MotionModel):
     fixed_param_names = ['t0']
 
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
     name = "Linear"
 
     def __init__(self, **kwargs):
@@ -668,7 +668,7 @@ class Acceleration(MotionModel):
     name = "Acceleration"
 
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     def __init__(self):
         # Must call after setting parameters.
@@ -836,7 +836,7 @@ class Parallax(MotionModel):
     name = "Parallax"
         
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     def __init__(self):
         super().__init__()
