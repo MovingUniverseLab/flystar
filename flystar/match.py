@@ -1,14 +1,10 @@
 import numpy as np
-from flystar import starlists, transforms, startables, align
+from . import starlists, transforms, startables
 from collections import Counter
 from scipy.spatial import cKDTree as KDT
-from astropy.table import Column, Table
+from astropy.table import Column
 import itertools
 import copy
-import scipy.signal
-from scipy.spatial import distance
-import math
-import pdb
 
 
 def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
@@ -526,6 +522,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
         Startable of the two matched catalogs
 
     """
+    from . import align
     
     #  Check the input StarLists and transform them into astropy Tables
     if not isinstance(sl1, starlists.StarList):

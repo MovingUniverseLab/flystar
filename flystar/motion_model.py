@@ -1,19 +1,16 @@
 import numpy as np
 from abc import ABC
-import pdb
 from flystar import parallax
 from astropy.time import Time
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, OptimizeWarning
 import warnings
 
 class MotionModel(ABC):
-    # Number of data points required to fit model
-    n_pts_req = 0
-    # Degrees of freedom for model
-    n_params = 0
-
     # Fit paramters: Shared fit parameters
-    fitter_param_names = []
+    fit_param_names = []
+
+    # Number of fit parameters/required observations in each direction
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     # Fixed parameters: These are parameters that are required for the model, but are not 
     # fit quantities. For example, RA and Dec in a parallax model.
@@ -24,49 +21,39 @@ class MotionModel(ABC):
     # These parameters should be derived from the fit parameters and
     # they must exist as a variable on the model object
     optional_param_names = []
+    name = "MotionModel"
 
     def __init__(self, *args, **kwargs):
         """
-        Make a motion model object. This object defines the fitter and fixed parameters,
-        and if needed stores metadata such as RA and Dec for Parallax,
-        for the given motion model and contains functions to fit these values to data
-        and apply the values to compute expected positions at given times. Each instance
-        corresponds to a given motion model, not an individual star, and thus the fit
-        values are only input/returned in functions and not stored in the object.
+        Make a motion model object. This object defines the fit and fixed parameters,
+        and contains functions to fit the model to data and infer positions at given times. 
+        Each instance corresponds to a given motion model, not an individual star, 
+        and thus the fit values are only input/returned in functions, not stored in the object.
         """
         return
+    
+    def model_fit(self, dt):
+        return np.full_like(dt, np.nan)
+    
+    def model(self, t, fit_params, fit_param_errs=None, fixed_params=None):
+        if fit_param_errs is None:
+            return np.full_like(t, np.nan), np.full_like(t, np.nan)
+        return np.full_like(t, np.nan), np.full_like(t, np.nan), np.full_like(t, np.inf), np.full_like(t, np.inf)
 
-    def get_pos_at_time(self, params, t):
-        """
-        Position calculator for a single star using a given motion model and input
-        model parameters and times.
-        """
-        #return x, y
-        pass
-        
-    def get_batch_pos_at_time(self, t):
-        """
-        Position calculator for a set of stars using a given motion model and input
-        model parameters and times.
-        """
-        #return x, y, x_err, y_err
-        pass
-        
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var',
-                            use_scipy=True, absolute_sigma=True):
-        """
-        Run a single fit of the data to the motion model and return the best parameters.
-        This function is used by the overall fit_motion_model function once for a basic fit
-        or several times for a bootstrap fit.
-        """
+    def run_fit(
+        self, t, x, y, xe, ye, 
+        fixed_params_dict=None,
+        weighting='var',
+        use_scipy=True, 
+        absolute_sigma=True, 
+        params_guess=None,
+        fill_value=np.nan,
+        verbose=True
+    ):
         # Run a single fit (used both for overall fit + bootstrap iterations)
-        pass
-        
-    def get_weights(self, xe, ye, weighting='var'):
-        """
-        Get the weights for each data point for fitting. Options are 'var' (default)
-        and 'std'.
-        """
+        return np.full(self.n_params, fill_value), np.full(self.n_params, np.inf), np.nan, np.nan
+
+    def calc_weights(self, xe, ye, weighting='var'):
         if weighting=='std':
             return 1./xe, 1./ye
         elif weighting=='var':
@@ -74,488 +61,1079 @@ class MotionModel(ABC):
         else:
             warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
             return 1./xe**2, 1./ye**2
-            
-    def scale_errors(self, errs, weighting='var'):
-        """
-        Rescale the fit result errors as needed, according to the weighting scheme used.
-        """
-        if weighting=='std':
-            return np.array(errs)**2
-        elif weighting=='var':
-            return errs
-        else:
-            warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
-            return errs
 
-    def fit_motion_model(self, t, x, y, xe, ye, t0, bootstrap=0, weighting='var',
-                            use_scipy=True, absolute_sigma=True):
+    def fit(
+        self, t, x, y, xe, ye, 
+        fixed_params_dict=None,
+        weighting='var',
+        use_scipy=True, 
+        absolute_sigma=True,
+        fill_value=np.nan,
+        params_guess=None,
+        return_chi2=False,
+        bootstrap=0, 
+        verbose=True,
+        seed=None
+    ):
+        """Fit stellar motion parameters
+
+        Parameters
+        ----------
+        t : array-like
+            Times of measurements
+        x : array-like
+            x-coordinates
+        y : array-like
+            y-coordinates
+        xe : array-like
+            Uncertainty of x
+        ye : array-like
+            Uncertainty of y
+        fixed_params_dict : dict, optional
+            Dictionary of fixed parameters, see each motion model's fixed_param_names for details, by default None
+        weighting : str, optional
+            Use standard error weighting ('std': w=1/xe, 1/ye) or variance weighting ('var': w=1/xe**2, 1/ye**2), by default 'var'
+        use_scipy : bool, optional
+            Use scipy for optmization. Otherwise, use linear algebraic solution (Linear model only), which is faster for < 300 epochs, by default True
+        absolute_sigma : bool, optional
+            Absolute sigma. See scipy.optimize.curve_fit for details, by default True
+        fill_value : float, optional
+            Fill value for parameters when not enough data points to fit model, by default np.nan
+        params_guess : array-like, optional
+            Initial guess for the fit parameters used in scipy curve_fit, by default None
+        return_chi2 : bool, optional
+            Return chi^2 values along with parameters and uncertainties in params, param_errs, chi2_x, chi2_y, by default False
+        bootstrap : int, optional
+            Bootstrapping uncertainties, by default 0
+        verbose : bool, optional
+            Print warning messages, by default True
+        seed : int, optional
+            Seed for the random number generator, by default None
+        Returns
+        -------
+        params, params_err, chi2_x, chi2_y
+            Parameters, uncertainties, and chi squares. The corresponding parameter names are in self.fit_param_names.
         """
-        Fit the input positions on the sky and errors
-        to determine new parameters for this motion model (MM).
-        Best-fit parameters will be returned along with uncertainties.
-        Optionally, bootstrap error estimation can be performed.
-        """
-        params, param_errs = self.run_fit(t, x, y, xe, ye, t0=t0, weighting=weighting,
-                                            use_scipy=use_scipy, absolute_sigma=absolute_sigma)
+        assert np.ndim(t) == np.ndim(x) == np.ndim(y) == np.ndim(xe) == np.ndim(ye) == 1, "Input arrays must be 1D! Motion model can only fit individual stars"
+        assert len(t) == len(x) == len(y) == len(xe) == len(ye), "Input arrays must have the same length!"
+        fit_result = self.run_fit(
+            t, x, y, xe, ye, 
+            fixed_params_dict=fixed_params_dict,
+            weighting=weighting,
+            use_scipy=use_scipy, 
+            absolute_sigma=absolute_sigma,
+            fill_value=fill_value,
+            params_guess=params_guess,
+            return_chi2=return_chi2,
+            verbose=verbose
+        )
         
-        if bootstrap>0 and len(x)>(self.n_pts_req):
-            edx = np.arange(len(x), dtype=int)
+        if return_chi2:
+            params, param_errs, chi2_x, chi2_y = fit_result
+        else:
+            params, param_errs = fit_result
+        
+
+        # Bootstrap errors
+        n_obs = len(t)
+
+        if bootstrap > 0 and n_obs > (self.n_params):
+            rng = np.random.default_rng(seed)
+            edx = np.arange(n_obs, dtype=int)
+            # Precompute All Bootstrap Draws at Once
+            # Ensure there are enough unique points in each bootstrap sample
+            bdx_unique = np.stack([
+                rng.choice(edx, size=self.n_params, replace=False)
+                for _ in range(bootstrap)
+            ])
+            # Draw with replacement for the rest
+            bdx_extra = np.stack([
+                rng.choice(edx, size=n_obs - self.n_params, replace=True)
+                for _ in range(bootstrap)
+            ])
+            bdx_all = np.hstack((bdx_unique, bdx_extra))
+
             bb_params = []
             bb_params_errs = []
-            for bb in range(bootstrap):
-                bdx = np.random.choice(edx, len(x))
-                while len(np.unique(bdx))<self.n_pts_req:
-                    bdx = np.random.choice(edx, len(x))
-                params_bdx, param_errs_bdx = self.run_fit(t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], t0=t0,
-                    weighting=weighting, params_guess=params,
-                    use_scipy=use_scipy, absolute_sigma=absolute_sigma)
+            for bdx in bdx_all:
+                params_bdx, param_errs_bdx = self.run_fit(
+                    t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx], 
+                    fixed_params_dict=fixed_params_dict,
+                    weighting=weighting, 
+                    use_scipy=use_scipy, 
+                    absolute_sigma=absolute_sigma, 
+                    params_guess=params, 
+                    fill_value=fill_value,
+                    return_chi2=False,
+                    verbose=verbose
+                )
                 bb_params.append(params_bdx)
                 bb_params_errs.append(param_errs_bdx)
-        
+
             # Save the errors from the bootstrap
             param_errs = np.std(bb_params, axis=0)
-            
+
             # Account for odd case
             inf_errs = [np.all(arr==np.inf) for arr in np.transpose(np.array(bb_params_errs))]
             param_errs[inf_errs] = 0.0
-        
-        return params, param_errs
 
-    def get_chi2(self, fit_params, fixed_params, t, x, y, xe, ye, reduced=False):
+        if return_chi2:
+            return params, param_errs, chi2_x, chi2_y
+        else:
+            return params, param_errs
+
+
+    def calc_chi2(self, t, x, y, xe, ye, fit_params, fixed_params_dict=None, reduced=False):
         """
         Get the chi^2 value for the input motion model parameters and data.
         """
-        x_pred, y_pred = self.get_pos_at_time(fit_params, fixed_params, t)
-        chi2x = np.sum((x-x_pred)**2 / xe**2)
-        chi2y = np.sum((y-y_pred)**2 / ye**2)
+        x_pred, y_pred = self.model(t, fit_params, fixed_params_dict=fixed_params_dict)
+        chi2x = np.sum((x - x_pred)**2 / xe**2)
+        chi2y = np.sum((y - y_pred)**2 / ye**2)
         if reduced:
-            if len(t)==self.n_params:
-                chi2x, chi2y = 0,0
+            if len(t) == self.n_params:
+                return np.inf, np.inf
             else:
-                chi2x, chi2y = chi2x/(len(x)-self.n_params), chi2y/(len(x)-self.n_params)
-        return chi2x,chi2y
+                degree_of_freedom = len(x) - self.n_params
+                chi2x, chi2y = chi2x / degree_of_freedom, chi2y / degree_of_freedom
+        return chi2x, chi2y
+
+class Empty(MotionModel):
+    fit_param_names = []
+    fixed_param_names = []
+    name = "Empty"
+    # Number of fit parameters/required observations in each direction
+    n_params = int((len(fit_param_names) + 1) / 2)
+
+    def __init__(self, **kwargs):
+        """Empty motion model, returns nan for values and inf for uncertainties.
+        """
+        super().__init__()
+        return
+    
+    def model_fit(self, dt):
+        return np.full_like(dt, np.nan)
+
+    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+        """Predicted positions (and uncertainties, if fit_param_errs is provided) at time t of Empty model.
+
+        Parameters
+        ----------
+        t : float or array-like
+            Time array, shape (N_times,)
+        fit_params : array-like
+            Fit parameters, shape (N_params,) or (N_stars, N_params)
+        fit_param_errs : array-like, optional
+            Uncertainties for fit parameters, not applicable for Empty model, by default None
+        fixed_params_dict : dict, optional
+            Not applicable for Empty model, by default None
+
+        Returns
+        -------
+        x, y (, xe, ye)
+            Predicted position (and uncertainties) of Empty model, shape (N_times,)
+        """
+        
+        t = np.atleast_1d(t)
+        if fit_param_errs is None:
+            return np.full_like(t, np.nan), np.full_like(t, np.nan)
+        return np.full_like(t, np.nan), np.full_like(t, np.nan), np.full_like(t, np.inf), np.full_like(t, np.inf)
+
+    def run_fit(
+            self, t, x, y, xe, ye, 
+            fixed_params_dict=None,
+            weighting='var', 
+            use_scipy=True, 
+            absolute_sigma=True,
+            fill_value=np.nan,
+            params_guess=None,
+            return_chi2=False,
+            verbose=True
+    ):
+        """Fit stellar motion parameters
+
+        Parameters
+        ----------
+        t : float or array-like
+            Time array, shape (N_times,)
+        x : array-like
+            Observed x positions, shape (N_times,)
+        y : array-like
+            Observed y positions, shape (N_times,)
+        xe : array-like
+            Observed uncertainties in x positions, shape (N_times,)
+        ye : array-like
+            Observed uncertainties in y positions, shape (N_times,)
+        fixed_params_dict : dict, optional
+            Dictionary of fixed parameters, not applicable for Empty model, by default None
+        weighting : str, optional
+            Weighting scheme to use, 'var' or 'std', by default 'var'
+        use_scipy : bool, optional
+            Whether to use scipy.optimize for fitting, by default True
+        absolute_sigma : bool, optional
+            Whether to treat sigma as absolute, by default True
+        fill_value : float, optional
+            Value to fill parameters with when fitting is not possible, by default np.nan
+        params_guess : array-like, optional
+            Initial guess for parameters, by default None
+        return_chi2 : bool, optional
+            Whether to return chi-squared value, by default False
+        verbose : bool, optional
+            Whether to print verbose output, by default True
+
+        Returns
+        -------
+        params, param_errors (, chi2_x, chi2_y)
+            Fitted parameters, their uncertainties, and optionally chi-squared values
+        """
+        self.fixed_params_dict = fixed_params_dict
+        if verbose:
+            warnings.warn(f"Empty data cannot be fit. Setting parameters to {fill_value} and uncertainties to np.inf.", OptimizeWarning, stacklevel=2)
+        params = np.full(self.n_params, fill_value)
+        param_errors = np.full(self.n_params, np.inf)
+        if return_chi2:
+            return params, param_errors, np.nan, np.nan
+        else:
+            return params, param_errors
+
 
 class Fixed(MotionModel):
     """
     A non-moving motion model for a star on the sky.
     """
-    n_pts_req = 1
-    n_params=1
-    fitter_param_names = ['x0','y0']
-    fixed_param_names = []
     
+    fit_param_names = ['x0','y0']
+    fixed_param_names = []
+    # Number of fit parameters/required observations in each direction
+    n_params = int((len(fit_param_names) + 1) / 2)
+
+    name = "Fixed"
+
     def __init__(self, **kwargs):
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
         return
+
+    def model_fit(self, dt, x0):
+        """Fit function for Fixed motion model
+
+        Parameters
+        ----------
+        dt : array-like
+            Time offset, shape (N_times,)
+        x0 : float or array-like
+            Average positions, scalar or shape (N_stars,)
         
-    def get_pos_at_time(self, fit_params, fixed_params, t):
-        fit_params_dict = dict(zip(self.fitter_param_names, fit_params))
-        if hasattr(t, "__len__"):
-            return np.repeat(fit_params_dict['x0'], len(t)), np.repeat(fit_params_dict['y0'], len(t))
+        Returns
+        -------
+        x : array-like
+            Predicted positions, shape (N_times,) if scalar x0, else (N_stars, N_times)
+        """
+        dt = np.atleast_1d(dt)
+        x0 = np.asarray(x0)
+        return np.broadcast_to(x0[:, np.newaxis], (x0.shape[0], dt.shape[0])) if x0.ndim > 0 else np.full_like(dt, x0)
+
+    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+        """Predicted positions (and uncertainties, if fit_param_errs is provided) at time t of Fixed model.
+
+        Parameters
+        ----------
+        t : float or array-like
+            Time array, shape (N_times,)
+        fit_params : array-like
+            x0, y0 in shape (N_params,) or (N_stars, N_params)
+        fit_param_errs : array-like, optional
+            Uncertainties for x0, y0 in shape (N_params,) or (N_stars, N_params), by default None
+        fixed_params_dict : dict, optional
+            Not applicable for Fixed, by default None
+
+
+        Returns
+        -------
+        x, y (, xe, ye)
+            Predicted position (and uncertainties) of Fixed model, shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
+        """
+        self.fixed_params_dict = fixed_params_dict
+        t = np.atleast_1d(t)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+
+        N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
+        N_times = len(t)
+        x0, y0 = fit_params.T  # Each shape (N_stars,)
+
+        # Return results in (N_stars, N_times) shape
+        x = self.model_fit(t, x0)  # Shape (N_stars, N_times)
+        y = self.model_fit(t, y0)  # Shape (N_stars, N_times)
+
+        if N_stars == 1 or N_times == 1:
+            # If only one star, return flattened arrays
+            x = x.flatten()
+            y = y.flatten()
+
+        if fit_param_errs is None:
+            return x, y
+
+        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_params)
+        x0_err, y0_err = fit_param_errs.T
+
+        # Return results in (N_stars, N_times) shape
+        x_err = np.broadcast_to(x0_err[:, np.newaxis], (N_stars, N_times))
+        y_err = np.broadcast_to(y0_err[:, np.newaxis], (N_stars, N_times))
+
+        if N_stars == 1 or N_times == 1:
+            # If only one star, return flattened arrays
+            x_err = x_err.flatten()
+            y_err = y_err.flatten()
+
+        return x, y, x_err, y_err
+
+    def run_fit(
+            self, t, x, y, xe, ye, 
+            fixed_params_dict=None,
+            weighting='var', 
+            use_scipy=True, 
+            absolute_sigma=True,
+            fill_value=np.nan,
+            params_guess=None,
+            return_chi2=False,
+            verbose=True
+    ):
+        if verbose and (not use_scipy):
+            warnings.warn("Fixed model has no non-scipy fitter option. Running with scipy.")
+
+        n_obs = len(t)
+        degree_of_freedom = n_obs - self.n_params
+        # Not enough data points to fit model
+        if degree_of_freedom < 0:
+            if verbose:
+                warnings.warn(
+                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+            params = np.full(self.n_params, fill_value)
+            param_errors = np.full(self.n_params, np.inf)
+            return params, param_errors, np.nan, np.nan
+
+        # degree_of_freedom >= 0
+        # Calculate weighted average position
+        x_wt, y_wt = self.calc_weights(xe, ye, weighting=weighting)
+        x_wt_norm = x_wt / np.sum(x_wt)
+        y_wt_norm = y_wt / np.sum(y_wt)
+        x0 = np.average(x, weights=x_wt)
+        x0e = (np.sum(x_wt_norm**2 * xe**2))**0.5  # Error propagation
+        y0 = np.average(y, weights=y_wt)
+        y0e = (np.sum(y_wt_norm**2 * ye**2))**0.5  # Error propagation
+
+        params = np.array([x0, y0])
+        param_errors = np.array([x0e, y0e])
+
+        if (not absolute_sigma) or return_chi2:
+            chi2x, chi2y = self.calc_chi2(t, x, y, xe, ye, params)
+
+        if not absolute_sigma:
+            if degree_of_freedom > 0:
+                reduced_chi2x = chi2x / degree_of_freedom
+                reduced_chi2y = chi2y / degree_of_freedom
+
+                param_errors[0] *= reduced_chi2x**0.5
+                param_errors[1] *= reduced_chi2y**0.5
+            else:
+                # degree_of_freedom == 0, as < 0 case already handled above
+                warnings.warn(
+                    f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+                # Set parameter uncertainties to np.inf, same behavior as scipy.optimize.curve_fit
+                param_errors = np.full_like(param_errors, np.inf)
+
+        if return_chi2:
+            return params, param_errors, chi2x, chi2y
         else:
-            return fit_params_dict['x0'], fit_params_dict['y0']
-        
-    def get_batch_pos_at_time(self,t,
-                                x0=[],y0=[],t0=[],
-                                x0_err=[], y0_err=[]):
-        if hasattr(t, "__len__"):
-            return np.repeat(x0[:,np.newaxis],len(t),axis=1), np.repeat(y0[:,np.newaxis],len(t),axis=1), np.repeat(x0_err[:,np.newaxis],len(t),axis=1), np.repeat(y0_err[:,np.newaxis],len(t),axis=1)
-        else:
-            return x0,y0,x0_err,y0_err
-            
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
-                            use_scipy=True, absolute_sigma=True):
-        if not use_scipy:
-            Warning("Fixed model has no non-scipy fitter option. Running with scipy.")
-        # Handle single data point case
-        if len(x)==1:
-            x0,y0,x0e,y0e = x[0],y[0],xe[0],ye[0]
-    
-        else:
-            x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
-            x0 = np.average(x, weights=x_wt)
-            x0e = np.sqrt(np.average((x-x0)**2,weights=x_wt))
-            y0 = np.average(y, weights=y_wt)
-            y0e = np.sqrt(np.average((y-y0)**2,weights=y_wt))
-        
-        params = [x0, y0]
-        param_errors = [x0e, y0e]
-        
-        return params, param_errors
-        
+            return params, param_errors
+
 class Linear(MotionModel):
     """
     A 2D linear motion model for a star on the sky.
     """
-    n_pts_req = 2
-    n_params=2
-    fitter_param_names = ['x0', 'vx', 'y0', 'vy']
+    fit_param_names = ['x0', 'vx', 'y0', 'vy']
     fixed_param_names = ['t0']
-    
+
+    # Number of fit parameters/required observations in each direction
+    n_params = int((len(fit_param_names) + 1) / 2)
+    name = "Linear"
+
     def __init__(self, **kwargs):
-        
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
         return
-        
-    def get_pos_at_time(self, fit_params, fixed_params, t):
-        fit_params_dict = dict(zip(self.fitter_param_names, fit_params))
-        fixed_params_dict = dict(zip(self.fixed_param_names, fixed_params))
-        dt = t-fixed_params_dict['t0']
-        return fit_params_dict['x0'] + fit_params_dict['vx']*dt, fit_params_dict['y0'] + fit_params_dict['vy']*dt
-        
-    def get_batch_pos_at_time(self, t, x0=[],vx=[], y0=[],vy=[], t0=[],
-                x0_err=[],vx_err=[], y0_err=[],vy_err=[], **kwargs):
-        if hasattr(t, "__len__"):
-            dt = t-t0[:,np.newaxis]
-            x = x0[:,np.newaxis] + dt*vx[:,np.newaxis]
-            y = y0[:,np.newaxis] + dt*vy[:,np.newaxis]
-            x_err = np.hypot(x0_err[:,np.newaxis], vx_err[:,np.newaxis]*dt)
-            y_err = np.hypot(y0_err[:,np.newaxis], vy_err[:,np.newaxis]*dt)
-        else:
-            dt = t-t0
-            x = x0 + dt*vx
-            y = y0 + dt*vy
-            x_err = np.hypot(x0_err, vx_err*dt)
-            y_err = np.hypot(y0_err, vy_err*dt)
-        return x,y,x_err,y_err
 
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
-                            use_scipy=True, absolute_sigma=True):
-        dt = t-t0
-        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
-        if params_guess is None:
-            params_guess = [x.mean(),0.0,y.mean(),0.0]
+    def model_fit(self, dt, x0, v):
+        """Linear motion model fit function
 
-        # Handle 2-data point case
-        if len(np.unique(dt))==2:
-            if len(x)>2: # Catch case where bootstrap sends only 2 unique epochs
-                _,idx=np.unique(dt, return_index=True)
-                dt = dt[idx]
-                x = x[idx]
-                y = y[idx]
-                xe = xe[idx]
-                ye = ye[idx]
-            dx = np.diff(x)[0]
-            dy = np.diff(y)[0]
-            dt_diff = np.diff(dt)[0]
-            vx = dx / dt_diff
-            vy = dy / dt_diff
-            # TODO: still not sure about the error handling here
-            x0 = x[0] - dt[0]*vx # np.average(x, weights=x_wt) #
-            y0 = y[0] - dt[0]*vy # np.average(y, weights=y_wt) #
-            x0e = np.abs(dx) / 2**0.5 # np.sqrt(np.sum(xe**2)/2) #
-            y0e = np.abs(dy) / 2**0.5 # np.sqrt(np.sum(ye**2)/2) #
-            vxe = 0.0 #np.abs(vx) * np.sqrt(np.sum(xe**2/x**2))
-            vye = 0.0 #np.abs(vy) * np.sqrt(np.sum(ye**2/y**2))
-            
-        else:
-            if use_scipy:
-                def linear(t, c0, c1):
-                    return c0 + c1*t
-                x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=1/np.sqrt(x_wt), absolute_sigma=absolute_sigma)
-                y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=1/np.sqrt(y_wt), absolute_sigma=absolute_sigma)
-                x0, vx = x_opt
-                y0, vy = y_opt
-                x0e, vxe = np.sqrt(x_cov.diagonal())
-                y0e, vye = np.sqrt(y_cov.diagonal())
-                x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
+        Parameters
+        ----------
+        dt : array-like
+            Time offset, shape (N_times,)
+        x0 : float or array-like
+            Initial position, shape (N_stars,) or scalar
+        v : float or array-like
+            Velocity, shape (N_stars,) or scalar
+
+        Returns
+        -------
+        x : array-like
+            Predicted position(s)
+        """
+        return x0 + v * dt
+
+    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+        """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Linear model.
+
+        Parameters
+        ----------
+        t : float or array-like
+            Time(s) at which to evaluate the model
+        fit_params : array-like
+            x0, vx, y0, vy in shape (N_params,) or (N_stars, N_params)
+        fit_param_errs : array-like, optional
+            Uncertainties of fit parameters in shape (N_params,) or (N_stars, N_params), by default None
+        fixed_params_dict : dict
+            t0, shape (1,) or (N_stars,)
+
+        Returns
+        -------
+        x, y (, xe, ye)
+            Predicted positions (and uncertainties, if fit_param_errs is provided) with shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
+        """
+        if fixed_params_dict is None:
+            fixed_params_dict = self.fixed_params_dict
+        assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Linear model."
+
+        t = np.atleast_1d(t)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+
+        N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
+        N_times = len(t)
+
+        x0, vx, y0, vy = fit_params.T  # Each shape (N_stars,)
+        t0 = np.atleast_1d(fixed_params_dict['t0'])  # Shape (N_stars,) or (1,)
+
+        dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+        
+        x = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis])  # Shape (N_stars, N_times)
+        y = self.model_fit(dt, y0[:, np.newaxis], vy[:, np.newaxis])  # Shape (N_stars, N_times)
+
+        if N_stars == 1 or N_times == 1:
+            # If only one star, return flattened arrays
+            x = x.flatten()
+            y = y.flatten()
+
+        if fit_param_errs is None:
+            return x, y
+        
+        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_params)
+        x0_err, vx_err, y0_err, vy_err = fit_param_errs.T   # Each shape (N_stars,)
+        x_err = np.hypot(x0_err[:, np.newaxis], vx_err[:, np.newaxis] * dt)  # Shape (N_stars, N_times)
+        y_err = np.hypot(y0_err[:, np.newaxis], vy_err[:, np.newaxis] * dt)  # Shape (N_stars, N_times)
+        
+        if N_stars == 1 or N_times == 1:
+            # If only one star, return flattened arrays
+            x_err = x_err.flatten()
+            y_err = y_err.flatten()
+        return x, y, x_err, y_err
+
+    def run_fit(
+            self, t, x, y, xe, ye, 
+            fixed_params_dict=None,
+            weighting='var', 
+            use_scipy=True, 
+            absolute_sigma=True,
+            fill_value=np.nan,
+            params_guess=None,
+            return_chi2=False,
+            verbose=True
+    ):
+        if fixed_params_dict is None:
+            fixed_params_dict = {}
+        if 't0' not in fixed_params_dict:
+            # Default t0 to weighted average time
+            fixed_params_dict['t0'] = np.average(t, weights=1./np.hypot(xe, ye))
+        self.fixed_params_dict = fixed_params_dict
+        t0 = np.atleast_1d(fixed_params_dict['t0'])
+        t = np.atleast_1d(t)
+        x = np.atleast_1d(x)
+        y = np.atleast_1d(y)
+        xe = np.atleast_1d(xe)
+        ye = np.atleast_1d(ye)
+        
+        n_obs = len(t)
+        degree_of_freedom = n_obs - self.n_params
+        # Not enough data points to fit model
+        if degree_of_freedom < 0:
+            if verbose:
+                warnings.warn(
+                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+            params = np.full(self.n_params, fill_value)
+            param_errors = np.full(self.n_params, np.inf)
+            if return_chi2:
+                return params, param_errors, np.nan, np.nan
             else:
-                # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution scheme
-                x = np.array(x)
-                y = np.array(y)
-                dt = np.array(dt)
-                X_mat_t = np.vander(dt, 2)
-                # x calculation
-                W_mat_x = np.diag(x_wt)
-                XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
-                pcov_x = np.linalg.inv(XTWX_mat_x)  # Covariance Matrix
-                popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
-                perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
-                # y calculation
-                W_mat_y = np.diag(y_wt)
-                XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t
-                pcov_y = np.linalg.inv(XTWX_mat_y)  # Covariance Matrix
-                popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
-                perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
-                # prepare values to return
-                x0, vx = popt_x[1], popt_x[0]
-                y0, vy = popt_y[1], popt_y[0]
-                x0e, vxe = perr_x[1], perr_x[0]
-                y0e, vye = perr_y[1], perr_y[0]
-                x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
-        
-        params = [x0, vx, y0, vy]
-        param_errors = [x0e, vxe, y0e, vye]
-        return params, param_errors
-        
-        
+                return params, param_errors
+
+        # degree_of_freedom >= 0
+        dt = t - t0
+        x_wt, y_wt = self.calc_weights(xe, ye, weighting=weighting)
+        if params_guess is None:
+            params_guess = [x.mean(), 0., y.mean(), 0.]
+
+        if use_scipy:
+            x_opt, x_cov = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:2]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma)
+            y_opt, y_cov = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[2:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma)
+            x0, vx = x_opt
+            y0, vy = y_opt
+            x0e, vxe = np.sqrt(x_cov.diagonal())
+            y0e, vye = np.sqrt(y_cov.diagonal())
+            params = np.array([x0, vx, y0, vy])
+            param_errors = np.array([x0e, vxe, y0e, vye])
+            if return_chi2:
+                chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
+                return params, param_errors, chi2_x, chi2_y
+            else:
+                return params, param_errors
+
+        # Linear algebraic solution
+        # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution_scheme
+        X_mat_t = np.vander(dt, 2)
+        # x calculation
+        W_mat_x = np.diag(x_wt)
+        XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
+        pcov_x = np.linalg.inv(XTWX_mat_x)  # Covariance Matrix
+        popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
+        perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
+        # y calculation
+        W_mat_y = np.diag(y_wt)
+        XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t
+        pcov_y = np.linalg.inv(XTWX_mat_y)  # Covariance Matrix
+        popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
+        perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
+        # prepare values to return
+        vx, x0 = popt_x
+        vy, y0 = popt_y
+        vxe, x0e = perr_x
+        vye, y0e = perr_y
+
+        params = np.array([x0, vx, y0, vy])
+        param_errors = np.array([x0e, vxe, y0e, vye])
+
+        # Does not use get_chi2 to accelerate calculation
+        if return_chi2 or (not absolute_sigma):
+            residual_x = x - X_mat_t @ popt_x
+            residual_y = y - X_mat_t @ popt_y
+
+            chi2_x = residual_x.T @ W_mat_x @ residual_x
+            chi2_y = residual_y.T @ W_mat_y @ residual_y
+
+        if not absolute_sigma:
+            if degree_of_freedom > 0:
+                reduced_chi2_x = chi2_x / degree_of_freedom
+                reduced_chi2_y = chi2_y / degree_of_freedom
+                
+                param_errors[0:2] *= reduced_chi2_x**0.5
+                param_errors[2:4] *= reduced_chi2_y**0.5
+
+            else:
+                # degree_of_freedom == 0, as < 0 case already handled above
+                warnings.warn(
+                    f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+                # Set parameter uncertainties to np.inf, same behavior as scipy.optimize.curve_fit
+                param_errors = np.full_like(param_errors, np.inf)
+
+        if return_chi2:
+            return params, param_errors, chi2_x, chi2_y
+        else:
+            return params, param_errors
+
 class Acceleration(MotionModel):
     """
     A 2D accelerating motion model for a star on the sky.
     """
-    n_pts_req = 4 # TODO: consider special case for 3 pts
-    n_params=3
-    fitter_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
+    fit_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
     fixed_param_names = ['t0']
-    
-    def __init__(self, x0=0, vx0=0, ax=0, y0=0, vy0=0, ay=0, t0=None,
-                            x0_err=0, vx0_err=0, ax_err=0, y0_err=0, vy0_err=0, ay_err=0, **kwargs):
+    name = "Acceleration"
+
+    # Number of fit parameters/required observations in each direction
+    n_params = int((len(fit_param_names) + 1) / 2)
+
+    def __init__(self):
         # Must call after setting parameters.
         # This checks for proper parameter formatting.
         super().__init__()
         return
-        
-    def get_pos_at_time(self, fit_params, fixed_params, t):
-        fit_params_dict = dict(zip(self.fitter_param_names, fit_params))
-        fixed_params_dict = dict(zip(self.fixed_param_names, fixed_params))
-        dt = t-fixed_params_dict['t0']
-        x = fit_params_dict['x0'] + fit_params_dict['vx0']*dt + 0.5*fit_params_dict['ax']*dt**2
-        y = fit_params_dict['y0'] + fit_params_dict['vy0']*dt + 0.5*fit_params_dict['ay']*dt**2
-        return x, y
-        
-    def get_batch_pos_at_time(self,t,
-                                x0=[],vx0=[],ax=[], y0=[],vy0=[],ay=[], t0=[],
-                                x0_err=[],vx0_err=[],ax_err=[], y0_err=[],vy0_err=[],ay_err=[], **kwargs):
-        if hasattr(t, "__len__"):
-            dt = t-t0[:,np.newaxis]
-            x = x0[:,np.newaxis] + dt*vx0[:,np.newaxis] + 0.5*dt**2*ax[:,np.newaxis]
-            y = y0[:,np.newaxis] + dt*vy0[:,np.newaxis] + 0.5*dt**2*ay[:,np.newaxis]
-            x_err = np.sqrt(x0_err[:,np.newaxis]**2 + (vx0_err[:,np.newaxis]*dt)**2 + (0.5*ax_err[:,np.newaxis]*dt**2)**2)
-            y_err = np.sqrt(y0_err[:,np.newaxis]**2 + (vy0_err[:,np.newaxis]*dt)**2 + (0.5*ay_err[:,np.newaxis]*dt**2)**2)
-        else:
-            dt = t-t0
-            x = x0 + dt*vx0 + 0.5*dt**2*ax
-            y = y0 + dt*vy0 + 0.5*dt**2*ay
-            x_err = np.sqrt(x0_err**2 + (vx0_err*dt)**2 + (0.5*ax_err*dt**2)**2)
-            y_err = np.sqrt(y0_err**2 + (vy0_err*dt)**2 + (0.5*ay_err*dt**2)**2)
-        return x,y,x_err,y_err
+    
+    def model_fit(self, t, x0, v0, a):
+        """Model positions at time t of Acceleration model.
 
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
-                            use_scipy=True, absolute_sigma=True):
-        if not use_scipy:
-            Warning("Acceleration model has no non-scipy fitter option. Running with scipy.")
-        dt = t-t0
-        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
-        if params_guess is None:
-            params_guess = [x.mean(),0.0,0.0,y.mean(),0.0,0.0]
-            
-        def accel(t, c0,c1,c2):
-            return c0 + c1*t + 0.5*c2*t**2
-            
-        x_opt, x_cov = curve_fit(accel, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=True)
-        y_opt, y_cov = curve_fit(accel, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=True)
-        x0 = x_opt[0]
-        y0 = y_opt[0]
-        vx0 = x_opt[1]
-        vy0 = y_opt[1]
-        ax = x_opt[2]
-        ay = y_opt[2]
+        Parameters
+        ----------
+        t : float or array-like
+            Time(s) at which to evaluate the model
+        x0 : float or array-like
+            Initial position(s)
+        v0 : float or array-like
+            Initial velocity(ies)
+        a : float or array-like
+            Acceleration(s)
+
+        Returns
+        -------
+        float or array-like
+            Model positions at time t of Acceleration model
+        """
+        return x0 + v0*t + 0.5*a*t**2
+
+    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+        """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Acceleration model.
+
+        Parameters
+        ----------
+        t : float or array-like
+            Time(s) at which to evaluate the model
+        fit_params : array-like
+            x0, vx, ax, y0, vy, ay in shape (N_params,) or (N_stars, N_params)
+        fit_param_errs : array-like, optional
+            Fit parameter uncertainties with shape (N_stars, N_params) or (N_params,), by default None
+        fixed_params_dict : dict
+            t0, shape (1,) or (N_stars,)
+
+        Returns
+        -------
+        x, y (, xe, ye)
+            Predicted positions (and uncertainties, if fit_param_errs is provided) with shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
+        """
+        if fixed_params_dict is None:
+            fixed_params_dict = self.fixed_params_dict            
+        assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Acceleration model."
+
+        t = np.atleast_1d(t)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+
+        N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
+        N_times = len(t)
         
+        x0, vx0, ax, y0, vy0, ay = fit_params.T  # Each shape (N_stars,)
+        t0 = np.atleast_1d(fixed_params_dict['t0'])  # Shape (N_stars,) or (1,)
+        
+        dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+        
+        x = self.model_fit(dt, x0[:, np.newaxis], vx0[:, np.newaxis], ax[:, np.newaxis])  # Shape (N_stars, N_times)
+        y = self.model_fit(dt, y0[:, np.newaxis], vy0[:, np.newaxis], ay[:, np.newaxis])  # Shape (N_stars, N_times)
+        
+        if N_stars == 1 or N_times == 1:
+            # If only one star, return flattened arrays
+            x = x.flatten()
+            y = y.flatten()
+        
+        if fit_param_errs is None:
+            return x, y
+        
+        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_params)
+        x0_err, vx0_err, ax_err, y0_err, vy0_err, ay_err = fit_param_errs.T
+        x_err = np.sqrt(x0_err[:, np.newaxis]**2 + (vx0_err[:, np.newaxis] * dt)**2 + (0.5 * ax_err[:, np.newaxis] * dt**2)**2)  # Shape (N_stars, N_times)
+        y_err = np.sqrt(y0_err[:, np.newaxis]**2 + (vy0_err[:, np.newaxis] * dt)**2 + (0.5 * ay_err[:, np.newaxis] * dt**2)**2)  # Shape (N_stars, N_times)
+        
+        if N_stars == 1 or N_times == 1:
+            # If only one star, return flattened arrays
+            x_err = x_err.flatten()
+            y_err = y_err.flatten()
+
+        return x, y, x_err, y_err
+
+
+    def run_fit(
+        self, t, x, y, xe, ye, 
+        fixed_params_dict=None,
+        weighting='var', 
+        use_scipy=True, 
+        absolute_sigma=True, 
+        params_guess=None,
+        fill_value=np.nan,
+        return_chi2=False,
+        verbose=True
+    ):
+        if fixed_params_dict is None:
+            fixed_params_dict = {}
+        if 't0' not in fixed_params_dict:
+            # Default t0 to weighted average time
+            fixed_params_dict['t0'] = np.average(t, weights=1./np.hypot(xe, ye))
+        self.fixed_params_dict = fixed_params_dict
+        t0 = np.atleast_1d(fixed_params_dict['t0'])
+        t = np.atleast_1d(t)
+        x = np.atleast_1d(x)
+        y = np.atleast_1d(y)
+        xe = np.atleast_1d(xe)
+        ye = np.atleast_1d(ye)
+
+        if not use_scipy:
+            if verbose:
+                warnings.warn("Acceleration model has no non-scipy fitter option. Running with scipy.")
+
+        n_obs = len(t)
+        degree_of_freedom = n_obs - self.n_params
+        # Not enough data points to fit model
+        if degree_of_freedom < 0:
+            if verbose:
+                warnings.warn(
+                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+            params = np.full(self.n_params, fill_value)
+            param_errors = np.full(self.n_params, np.inf)
+            if return_chi2:
+                return params, param_errors, np.nan, np.nan
+            else:
+                return params, param_errors
+
+        # degree_of_freedom >= 0
+        dt = t - t0
+        x_wt, y_wt = self.calc_weights(xe,ye, weighting=weighting)
+        if params_guess is None:
+            # Initial guess for velocity:
+            idx_first, idx_last = np.argmin(t), np.argmax(t)
+            t_span = t[idx_last] - t[idx_first]
+            params_guess = [x.mean(), (x[idx_last] - x[idx_first]) / t_span, 0., y.mean(), (y[idx_last] - y[idx_first]) / t_span, 0.]
+
+        x_opt, x_cov = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma)
+        y_opt, y_cov = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma)
+        x0, vx0, ax = x_opt
+        y0, vy0, ay = y_opt
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
         y0e, vy0e, aye = np.sqrt(y_cov.diagonal())
-        x0e, vx0e, axe, y0e, vy0e, aye = self.scale_errors([x0e, vx0e, axe, y0e, vy0e, aye], weighting=weighting)
 
-        params = [x0, vx0, ax, y0, vy0, ay]
-        param_errors = [x0e, vx0e, axe, y0e, vy0e, aye]
-        
-        return params, param_errors
+        params = np.array([x0, vx0, ax, y0, vy0, ay])
+        param_errors = np.array([x0e, vx0e, axe, y0e, vy0e, aye])
+        if return_chi2:
+            chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
+            return params, param_errors, chi2_x, chi2_y
+        else:
+            return params, param_errors
 
 class Parallax(MotionModel):
     """
     Motion model for linear proper motion + parallax
     
-    Requires RA & Dec (J2000) for parallax calculation.
+    Requires RA and Dec J2000 (degrees) for parallax calculation.
     Optional PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describes observer location, default is 'earth'.
     """
-    n_pts_req = 4
-    n_params=3
-    fitter_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
-    fixed_param_names = ['t0']
-    fixed_meta_data = ['RA','Dec','PA','obs']
+    fit_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
+    fixed_param_names = ['t0', 'ra', 'dec', 'pa', 'obsLocation']
+    name = "Parallax"
+        
+    # Number of fit parameters/required observations in each direction
+    n_params = int((len(fit_param_names) + 1) / 2)
 
-    def __init__(self, RA, Dec, PA=0.0, obs='earth', **kwargs):
-        self.RA = RA
-        self.Dec = Dec
-        self.PA = PA
-        self.obs = obs
-        self.plx_vector_cached = None
+    def __init__(self):
+        super().__init__()
+        self.plx_vector_cached = None  # Cache for parallax vector
         return
-        
-    def get_parallax_vector(self, t_mjd):
-        recalc_plx = True
-        if self.plx_vector_cached is not None:
-            if hasattr(t_mjd, "__len__"):
-                if list(t_mjd) == list(self.plx_vector_cached[0]):
-                    pvec = self.plx_vector_cached[1:]
-                    recalc_plx = False
-                elif all([t_mjd_i in self.plx_vector_cached[0] for t_mjd_i in t_mjd]):
-                    pvec_idxs = [np.argwhere(self.plx_vector_cached[0]==t_mjd_i)[0][0] for t_mjd_i in t_mjd]
-                    pvec = [self.plx_vector_cached[1][pvec_idxs], self.plx_vector_cached[2][pvec_idxs]]
-                    recalc_plx = False
-            elif t_mjd in self.plx_vector_cached[0]:
-                idx = np.where(t_mjd==self.plx_vector_cached[0])[0][0]
-                pvec = np.array([self.plx_vector_cached[1][idx], self.plx_vector_cached[2][idx]])
-                recalc_plx = False
-        if recalc_plx:
-            pvec = parallax.parallax_in_direction(self.RA, self.Dec, t_mjd, obsLocation=self.obs, PA=self.PA).T
-            if hasattr(t_mjd, "__len__"):
-                self.plx_vector_cached = [t_mjd, pvec[0], pvec[1]]
-        return pvec
-        
-    def get_pos_at_time(self, fit_params, fixed_params, t):
-        fit_params_dict = dict(zip(self.fitter_param_names, fit_params))
-        fixed_params_dict = dict(zip(self.fixed_param_names, fixed_params))
-        dt = t-fixed_params_dict['t0']
-        
-        t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = self.get_parallax_vector(t_mjd)
-        pvec_x = np.reshape(pvec[0], t.shape)
-        pvec_y = np.reshape(pvec[1], t.shape)
-        x = fit_params_dict['x0'] + fit_params_dict['vx']*dt + fit_params_dict['pi']*pvec_x
-        y = fit_params_dict['y0'] + fit_params_dict['vy']*dt + fit_params_dict['pi']*pvec_y
-        return x, y
-        
-    def get_batch_pos_at_time(self, t,
-                                x0=[],vx=[], y0=[],vy=[], pi=[], t0=[],
-                                x0_err=[],vx_err=[], y0_err=[],vy_err=[], pi_err=[], **kwargs):
-        t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = self.get_parallax_vector(t_mjd)
-        if hasattr(t, "__len__"):
-            dt = t-t0[:,np.newaxis]
-            x = x0[:,np.newaxis] + dt*vx[:,np.newaxis] + pi[:,np.newaxis]*pvec[0].T
-            y = y0[:,np.newaxis] + dt*vy[:,np.newaxis] + pi[:,np.newaxis]*pvec[1].T
-            try:
-                x_err = np.sqrt(x0_err[:,np.newaxis]**2 + (vx_err[:,np.newaxis]*dt)**2 + (pi_err[:,np.newaxis]*pvec[0].T)**2)
-                y_err = np.sqrt(y0_err[:,np.newaxis]**2 + (vy_err[:,np.newaxis]*dt)**2 + (pi_err[:,np.newaxis]*pvec[1].T)**2)
-            except:
-                x_err,y_err = [],[]
-        else:
-            dt = t-t0
-            x = x0 + dt*vx + pi*pvec[0]
-            y = y0 + dt*vy + pi*pvec[1]
-            try:
-                x_err = np.sqrt(x0_err**2 + (vx_err*dt)**2 + (pi_err*pvec[0])**2)
-                y_err = np.sqrt(y0_err**2 + (vy_err*dt)**2 + (pi_err*pvec[1])**2)
-            except:
-                x_err,y_err = [],[]
-        return x,y,x_err,y_err
 
-    def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
-                            use_scipy=True, absolute_sigma=True):
+    def calc_parallax_vector(self, t_mjd, ra, dec, pa=0., obsLocation='earth'):
+        """Calculate parallax vector of shape (2, N_times)
+
+        Parameters
+        ----------
+        t_mjd : array-like
+            Time array in mjd
+        ra : float or array-like
+            Right ascension(s) in degrees
+        dec : float or array-like
+            Declination(s) in degrees
+        pa : float or array-like, optional
+            Position angle(s) of image y-axis from North in degrees, by default 0.
+        obsLocation : str, optional
+            Observer location, by default 'earth'
+
+        Returns
+        -------
+        pvec
+            Parallax vector of shape (2, N_times)
+        """
+        if self.plx_vector_cached is not None:
+            t_mjd = np.atleast_1d(t_mjd)
+            t_mjd_cached = self.plx_vector_cached[0]
+            if np.array_equal(t_mjd, t_mjd_cached):
+                # If cached values match input times, return cached values
+                return self.plx_vector_cached[1]
+
+            elif all(np.isin(t_mjd, t_mjd_cached)):
+                # If all input times are in cached values, return those
+                # Calculate pvec_idxs such that t_mjd_cached[ pvec_idxs ] == t_mjd
+                pvec_idxs = np.array([np.where(t_mjd_cached == t_mjd_i)[0][0] for t_mjd_i in t_mjd])
+                pvec = self.plx_vector_cached[1][:, pvec_idxs]
+                return pvec
+
+        pvec = parallax.parallax_in_direction(ra, dec, t_mjd, obsLocation=obsLocation, pa=pa)
+        self.plx_vector_cached = [t_mjd, pvec]
+        return pvec
+
+    def model_fit(self, dt, x0, vx, y0, vy, pi):
+        """Model positions at time t of Parallax model.
+
+        Parameters
+        ----------
+        dt : float or array-like
+            Time(s) at which to evaluate the model
+        x0 : float or array-like
+            Initial position(s)
+        vx : float or array-like
+            Velocity(ies)
+        y0 : float or array-like
+            Initial position(s)
+        vy : float or array-like
+            Velocity(ies)
+        pi : float or array-like
+            Parallax factor(s)
+
+        Returns
+        -------
+        x_res, y_res : array-like
+            Model positions at time t of Parallax model
+        """
+        # x0, vx, y0, vy, pi are all shape (N_stars, N_times)
+        x_res = x0 + vx * dt + pi * self.pvec[0]
+        y_res = y0 + vy * dt + pi * self.pvec[1]
+        return x_res, y_res
+    
+    def _model_fit(self, dt, x0, vx, y0, vy, pi):
+        """Wrapper for model_fit to return concatenated results for scipy fitting."""
+        x_res, y_res = self.model_fit(dt, x0, vx, y0, vy, pi)
+        return np.hstack([x_res, y_res])  # Shape (N_stars, 2*N_times)
+
+    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+        """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Parallax model.
+
+        Parameters
+        ----------
+        t : float or array-like
+            Times at which to evaluate the model
+        fit_params : array-like
+            x0, vx, y0, vy, pi in shape (N_params,) or (N_stars, N_params)
+        fit_param_errs : array-like, optional
+            Uncertainties in fit parameters, by default None
+        fixed_params : dict
+            - t0, shape (N_stars,) or (1,).
+            - ra, shape (N_stars,) or (1,).
+            - dec, shape (N_stars,) or (1,).
+            - pa, optional, shape (N_stars,) or (1,), by default 0.
+            - obsLocation, optional, string, by default 'earth'
+
+        Returns
+        -------
+        x, y (, xe, ye)
+            Predicted positions (and uncertainties, if fit_param_errs is provided) with shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
+        """
+        if fixed_params_dict is None:
+            fixed_params_dict = self.fixed_params_dict
+        assert all([_ in fixed_params_dict for _ in ['t0', 'ra', 'dec']]), "Fixed parameters t0, ra, and dec are required for Parallax model."
+
+        t = np.atleast_1d(t)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+        N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
+        N_times = len(t)
+
+        x0, vx, y0, vy, pi = fit_params.T  # Each shape (N_stars,)
+        t0 = np.atleast_1d(fixed_params_dict['t0'])  # Shape (N_stars,) or (1,)
+        ra = np.atleast_1d(fixed_params_dict['ra'])
+        dec = np.atleast_1d(fixed_params_dict['dec'])
+        pa = np.atleast_1d(fixed_params_dict.get('pa', 0.0))
+        obsLocation = fixed_params_dict.get('obsLocation', 'earth')
+
+        # TODO: vectorize parallax.parallax_in_direction to handle multiple obsLocation?
+        
+        assert (type(obsLocation) == str) or (np.unique(obsLocation).size == 1), "obsLocation must be a single string for all stars at this time."
+        if type(obsLocation) != str:
+            obsLocation = np.unique(obsLocation)[0]
+
+        dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+        t_mjd = Time(t, format='decimalyear', scale='utc').mjd  # Shape (N_times,)
+        self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (2, N_times)
+        x, y = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis], y0[:, np.newaxis], vy[:, np.newaxis], pi[:, np.newaxis])  # Shape (N_stars, N_times)
+
+        if N_stars == 1 or N_times == 1:
+            # If only one star, return flattened arrays
+            x = x.flatten()
+            y = y.flatten()
+
+        if fit_param_errs is None:
+            return x, y
+
+        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_params)
+        x0_err, vx_err, y0_err, vy_err, pi_err = fit_param_errs.T
+        x_err = np.sqrt(x0_err[:, np.newaxis]**2 + (vx_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[0][np.newaxis, :])**2)  # Shape (N_stars, N_times)
+        y_err = np.sqrt(y0_err[:, np.newaxis]**2 + (vy_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[1][np.newaxis, :])**2)  # Shape (N_stars, N_times)
+        
+        if N_stars == 1 or N_times == 1:
+            # If only one star, return flattened arrays
+            x_err = x_err.flatten()
+            y_err = y_err.flatten()
+        return x, y, x_err, y_err
+
+
+    def run_fit(
+        self, t, x, y, xe, ye, 
+        fixed_params_dict,
+        weighting='var', 
+        use_scipy=True, 
+        absolute_sigma=True, 
+        params_guess=None, 
+        fill_value=np.nan,
+        return_chi2=False,
+        verbose=True
+    ):
         if not use_scipy:
-            Warning("Parallax model has no non-scipy fitter option. Running with scipy.")
+            if verbose:
+                warnings.warn("Parallax model has no non-scipy fitter option. Running with scipy.", UserWarning)
+        
+        assert all([k in fixed_params_dict for k in ['ra', 'dec']]), "Parallax model requires 'ra' and 'dec' in fixed_params."
+        t = np.atleast_1d(t)
+
+        if 't0' not in fixed_params_dict:
+            # Default t0 to weighted average time
+            fixed_params_dict['t0'] = np.average(t, weights=1./np.hypot(xe, ye))
+        if 'obsLocation' not in fixed_params_dict:
+            fixed_params_dict['obsLocation'] = 'earth'
+        self.fixed_params_dict = fixed_params_dict
+        t0 = np.atleast_1d(fixed_params_dict['t0'])
+        ra = np.atleast_1d(fixed_params_dict['ra'])
+        dec = np.atleast_1d(fixed_params_dict['dec'])
+        pa = np.atleast_1d(fixed_params_dict.get('pa', 0.0))
+        obsLocation = fixed_params_dict['obsLocation']
+
+        n_fit = len(t)
+        degree_of_freedom = n_fit - self.n_params
+        # Not enough data points to fit model
+        if degree_of_freedom < 0:
+            if verbose:
+                warnings.warn(
+                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+            params = np.full(self.n_params, fill_value)
+            param_errors = np.full(self.n_params, np.inf)
+            if return_chi2:
+                return params, param_errors, np.nan, np.nan
+            else:
+                return params, param_errors
+
+        # degree_of_freedom >= 0
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        pvec = self.get_parallax_vector(t_mjd)
-        x_wt, y_wt = self.get_weights(xe,ye, weighting=weighting)
-        def fit_func(use_t, x0,vx, y0,vy, pi):
-            x_res = x0 + vx*(use_t-t0) + pi*pvec[0]
-            y_res = y0 + vy*(use_t-t0) + pi*pvec[1]
-            return np.hstack([x_res, y_res])
+        self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (2, N_times)
+        x_wt, y_wt = self.calc_weights(xe, ye, weighting=weighting)
+
         # Initial guesses, x0,y0 as x,y averages;
         #     vx,vy as average velocity if first and last points are perfectly measured;
-        #     pi for 10 pc disance
+        #     pi for 10 pc distance
         if params_guess is None:
             idx_first, idx_last = np.argmin(t), np.argmax(t)
-            params_guess = [x.mean(),(x[idx_last]-x[idx_first])/(t[idx_last]-t[idx_first]),
-                            y.mean(),(y[idx_last]-y[idx_first])/(t[idx_last]-t[idx_first]), 0.1]
-        res = curve_fit(fit_func, t, np.hstack([x,y]),
-                        p0=params_guess, sigma = 1.0/np.hstack([x_wt,y_wt]))
-        x0,vx,y0,vy,pi = res[0]
-        x0_err,vx_err,y0_err,vy_err,pi_err = self.scale_errors(np.sqrt(np.diag(res[1])), weighting=weighting)
+            t_span = t[idx_last] - t[idx_first]
+            params_guess = [
+                x.mean(), (x[idx_last] - x[idx_first]) / t_span,
+                y.mean(), (y[idx_last] - y[idx_first]) / t_span, 
+                0.1
+            ]
+        popt, pcov = curve_fit(
+            self._model_fit, t - t0, np.hstack([x, y]),
+            p0=params_guess, sigma=np.hstack([x_wt, y_wt]),
+            absolute_sigma=absolute_sigma
+        )
+        x0, vx, y0, vy, pi = popt
+        x0_err, vx_err, y0_err, vy_err, pi_err = np.sqrt(pcov.diagonal())
 
-        params = [x0, vx, y0, vy, pi]
-        param_errors = [x0_err, vx_err, y0_err, vy_err, pi_err]
-        return params, param_errors
+        params = np.array([x0, vx, y0, vy, pi])
+        param_errors = np.array([x0_err, vx_err, y0_err, vy_err, pi_err])
         
+        if return_chi2:
+            chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
+            return params, param_errors, chi2_x, chi2_y
+        else:
+            return params, param_errors
 
-def validate_motion_model_dict(motion_model_dict, startable, default_motion_model):
-    """
-    Check that everything is set up properly for motion models to run and their
-    required metadata.
-    """
 
-    # Collect names of all motion models that might get used.
-    all_motion_model_names = ['Fixed']
-    if default_motion_model is not None:
-        all_motion_model_names.append(default_motion_model)
-    if 'motion_model_input' in startable.columns:
-        all_motion_model_names += np.unique(startable['motion_model_input']).tolist()
-    if 'motion_model_used' in startable.columns:
-        all_motion_model_names += np.unique(startable['motion_model_used']).tolist()
-    all_motion_model_names = np.unique(all_motion_model_names)
+def motion_model_param_names(motion_models, with_errors=True, with_fixed=True):
+    """Get the motion model parameter names from a list of MotionModels.
+
+    Parameters
+    ----------
+    motion_models : MotionModel, str, or list of MotionModels/strings.
+        Motion model to query parameter names from. If str, should be the name of a MotionModel class.
+    with_errors : bool, optional
+        Add uncertainty names with '_err' suffix or not, by default True
+    with_fixed : bool, optional
+        Add fixed param names with '_fixed' suffix or not, by default True
     
-    # Check whether all motion models are in the dict, and if not, try to add them
-    #   here or raise an error.
-    for mm in all_motion_model_names:
-        if mm not in motion_model_dict:
-            mm_obj = eval(mm)
-            if len(mm_obj.fixed_meta_data)>0:
-                raise ValueError(f"Cannot use {mm} motion model without required metadata. Please initialize with required metadata and provide in motion_model_dict.")
-            else:
-                motion_model_dict[mm] = mm_obj()
-                warnings.warn(f"Using default model/fitter for {mm}.", UserWarning)
-
-    return motion_model_dict
-    
-
-def get_one_motion_model_param_names(motion_model_name, with_errors=True, with_fixed=True):
+    Returns
+    -------
+    list
+        List of all unique parameter names across all motion models
     """
-    Get all the motion model parameters for a given motion_model_name.
-    Optionally, include fixed and error parameters (included by default).
-    """
-    mod = eval(motion_model_name)
     list_of_parameters = []
-    list_of_parameters += getattr(mod, 'fitter_param_names')
-    if with_fixed:
-        list_of_parameters += getattr(mod, 'fixed_param_names')
-    if with_errors:
-        list_of_parameters += [par+'_err' for par in getattr(mod, 'fitter_param_names')]
+
+    def list_add(name):
+        if name not in list_of_parameters:
+            list_of_parameters.append(name)
+    
+    motion_models = np.atleast_1d(motion_models)
+    mm_map = motion_model_map()
+    for mm in motion_models:
+        if isinstance(mm, str):
+            mm = mm_map[mm]
+        for param in mm.fit_param_names:
+            # Fitter params
+            list_add(param)
+            # Error params
+            if with_errors:
+                list_add(param + '_err')
+        # Fixed params
+        if with_fixed:
+            for param in mm.fixed_param_names:
+                list_add(param)
     return list_of_parameters
 
 
-def get_list_motion_model_param_names(motion_model_list, with_errors=True, with_fixed=True):
-    """
-    Get all the motion model parameters for all models given in motion_model_list.
-    Optionally, include fixed and error parameters (included by default).
-    """
-    list_of_parameters = []
-    all_motion_models = [eval(mm) for mm in np.unique(motion_model_list).tolist()]
-    for aa in range(len(all_motion_models)):
-        param_names = getattr(all_motion_models[aa], 'fitter_param_names')
-        param_fixed_names = getattr(all_motion_models[aa], 'fixed_param_names')
-        param_err_names = [par+'_err' for par in param_names]
+def all_motion_model_param_names(with_errors=True, with_fixed=True):
+    """Get all motion model parameter names from all available MotionModels.
 
-        list_of_parameters += param_names
-        if with_fixed:
-            list_of_parameters += param_fixed_names
-        if with_errors:
-            list_of_parameters += param_err_names
-    
-    return np.unique(list_of_parameters).tolist()
+    Parameters
+    ----------
+    with_errors : bool, optional
+        Add uncertainty names with '_err' suffix or not, by default True
+    with_fixed : bool, optional
+        Add fixed param names with '_fixed' suffix or not, by default True
 
-
-def get_all_motion_model_param_names(with_errors=True, with_fixed=True):
+    Returns
+    -------
+    list
+        List of all unique parameter names across all motion models
     """
-    Get all the motion model parameters for all models defined in this module.
-    Optionally, include fixed and error parameters (included by default).
-    """
-    list_of_parameters = []
-    all_motion_models = MotionModel.__subclasses__()
-    for aa in range(len(all_motion_models)):
-        param_names = getattr(all_motion_models[aa], 'fitter_param_names')
-        param_fixed_names = getattr(all_motion_models[aa], 'fixed_param_names')
-        param_err_names = [par+'_err' for par in param_names]
+    return motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
 
-        list_of_parameters += param_names
-        if with_fixed:
-            list_of_parameters += param_fixed_names
-        if with_errors:
-            list_of_parameters += param_err_names
-    
-    return np.unique(list_of_parameters).tolist()
-    
+def motion_model_map():
+    """Get a dictionary mapping motion model names to MotionModel classes.
+
+    Returns
+    -------
+    mm_map : dict
+        Dictionary mapping motion model names to MotionModel classes.
+    """
+    mm_map = dict(
+        [(mm.__name__, mm) for mm in MotionModel.__subclasses__()]
+    )
+    # Sort by n_params
+    mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].n_params))
+    return mm_map

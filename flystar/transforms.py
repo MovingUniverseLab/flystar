@@ -5,8 +5,9 @@ from scipy import stats
 from astropy.table import Table
 import collections
 import re
-import pdb
-from flystar import motion_model
+import copy
+import datetime
+from . import motion_model
 
 class Transform2D(object):
     '''
@@ -126,7 +127,7 @@ class Transform2D(object):
                 complex_motion_model=False
         # Cannot transform more complex motion models - set values to nan
         if complex_motion_model:
-            motion_params = motion_model.get_list_motion_model_param_names(new_list['motion_model_input'], with_errors=True, with_fixed=False)
+            motion_params = motion_model.motion_model_param_names(new_list['motion_model_input'], with_errors=True, with_fixed=False)
             for param in motion_params:
                 if param in new_list.colnames:
                     new_list[param] = np.nan
@@ -220,7 +221,7 @@ class four_paramNW(Transform2D):
         yn = self.py[0] + self.py[1]*x + self.py[2]*y
         return xn, yn
 
-    def evaluate_error(self, x, y):
+    def evaluate_error(self, x, y, xe, ye):
 
         """
         Transform positional uncertainties. 
@@ -245,7 +246,7 @@ class four_paramNW(Transform2D):
 
         """
         xe_new = np.hypot(self.px[1] * xe, self.px[2] * ye)
-        xe_new = np.hpyot(self.px[1] * xe, self.px[2] * ye)
+        ye_new = np.hpyot(self.px[1] * xe, self.px[2] * ye)
                 
 
         return xe_new, ye_new
@@ -666,7 +667,7 @@ class PolyTransform(Transform2D):
         
         return trans_obj
 
-    def to_file(self, trans_file):
+    def to_file(self, transform, outFile):
         """
         Given a transformation object, write out the coefficients in a text file
         (readable by java align). Outfile name is specified by user.
@@ -677,9 +678,9 @@ class PolyTransform(Transform2D):
     
         Parameters:
         ----------
-        trans_file : str
-            The name of the output file to save the coefficients and meta data to. 
-            This file can be read back in with 
+        transform : PolyTransform
+            The transformation object containing the coefficients and meta data to save. 
+            This object can be recreated with 
 
                 trans_obj = PolyTransfrom.from_file(trans_file).
 
@@ -695,7 +696,7 @@ class PolyTransform(Transform2D):
             
         # Write output
         _out = open(outFile, 'w')
-        
+
         # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
         _out.write('## Date: {0}\n'.format(datetime.date.today()) )
         _out.write('## File: {0}, Reference: {1}\n'.format(starlist, reference) )

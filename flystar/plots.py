@@ -1,9 +1,8 @@
-from flystar import analysis, motion_model, startables
-import pylab as py
-import pylab as plt
+from . import motion_model, startables
 import numpy as np
 import matplotlib.mlab as mlab
 import matplotlib
+import matplotlib.pyplot as plt
 from matplotlib import colors
 import matplotlib.cm as cm
 from scipy.stats import chi2
@@ -23,8 +22,8 @@ from astropy import units as u
 ####################################################
 
 
-def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, fileName=None,
-                        equal_axis=True, root='./'):
+def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
+                        equal_axis=True, save_path=None, show_plot=True):
     """
     Plot positions of stars in reference list and the transformed starlist,
     in reference list coordinates. Stars used in the transformation are
@@ -55,31 +54,37 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None, 
 
     equal_axis: boolean
         If true, make axes equal. True by default
-    
-    """
-    py.figure(figsize=(10,10))
-    py.clf()
-    py.plot(ref['x'], ref['y'], 'g+', ms=5, label='Reference')
-    py.plot(starlist['x'], starlist['y'], 'rx', ms=5, label='starlist')
-    py.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, alpha=0.3,
-                linestyle='None', label='Matched Reference')
-    py.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, alpha=0.3,
-                linestyle='None', label='Matched starlist')
-    py.xlabel('X position (Reference Coords)')
-    py.ylabel('Y position (Reference Coords)')
-    py.legend(numpoints=1)
-    py.title('Label.dat Positions After Transformation')
-    if xlim != None:
-        py.axis([xlim[0], xlim[1], ylim[0], ylim[1]])
-    if equal_axis:
-        py.axis('equal')
-    if fileName!=None:
-        #py.savefig(root + fileName[3:8] + 'Transformed_positions_' + '.png')
-        py.savefig(root + 'Transformed_positions_{0}'.format(fileName) + '.png')
-    else:
-        py.savefig(root + 'Transformed_positions.png')
 
-    py.close()
+    save_path: string
+        Path to save the figure to. Default is None
+    
+    show_plot: boolean
+        If true, show the plot. Default is True
+
+    """
+    plt.figure(figsize=(10,10))
+    plt.clf()
+    plt.plot(ref['x'], ref['y'], 'g+', ms=5, label='Reference')
+    plt.plot(starlist['x'], starlist['y'], 'rx', ms=5, label='starlist')
+    plt.plot(ref_mat['x'], ref_mat['y'], color='skyblue', marker='s', ms=10, alpha=0.3,
+                linestyle='None', label='Matched Reference')
+    plt.plot(starlist_mat['x'], starlist_mat['y'], color='darkblue', marker='s', ms=5, alpha=0.3,
+                linestyle='None', label='Matched starlist')
+    plt.xlabel('X position (Reference Coords)')
+    plt.ylabel('Y position (Reference Coords)')
+    plt.legend(numpoints=1)
+    plt.title('Label.dat Positions After Transformation')
+    if xlim != None:
+        plt.axis([xlim[0], xlim[1], ylim[0], ylim[1]])
+    if equal_axis:
+        plt.axis('equal')
+    
+    if save_path:
+        plt.savefig(save_path)
+    if show_plot:
+        plt.show()
+
+    plt.close()
     return
 
 
@@ -121,22 +126,22 @@ def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, xlim=None, fi
 
         bins = np.arange(min_range, max_range+bin_width, bin_width)
     
-    py.figure(figsize=(10,10))
-    py.clf()
-    py.hist(diff_x, histtype='step', bins=bins, color='blue', label='X')
-    py.hist(diff_y, histtype='step', bins=bins, color='red', label='Y')
-    py.xlabel('Reference Position - starlist Position')
-    py.ylabel('N stars')
-    py.title('Position Differences for matched stars')
+    plt.figure(figsize=(10,10))
+    plt.clf()
+    plt.hist(diff_x, histtype='step', bins=bins, color='blue', label='X')
+    plt.hist(diff_y, histtype='step', bins=bins, color='red', label='Y')
+    plt.xlabel('Reference Position - starlist Position')
+    plt.ylabel('N stars')
+    plt.title('Position Differences for matched stars')
     if xlim != None:
-        py.xlim([xlim[0], xlim[1]])
-    py.legend()
+        plt.xlim([xlim[0], xlim[1]])
+    plt.legend()
     if fileName != None:
-        py.savefig(root + fileName[3:8] + 'Positions_hist_' + '.png')
+        plt.savefig(root + fileName[3:8] + 'Positions_hist_' + '.png')
     else:
-        py.savefig(root + 'Positions_hist.png')
+        plt.savefig(root + 'Positions_hist.png')
 
-    py.close()
+    plt.close()
     return
 
 def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None, errs='both', xlim=None,
@@ -188,6 +193,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
         an outlier. 
         
     """
+    from . import analysis
     diff_x = ref_mat['x'] - starlist_mat['x']
     diff_y = ref_mat['y'] - starlist_mat['y']
 
@@ -248,51 +254,51 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
 
         bins = np.arange(min_range, max_range+bin_width, bin_width)
     
-    py.figure(figsize=(10,10))
-    py.clf()
-    n_x, bins_x, p = py.hist(ratio_x, histtype='step', bins=bins, color='blue',
+    plt.figure(figsize=(10,10))
+    plt.clf()
+    n_x, bins_x, p = plt.hist(ratio_x, histtype='step', bins=bins, color='blue',
                              label='X', density=True, linewidth=2)
-    n_y, bins_y, p = py.hist(ratio_y, histtype='step', bins=bins, color='red',
+    n_y, bins_y, p = plt.hist(ratio_y, histtype='step', bins=bins, color='red',
                              label='Y', density=True, linewidth=2)
 
     # Overplot a Gaussian, as well
     mean = 0
     sigma = 1
     x = np.arange(-6, 6, 0.1)
-    py.plot(x, norm.pdf(x,mean,sigma), 'g-', linewidth=2)
+    plt.plot(x, norm.pdf(x,mean,sigma), 'g-', linewidth=2)
     
     # Annotate reduced chi-sqared values in plot: with outliers
-    xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
-    py.annotate(xstr, xy=(0.3, 0.77), xycoords='figure fraction', color='black')
+    xstr = r'$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
+    plt.annotate(xstr, xy=(0.3, 0.77), xycoords='figure fraction', color='black')
     txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(diff_x), num_mod_params,
                                                  deg_freedom)
-    py.annotate(txt, xy=(0.25,0.74), xycoords='figure fraction', color='black')
+    plt.annotate(txt, xy=(0.25,0.74), xycoords='figure fraction', color='black')
     xstr2 = 'With Outliers'
     xstr3 = '{0} with +/- {1}+ sigma'.format(len(ratio_x) - len(good[0]), outlier)
-    py.annotate(xstr2, xy=(0.29, 0.83), xycoords='figure fraction', color='black')
-    py.annotate(xstr3, xy=(0.25, 0.80), xycoords='figure fraction', color='black')
+    plt.annotate(xstr2, xy=(0.29, 0.83), xycoords='figure fraction', color='black')
+    plt.annotate(xstr3, xy=(0.25, 0.80), xycoords='figure fraction', color='black')
     
     # Annotate reduced chi-sqared values in plot: without outliers
-    xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red_good, decimals=3))
-    py.annotate(xstr, xy=(0.7, 0.8), xycoords='figure fraction', color='black')
+    xstr = r'$\chi^2_r$ = {0}'.format(np.round(chi_sq_red_good, decimals=3))
+    plt.annotate(xstr, xy=(0.7, 0.8), xycoords='figure fraction', color='black')
     txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(good[0]), num_mod_params,
                                                  deg_freedom_good)
-    py.annotate(txt, xy=(0.65,0.77), xycoords='figure fraction', color='black')
+    plt.annotate(txt, xy=(0.65,0.77), xycoords='figure fraction', color='black')
     xstr2 = 'Without Outliers'
-    py.annotate(xstr2, xy=(0.67, 0.83), xycoords='figure fraction', color='black')
+    plt.annotate(xstr2, xy=(0.67, 0.83), xycoords='figure fraction', color='black')
     
-    py.xlabel('(Ref Pos - TransStarlist Pos) / Ast. Error')
-    py.ylabel('N stars (normalized)')
-    py.title('Position Residuals for Matched Stars')
+    plt.xlabel('(Ref Pos - TransStarlist Pos) / Ast. Error')
+    plt.ylabel('N stars (normalized)')
+    plt.title('Position Residuals for Matched Stars')
     if xlim != None:
-        py.xlim([xlim[0], xlim[1]])
-    py.legend()
+        plt.xlim([xlim[0], xlim[1]])
+    plt.legend()
     if fileName != None:
-        py.savefig(root + fileName[3:8] + 'Positions_err_ratio_hist_' + '.png')
+        plt.savefig(root + fileName[3:8] + 'Positions_err_ratio_hist_' + '.png')
     else:
-        py.savefig(root + 'Positions_err_ratio_hist.png')
+        plt.savefig(root + 'Positions_err_ratio_hist.png')
 
-    py.close()
+    plt.close()
     return
 
 
@@ -319,18 +325,18 @@ def mag_diff_hist(ref_mat, starlist_mat, bins=25, fileName=None, root='./'):
     bad2 = np.where(bad == True)
     diff_m = np.delete(diff_m, bad2)
  
-    py.figure(figsize=(10,10))
-    py.clf()
-    py.hist(diff_m, bins=bins)
-    py.xlabel('Reference Mag - TransStarlist Mag')
-    py.ylabel('N stars')
-    py.title('Magnitude Difference for matched stars')
+    plt.figure(figsize=(10,10))
+    plt.clf()
+    plt.hist(diff_m, bins=bins)
+    plt.xlabel('Reference Mag - TransStarlist Mag')
+    plt.ylabel('N stars')
+    plt.title('Magnitude Difference for matched stars')
     if fileName != None:
-        py.savefig(root + fileName[3:8] + 'Magnitude_hist_' + '.png')
+        plt.savefig(root + fileName[3:8] + 'Magnitude_hist_' + '.png')
     else:
-        py.savefig(root + 'Magnitude_hist.png')
+        plt.savefig(root + 'Magnitude_hist.png')
 
-    py.close()
+    plt.close()
     return
 
 def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, ylim=None,
@@ -411,35 +417,35 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
 
     s = len(xpos)
     
-    py.figure(figsize=(10,10))
-    py.clf()
-    q = py.quiver(xpos, ypos, diff_x, diff_y, scale=qscale)
+    plt.figure(figsize=(10,10))
+    plt.clf()
+    q = plt.quiver(xpos, ypos, diff_x, diff_y, scale=qscale)
     fmt = '{0} ref units'.format(keyLength)
-    #py.quiverkey(q, 0.2, 0.92, keyLength, fmt, coordinates='figure', color='black')
+    #plt.quiverkey(q, 0.2, 0.92, keyLength, fmt, coordinates='figure', color='black')
     # Make our reference arrow a different color
-    q2 = py.quiver(xpos[s-2:s], ypos[s-2:s], diff_x[s-2:s], diff_y[s-2:s], scale=qscale, color='red')
+    q2 = plt.quiver(xpos[s-2:s], ypos[s-2:s], diff_x[s-2:s], diff_y[s-2:s], scale=qscale, color='red')
     # Annotate our reference quiver arrow
-    py.annotate(fmt, xy=(xpos[-1]-2, ypos[-1]+0.5), color='red')
-    py.xlabel('X Position (Reference coords)')
-    py.ylabel('Y Position (Reference coords)')
+    plt.annotate(fmt, xy=(xpos[-1]-2, ypos[-1]+0.5), color='red')
+    plt.xlabel('X Position (Reference coords)')
+    plt.ylabel('Y Position (Reference coords)')
     if xlim != None:
-        py.axis([xlim[0], ylim[1], ylim[0], ylim[1]])
+        plt.axis([xlim[0], ylim[1], ylim[0], ylim[1]])
     if sigma:
         if fileName != None:
-            py.title('(Reference - Transformed Starlist positions) / sigma')
-            py.savefig(root + fileName[3:8] + 'Positions_quiver_sigma_' + '.png')
+            plt.title('(Reference - Transformed Starlist positions) / sigma')
+            plt.savefig(root + fileName[3:8] + 'Positions_quiver_sigma_' + '.png')
         else:
-            py.title('(Reference - Transformed Starlist positions) / sigma')
-            py.savefig(root + 'Positions_quiver_sigma.png')
+            plt.title('(Reference - Transformed Starlist positions) / sigma')
+            plt.savefig(root + 'Positions_quiver_sigma.png')
     else:
         if fileName != None:
-            py.title('Reference - Transformed Starlist positions')
-            py.savefig(root + fileName[3:8] + 'Positions_quiver_' + '.png')
+            plt.title('Reference - Transformed Starlist positions')
+            plt.savefig(root + fileName[3:8] + 'Positions_quiver_' + '.png')
         else:
-            py.title('Reference - Transformed Starlist positions')
-            py.savefig(root + 'Positions_quiver.png')
+            plt.title('Reference - Transformed Starlist positions')
+            plt.savefig(root + 'Positions_quiver.png')
 
-    py.close()
+    plt.close()
     return
 
 def vpd(ref, starlist_trans, vxlim, vylim):
@@ -472,17 +478,17 @@ def vpd(ref, starlist_trans, vxlim, vylim):
     trans_vx = starlist_trans['vx']
     trans_vy = starlist_trans['vy']
 
-    py.figure(figsize=(10,10))
-    py.clf()
-    py.plot(trans_vx, trans_vy, 'k.', ms=8, label='Transformed', alpha=0.4)
-    py.plot(ref_vx, ref_vy, 'r.', ms=8, label='Reference', alpha=0.4)
-    py.xlabel('Vx (Reference units)')
-    py.ylabel('Vy (Reference units)')
+    plt.figure(figsize=(10,10))
+    plt.clf()
+    plt.plot(trans_vx, trans_vy, 'k.', ms=8, label='Transformed', alpha=0.4)
+    plt.plot(ref_vx, ref_vy, 'r.', ms=8, label='Reference', alpha=0.4)
+    plt.xlabel('Vx (Reference units)')
+    plt.ylabel('Vy (Reference units)')
     if vxlim != None:
-        py.axis([vxlim[0], vylim[1], vylim[0], vylim[1]])
-    py.title('Reference and Transformed Proper Motions')
-    py.legend()
-    py.savefig('Transformed_velocities.png')
+        plt.axis([vxlim[0], vylim[1], vylim[0], vylim[1]])
+    plt.title('Reference and Transformed Proper Motions')
+    plt.legend()
+    plt.savefig('Transformed_velocities.png')
 
     return
 
@@ -538,27 +544,27 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     sigma = 1
     x = np.arange(-6, 6, 0.1)
         
-    py.figure(figsize=(20,10))
-    py.subplot(121)
-    py.subplots_adjust(left=0.1)
-    py.hist(ratio_vx, bins=xbins, histtype='step', color='black', density=True,
+    plt.figure(figsize=(20,10))
+    plt.subplot(121)
+    plt.subplots_adjust(left=0.1)
+    plt.hist(ratio_vx, bins=xbins, histtype='step', color='black', density=True,
             linewidth=2)
-    py.plot(x, norm.pdf(x,mean,sigma), 'r-', linewidth=2)
-    py.xlabel('(Ref Vx - Trans Vx) / Vxe')
-    py.ylabel('N_stars')
-    py.title('Vx Residuals, Matched')
+    plt.plot(x, norm.pdf(x,mean,sigma), 'r-', linewidth=2)
+    plt.xlabel('(Ref Vx - Trans Vx) / Vxe')
+    plt.ylabel('N_stars')
+    plt.title('Vx Residuals, Matched')
     if vxlim != None:
-        py.xlim([vxlim[0], vxlim[1]])
-    py.subplot(122)
-    py.hist(ratio_vy, bins=ybins, histtype='step', color='black', density=True,
+        plt.xlim([vxlim[0], vxlim[1]])
+    plt.subplot(122)
+    plt.hist(ratio_vy, bins=ybins, histtype='step', color='black', density=True,
             linewidth=2)
-    py.plot(x, norm.pdf(x,mean,sigma), 'r-', linewidth=2)
-    py.xlabel('(Ref Vy - Trans Vy) / Vye')
-    py.ylabel('N_stars')
-    py.title('Vy Residuals, Matched')
+    plt.plot(x, norm.pdf(x,mean,sigma), 'r-', linewidth=2)
+    plt.xlabel('(Ref Vy - Trans Vy) / Vye')
+    plt.ylabel('N_stars')
+    plt.title('Vy Residuals, Matched')
     if vylim != None:
-        py.xlim([vylim[0], vylim[1]])
-    py.savefig('Vel_err_ratio_dist.png')
+        plt.xlim([vylim[0], vylim[1]])
+    plt.savefig('Vel_err_ratio_dist.png')
 
     return
 
@@ -606,17 +612,17 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
         yerr = np.hypot(ref_mat['vy_err'], starlist_trans_mat['vy_err'])
 
     # Plotting
-    py.figure(figsize=(10,10))
-    py.clf()
-    py.errorbar(diff_x, diff_y, xerr=xerr, yerr=yerr, fmt='k.', ms=8, alpha=0.5)
+    plt.figure(figsize=(10,10))
+    plt.clf()
+    plt.errorbar(diff_x, diff_y, xerr=xerr, yerr=yerr, fmt='k.', ms=8, alpha=0.5)
     if pscale != None:
-        py.xlabel('Reference_vx - Transformed_vx (mas/yr)')
-        py.ylabel('Reference_vy - Transformed_vy (mas/yr)')
+        plt.xlabel('Reference_vx - Transformed_vx (mas/yr)')
+        plt.ylabel('Reference_vy - Transformed_vy (mas/yr)')
     else:
-        py.xlabel('Reference_vx - Transformed_vx (reference coords)')
-        py.ylabel('Reference_vy - Transformed_vy (reference coords)')
-    py.title('Proper Motion Residuals')
-    py.savefig('resid_vpd.png')
+        plt.xlabel('Reference_vx - Transformed_vx (reference coords)')
+        plt.ylabel('Reference_vy - Transformed_vy (reference coords)')
+    plt.title('Proper Motion Residuals')
+    plt.savefig('resid_vpd.png')
 
     return
 
@@ -636,8 +642,8 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
     else:
         Nrows = math.ceil(Nstars / (Ncols / 2)) * 3
 
-    py.close('all')
-    py.figure(2, figsize=figsize)
+    plt.close('all')
+    plt.figure(2, figsize=figsize)
     names = s.getArray('name')
     mag = s.getArray('mag')
     x = s.getArray('x')
@@ -746,7 +752,7 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
         t0 = int(np.floor(np.min(time)))
         tO = int(np.ceil(np.max(time)))
         
-        dateTicLoc = py.MultipleLocator(3)
+        dateTicLoc = plt.MultipleLocator(3)
         dateTicRng = [t0-1, tO+1]
         dateTics = np.arange(t0, tO+1)
         DateTicsLabel = dateTics-2000
@@ -754,7 +760,7 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
         # See if we are using MJD instead.
         if time[0] > 50000:
             print('MJD')
-            dateTicLoc = py.MultipleLocator(1000)
+            dateTicLoc = plt.MultipleLocator(1000)
             t0 = int(np.round(np.min(time), 50))
             tO = int(np.round(np.max(time), 50))
             dateTicRng = [t0-200, tO+200]
@@ -779,121 +785,121 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
             
         ind = (row-1)*Ncols + col
 
-        paxes = py.subplot(Nrows, Ncols, ind)
-        py.plot(time, fitLineX, 'b-')
-        py.plot(time, fitLineX + fitSigX, 'b--')
-        py.plot(time, fitLineX - fitSigX, 'b--')
-        py.errorbar(time, x, yerr=xerr, fmt='k.')
-        rng = py.axis()
-        py.ylim(np.min(x-xerr-0.1),np.max(x+xerr+0.1)) 
-        py.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, fitLineX, 'b-')
+        plt.plot(time, fitLineX + fitSigX, 'b--')
+        plt.plot(time, fitLineX - fitSigX, 'b--')
+        plt.errorbar(time, x, yerr=xerr, fmt='k.')
+        rng = plt.axis()
+        plt.ylim(np.min(x-xerr-0.1),np.max(x+xerr+0.1)) 
+        plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
-            py.xlabel('Date (MJD)', fontsize=fontsize1)
-        py.ylabel('X (pix)', fontsize=fontsize1)
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('X (pix)', fontsize=fontsize1)
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.get_xaxis().set_major_locator(dateTicLoc)
         paxes.yaxis.set_major_formatter(fmtY)
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
-        py.yticks(np.arange(np.min(x-xerr-0.1), np.max(x+xerr+0.1), 0.2))
-        py.xticks(dateTics, DateTicsLabel)
-        py.xlim(np.min(dateTics), np.max(dateTics))
-        py.annotate(starName,xy=(1.0,1.1), xycoords='axes fraction', fontsize=12, color='red')
+        plt.yticks(np.arange(np.min(x-xerr-0.1), np.max(x+xerr+0.1), 0.2))
+        plt.xticks(dateTics, DateTicsLabel)
+        plt.xlim(np.min(dateTics), np.max(dateTics))
+        plt.annotate(starName,xy=(1.0,1.1), xycoords='axes fraction', fontsize=12, color='red')
 
 
         col = col + 1
         ind = (row-1)*Ncols + col
 
-        paxes = py.subplot(Nrows, Ncols, ind)
-        py.plot(time, fitLineY, 'b-')
-        py.plot(time, fitLineY + fitSigY, 'b--')
-        py.plot(time, fitLineY - fitSigY, 'b--')
-        py.errorbar(time, y, yerr=yerr, fmt='k.')
-        rng = py.axis()
-        py.axis(dateTicRng + [rng[2], rng[3]], fontsize=fontsize1)
-        py.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, fitLineY, 'b-')
+        plt.plot(time, fitLineY + fitSigY, 'b--')
+        plt.plot(time, fitLineY - fitSigY, 'b--')
+        plt.errorbar(time, y, yerr=yerr, fmt='k.')
+        rng = plt.axis()
+        plt.axis(dateTicRng + [rng[2], rng[3]], fontsize=fontsize1)
+        plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
-            py.xlabel('Date (MJD)', fontsize=fontsize1)
-        py.ylabel('Y (pix)', fontsize=fontsize1)
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('Y (pix)', fontsize=fontsize1)
         #paxes.get_xaxis().set_major_locator(dateTicLoc)
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.get_xaxis().set_major_locator(dateTicLoc)
         paxes.yaxis.set_major_formatter(fmtY)
         paxes.tick_params(axis='both', which='major', labelsize=12)
-        py.ylim(np.min(y-yerr-0.1),np.max(y+yerr+0.1))
-        py.yticks(np.arange(np.min(y-yerr-0.1), np.max(y+yerr+0.1), 0.2))
-        py.xticks(dateTics, DateTicsLabel)
-        py.xlim(np.min(dateTics), np.max(dateTics))
+        plt.ylim(np.min(y-yerr-0.1),np.max(y+yerr+0.1))
+        plt.yticks(np.arange(np.min(y-yerr-0.1), np.max(y+yerr+0.1), 0.2))
+        plt.xticks(dateTics, DateTicsLabel)
+        plt.xlim(np.min(dateTics), np.max(dateTics))
 
         row = row + 1
         col = col - 1
         ind = (row-1)*Ncols + col
 
-        paxes = py.subplot(Nrows, Ncols, ind)
-        py.plot(time, np.zeros(len(time)), 'b-')
-        py.plot(time, fitSigX, 'b--')
-        py.plot(time, -fitSigX, 'b--')
-        py.errorbar(time, x - fitLineX, yerr=xerr, fmt='k.')
-        py.axis(dateTicRng + resTicRng, fontsize=fontsize1)
-        py.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, np.zeros(len(time)), 'b-')
+        plt.plot(time, fitSigX, 'b--')
+        plt.plot(time, -fitSigX, 'b--')
+        plt.errorbar(time, x - fitLineX, yerr=xerr, fmt='k.')
+        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
-            py.xlabel('Date (MJD)', fontsize=fontsize1)
-        py.ylabel('X Residuals (pix)', fontsize=fontsize1)
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('X Residuals (pix)', fontsize=fontsize1)
         paxes.get_xaxis().set_major_locator(dateTicLoc)
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
-        py.xticks(dateTics, DateTicsLabel)
-        py.xlim(np.min(dateTics), np.max(dateTics))
+        plt.xticks(dateTics, DateTicsLabel)
+        plt.xlim(np.min(dateTics), np.max(dateTics))
 
         col = col + 1
         ind = (row-1)*Ncols + col
 
-        paxes = py.subplot(Nrows, Ncols, ind)
-        py.plot(time, np.zeros(len(time)), 'b-')
-        py.plot(time, fitSigY, 'b--')
-        py.plot(time, -fitSigY, 'b--')
-        py.errorbar(time, y - fitLineY, yerr=yerr, fmt='k.')
-        py.axis(dateTicRng + resTicRng, fontsize=fontsize1)
-        py.xlabel('Date -2000 (yrs)', fontsize=fontsize1)
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.plot(time, np.zeros(len(time)), 'b-')
+        plt.plot(time, fitSigY, 'b--')
+        plt.plot(time, -fitSigY, 'b--')
+        plt.errorbar(time, y - fitLineY, yerr=yerr, fmt='k.')
+        plt.axis(dateTicRng + resTicRng, fontsize=fontsize1)
+        plt.xlabel('Date -2000 (yrs)', fontsize=fontsize1)
         if time[0] > 50000:
-            py.xlabel('Date (MJD)', fontsize=fontsize1)
-        py.ylabel('Y Residuals (pix)', fontsize=fontsize1)
+            plt.xlabel('Date (MJD)', fontsize=fontsize1)
+        plt.ylabel('Y Residuals (pix)', fontsize=fontsize1)
         paxes.get_xaxis().set_major_locator(dateTicLoc)
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
-        py.xticks(dateTics, DateTicsLabel)
-        py.xlim(np.min(dateTics), np.max(dateTics))
+        plt.xticks(dateTics, DateTicsLabel)
+        plt.xlim(np.min(dateTics), np.max(dateTics))
 
         row = row + 1
         col = col - 1
         ind = (row-1)*Ncols + col
 
 
-        paxes = py.subplot(Nrows, Ncols, ind)
-        py.errorbar(x,y, xerr=xerr, yerr=yerr, fmt='k.')
-        py.yticks(np.arange(np.min(y-yerr-0.1), np.max(y+yerr+0.1), 0.2))
-        py.xticks(np.arange(np.min(x-xerr-0.1), np.max(x+xerr+0.1), 0.2), rotation = 270)
-        py.axis('equal')
+        paxes = plt.subplot(Nrows, Ncols, ind)
+        plt.errorbar(x,y, xerr=xerr, yerr=yerr, fmt='k.')
+        plt.yticks(np.arange(np.min(y-yerr-0.1), np.max(y+yerr+0.1), 0.2))
+        plt.xticks(np.arange(np.min(x-xerr-0.1), np.max(x+xerr+0.1), 0.2), rotation = 270)
+        plt.axis('equal')
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
         paxes.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
         paxes.xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-        py.xlabel('X (pix)', fontsize=fontsize1)
-        py.ylabel('Y (pix)', fontsize=fontsize1)
-        py.plot(fitLineX, fitLineY, 'b-')    
+        plt.xlabel('X (pix)', fontsize=fontsize1)
+        plt.ylabel('Y (pix)', fontsize=fontsize1)
+        plt.plot(fitLineX, fitLineY, 'b-')    
 
         col = col + 1
         ind = (row-1)*Ncols + col
 
         bins = np.arange(-7.5, 7.5, 1)
-        paxes = py.subplot(Nrows, Ncols, ind)
+        paxes = plt.subplot(Nrows, Ncols, ind)
         id = np.where(diffY < 0)[0]
         sig[id] = -1.*sig[id] 
-        (n, b, p) = py.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
-        py.setp(p, 'facecolor', 'b')
-        (n, b, p) = py.hist(sigY, bins, histtype='step', color='r', label='Y')
-        py.axis([-7, 7, 0, 8], fontsize=10)
-        py.legend()
-        py.xlabel('Residuals (sigma)', fontsize=fontsize1)
-        py.ylabel('Number of Epochs', fontsize=fontsize1)
+        (n, b, p) = plt.hist(sigX, bins, histtype='stepfilled', color='b', label='X')
+        plt.setp(p, 'facecolor', 'b')
+        (n, b, p) = plt.hist(sigY, bins, histtype='step', color='r', label='Y')
+        plt.axis([-7, 7, 0, 8], fontsize=10)
+        plt.legend()
+        plt.xlabel('Residuals (sigma)', fontsize=fontsize1)
+        plt.ylabel('Number of Epochs', fontsize=fontsize1)
 
         ##########
         #
@@ -901,9 +907,9 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
         #
         ##########
         if (radial == True):
-            py.clf()
+            plt.clf()
 
-            dateTicLoc = py.MultipleLocator(3)
+            dateTicLoc = plt.MultipleLocator(3)
 
             maxErr = np.array([rerr, terr]).max()
             resTicRng = [-3*maxErr, 3*maxErr]
@@ -912,83 +918,83 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
             fmtX = FormatStrFormatter('%5i')
             fmtY = FormatStrFormatter('%6.2f')
 
-            paxes = py.subplot(3,2,1)
-            py.plot(time, fitLineR, 'b-')
-            py.plot(time, fitLineR + fitSigR, 'b--')
-            py.plot(time, fitLineR - fitSigR, 'b--')
-            py.errorbar(time, r, yerr=rerr, fmt='k.')
-            rng = py.axis()
-            py.axis(dateTicRng + [rng[2], rng[3]])
-            py.xlabel('Date (yrs)')
-            py.ylabel('R (pix)')
+            paxes = plt.subplot(3,2,1)
+            plt.plot(time, fitLineR, 'b-')
+            plt.plot(time, fitLineR + fitSigR, 'b--')
+            plt.plot(time, fitLineR - fitSigR, 'b--')
+            plt.errorbar(time, r, yerr=rerr, fmt='k.')
+            rng = plt.axis()
+            plt.axis(dateTicRng + [rng[2], rng[3]])
+            plt.xlabel('Date (yrs)')
+            plt.ylabel('R (pix)')
             paxes.xaxis.set_major_formatter(fmtX)
             paxes.get_xaxis().set_major_locator(dateTicLoc)
             paxes.yaxis.set_major_formatter(fmtY)
 
-            paxes = py.subplot(3, 2, 2)
-            py.plot(time, fitLineT, 'b-')
-            py.plot(time, fitLineT + fitSigT, 'b--')
-            py.plot(time, fitLineT - fitSigT, 'b--')
-            py.errorbar(time, t, yerr=terr, fmt='k.')
-            rng = py.axis()
-            py.axis(dateTicRng + [rng[2], rng[3]])
-            py.xlabel('Date (yrs)')
-            py.ylabel('T (pix)')
+            paxes = plt.subplot(3, 2, 2)
+            plt.plot(time, fitLineT, 'b-')
+            plt.plot(time, fitLineT + fitSigT, 'b--')
+            plt.plot(time, fitLineT - fitSigT, 'b--')
+            plt.errorbar(time, t, yerr=terr, fmt='k.')
+            rng = plt.axis()
+            plt.axis(dateTicRng + [rng[2], rng[3]])
+            plt.xlabel('Date (yrs)')
+            plt.ylabel('T (pix)')
             paxes.xaxis.set_major_formatter(fmtX)
             paxes.get_xaxis().set_major_locator(dateTicLoc)
             paxes.yaxis.set_major_formatter(fmtY)
 
-            paxes = py.subplot(3, 2, 3)
-            py.plot(time, np.zeros(len(time)), 'b-')
-            py.plot(time, fitSigR, 'b--')
-            py.plot(time, -fitSigR, 'b--')
-            py.errorbar(time, r - fitLineR, yerr=rerr, fmt='k.')
-            py.axis(dateTicRng + resTicRng)
-            py.xlabel('Date (yrs)')
-            py.ylabel('R Residuals (pix)')
+            paxes = plt.subplot(3, 2, 3)
+            plt.plot(time, np.zeros(len(time)), 'b-')
+            plt.plot(time, fitSigR, 'b--')
+            plt.plot(time, -fitSigR, 'b--')
+            plt.errorbar(time, r - fitLineR, yerr=rerr, fmt='k.')
+            plt.axis(dateTicRng + resTicRng)
+            plt.xlabel('Date (yrs)')
+            plt.ylabel('R Residuals (pix)')
             paxes.get_xaxis().set_major_locator(dateTicLoc)
 
-            paxes = py.subplot(3, 2, 4)
-            py.plot(time, np.zeros(len(time)), 'b-')
-            py.plot(time, fitSigT, 'b--')
-            py.plot(time, -fitSigT, 'b--')
-            py.errorbar(time, t - fitLineT, yerr=terr, fmt='k.')
-            py.axis(dateTicRng + resTicRng)
-            py.xlabel('Date (yrs)')
-            py.ylabel('T Residuals (pix)')
+            paxes = plt.subplot(3, 2, 4)
+            plt.plot(time, np.zeros(len(time)), 'b-')
+            plt.plot(time, fitSigT, 'b--')
+            plt.plot(time, -fitSigT, 'b--')
+            plt.errorbar(time, t - fitLineT, yerr=terr, fmt='k.')
+            plt.axis(dateTicRng + resTicRng)
+            plt.xlabel('Date (yrs)')
+            plt.ylabel('T Residuals (pix)')
             paxes.get_xaxis().set_major_locator(dateTicLoc)
 
             bins = np.arange(-7, 7, 1)
-            py.subplot(3, 2, 5)
-            (n, b, p) = py.hist(sigR, bins)
-            py.setp(p, 'facecolor', 'k')
-            py.axis([-5, 5, 0, 20])
-            py.xlabel('T Residuals (sigma)')
-            py.ylabel('Number of Epochs')
+            plt.subplot(3, 2, 5)
+            (n, b, p) = plt.hist(sigR, bins)
+            plt.setp(p, 'facecolor', 'k')
+            plt.axis([-5, 5, 0, 20])
+            plt.xlabel('T Residuals (sigma)')
+            plt.ylabel('Number of Epochs')
 
-            py.subplot(3, 2, 6)
-            (n, b, p) = py.hist(sigT, bins)
-            py.axis([-5, 5, 0, 20])
-            py.setp(p, 'facecolor', 'k')
-            py.xlabel('Y Residuals (sigma)')
-            py.ylabel('Number of Epochs')
+            plt.subplot(3, 2, 6)
+            (n, b, p) = plt.hist(sigT, bins)
+            plt.axis([-5, 5, 0, 20])
+            plt.setp(p, 'facecolor', 'k')
+            plt.xlabel('Y Residuals (sigma)')
+            plt.ylabel('Number of Epochs')
 
-            py.subplots_adjust(wspace=0.4, hspace=0.4, right=0.95, top=0.95)
-            py.savefig(rootDir+'plots/plotStarRadial_' + starName + '.png')
-            py.show()
+            plt.subplots_adjust(wspace=0.4, hspace=0.4, right=0.95, top=0.95)
+            plt.savefig(rootDir+'plots/plotStarRadial_' + starName + '.png')
+            plt.show()
 
     title = rootDir.split('/')[-2]
-    py.suptitle(title, x=0.5, y=0.97)
+    plt.suptitle(title, x=0.5, y=0.97)
 
     if Nstars == 1:
-        py.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
-        py.savefig(rootDir+'plots/plotStar_' + starName + '.png')
+        plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9) 
+        plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
     else:
-        py.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
-        py.savefig(rootDir+'plots/plotStar_all.png')
-        py.show()
+        plt.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
+        plt.savefig(rootDir+'plots/plotStar_all.png')
+        plt.show()
 
-    py.show()
+    plt.show()
     print('Fubar')
         
 
@@ -1051,7 +1057,7 @@ def plot_pm_error(tab):
     plt.legend()
     plt.xlabel('Mag')
     plt.ylabel('PM Error (mas/yr)')
-
+    plt.show()
     return
 
 def plot_mag_error(tab):
@@ -1064,16 +1070,15 @@ def plot_mag_error(tab):
 
     return
 
-def plot_mean_residuals_by_epoch(tab, motion_model_dict={}):
+def plot_mean_residuals_by_epoch(tab):
     """
     Plot mean position and magnitude residuals vs. epoch.
     Note we are plotting the mean( |dx} ) to see
     the size of the mean residual.
     """
     # Predicted model positions at each epoch
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
     
     # Residuals
     dx = tab['x'] - xt_mod
@@ -2390,7 +2395,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, motion_model_dict={}, xlim=40, n_bin
     plt.hist(x[idx], bins=chi2_bins, histtype='stepfilled', label='RA', density=True, color='skyblue', alpha=0.8, edgecolor='k')
     plt.hist(y[idx], bins=chi2_bins, histtype='stepfilled', label='DEC', density=True, color='orange', alpha=0.8, edgecolor='k')
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
     #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.title(str(filter)+' (N = '+str(len(chi2_x_list))+')', fontsize=22)
     plt.xlim(0, xlim)
@@ -2677,7 +2682,7 @@ def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30, boot_err=False):
     plt.clf()
     plt.hist(chi2_m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.legend()
@@ -2726,7 +2731,7 @@ def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, fil
     plt.clf()
     plt.hist(chi2_m[idx], bins=np.arange(xlim*10), label='mag', histtype='stepfilled', density=True, color='green', alpha=0.7, edgecolor='k')
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
     #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.xlabel(r'$\chi^{2}$', fontsize=28)
@@ -3697,8 +3702,8 @@ def plot_sky(stars_tab,
         foo = cnorm(yearsInt[ee])
         colorList.append( cmap(cnorm(yearsInt[ee])) )
 
-    py.close(2)
-    fig = py.figure(2, figsize=(13,10))
+    plt.close(2)
+    fig = plt.figure(2, figsize=(13,10))
 
     previousYear = 0.0
 
@@ -3736,13 +3741,13 @@ def plot_sky(stars_tab,
             label = '_nolegend_'
 
         if plot_errors:
-            (line, foo1, foo2) = py.errorbar(x, y, xerr=xe, yerr=ye,
+            (line, foo1, foo2) = plt.errorbar(x, y, xerr=xe, yerr=ye,
                                             color=colorList[ee], fmt='^',
                                             markeredgecolor=colorList[ee],
                                             markerfacecolor=colorList[ee],
                                             label=label, picker=4)
         else:
-            (line, foo1, foo2) = py.errorbar(x, y, xerr=None, yerr=None,
+            (line, foo1, foo2) = plt.errorbar(x, y, xerr=None, yerr=None,
                                             color=colorList[ee], fmt='^',
                                             markeredgecolor=colorList[ee],
                                             markerfacecolor=colorList[ee],
@@ -3760,19 +3765,19 @@ def plot_sky(stars_tab,
         point_labels[line] = points_info
 
     foo = PrintSelected(point_labels, fig, stars_tab, mag_range, manual_print=manual_print)
-    py.connect('pick_event', foo)
+    plt.connect('pick_event', foo)
 
     xlo = xcenter + (range)
     xhi = xcenter - (range)
     ylo = ycenter - (range)
     yhi = ycenter + (range)
 
-    py.axis('equal')
-    py.axis([xlo, xhi, ylo, yhi])
-    py.xlabel('R.A. Offset from Sgr A* (arcsec)')
-    py.ylabel('Dec. Offset from Sgr A* (arcsec)')
+    plt.axis('equal')
+    plt.axis([xlo, xhi, ylo, yhi])
+    plt.xlabel('R.A. Offset from Sgr A* (arcsec)')
+    plt.ylabel('Dec. Offset from Sgr A* (arcsec)')
 
-    py.legend(handles=epochs_legend, numpoints=1, loc='lower left', fontsize=12)
+    plt.legend(handles=epochs_legend, numpoints=1, loc='lower left', fontsize=12)
 
     if show_names:
         xpos = stars_tab['x0']
@@ -3780,16 +3785,16 @@ def plot_sky(stars_tab,
         goodind = np.where((xpos <= xlo) & (xpos >= xhi) &
                            (ypos >= ylo) & (ypos <= yhi))[0]
         for ind in goodind:
-            py.text(xpos[ind], ypos[ind], stars_tab['name'][ind], size=10)
+            plt.text(xpos[ind], ypos[ind], stars_tab['name'][ind], size=10)
 
     if saveplot:
-        py.show(block=0)
+        plt.show(block=0)
         if (center_star != None):
-            py.savefig('plot_sky_' + center_star + '.png')
+            plt.savefig('plot_sky_' + center_star + '.png')
         else:
-            py.savefig('plot_sky.png')
+            plt.savefig('plot_sky.png')
     else:
-        py.show()
+        plt.show()
 
     return
     
