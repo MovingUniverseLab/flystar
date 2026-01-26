@@ -956,8 +956,8 @@ class Parallax(MotionModel):
 
         # TODO: vectorize parallax.parallax_in_direction to handle multiple obsLocation?
         
-        assert (type(obsLocation) == str) or (np.unique(obsLocation).size == 1), "obsLocation must be a single string for all stars at this time."
-        if type(obsLocation) != str:
+        assert isinstance(obsLocation, str) or (np.unique(obsLocation).size == 1), "obsLocation must be a single string for all stars at this time."
+        if not isinstance(obsLocation, str):
             obsLocation = np.unique(obsLocation)[0]
 
         dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
