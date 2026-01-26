@@ -13,21 +13,37 @@ import pickle
 from astropy.utils.exceptions import AstropyUserWarning
 
 class MosaicSelfRef(object):
-    def __init__(self, list_of_starlists, ref_index=0, iters=2,
-                 dr_tol=[1, 1], dm_tol=[2, 1],
-                 outlier_tol=[None, None],
-                 trans_args=[{'order': 2}, {'order': 2}],
-                 init_order=1,
-                 mag_trans=True, mag_lim=None, trans_weighting=None, vel_weighting='var',
-                 trans_input=None, trans_class=transforms.PolyTransform,
-                 calc_trans_inverse=False,
-                 init_guess_mode='miracle', iter_callback=None,
-                 motion_models=['Empty', 'Fixed'],
-                 fixed_params_dict=None,
-                 use_scipy=True, 
-                 absolute_sigma=False, 
-                 save_path=None, 
-                 verbose=True):
+    def __init__(
+            self,
+            list_of_starlists,
+            # Alignment tolerance parameters
+            ref_index=0,
+            iters=2,
+            dr_tol=[1, 1], 
+            dm_tol=[2, 1],
+            outlier_tol=[None, None],
+            # Transformation parameters
+            trans_class=transforms.PolyTransform,
+            trans_args=[{'order': 2}, {'order': 2}],
+            trans_input=None, 
+            trans_weighting=None,
+            init_order=1,
+            init_guess_mode='miracle', 
+            calc_trans_inverse=False,
+            # Magnitude parameters
+            mag_trans=True, 
+            mag_lim=None,
+            # Motion model parameters
+            motion_models=['Empty', 'Fixed'],
+            fixed_params_dict=None,
+            vel_weighting='var',
+            use_scipy=True,
+            absolute_sigma=False,
+            # Advanced options
+            iter_callback=None,
+            save_path=None, 
+            verbose=True
+    ):
         """
         Make a mosaic object by passing in a list of starlists and then running fit(). 
 
@@ -1433,26 +1449,41 @@ class MosaicSelfRef(object):
     
 
 class MosaicToRef(MosaicSelfRef):
-    def __init__(self, ref_list, list_of_starlists, iters=2,
-                 dr_tol=[1, 1], dm_tol=[2, 1],
-                 outlier_tol=[None, None],
-                 trans_args=[{'order': 2}, {'order': 2}],
-                 init_order=1,
-                 mag_trans=True, mag_lim=None, ref_mag_lim=None,
-                 trans_weighting=None, vel_weighting='var',
-                 trans_input=None,
-                 trans_class=transforms.PolyTransform,
-                 calc_trans_inverse=False,
-                 use_ref_new=False,
-                 update_ref_orig=False,
-                 init_guess_mode='miracle',
-                 iter_callback=None,
-                 motion_models=['Empty', 'Fixed'],
-                 fixed_params_dict=None,
-                 use_scipy=True,
-                 absolute_sigma=False,
-                 save_path=None,
-                 verbose=True):
+    def __init__(
+        self, 
+        ref_list, 
+        list_of_starlists, 
+        # Alignment tolerance parameters
+        iters=2,
+        dr_tol=[1, 1], 
+        dm_tol=[2, 1],
+        outlier_tol=[None, None],
+        # Reference behavior (MosiacToRef specific)
+        use_ref_new=False,
+        update_ref_orig=False,
+        # Transformation parameters
+        trans_class=transforms.PolyTransform,
+        trans_args=[{'order': 2}, {'order': 2}],
+        trans_input=None,
+        trans_weighting=None,
+        init_order=1,
+        init_guess_mode='miracle',
+        calc_trans_inverse=False,
+        # Magnitude parameters
+        mag_trans=True, 
+        mag_lim=None, 
+        ref_mag_lim=None,
+        # Motion model parameters
+        motion_models=['Empty', 'Fixed'],
+        fixed_params_dict=None,
+        vel_weighting='var',
+        use_scipy=True,
+        absolute_sigma=False,
+        # Advanced options
+        iter_callback=None,
+        save_path=None,
+        verbose=True
+    ):
 
         """
         Required Parameters
