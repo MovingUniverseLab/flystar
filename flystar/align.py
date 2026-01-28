@@ -1738,27 +1738,28 @@ class MosaicToRef(MosaicSelfRef):
 
         """
         # Create a log file of the parameters used in the fit.
-        with open('MosaicToRef_input_params.log', 'w',) as _log:
-            logger(_log, 'Parameters used for fit: ', self.verbose)
-            logger(_log, '------------------------- ', self.verbose)
-            logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
-            logger(_log, '  dm_tol = ' + str(self.dm_tol), self.verbose)
-            logger(_log, '  outlier_tol = ' + str(self.outlier_tol), self.verbose)
-            logger(_log, '  trans_args = ' + str(self.trans_args), self.verbose)
-            logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
-            logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
-            logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
-            logger(_log, '  trans_weighting = ' + str(self.trans_weighting), self.verbose)
-            logger(_log, '  vel_weighting = ' + str(self.vel_weighting), self.verbose)
-            logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
-            logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
-            logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
-            logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
-            logger(_log, '  motion_models = ' + str([mm.name for mm in self.motion_models]), self.verbose)
-            logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
-            logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
-            logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
-            logger(_log, '-------------------------\n', self.verbose)
+        if self.save_path is not None:
+            with open(f'{self.save_path}/MosaicToRef_input_params.log', 'w',) as _log:
+                logger(_log, 'Parameters used for fit: ', self.verbose)
+                logger(_log, '------------------------- ', self.verbose)
+                logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
+                logger(_log, '  dm_tol = ' + str(self.dm_tol), self.verbose)
+                logger(_log, '  outlier_tol = ' + str(self.outlier_tol), self.verbose)
+                logger(_log, '  trans_args = ' + str(self.trans_args), self.verbose)
+                logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
+                logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
+                logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
+                logger(_log, '  trans_weighting = ' + str(self.trans_weighting), self.verbose)
+                logger(_log, '  vel_weighting = ' + str(self.vel_weighting), self.verbose)
+                logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
+                logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
+                logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
+                logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
+                logger(_log, '  motion_models = ' + str([mm.name for mm in self.motion_models]), self.verbose)
+                logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
+                logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
+                logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
+                logger(_log, '-------------------------\n', self.verbose)
 
 
         ##########
