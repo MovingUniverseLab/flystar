@@ -2217,7 +2217,12 @@ def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_
     # Fitting position and velocity... so subtract 2 to get Ndof
     n_params = np.nanmean(tab['n_params'][idx])
     Ndof = Ndetect - n_params
-    print(f"Ndof={Ndof}, Ndetect={Ndetect}, Nparams={n_params}")
+    if len(np.unique(tab['n_params'][idx]))>1:
+        print("** Warning: using average Ndof for multiple motion models. **")
+        print("** Consider using plot_chi2_reduced_dist. **")
+        print(f"Ndof={Ndof:.2f}, Ndetect={Ndetect}, Nparams={n_params:.2f}")
+    else:
+        print(f"Ndof={Ndof}, Ndetect={Ndetect}, Nparams={n_params}")
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
 
@@ -2226,8 +2231,8 @@ def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_
     plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
     plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
-             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
-    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+             label='$\chi^2$ ' + str(round(Ndof,2)) + ' dof')
+    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(round(Ndof,2)))
     plt.xlim(0, xlim)
     plt.legend()
 
@@ -2248,6 +2253,85 @@ def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_
     print(fmt.format('Tot', med_chi2red_t_f, med_chi2red_t_a))
 
     return
+
+def plot_chi2_reduced_dist(tab, Ndetect, motion_model_dict={}, xlim=8, n_bins=50, boot_err=False):
+    """
+    tab = flystar table
+    Ndetect = Number of epochs star detected in
+    """
+    chi2_x_list = []
+    chi2_y_list = []
+    fnd_list = [] # Number of non-NaN error measurements
+    
+    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+
+    for ii in range(len(tab)):
+        # Ignore the NaNs
+        fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
+        fnd_list.append(len(fnd))
+        
+        x = tab['x'][ii, fnd]
+        y = tab['y'][ii, fnd]
+        if boot_err:
+            xerr = np.hypot(tab['xe_boot'][ii, fnd], tab['xe'][ii, fnd])
+            yerr = np.hypot(tab['ye_boot'][ii, fnd], tab['ye'][ii, fnd])
+        else:
+            xerr = tab['xe'][ii, fnd]
+            yerr = tab['ye'][ii, fnd]
+
+        fitLineX = xt_mod_all[ii, fnd]
+        fitLineY = yt_mod_all[ii,fnd]
+
+        diffX = x - fitLineX
+        diffY = y - fitLineY
+        sigX = diffX / xerr
+        sigY = diffY / yerr
+        
+        chi2_x = np.sum(sigX**2)
+        chi2_y = np.sum(sigY**2)
+        chi2_x_list.append(chi2_x)
+        chi2_y_list.append(chi2_y)
+
+    x = np.array(chi2_x_list)
+    y = np.array(chi2_y_list)
+    fnd = np.array(fnd_list)
+    
+    idx = np.where(fnd == Ndetect)[0]
+    n_params = tab['n_params']
+    Ndof = Ndetect - n_params
+    print("Reduced chi2 for Ndetect="+str(Ndetect))
+    chi2_bins = np.linspace(0, xlim, n_bins)
+
+    plt.figure(figsize=(6,4))
+    plt.clf()
+    plt.hist(x[idx]/Ndof[idx], bins=chi2_bins, histtype='step', label='X', density=True)
+    plt.hist(y[idx]/Ndof[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
+    plt.axvline(np.median(x[idx]/Ndof[idx]), color='C0', linestyle='--', label='X median')
+    plt.axvline(np.median(y[idx]/Ndof[idx]), color='C1', linestyle='--', label='Y median')
+    plt.title('Reduced chi2, $N_{epoch} = $' + str(Ndetect))
+    plt.xlim(0, xlim)
+    plt.legend()
+
+    chi2red_x = x / Ndof
+    chi2red_y = y / Ndof
+    chi2red_t = (x + y) / (2.0 * Ndof + 1*(tab['motion_model_used']=='Parallax'))
+    
+    print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
+    fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
+    med_chi2red_x_f = np.median(chi2red_x[idx])
+    med_chi2red_x_a = np.median(chi2red_x)
+    med_chi2red_y_f = np.median(chi2red_y[idx])
+    med_chi2red_y_a = np.median(chi2red_y)
+    med_chi2red_t_f = np.median(chi2red_t[idx])
+    med_chi2red_t_a = np.median(chi2red_t)
+    print(fmt.format('  X', med_chi2red_x_f, med_chi2red_x_a))
+    print(fmt.format('  Y', med_chi2red_y_f, med_chi2red_y_a))
+    print(fmt.format('Tot', med_chi2red_t_f, med_chi2red_t_a))
+
+    return
+
 
 def plot_chi2_dist_per_filter(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, filter=None, boot_err=False):
     """
@@ -2761,7 +2845,7 @@ def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = N
         chi2_y = np.sum(sigY**2)
         chi2_m = np.sum(sigM**2)
 
-        dof = len(x) - 2
+        dof = (len(tab['x'][ii])-tab['n_params'][ii]).astype(int)
         dofM = len(m) - 1
 
         chi2_red_x = chi2_x / dof
@@ -3545,6 +3629,7 @@ def plot_plxs(star_tab, target_idx=0):
     ax[1].set_ylabel('N stars')
     ax[1].set_xlabel('Plx/Plx_err')
     plt.tight_layout()
+    ax[0].set_ylim(-5,5)
        
 def plot_sky(stars_tab,
             plot_errors=False, center_star=None, range=0.4,

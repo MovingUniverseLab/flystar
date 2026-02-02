@@ -737,21 +737,21 @@ class StarList(Table):
         # Loop through all conditions and build up
         # an array of indicies of rows to remove. 
         remove_flag = np.zeros(len(self), dtype=bool)
-        
-        for kwarg in kwargs:
-            if kwargs[kwarg] is not None:
+
+        for key, value in kwargs.items():
+            if value is not None:
                 # Get the name of the column to act on and
                 # whether the condition is min or max.
-                kwarg_split = kwarg.split('_')
-
-                # Support column names such as x_0. 
-                col = '_'.join(kwarg_split[:-1])
-
-                if kwarg_split[-1] == 'min':
-                    remove_flag = np.logical_or(remove_flag, self[col] <= kwargs[kwarg])
+                key_split = key.split('_')
                 
-                if kwarg_split[-1] == 'max':
-                    remove_flag = np.logical_or(remove_flag, self[col] >= kwargs[kwarg])
+                # Support column names such as x_0. 
+                col = '_'.join(key_split[:-1])
+
+                if key_split[-1] == 'min':
+                    remove_flag = np.logical_or(remove_flag, self[col] <= value)
+                
+                if key_split[-1] == 'max':
+                    remove_flag = np.logical_or(remove_flag, self[col] >= value)
 
         rem_idx = np.where(remove_flag == True)[0]
         

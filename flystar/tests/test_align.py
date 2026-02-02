@@ -572,7 +572,7 @@ def test_bootstrap():
 
     list1 = starlists.StarList.from_table(list1)
     list2 = starlists.StarList.from_table(list2)
-        
+
     # Set parameters for alignment
     transModel = transforms.PolyTransform
     trans_args = {'order':2}

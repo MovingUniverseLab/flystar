@@ -10,7 +10,7 @@ class MotionModel(ABC):
     fit_param_names = []
 
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     # Fixed parameters: These are parameters that are required for the model, but are not 
     # fit quantities. For example, RA and Dec in a parallax model.
@@ -138,8 +138,6 @@ class MotionModel(ABC):
         n_obs = len(t)
 
         if bootstrap > 0 and n_obs > (self.n_params):
-            # Use m out of n bootstrap to ensure enough unique points
-            m = np.max([self.n_params, int(len(t) * 0.8)])
             rng = np.random.default_rng(seed)
             edx = np.arange(n_obs, dtype=int)
             # Precompute All Bootstrap Draws at Once
@@ -148,8 +146,9 @@ class MotionModel(ABC):
                 rng.choice(edx, size=self.n_params, replace=False)
                 for _ in range(bootstrap)
             ])
+            # Draw with replacement for the rest
             bdx_extra = np.stack([
-                rng.choice(edx, size=self.n_params, replace=True)
+                rng.choice(edx, size=n_obs - self.n_params, replace=True)
                 for _ in range(bootstrap)
             ])
             bdx_all = np.hstack((bdx_unique, bdx_extra))
@@ -204,7 +203,7 @@ class Empty(MotionModel):
     fixed_param_names = []
     name = "Empty"
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     def __init__(self, **kwargs):
         """Empty motion model, returns nan for values and inf for uncertainties.
@@ -306,7 +305,7 @@ class Fixed(MotionModel):
     fit_param_names = ['x0','y0']
     fixed_param_names = []
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     name = "Fixed"
 
@@ -461,7 +460,7 @@ class Linear(MotionModel):
     fixed_param_names = ['t0']
 
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
     name = "Linear"
 
     def __init__(self, **kwargs):
@@ -669,7 +668,7 @@ class Acceleration(MotionModel):
     name = "Acceleration"
 
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     def __init__(self):
         # Must call after setting parameters.
@@ -837,7 +836,7 @@ class Parallax(MotionModel):
     name = "Parallax"
         
     # Number of fit parameters/required observations in each direction
-    n_params = int(np.ceil(len(fit_param_names) / 2))
+    n_params = int((len(fit_param_names) + 1) / 2)
 
     def __init__(self):
         super().__init__()
@@ -957,8 +956,8 @@ class Parallax(MotionModel):
 
         # TODO: vectorize parallax.parallax_in_direction to handle multiple obsLocation?
         
-        assert (type(obsLocation) == str) or (np.unique(obsLocation).size == 1), "obsLocation must be a single string for all stars at this time."
-        if type(obsLocation) != str:
+        assert isinstance(obsLocation, str) or (np.unique(obsLocation).size == 1), "obsLocation must be a single string for all stars at this time."
+        if not isinstance(obsLocation, str):
             obsLocation = np.unique(obsLocation)[0]
 
         dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)

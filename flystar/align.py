@@ -13,21 +13,37 @@ import pickle
 from astropy.utils.exceptions import AstropyUserWarning
 
 class MosaicSelfRef(object):
-    def __init__(self, list_of_starlists, ref_index=0, iters=2,
-                 dr_tol=[1, 1], dm_tol=[2, 1],
-                 outlier_tol=[None, None],
-                 trans_args=[{'order': 2}, {'order': 2}],
-                 init_order=1,
-                 mag_trans=True, mag_lim=None, trans_weighting=None, vel_weighting='var',
-                 trans_input=None, trans_class=transforms.PolyTransform,
-                 calc_trans_inverse=False,
-                 init_guess_mode='miracle', iter_callback=None,
-                 motion_models=['Empty', 'Fixed'],
-                 fixed_params_dict=None,
-                 use_scipy=True, 
-                 absolute_sigma=False, 
-                 save_path=None, 
-                 verbose=True):
+    def __init__(
+            self,
+            list_of_starlists,
+            # Alignment tolerance parameters
+            ref_index=0,
+            iters=2,
+            dr_tol=[1, 1], 
+            dm_tol=[2, 1],
+            outlier_tol=[None, None],
+            # Transformation parameters
+            trans_class=transforms.PolyTransform,
+            trans_args=[{'order': 2}, {'order': 2}],
+            trans_input=None, 
+            trans_weighting=None,
+            init_order=1,
+            init_guess_mode='miracle', 
+            calc_trans_inverse=False,
+            # Magnitude parameters
+            mag_trans=True, 
+            mag_lim=None,
+            # Motion model parameters
+            motion_models=['Empty', 'Fixed'],
+            fixed_params_dict=None,
+            vel_weighting='var',
+            use_scipy=True,
+            absolute_sigma=False,
+            # Advanced options
+            iter_callback=None,
+            save_path=None, 
+            verbose=True
+    ):
         """
         Make a mosaic object by passing in a list of starlists and then running fit(). 
 
@@ -272,7 +288,7 @@ class MosaicSelfRef(object):
 
         if self.mag_lim is None:
             self.mag_lim = np.repeat([[None, None]], len(self.star_lists), axis=0)
-        elif (len(self.mag_lim) == 2):
+        elif (len(self.mag_lim) == 2) and (np.ndim(self.mag_lim) == 1):
             self.mag_lim = np.repeat([self.mag_lim], len(self.star_lists), axis=0)
         assert len(self.mag_lim) == len(self.star_lists)
 
@@ -1088,7 +1104,7 @@ class MosaicSelfRef(object):
 
         return
     
-    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True):
+    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True, update_errors=False):
         """
         Function to calculate bootstrap errors for the transformations as well
         as the proper motions. For each iteration, this will:
@@ -1136,10 +1152,12 @@ class MosaicSelfRef(object):
         absolute_sigma: boolean
             If True, use the absolute sigma in the velocity fitting. If False, use the relative sigma, by default False.
         
+        update_errors: boolean
+            If True, save the starlist errors as xe_list, bootstrap errors as xe_boot, and their quad sum as xe (and likewise for ye and me). If False (default), leave the starlist errors in place as xe and bootstrap errors as xe_boot.
             
         Output:
         ------
-        Seven new columns will be added to self.ref_table:
+        New columns will be added to self.ref_table:
         'xe_boot', 2D column: bootstrap x pos uncertainties due to transformation for each epoch
         'ye_boot', 2D column: bootstrap y pos uncertainties due to transformation for each epoch
         'me_boot', 2D column: bootstrap mag uncertainties due to transformation for each epoch
@@ -1166,7 +1184,8 @@ class MosaicSelfRef(object):
             t0_arr = t0_arr[idx_good]
         else:
             idx_good = np.arange(0, len(ref_table), 1)
-        idx_ref = np.where(ref_table['use_in_trans'] == True)
+            
+        #idx_ref = np.where(ref_table['use_in_trans'] == True)
         
         # Initialize sums for output
         x_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
@@ -1219,40 +1238,45 @@ class MosaicSelfRef(object):
             me_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
             
             for jj in range(n_epochs):
-                # Extract bootstrap sample of matched reference stars
-                good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
+                # Extract bootstrap sample of matched reference stars for this epoch
+                #good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
+                good = np.where( (ref_table['used_in_trans'][:,jj] == True) & (~np.isnan(ref_table['x_orig'][:,jj])) )
                 samp_idx = np.random.choice(good[0], len(good[0]), replace=True)
                 
                 # Get reference star positions in particular epoch from ref_list.
                 t_epoch = t_arr[jj]
-                ref_orig = self.get_ref_list_from_table(t_epoch)
+                ref_orig = self.get_ref_list_from_table(t_epoch)[idx_good]
 
-                # Get idx of reference stars in bootstrap sample in the ref_orig.
-                # Then, use these to build reference starlist for the alignment
-                idx_tmp = []
-                for ff in range(len(samp_idx)):
-                    name_tmp = ref_table['name'][idx_ref][samp_idx[ff]]
-                    foo = np.where(ref_orig['name'] == name_tmp)[0][0]
-                    idx_tmp.append(foo)
+                ## Get idx of reference stars in bootstrap sample in the ref_orig.
+                ## Then, use these to build reference starlist for the alignment
+                #idx_tmp = []
+                #for ff in range(len(samp_idx)):
+                #    name_tmp = ref_table['name'][idx_ref][samp_idx[ff]]
+                #    foo = np.where(ref_orig['name'] == name_tmp)[0][0]
+                #    idx_tmp.append(foo)
 
-                ref_boot = StarList(name=ref_orig['name'][idx_tmp],
-                                       x=ref_orig['x'][idx_tmp],
-                                       y=ref_orig['y'][idx_tmp],
-                                       m=ref_orig['m'][idx_tmp],
-                                       xe=ref_orig['xe'][idx_tmp],
-                                       ye=ref_orig['ye'][idx_tmp],
-                                       me=ref_orig['me'][idx_tmp])
+                ref_boot = StarList(name=ref_orig['name'][samp_idx],
+                                       x=ref_orig['x'][samp_idx],
+                                       y=ref_orig['y'][samp_idx],
+                                       m=ref_orig['m'][samp_idx],
+                                       xe=ref_orig['xe'][samp_idx],
+                                       ye=ref_orig['ye'][samp_idx],
+                                       me=ref_orig['me'][samp_idx])
 
                 # Now build star list with original positions of the reference stars
                 # in the bootstrap sample
-                starlist_boot = StarList(name=ref_table['name'][idx_ref][samp_idx],
-                                         x=ref_table['x_orig'][:,jj][idx_ref][samp_idx],
-                                         y=ref_table['y_orig'][:,jj][idx_ref][samp_idx],
-                                         m=ref_table['m_orig'][:,jj][idx_ref][samp_idx],
-                                         xe=ref_table['xe_orig'][:,jj][idx_ref][samp_idx],
-                                         ye=ref_table['ye_orig'][:,jj][idx_ref][samp_idx],
-                                         me=ref_table['me_orig'][:,jj][idx_ref][samp_idx])
-            
+                starlist_boot = StarList(name=ref_table['name'][samp_idx],
+                                         x=ref_table['x_orig'][:,jj][samp_idx],
+                                         y=ref_table['y_orig'][:,jj][samp_idx],
+                                         m=ref_table['m_orig'][:,jj][samp_idx],
+                                         xe=ref_table['xe_orig'][:,jj][samp_idx],
+                                         ye=ref_table['ye_orig'][:,jj][samp_idx],
+                                         me=ref_table['me_orig'][:,jj][samp_idx])
+
+                # Sanity check: makes sure names match between ref_boot and starlist_boot,
+                # since they need to line up
+                assert np.all(ref_boot['name'] == starlist_boot['name'])
+                
                 # Calculate weights based on weights keyword. If weights desired, will need to
                 # make starlist objects for this
                 if self.trans_weighting != None:
@@ -1332,6 +1356,8 @@ class MosaicSelfRef(object):
                                         ye=ye_trans_arr[:,boot_idx],
                                         me=me_trans_arr[:,boot_idx],
                                         t=np.tile(t_boot, (len(ref_table),1)))
+                if 'motion_model_used' in ref_table.columns:
+                    star_table['motion_model_input'] = ref_table['motion_model_used']
 
                 # Now, do proper motion calculation, making sure to fix t0 to the
                 # orig value (so we can get a reasonable error on x0, y0)
@@ -1435,30 +1461,56 @@ class MosaicSelfRef(object):
         print('Done with bootstrap')
         print('===============================')
         
+        if update_errors:
+            self.ref_table['xe_list'] = self.ref_table['xe']
+            self.ref_table['ye_list'] = self.ref_table['ye']
+            self.ref_table['me_list'] = self.ref_table['me']
+            self.ref_table['xe'] = np.hypot(self.ref_table['xe_list'], self.ref_table['xe_boot'])
+            self.ref_table['ye'] = np.hypot(self.ref_table['ye_list'], self.ref_table['ye_boot'])
+            self.ref_table['me'] = np.hypot(self.ref_table['me_list'], self.ref_table['me_boot'])
+            print("Saved starlist errors to xe_list and added xe_boot to xe in quadrature.")
+            print("The same was done for ye and me.")
+
+        
         return
     
 
 class MosaicToRef(MosaicSelfRef):
-    def __init__(self, ref_list, list_of_starlists, iters=2,
-                 dr_tol=[1, 1], dm_tol=[2, 1],
-                 outlier_tol=[None, None],
-                 trans_args=[{'order': 2}, {'order': 2}],
-                 init_order=1,
-                 mag_trans=True, mag_lim=None, ref_mag_lim=None,
-                 trans_weighting=None, vel_weighting='var',
-                 trans_input=None,
-                 trans_class=transforms.PolyTransform,
-                 calc_trans_inverse=False,
-                 use_ref_new=False,
-                 update_ref_orig=False,
-                 init_guess_mode='miracle',
-                 iter_callback=None,
-                 motion_models=['Empty', 'Fixed'],
-                 fixed_params_dict=None,
-                 use_scipy=True,
-                 absolute_sigma=False,
-                 save_path=None,
-                 verbose=True):
+    def __init__(
+        self, 
+        ref_list, 
+        list_of_starlists, 
+        # Alignment tolerance parameters
+        iters=2,
+        dr_tol=[1, 1], 
+        dm_tol=[2, 1],
+        outlier_tol=[None, None],
+        # Reference behavior (MosiacToRef specific)
+        use_ref_new=False,
+        update_ref_orig=False,
+        # Transformation parameters
+        trans_class=transforms.PolyTransform,
+        trans_args=[{'order': 2}, {'order': 2}],
+        trans_input=None,
+        trans_weighting=None,
+        init_order=1,
+        init_guess_mode='miracle',
+        calc_trans_inverse=False,
+        # Magnitude parameters
+        mag_trans=True, 
+        mag_lim=None, 
+        ref_mag_lim=None,
+        # Motion model parameters
+        motion_models=['Empty', 'Fixed'],
+        fixed_params_dict=None,
+        vel_weighting='var',
+        use_scipy=True,
+        absolute_sigma=False,
+        # Advanced options
+        iter_callback=None,
+        save_path=None,
+        verbose=True
+    ):
 
         """
         Required Parameters
@@ -1692,27 +1744,28 @@ class MosaicToRef(MosaicSelfRef):
 
         """
         # Create a log file of the parameters used in the fit.
-        with open('MosaicToRef_input_params.log', 'w',) as _log:
-            logger(_log, 'Parameters used for fit: ', self.verbose)
-            logger(_log, '------------------------- ', self.verbose)
-            logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
-            logger(_log, '  dm_tol = ' + str(self.dm_tol), self.verbose)
-            logger(_log, '  outlier_tol = ' + str(self.outlier_tol), self.verbose)
-            logger(_log, '  trans_args = ' + str(self.trans_args), self.verbose)
-            logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
-            logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
-            logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
-            logger(_log, '  trans_weighting = ' + str(self.trans_weighting), self.verbose)
-            logger(_log, '  vel_weighting = ' + str(self.vel_weighting), self.verbose)
-            logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
-            logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
-            logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
-            logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
-            logger(_log, '  motion_models = ' + str([mm.name for mm in self.motion_models]), self.verbose)
-            logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
-            logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
-            logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
-            logger(_log, '-------------------------\n', self.verbose)
+        if self.save_path is not None:
+            with open(f'{self.save_path}/MosaicToRef_input_params.log', 'w',) as _log:
+                logger(_log, 'Parameters used for fit: ', self.verbose)
+                logger(_log, '------------------------- ', self.verbose)
+                logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
+                logger(_log, '  dm_tol = ' + str(self.dm_tol), self.verbose)
+                logger(_log, '  outlier_tol = ' + str(self.outlier_tol), self.verbose)
+                logger(_log, '  trans_args = ' + str(self.trans_args), self.verbose)
+                logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
+                logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
+                logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
+                logger(_log, '  trans_weighting = ' + str(self.trans_weighting), self.verbose)
+                logger(_log, '  vel_weighting = ' + str(self.vel_weighting), self.verbose)
+                logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
+                logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
+                logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
+                logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
+                logger(_log, '  motion_models = ' + str([mm.name for mm in self.motion_models]), self.verbose)
+                logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
+                logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
+                logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
+                logger(_log, '-------------------------\n', self.verbose)
 
 
         ##########
@@ -2932,8 +2985,8 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     if mode == 'name':
         # First trim the two lists down to only those that don't contain
         # the "ignore_contains" string.
-        idx_r = np.flatnonzero(np.char.find(ref_list['name'], ignore_contains) == -1)
-        idx_s = np.flatnonzero(np.char.find(star_list['name'], ignore_contains) == -1)
+        idx_r = np.flatnonzero(np.char.find(ref_list['name'].astype(str), ignore_contains) == -1)
+        idx_s = np.flatnonzero(np.char.find(star_list['name'].astype(str), ignore_contains) == -1)
 
         # Match the star names
         name_matches, ndx_r, ndx_s = np.intersect1d(ref_list['name'][idx_r],
