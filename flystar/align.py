@@ -201,6 +201,12 @@ class MosaicSelfRef(object):
         self.iter_callback = iter_callback
         self.save_path = save_path
         self.verbose = verbose
+        
+        # Setup save_path:
+        if self.save_path:
+            assert self.save_path.endswith('.pkl'), 'Save_path must end with .pkl'
+            if not os.path.exists(os.path.dirname(self.save_path)):
+                os.makedirs(os.path.dirname(self.save_path))
 
         all_mm_map = motion_model.motion_model_map()
         if all(isinstance(mm, str) for mm in motion_models):
@@ -535,7 +541,7 @@ class MosaicSelfRef(object):
 
             ## Make plot, if desired
             plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                  save_path=f"{self.save_path}/Transformed_Positions_{star_list_T['t'][0]}.png" if self.save_path else None,
+                                  save_path=f"{os.path.dirname(self.save_path)}/Transformed_Positions_{star_list_T['t'][0]}.png" if self.save_path else None,
                                   show_plot=False)
 
             ### Update the observed (but transformed) values in the reference table.
