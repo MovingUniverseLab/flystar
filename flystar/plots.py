@@ -2231,7 +2231,7 @@ def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_
     plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
     plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
-             label='$\chi^2$ ' + str(round(Ndof,2)) + ' dof')
+             label=r'$\chi^2$ ' + str(round(Ndof,2)) + ' dof')
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(round(Ndof,2)))
     plt.xlim(0, xlim)
     plt.legend()
