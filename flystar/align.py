@@ -401,10 +401,22 @@ class MosaicSelfRef(object):
 
         if self.iter_callback != None:
             self.iter_callback(self.ref_table, nn)
-        
+
         # Add times into ref_table meta data
-        complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in self.ref_table['t'].T])
-        self.ref_table.meta['LIST_TIMES'] = complete_times
+        # complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in self.ref_table['t'].T])
+        all_epochs = get_all_epochs(self.ref_table)
+        self.ref_table.meta['list_times'] = all_epochs
+
+        # Update chi2 values in ref table, as motion_model_used may have changed
+        x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
+        chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
+        chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        chi2_x = np.nansum(chi2_x_2d, axis=1)
+        chi2_y = np.nansum(chi2_y_2d, axis=1)
+        chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
+        chi2_y[~np.isfinite(chi2_y_2d).any(axis=1)] = np.nan
+        self.ref_table['chi2_x'] = chi2_x
+        self.ref_table['chi2_y'] = chi2_y
 
         if self.save_path:
             with open(self.save_path, 'wb') as file:
@@ -564,12 +576,12 @@ class MosaicSelfRef(object):
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
 
             ### Update the "average" values to be used as the reference frame for the next list.
-            keep_ref_orig = (self.update_ref_orig==False) or (self.update_ref_orig=='atend') or (self.update_ref_orig=='periter' and ii<(len(self.star_lists)-1))
-            if keep_ref_orig and ii<(len(self.star_lists)-1):
+            keep_ref_orig = (self.update_ref_orig==False) or (self.update_ref_orig=='atend') or (self.update_ref_orig=='periter' and ii<(len(self.star_lists) - 1))
+            if keep_ref_orig and ii < (len(self.star_lists) - 1):
                 keep_orig = np.where(self.ref_table['ref_orig'] | np.isnan(self.ref_table['x'][:,ii]))[0]
             elif keep_ref_orig:
                 keep_orig = np.where(self.ref_table['ref_orig'])[0]
-            elif ii<(len(self.star_lists)-1):
+            elif ii < (len(self.star_lists) - 1):
                 keep_orig = np.where(np.isnan(self.ref_table['x'][:,ii]))[0]
             else:
                 keep_orig=None
@@ -741,6 +753,7 @@ class MosaicSelfRef(object):
 
         if 'motion_model_input' not in ref_table.colnames:
             ref_table.add_column(Column(np.repeat(self.motion_models[-1].name, len(ref_table)), name='motion_model_input'))
+        # FIXME: Why do we need to set motion_model_used here before fitting?
         if 'motion_model_used' not in ref_table.colnames:
             # Order self.motion_models by decreasing n_params
             sorted_mms = sorted(self.motion_models, key=lambda mm: mm.n_params, reverse=True)
@@ -749,7 +762,6 @@ class MosaicSelfRef(object):
                 if all([_ in ref_table.colnames for _ in mm.fit_param_names]) and all([_ in ref_table.colnames for _ in mm.fixed_param_names]):
                     ref_table.add_column(Column(np.repeat(mm.name, len(ref_table)), name='motion_model_used'))
                     break
-
         return ref_table
 
     def apply_mag_lim_via_use_in_trans(self, ref_list, ref_mag_lim):
@@ -929,6 +941,25 @@ class MosaicSelfRef(object):
                 bootstrap=n_boot,
                 verbose=self.verbose
             )
+            if (keep_orig is not None) and (len(keep_orig) > 0):
+                # Determine motion_model_used for keep_orig stars
+                # Filter possible motion models based on available columns
+                motion_models_possible = []
+                for mm in self.motion_models:
+                    required_columns = mm.fit_param_names + mm.fixed_param_names
+                    if all(col in self.ref_table.colnames for col in required_columns):
+                        motion_models_possible.append((mm, required_columns))
+                
+                # Check if values are finite for required columns
+                motion_model_used = []
+                for k in keep_orig:
+                    for mm, req in motion_models_possible[::-1]:
+                        if all(np.isfinite(self.ref_table[k][col]) for col in req):
+                            motion_model_used.append(mm.name)
+                            break
+
+                # Assign the determined motion models
+                self.ref_table['motion_model_used'][keep_orig] = motion_model_used
 
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
@@ -1442,7 +1473,7 @@ class MosaicSelfRef(object):
         for ff in ['chi2_x_boot', 'chi2_y_boot']:
             col = Column(np.ones(len(self.ref_table)), name=ff)
             col.fill(np.nan)
-            
+
             col[idx_good] = data_dict[ff][idx_good]
             self.ref_table.add_column(col)
 
@@ -1721,7 +1752,7 @@ class MosaicToRef(MosaicSelfRef):
 
         return
 
-    
+
     def fit(self):
         """
         Using the current parameter settings, match and transform all the lists
@@ -1745,7 +1776,7 @@ class MosaicToRef(MosaicSelfRef):
         """
         # Create a log file of the parameters used in the fit.
         if self.save_path is not None:
-            with open(f'{self.save_path}/MosaicToRef_input_params.log', 'w',) as _log:
+            with open(f'{os.path.dirname(self.save_path)}/MosaicToRef_input_params.log', 'w',) as _log:
                 logger(_log, 'Parameters used for fit: ', self.verbose)
                 logger(_log, '------------------------- ', self.verbose)
                 logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
@@ -1853,6 +1884,21 @@ class MosaicToRef(MosaicSelfRef):
 
         if self.iter_callback != None:
             self.iter_callback(self.ref_table, nn)
+
+        # Add times into ref_table meta data
+        all_epochs = get_all_epochs(self.ref_table)
+        self.ref_table.meta['list_times'] = all_epochs
+
+        # Update chi2 values in ref table, as motion_model_used may have changed
+        x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
+        chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
+        chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        chi2_x = np.nansum(chi2_x_2d, axis=1)
+        chi2_y = np.nansum(chi2_y_2d, axis=1)
+        chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
+        chi2_y[~np.isfinite(chi2_y_2d).any(axis=1)] = np.nan
+        self.ref_table['chi2_x'] = chi2_x
+        self.ref_table['chi2_y'] = chi2_y
 
         if self.save_path:
             with open(self.save_path, 'wb') as file:

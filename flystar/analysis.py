@@ -48,7 +48,8 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
     gaia = gaia_job.get_results()
 
     #Change new 'SOURCE_ID' column header back to lowercase 'source_id' so all subsequent functions still work:
-    gaia['SOURCE_ID'].name = 'source_id'
+    if 'SOURCE_ID' in gaia.colnames:
+        gaia.rename_column('SOURCE_ID', 'source_id')
 
     return gaia
 

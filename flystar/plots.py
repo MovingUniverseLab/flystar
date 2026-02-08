@@ -1049,25 +1049,29 @@ def plot_gaia(gaia):
 
     return
 
-def plot_pm_error(tab):
-    plt.figure(figsize=(6,6))
-    plt.clf()
-    plt.semilogy(tab['m0'], tab['vx_err']*1e3, 'r.', label=r'$\sigma_{\mu_{\alpha *}}$', alpha=0.4)
-    plt.semilogy(tab['m0'], tab['vy_err']*1e3, 'b.', label=r'$\sigma_{\mu_{\delta}}$', alpha=0.4)
-    plt.legend()
-    plt.xlabel('Mag')
-    plt.ylabel('PM Error (mas/yr)')
+def plot_pm_error(tab, save_path=None):
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+    ax.semilogy(tab['m0'], tab['vx_err']*1e3, color='C0', marker='.', ls='none', ms=3, label=r'$\sigma_{\mu_{\alpha *}}$', alpha=0.3)
+    ax.semilogy(tab['m0'], tab['vy_err']*1e3, color='C3', marker='.', ls='none', ms=3, label=r'$\sigma_{\mu_{\delta}}$', alpha=0.3)
+    ax.legend()
+    ax.set_xlabel('Mag')
+    ax.set_ylabel('PM Error (mas/yr)')
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path)
     plt.show()
     return
 
-def plot_mag_error(tab):
-    plt.figure(figsize=(6,6))
-    plt.clf()
-    plt.semilogy(tab['m0'], tab['m0_err'], 'r.', alpha=0.4)
-    plt.legend()
-    plt.xlabel('Mag')
-    plt.ylabel('Mag Error (mag)')
-
+def plot_mag_error(tab, save_path=None):
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+    ax.semilogy(tab['m0'], tab['m0_err'], color='C0', marker='.', ls='none', alpha=0.4)
+    ax.legend()
+    ax.set_xlabel('Mag')
+    ax.set_ylabel('Mag Error (mag)')
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path)
+    plt.show()
     return
 
 def plot_mean_residuals_by_epoch(tab):
@@ -1127,17 +1131,18 @@ def plot_mean_residuals_by_epoch(tab):
     
     return
 
-def plot_quiver_residuals_all_epochs(tab, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None):
+def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=None, save_path=None):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
     n_good = np.zeros(len(tab), dtype=int)
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
-    
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in tab['t'].T])
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(complete_times, motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(complete_times, motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(complete_times)
 
     for ee in range(tab['x'].shape[1]):
         xt_mod = xt_mod_all[:,ee]
@@ -1146,11 +1151,19 @@ def plot_quiver_residuals_all_epochs(tab, motion_model_dict={}, unit='arcsec', s
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
         ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
 
-        dx, dy = plot_quiver_residuals(tab['x'][:, ee], tab['y'][:, ee], 
-                                       xt_mod, yt_mod, 
-                                       good_idx, ref_idx,
-                                       'Epoch {0:d}'.format(ee), 
-                                       unit=unit, scale=scale, plotlim=plotlim)
+        dx, dy = plot_quiver_residuals(
+            tab['x'][:, ee], 
+            tab['y'][:, ee], 
+            xt_mod, 
+            yt_mod, 
+            good_idx, 
+            ref_idx,
+            'Epoch {0:d}'.format(ee), 
+            unit=unit, 
+            scale=scale, 
+            plotlim=plotlim,
+            save_path=f'{save_path}/Quiver_Residual_{ee}.pdf' if save_path else None
+        )
 
         # Building up average dr for a set of stars.
         dr = np.hypot(dx, dy)
@@ -1169,8 +1182,8 @@ def plot_quiver_residuals_all_epochs(tab, motion_model_dict={}, unit='arcsec', s
     idx = np.where(n_ref > 0)[0]
     dr_ref_avg[idx] = dr_ref[idx] / n_ref[idx]
 
-    hdr = '{name:>16s} {mag:>5s} {dr:>6s} {x:>6s} {y:>6s} {r:>6s}'
-    fmt = '{name:16s} {mag:5.2f} {dr:6.4f} {x:6.3f} {y:6.3f} {r:6.3f}'
+    # hdr = '{name:>16s} {mag:>5s} {dr:>6s} {x:>6s} {y:>6s} {r:>6s}'
+    # fmt = '{name:16s} {mag:5.2f} {dr:6.4f} {x:6.3f} {y:6.3f} {r:6.3f}'
 
     # print()
     # print('##########')
@@ -1194,7 +1207,7 @@ def plot_quiver_residuals_all_epochs(tab, motion_model_dict={}, unit='arcsec', s
     return
 
 
-def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None, scale_orig=None, cte_fit=None, mlim=15):
+def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None, cte_fit=None, mlim=15, save_path=None):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
@@ -1202,15 +1215,16 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, motion_model_dic
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
     
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
         xt_mod = xt_mod_all[ee]
         yt_mod = yt_mod_all[ee]
-        
+
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
         ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
 
@@ -1220,14 +1234,14 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, motion_model_dic
                                        xt_mod, yt_mod, 
                                        good_idx, ref_idx,
                                        'Epoch {0:d}'.format(ee), 
-                                       unit=unit, scale=scale, plotlim=plotlim)
+                                       unit=unit, scale=scale, plotlim=plotlim, save_path=f'{save_path}/Quiver_Residual_{ee}.pdf' if save_path else None)
 
         plot_quiver_residuals_orig(tab['x'][:, ee], tab['y'][:, ee], 
                                    xt_mod, yt_mod, 
                                    good_idx, ref_idx,
                                    tab['x_orig'][:, ee], tab['y_orig'][:, ee], da,
                                    'Epoch {0:d}'.format(ee), 
-                                   scale=scale_orig, plotlim=plotlim)
+                                   scale=scale_orig, plotlim=plotlim, save_path=f'{save_path}/Quiver_Residual_Orig_{ee}.pdf' if save_path else None)
 
         plot_mag_scatter(tab['m'][:, ee], 
                          tab['m0'], tab['m0_err'],
@@ -1237,7 +1251,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, motion_model_dic
                          good_idx, ref_idx,
                          'Epoch {0:d}'.format(ee), da=da,
                          xorig=tab['x_orig'][:, ee], yorig=tab['y_orig'][:, ee],
-                         cte_fit=cte_fit, mlim=mlim)
+                         cte_fit=cte_fit, mlim=mlim, save_path=f'{save_path}/Mag_Scatter_{ee}.pdf' if save_path else None)
 
         plot_y_scatter(tab['m'][:, ee], 
                          tab['m0'], tab['m0_err'],
@@ -1247,7 +1261,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, motion_model_dic
                          good_idx, ref_idx,
                          'Epoch {0:d}'.format(ee), da=da,
                          xorig=tab['x_orig'][:, ee], yorig=tab['y_orig'][:, ee],
-                         cte_fit=cte_fit, mlim=mlim)
+                         cte_fit=cte_fit, mlim=mlim, save_path=f'{save_path}/Y_Scatter_{ee}.pdf' if save_path else None)
 
 #        plot_quiver_residuals_orig_angle_xy(tab['x'][:, ee], tab['y'][:, ee],
 #                                            xt_mod, yt_mod, 
@@ -1258,7 +1272,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, motion_model_dic
 #        plot_quiver_residuals_vs_pos_err(dx, dy, good_idx, ref_idx,
 #                                         1e3 * tab['xe'][:, ee], 1e3 * tab['ye'][:, ee], 
 #                                         'positional err (mas)', 'Epoch {0:d}'.format(ee), da=da)
-    
+
         # Building up average dr for a set of stars.
         dr = np.hypot(dx, dy)
 
@@ -1271,13 +1285,13 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, motion_model_dic
     dr_good_avg = np.zeros(len(tab), dtype=float)
     idx = np.where(n_good > 0)[0]
     dr_good_avg[idx] = dr_good[idx] / n_good[idx]
-    
+
     dr_ref_avg = np.zeros(len(tab), dtype=float)
     idx = np.where(n_ref > 0)[0]
     dr_ref_avg[idx] = dr_ref[idx] / n_ref[idx]
 
-    hdr = '{name:>16s} {mag:>5s} {dr:>6s} {x:>6s} {y:>6s} {r:>6s}'
-    fmt = '{name:16s} {mag:5.2f} {dr:6.4f} {x:6.3f} {y:6.3f} {r:6.3f}'
+    # hdr = '{name:>16s} {mag:>5s} {dr:>6s} {x:>6s} {y:>6s} {r:>6s}'
+    # fmt = '{name:16s} {mag:5.2f} {dr:6.4f} {x:6.3f} {y:6.3f} {r:6.3f}'
 
     # print()
     # print('##########')
@@ -1301,7 +1315,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, motion_model_dic
     return
 
 
-def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None, scale_orig=None):
+def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None):
     m_t_list = []
     x_t_list = []
     y_t_list = []
@@ -1314,9 +1328,10 @@ def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, motion_mo
     da_list = []
 
     ntrans = len(tab_list)
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
     
     for mm in range(ntrans):
         tab = tab_list[mm]
@@ -1790,7 +1805,7 @@ def T_line(m, a, b):
 
 
 def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title, 
-                          unit='pixel', scale=None, plotlim=None):
+                          unit='pixel', scale=None, plotlim=None, save_path=None):
     """
     unit : str
         'pixel' or 'arcsec'
@@ -1827,23 +1842,24 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
         unit2 = 'mas'
 
 
-    plt.figure(101, figsize=(6,6))
-    plt.clf()
-    q = plt.quiver(x_ref[good_idx], y_ref[good_idx], dx[good_idx], dy[good_idx],
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+    q = ax.quiver(x_ref[good_idx], y_ref[good_idx], dx[good_idx], dy[good_idx],
                    color='black', scale=quiv_scale, angles='xy', alpha=0.5)
-    plt.quiver(x_ref[good_idx][ref_idx], y_ref[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
+    ax.quiver(x_ref[good_idx][ref_idx], y_ref[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
                color='red', scale=quiv_scale, angles='xy')
-    plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
+    ax.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
                       coordinates='figure', labelpos='E', color='green')
-    plt.xlabel('X (ref ' + unit + ')')
-    plt.ylabel('Y (ref ' + unit + ')')
-    plt.title(title)
-    plt.axis('equal')
+    ax.set_xlabel('X (ref ' + unit + ')')
+    ax.set_ylabel('Y (ref ' + unit + ')')
+    ax.set_title(title)
+    ax.axis('equal')
     if plotlim is not None:
-        plt.xlim(-1 * plotlim, plotlim)
-        plt.ylim(-1 * plotlim, plotlim)
+        ax.set_xlim(-1 * plotlim, plotlim)
+        ax.set_ylim(-1 * plotlim, plotlim)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
     plt.show()
-    plt.pause(1)
 
     str_fmt = 'Residuals (mean, std): dx = {0:7.3f} +/- {1:7.3f} {5:s}  dy = {2:7.3f} +/- {3:7.3f} {5:s} for {4:s} stars'
     if len(ref_idx) > 1:
@@ -1859,7 +1875,7 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
 
     return (dx, dy)
 
-def plot_quiver_residuals_magcolor_all_epochs(tab, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None, lower_mag=18, upper_mag=13):
+def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, plotlim=None, lower_mag=18, upper_mag=13):
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
     n_good = np.zeros(len(tab), dtype=int)
@@ -1869,9 +1885,10 @@ def plot_quiver_residuals_magcolor_all_epochs(tab, motion_model_dict={}, unit='a
     idx = np.where((tab['m0'] < lower_mag) & 
                    (tab['m0'] > upper_mag))[0]
     tab = tab[idx]
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
     
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
@@ -1959,39 +1976,36 @@ def plot_quiver_residuals_magcolor(x_t, y_t, x_ref, y_ref, mag, good_idx, ref_id
 #                                         norm=norm,
 #                                         orientation='horizontal')
 
-    plt.figure(101, figsize=(6,6))
-    plt.clf()
-    q = plt.quiver(x_ref[good_idx], y_ref[good_idx], dx[good_idx], dy[good_idx],
+    fig, ax=plt.subplots(1, 1, figsize=(6, 6))
+    q = ax.quiver(x_ref[good_idx], y_ref[good_idx], dx[good_idx], dy[good_idx],
                    color=cm(norm(mag[good_idx])), scale=quiv_scale, angles='xy', alpha=0.8)
-    plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
+    ax.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
                       coordinates='figure', labelpos='E', color='green')
-    plt.colorbar(sm)
-    plt.xlabel('X (ref ' + unit + ')')
-    plt.ylabel('Y (ref ' + unit + ')')
-    plt.title(title + ', Good')
-    plt.axis('equal')
+    fig.colorbar(sm, ax=ax)
+    ax.set_xlabel('X (ref ' + unit + ')')
+    ax.set_ylabel('Y (ref ' + unit + ')')
+    ax.set_title(title + ', Good')
+    ax.axis('equal')
     if plotlim is not None:
-        plt.xlim(-1 * plotlim, plotlim)
-        plt.ylim(-1 * plotlim, plotlim)
+        ax.set_xlim(-1 * plotlim, plotlim)
+        ax.set_ylim(-1 * plotlim, plotlim)
+    plt.tight_layout()
     plt.show()
-    plt.pause(1)
 
-    plt.figure(102, figsize=(6,6))
-    plt.clf()
-    q = plt.quiver(x_ref[good_idx][ref_idx], y_ref[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
+    fig, ax = plt.subplots(1, 1, figsize=(6,6))
+    q = ax.quiver(x_ref[good_idx][ref_idx], y_ref[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
                color=cm(norm(mag[good_idx][ref_idx])), scale=quiv_scale, angles='xy', alpha=0.8)
-    plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
+    ax.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
                       coordinates='figure', labelpos='E', color='green')
-    plt.colorbar(sm)
-    plt.xlabel('X (ref ' + unit + ')')
-    plt.ylabel('Y (ref ' + unit + ')')
-    plt.title(title + ', Ref')
-    plt.axis('equal')
+    fig.colorbar(sm, ax=ax)
+    ax.set_xlabel('X (ref ' + unit + ')')
+    ax.set_ylabel('Y (ref ' + unit + ')')
+    ax.set_title(title + ', Ref')
+    ax.axis('equal')
     if plotlim is not None:
-        plt.xlim(-1 * plotlim, plotlim)
-        plt.ylim(-1 * plotlim, plotlim)
+        ax.set_xlim(-1 * plotlim, plotlim)
+        ax.set_ylim(-1 * plotlim, plotlim)
     plt.show()
-    plt.pause(1)
 
     str_fmt = 'Residuals (mean, std): dx = {0:7.3f} +/- {1:7.3f} {5:s}  dy = {2:7.3f} +/- {3:7.3f} {5:s} for {4:s} stars'
     if len(ref_idx) > 1:
@@ -2010,7 +2024,7 @@ def plot_quiver_residuals_magcolor(x_t, y_t, x_ref, y_ref, mag, good_idx, ref_id
 
 def plot_quiver_residuals_orig(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, 
                                x_orig, y_orig, da, title, 
-                               scale=None, plotlim=None):
+                               scale=None, plotlim=None, save_path=None):
     """
     unit : str
         'pixel' or 'arcsec'
@@ -2033,8 +2047,8 @@ def plot_quiver_residuals_orig(x_t, y_t, x_ref, y_ref, good_idx, ref_idx,
     dy /= 0.04
 
     # Residual modulus
-    r_good = np.hypot(dx[good_idx], dy[good_idx])
-    r_ref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+    # r_good = np.hypot(dx[good_idx], dy[good_idx])
+    # r_ref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
 
     # Residual angle
     agood = angle_from_xy(dx[good_idx], dy[good_idx])
@@ -2050,21 +2064,23 @@ def plot_quiver_residuals_orig(x_t, y_t, x_ref, y_ref, good_idx, ref_idx,
     dx_ref_new, dy_ref_new = rotate(dx[good_idx][ref_idx], dy[good_idx][ref_idx], -da)
     print('Rotation angle between HST and Gaia (deg): ', da)
 
-    plt.figure(102, figsize=(6,6))
-    plt.clf()
-    q = plt.quiver(x_orig[good_idx], y_orig[good_idx], dx_good_new, dy_good_new,
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+    q = ax.quiver(x_orig[good_idx], y_orig[good_idx], dx_good_new, dy_good_new,
                    color='black', scale=scale, angles='xy', alpha=0.5)
-    plt.quiver(x_orig[good_idx][ref_idx], y_orig[good_idx][ref_idx], dx_ref_new, dy_ref_new,
+    ax.quiver(x_orig[good_idx][ref_idx], y_orig[good_idx][ref_idx], dx_ref_new, dy_ref_new,
                color='red', scale=scale, angles='xy')
-    plt.quiverkey(q, 0.5, 0.85, 0.3, '0.3 pix',
+    ax.quiverkey(q, 0.5, 0.85, 0.3, '0.3 pix',
                       coordinates='figure', labelpos='E', color='green')
-    plt.xlabel('X (ref pix)')
-    plt.ylabel('Y (ref pix)')
-    plt.title(title)
-    plt.axis('equal')
+    ax.set_xlabel('X (ref pix)')
+    ax.set_ylabel('Y (ref pix)')
+    ax.set_title(title)
+    ax.axis('equal')
     if plotlim is not None:
-        plt.xlim(-1 * plotlim, plotlim)
-        plt.ylim(-1 * plotlim, plotlim)
+        ax.set_xlim(-1 * plotlim, plotlim)
+        ax.set_ylim(-1 * plotlim, plotlim)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
     plt.show()
     plt.pause(1)
 
@@ -2169,7 +2185,7 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     return
 
 
-def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_err=False):
+def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2178,9 +2194,10 @@ def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
     
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab)):
         # Ignore the NaNs 
@@ -2254,7 +2271,7 @@ def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_
 
     return
 
-def plot_chi2_reduced_dist(tab, Ndetect, motion_model_dict={}, xlim=8, n_bins=50, boot_err=False):
+def plot_chi2_reduced_dist(tab, Ndetect, xlim=8, n_bins=50, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2263,9 +2280,10 @@ def plot_chi2_reduced_dist(tab, Ndetect, motion_model_dict={}, xlim=8, n_bins=50
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
     
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab)):
         # Ignore the NaNs
@@ -2333,7 +2351,7 @@ def plot_chi2_reduced_dist(tab, Ndetect, motion_model_dict={}, xlim=8, n_bins=50
     return
 
 
-def plot_chi2_dist_per_filter(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, filter=None, boot_err=False):
+def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2342,9 +2360,10 @@ def plot_chi2_dist_per_filter(tab, Ndetect, motion_model_dict={}, xlim=40, n_bin
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
     
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab)):
         # Ignore the NaNs 
@@ -2425,7 +2444,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, motion_model_dict={}, xlim=40, n_bin
     return
 
 
-def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_idx = 0, motion_model_dict={}, boot_err=False):
+def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14, 21], ylim=[-1, 1], target_idx=0, boot_err=False):
     """
     tab = flystar table
     Ndetect = Number of epochs star detected in
@@ -2438,9 +2457,10 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14,21], ylim = [-1, 1], target_
     sigY_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
     m_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
     
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
     
     for ii in range(len(tab['xe'])):
         # Ignore the NaNs 
@@ -2748,7 +2768,7 @@ def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, fil
     
     return
 
-def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False, boot_err=False):
+def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False, boot_err=False):
     """
     Plot a set of stars positions, flux and residuals over time. 
 
@@ -2776,11 +2796,13 @@ def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = N
     x = tab['x0']
     y = tab['y0']
     r = np.hypot(x, y)
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    # xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, motion_model_dict, allow_alt_models=True)
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.infer_positions(cont_times)
     
     for i in range(Nstars):
         starName = star_names[i]
@@ -3167,7 +3189,7 @@ def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = N
 
     return
 
-def plot_stars_nfilt(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array_list = None, color_list = None,
+def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None,
                          figsize=(15,25), color_time=False, resTicRng=None, save_name=None, boot_err=False):
     """
     Plot a set of stars positions, flux and residuals over time. 
@@ -3183,9 +3205,10 @@ def plot_stars_nfilt(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_arr
     def rs(x):
         return x.reshape(len(x))
     
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
     
     Nstars = len(star_names)
     Ncols = 3 * np.min([Nstars, NcolMax])
@@ -3201,11 +3224,13 @@ def plot_stars_nfilt(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_arr
     x = tab['x0']
     y = tab['y0']
     r = np.hypot(x, y)
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
+    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, motion_model_dict, allow_alt_models=True)
+    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    # xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, motion_model_dict, allow_alt_models=True)
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.infer_positions(cont_times)
     
     for i in range(Nstars):
         for ea, epoch_array in enumerate(epoch_array_list):

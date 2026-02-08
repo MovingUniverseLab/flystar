@@ -13,7 +13,7 @@ def test_MosaicSelfRef():
     """
     Cross-match and align 4 starlists using the OO version of mosaic lists.
     """
-    list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
+    list_files = ['test_data/A.lis', 'test_data/B.lis', 'test_data/C.lis', 'test_data/D.lis']
     lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
 
     ##########
@@ -86,9 +86,9 @@ def test_MosaicSelfRef_vel_tconst():
     """
     Cross-match and align 4 starlists using the OO version of mosaic lists.
     The 4 lists are all taken at the same time (so 0 velocities should result).
-    
+
     """
-    list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
+    list_files = ['test_data/A.lis', 'test_data/B.lis', 'test_data/C.lis', 'test_data/D.lis']
     lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
 
     ##########
@@ -120,7 +120,7 @@ def test_MosaicSelfRef_vel_tconst():
     # Check that we have some matched stars... should be at least 35 stars
     # that are detected in all 4 starlists.
     idx = np.where(msc.ref_table['n_detect'] == 4)[0]
-    assert len(idx) > 35 
+    assert len(idx) > 35
 
     # Check that the transformation error isn't too big
     valid_err = np.isfinite(msc.ref_table['x0_err']) & np.isfinite(msc.ref_table['y0_err']) & np.isfinite(msc.ref_table['m0_err'])
@@ -139,22 +139,21 @@ def test_MosaicSelfRef_vel_tconst():
 def test_MosaicSelfRef_vel():
     """
     Cross-match and align 4 starlists using the OO version of mosaic lists.
-    
     """
-    list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
+    list_files = ['test_data/A.lis', 'test_data/B.lis', 'test_data/C.lis', 'test_data/D.lis']
     lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
 
     # Modify the times so that we get velocities out.
-    lists[0].meta['list_time'] = 2001.4
+    lists[0].meta['list_times'] = 2001.4
     lists[0]['t'] = 2001.4
-    
-    lists[1].meta['list_time'] = 2002.4
+
+    lists[1].meta['list_times'] = 2002.4
     lists[1]['t'] = 2002.4
-    
-    lists[2].meta['list_time'] = 2003.4
+
+    lists[2].meta['list_times'] = 2003.4
     lists[2]['t'] = 2003.4
-    
-    lists[3].meta['list_time'] = 2004.4
+
+    lists[3].meta['list_times'] = 2004.4
     lists[3]['t'] = 2004.4
 
 
@@ -168,7 +167,7 @@ def test_MosaicSelfRef_vel():
                               verbose=False)
 
     msc.fit()
-    
+
     # Check some of the output quantities on the final table.
     assert 'x0' in msc.ref_table.colnames
     assert 'x0_err' in msc.ref_table.colnames
@@ -197,7 +196,7 @@ def test_MosaicSelfRef_vel():
     for ii in range(4):
         np.testing.assert_allclose(msc.trans_list[ii].px.c1_0, 1.0, rtol=1e-2)
         np.testing.assert_allclose(msc.trans_list[ii].py.c0_1, 1.0, rtol=1e-2)
-    
+
     plt.clf()
     plt.plot(msc.ref_table['vx'],
              msc.ref_table['vy'],
@@ -208,21 +207,21 @@ def test_MosaicSelfRef_vel():
 def test_MosaicToRef():
     make_fake_starlists_poly1(seed=42)
 
-    ref_file = 'random_ref.fits'
-    list_files = ['random_0.fits',
-                  'random_1.fits',
-                  'random_2.fits',
-                  'random_3.fits',
-                  'random_4.fits',
-                  'random_5.fits',
-                  'random_6.fits',
-                  'random_7.fits']
+    ref_file = 'test_data/random_ref.fits'
+    list_files = ['test_data/random_0.fits',
+                  'test_data/random_1.fits',
+                  'test_data/random_2.fits',
+                  'test_data/random_3.fits',
+                  'test_data/random_4.fits',
+                  'test_data/random_5.fits',
+                  'test_data/random_6.fits',
+                  'test_data/random_7.fits']
 
     ref_list = Table.read(ref_file)
 
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
-        
+
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
     msc = align.MosaicToRef(ref_list, lists, iters=2,
@@ -265,15 +264,15 @@ def test_MosaicToRef():
 def test_MosaicToRef_p0_vel():
     make_fake_starlists_poly0_vel(seed=42)
 
-    ref_file = 'random_vel_ref.fits'
-    list_files = ['random_vel_p0_0.fits',
-                  'random_vel_p0_1.fits',
-                  'random_vel_p0_2.fits',
-                  'random_vel_p0_3.fits']
-                  #'random_vel_4.fits',
-                  #'random_vel_5.fits',
-                  #'random_vel_6.fits',
-                  #'random_vel_7.fits']
+    ref_file = 'test_data/random_vel_ref.fits'
+    list_files = ['test_data/random_vel_p0_0.fits',
+                  'test_data/random_vel_p0_1.fits',
+                  'test_data/random_vel_p0_2.fits',
+                  'test_data/random_vel_p0_3.fits']
+                  #'test_data/random_vel_4.fits',
+                  #'test_data/random_vel_5.fits',
+                  #'test_data/random_vel_6.fits',
+                  #'test_data/random_vel_7.fits']
 
     ref_list = Table.read(ref_file)
 
@@ -331,15 +330,15 @@ def test_MosaicToRef_p0_vel():
 def test_MosaicToRef_vel():
     make_fake_starlists_poly1_vel(seed=42)
 
-    ref_file = 'random_vel_ref.fits'
-    list_files = ['random_vel_0.fits',
-                  'random_vel_1.fits',
-                  'random_vel_2.fits',
-                  'random_vel_3.fits']
-                  #'random_vel_4.fits',
-                  #'random_vel_5.fits',
-                  #'random_vel_6.fits',
-                  #'random_vel_7.fits']
+    ref_file = 'test_data/random_vel_ref.fits'
+    list_files = ['test_data/random_vel_0.fits',
+                  'test_data/random_vel_1.fits',
+                  'test_data/random_vel_2.fits',
+                  'test_data/random_vel_3.fits']
+                  #'test_data/random_vel_4.fits',
+                  #'test_data/random_vel_5.fits',
+                  #'test_data/random_vel_6.fits',
+                  #'test_data/random_vel_7.fits']
 
     ref_list = Table.read(ref_file)
 
@@ -370,14 +369,14 @@ def test_MosaicToRef_vel():
     assert msc.ref_table['use_in_trans'].shape == msc.ref_table['x0'].shape
     assert msc.ref_table['used_in_trans'].shape == msc.ref_table['x'].shape
 
-    # The velocities should be almost the same as the input 
+    # The velocities should be almost the same as the input
     # velocities since update_ref_orig == False.
     assert (msc.ref_table['name']==ref_list['name']).all()
     np.testing.assert_allclose(msc.ref_table['vx'], ref_list['vx'], rtol=1e-5)
     np.testing.assert_allclose(msc.ref_table['vy'], ref_list['vy'], rtol=1e-5)
 
     ##########
-    # Align and let velocities be free. 
+    # Align and let velocities be free.
     ##########
     msc.update_ref_orig = 'periter'
     msc.fit()
@@ -397,23 +396,23 @@ def test_MosaicToRef_vel():
 def test_MosaicToRef_acc():
     make_fake_starlists_poly1_acc(seed=42)
 
-    ref_file = 'random_acc_ref.fits'
-    list_files = ['random_acc_0.fits',
-                  'random_acc_1.fits',
-                  'random_acc_2.fits',
-                  'random_acc_3.fits',
-                  'random_acc_4.fits',
-                  'random_acc_5.fits',
-                  'random_acc_6.fits',
-                  'random_acc_7.fits']
+    ref_file = 'test_data/random_acc_ref.fits'
+    list_files = ['test_data/random_acc_0.fits',
+                  'test_data/random_acc_1.fits',
+                  'test_data/random_acc_2.fits',
+                  'test_data/random_acc_3.fits',
+                  'test_data/random_acc_4.fits',
+                  'test_data/random_acc_5.fits',
+                  'test_data/random_acc_6.fits',
+                  'test_data/random_acc_7.fits']
 
     ref_list = Table.read(ref_file)
 
     # Convert velocities to arcsec/yr
-    ref_list['vx'] *= 1e-3
-    ref_list['vy'] *= 1e-3
-    ref_list['vx_err'] *= 1e-3
-    ref_list['vy_err'] *= 1e-3
+    ref_list['vx0'] *= 1e-3
+    ref_list['vy0'] *= 1e-3
+    ref_list['vx0_err'] *= 1e-3
+    ref_list['vy0_err'] *= 1e-3
 
     # Convert accelerations to arcsec/yr**2
     ref_list['ax'] *= 1e-3
@@ -423,7 +422,7 @@ def test_MosaicToRef_acc():
 
     # Switch our list to a "increasing to the West" list.
     ref_list['x0'] *= -1.0
-    ref_list['vx'] *= -1.0
+    ref_list['vx0'] *= -1.0
     ref_list['ax'] *= -1.0
 
     lists = [starlists.StarList.read(lf) for lf in list_files]
@@ -444,7 +443,7 @@ def test_MosaicToRef_acc():
     assert msc.ref_table['use_in_trans'].shape == msc.ref_table['x0'].shape
     assert msc.ref_table['used_in_trans'].shape == msc.ref_table['x'].shape
 
-    # The velocities should be almost the same as the input 
+    # The velocities should be almost the same as the input
     # velocities since update_ref_orig == False.
     i_orig, i_fit = [],[]
     for i,star in enumerate(ref_list["name"]):
@@ -455,7 +454,7 @@ def test_MosaicToRef_acc():
     np.testing.assert_allclose(msc.ref_table['ay'][i_fit], ref_list['ay'][i_orig], rtol=1e-5)
 
     ##########
-    # Align and let velocities be free. 
+    # Align and let velocities be free.
     ##########
     msc.update_ref_orig = 'periter'
     msc.fit()
@@ -486,7 +485,7 @@ def test_MosaicToRef_acc():
     ax1.set_xlabel('Input ax')
     ax1.set_ylabel('Ref Table ax')
     ax1.set_title('Acceleration in X')
-    
+
     ax2.plot(ref_list['ay'][i_orig], msc.ref_table['ay'][i_fit], '.')
     ax2.plot([ay_min, ay_max], [ay_min, ay_max], color='C3')
     ax2.plot([ay_min, ay_max], [ay_min - atol, ay_max - atol], ls='--', color='C3')
@@ -504,10 +503,10 @@ def test_MosaicToRef_acc():
 
 def test_MosaicToRef_hst_me():
     """
-    Test Casey's issue with 'me' not getting propogated 
+    Test Casey's issue with 'me' not getting propogated
     from the input starlists to the output table.
 
-    Use data from MB10-364 microlensing target for the test. 
+    Use data from MB10-364 microlensing target for the test.
     """
     # Target RA and Dec (MOA data download)
     # ra = '17:57:05.401'
@@ -517,6 +516,10 @@ def test_MosaicToRef_hst_me():
     my_gaia = Table.read('mb10364_data/my_gaia.fits')
     my_gaia['me'] = 0.01
 
+    my_gaia.rename_columns(
+        ['x0e', 'y0e'],
+        ['x0_err', 'y0_err']
+    )
     # Gather the list of starlists. For first pass, don't modify the starlists.
     # Loop through the observations and read them in, in prep for alignment with Gaia
     epochs = [2011.83, 2012.73, 2013.81]
@@ -560,15 +563,15 @@ def test_MosaicToRef_hst_me():
 
 def test_bootstrap():
     """
-    Test to make sure calc_bootstrap_error() call is working 
+    Test to make sure calc_bootstrap_error() call is working
     properly (e.g., only called when user calls calc_bootstrap_error,
     n_boot param for calc_bootstrap_error only, boot_epochs_min working,
     etc.)
     """
     # Read in starlists for MosaicToRef
-    ref = Table.read('ref_vel.lis', format='ascii')
-    list1 = Table.read('E.lis', format='ascii')
-    list2 = Table.read('F.lis', format='ascii')
+    ref = Table.read('test_data/ref_vel.lis', format='ascii')
+    list1 = Table.read('test_data/E.lis', format='ascii')
+    list2 = Table.read('test_data/F.lis', format='ascii')
 
     list1 = starlists.StarList.from_table(list1)
     list2 = starlists.StarList.from_table(list2)
@@ -669,22 +672,21 @@ def test_bootstrap():
 def test_calc_vel_in_bootstrap():
     """
     Check calc_vel_in_bootstrap performance in calc_bootstrap_errors()
-    
-    Only calculate velocity bootstrap (e.g., bootstrap over epochs and 
+
+    Only calculate velocity bootstrap (e.g., bootstrap over epochs and
     calculating proper motions) if calc_vel_in_bootstrap=True.
 
     """
     import copy
 
     # Define match parameters
-    ref = Table.read('ref_vel.lis', format='ascii')
-
-    list1 = Table.read('E.lis', format='ascii')
-    list2 = Table.read('F.lis', format='ascii')
+    ref = Table.read('test_data/ref_vel.lis', format='ascii')
+    list1 = Table.read('test_data/E.lis', format='ascii')
+    list2 = Table.read('test_data/F.lis', format='ascii')
 
     list1 = starlists.StarList.from_table(list1)
     list2 = starlists.StarList.from_table(list2)
-        
+
     # Set parameters for alignment
     transModel = transforms.PolyTransform
     trans_args = {'order':2}
@@ -736,19 +738,19 @@ def test_calc_vel_in_bootstrap():
     assert 'xe_boot' in match.ref_table.keys()
     assert np.sum(np.isnan(match.ref_table['xe_boot'])) == 0
     assert 'vx_err_boot' not in match.ref_table.keys()
-    
+
     return
 
 def test_transform_xym():
     """
     Test to make sure transforms are being done to mags only
-    if mag_trans = True. This can cause subtle bugs 
+    if mag_trans = True. This can cause subtle bugs
     otherwise
     """
     #---Align 1: self.mag_Trans = False---#
-    ref = Table.read('ref_vel.lis', format='ascii')
-    list1 = Table.read('E.lis', format='ascii')
-    list2 = Table.read('F.lis', format='ascii')
+    ref = Table.read('test_data/ref_vel.lis', format='ascii')
+    list1 = Table.read('test_data/E.lis', format='ascii')
+    list2 = Table.read('test_data/F.lis', format='ascii')
 
     list1 = starlists.StarList.from_table(list1)
     list2 = starlists.StarList.from_table(list2)
@@ -785,7 +787,7 @@ def test_transform_xym():
     match1.fit()
     match1.calc_bootstrap_errors(n_boot=n_boot)
 
-    # Make sure all transformations have mag_offset = 0 
+    # Make sure all transformations have mag_offset = 0
     trans_list = match1.trans_list
 
     for ii in trans_list:
@@ -794,7 +796,7 @@ def test_transform_xym():
     # Check that no mag transformation has been applied to m col in ref_table
     tab1 = match1.ref_table
     assert np.all(tab1['m'] == tab1['m_orig'])
-    
+
     # Check me_boost == 0 or really small (should be the case
     # since we don't transform mags)
     assert np.isclose(np.max(tab1['me_boot']), 0, rtol=10**-5)
@@ -827,15 +829,15 @@ def test_transform_xym():
     for ii in trans_list2:
         assert ii.mag_offset > 20
 
-    # Make sure final table mags have transform applied (i.e, 
+    # Make sure final table mags have transform applied (i.e,
     tab2 = match2.ref_table
     assert np.all(tab2['m'] != tab2['m_orig'])
-    
+
     # Check me_boost > 0
     assert np.min(tab2['me_boot']) > 10**-3
 
     print('Done mag_trans = True case')
-   
+
     return
 
 def test_MosaicToRef_mag_bug():
@@ -847,9 +849,9 @@ def test_MosaicToRef_mag_bug():
     ref_list = starlists.StarList.read('random_vel_0.fits')
     lists = [ref_list]
 
-    msc = align.MosaicToRef(ref_list, lists, 
+    msc = align.MosaicToRef(ref_list, lists,
                               mag_trans=True,
-                              iters=1,                              
+                              iters=1,
                               dr_tol=[0.2], dm_tol=[1],
                               outlier_tol=None,
                               trans_class=transforms.PolyTransform,
@@ -874,7 +876,7 @@ def test_MosaicToRef_mag_bug():
 def test_masked_cols():
     """
     Test to make sure analysis.prepare_gaia_for_flystar
-    produces an astropy.table.Table, NOT a masked column 
+    produces an astropy.table.Table, NOT a masked column
     table. MosaicToRef cannot handle masked column tables.
 
     Also make sure this example works, since we use it for the examples
@@ -916,10 +918,10 @@ def test_masked_cols():
     msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=2,
                         dr_tol=[0.2, 0.1], dm_tol=[1, 1],
                         trans_class=transforms.PolyTransform,
-                        trans_args=[{'order': 1}, {'order': 1}], 
+                        trans_args=[{'order': 1}, {'order': 1}],
                         motion_models=['Linear'],
                         use_ref_new=False,
-                        update_ref_orig=False, 
+                        update_ref_orig=False,
                         mag_trans=True,
                         init_guess_mode='name', verbose=True)
 
@@ -941,7 +943,7 @@ def make_fake_starlists_shifts():
 
     # Save original positions as reference (1st) list.
     fmt = '{0:10s}  {1:5.2f} 2015.0 {2:9.4f}  {3:9.4f} 0 0 0 0\n'
-    _out = open('random_0.lis', 'w')
+    _out = open('test_data/random_0.lis', 'w')
     for ii in range(N_stars):
         _out.write(fmt.format(name[ii], m[ii], x[ii], y[ii]))
     _out.close()
@@ -966,7 +968,7 @@ def make_fake_starlists_shifts():
 
         mnew = m + np.random.randn(N_stars) * 0.05
 
-        _out = open('random_shift_{0:d}.lis'.format(ss+1), 'w')
+        _out = open('test_data/random_shift_{0:d}.lis'.format(ss+1), 'w')
         for ii in range(N_stars):
             _out.write(fmt.format(name[ii], mnew[ii], xnew[ii], ynew[ii]))
         _out.close()
@@ -977,7 +979,7 @@ def make_fake_starlists_poly1(seed=-1):
     # If seed >=0, then set random seed to that value
     if seed >= 0:
         np.random.seed(seed=seed)
-        
+
     N_stars = 200
 
     x0  = np.random.rand(N_stars) * 10.0     # arcsec (increasing to East)
@@ -992,19 +994,19 @@ def make_fake_starlists_poly1(seed=-1):
     x0e = np.abs(x0e)
     y0e = np.abs(y0e)
     m0e = np.abs(m0e)
-    
+
     name = ['star_{0:03d}'.format(ii) for ii in range(N_stars)]
 
     # Make an StarList
     lis = starlists.StarList([name, m0, m0e, x0, x0e, y0, y0e, t0],
                              names = ('name', 'm0', 'm0_err', 'x0', 'x0_err', 'y0', 'y0_err', 't0'))
-    
+
     sdx = np.argsort(m0)
     lis = lis[sdx]
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_ref.fits', overwrite=True)
+    lis.write('test_data/random_ref.fits', overwrite=True)
 
     ##########
     # Shifts
@@ -1020,14 +1022,14 @@ def make_fake_starlists_poly1(seed=-1):
                [[-13.0, 0.99, 1e-5], [  150, 2e-5, 1.002]],
                [[ 94.0, 1.00, 9e-6], [-182.0, 0.0, 0.99]]]
     mag_trans = [0.1, 0.4, 0.0, -0.3, 0.2, 0.0, -0.1, -0.3]
-    
+
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
     shift = [1.0, 1.0]  # pix
 
     for ss in range(len(times)):
         dt = times[ss] - lis['t0']
-        
+
         x = lis['x0']
         y = lis['y0']
         t = np.ones(N_stars) * times[ss]
@@ -1055,7 +1057,7 @@ def make_fake_starlists_poly1(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write('test_data/random_{0:d}.fits'.format(ss), overwrite=True)
 
     return (xy_trans,mag_trans)
 
@@ -1063,7 +1065,7 @@ def make_fake_starlists_poly0_vel(seed=-1):
     # If seed >=0, then set random seed to that value
     if seed >= 0:
         np.random.seed(seed=seed)
-        
+
     N_stars = 200
 
     x0  = np.random.rand(N_stars) * 10.0     # arcsec (increasing to East)
@@ -1084,21 +1086,21 @@ def make_fake_starlists_poly0_vel(seed=-1):
     m0e = np.abs(m0e)
     vxe = np.abs(vxe)
     vye = np.abs(vye)
-    
+
     name = ['star_{0:03d}'.format(ii) for ii in range(N_stars)]
 
     # Make an StarList
     lis = starlists.StarList([name, m0, m0e, x0, x0e, y0, y0e, vx, vxe, vy, vye, t0],
                              names = ('name', 'm0', 'm0_err', 'x0', 'x0_err', 'y0', 'y0_err',
                                           'vx', 'vx_err', 'vy', 'vy_err', 't0'))
-    
+
     sdx = np.argsort(m0)
     lis = lis[sdx]
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_vel_ref.fits', overwrite=True)
-    
+    lis.write('test_data/random_vel_ref.fits', overwrite=True)
+
     ##########
     # Propogate to new times and distort.
     ##########
@@ -1117,10 +1119,10 @@ def make_fake_starlists_poly0_vel(seed=-1):
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
     shift = [1.0, 1.0]  # pix
-    
+
     for ss in range(len(times)):
         dt = times[ss] - lis['t0']
-        
+
         x = lis['x0'] + (lis['vx']/1e3) * dt
         y = lis['y0'] + (lis['vy']/1e3) * dt
         t = np.ones(N_stars) * times[ss]
@@ -1148,7 +1150,7 @@ def make_fake_starlists_poly0_vel(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_vel_p0_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write('test_data/random_vel_p0_{0:d}.fits'.format(ss), overwrite=True)
 
     return (xy_trans, mag_trans)
 
@@ -1157,7 +1159,7 @@ def make_fake_starlists_poly1_vel(seed=-1):
     # If seed >=0, then set random seed to that value
     if seed >= 0:
         np.random.seed(seed=seed)
-        
+
     N_stars = 200
 
     x0  = np.random.rand(N_stars) * 10.0     # arcsec (increasing to East)
@@ -1178,21 +1180,21 @@ def make_fake_starlists_poly1_vel(seed=-1):
     m0e = np.abs(m0e)
     vxe = np.abs(vxe)
     vye = np.abs(vye)
-    
+
     name = ['star_{0:03d}'.format(ii) for ii in range(N_stars)]
 
     # Make an StarList
     lis = starlists.StarList([name, m0, m0e, x0, x0e, y0, y0e, vx, vxe, vy, vye, t0],
                              names = ('name', 'm0', 'm0_err', 'x0', 'x0_err', 'y0', 'y0_err',
                                           'vx', 'vx_err', 'vy', 'vy_err', 't0'))
-    
+
     sdx = np.argsort(m0)
     lis = lis[sdx]
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_vel_ref.fits', overwrite=True)
-    
+    lis.write('test_data/random_vel_ref.fits', overwrite=True)
+
     ##########
     # Propogate to new times and distort.
     ##########
@@ -1211,10 +1213,10 @@ def make_fake_starlists_poly1_vel(seed=-1):
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
     shift = [1.0, 1.0]  # pix
-    
+
     for ss in range(len(times)):
         dt = times[ss] - lis['t0']
-        
+
         x = lis['x0'] + (lis['vx']/1e3) * dt
         y = lis['y0'] + (lis['vy']/1e3) * dt
         t = np.ones(N_stars) * times[ss]
@@ -1242,7 +1244,7 @@ def make_fake_starlists_poly1_vel(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_vel_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write('test_data/random_vel_{0:d}.fits'.format(ss), overwrite=True)
 
     return (xy_trans, mag_trans)
 
@@ -1250,7 +1252,7 @@ def make_fake_starlists_poly1_acc(seed=-1):
     # If seed >=0, then set random seed to that value
     if seed >= 0:
         np.random.seed(seed=seed)
-        
+
     N_stars = 200
 
     x0  = np.random.rand(N_stars) * 10.0     # arcsec (increasing to East)
@@ -1277,7 +1279,7 @@ def make_fake_starlists_poly1_acc(seed=-1):
     vye = np.abs(vye)
     axe = np.abs(axe)
     aye = np.abs(aye)
-    
+
     name = ['star_{0:03d}'.format(ii) for ii in range(N_stars)]
 
     # Make an StarList
@@ -1291,14 +1293,14 @@ def make_fake_starlists_poly1_acc(seed=-1):
                                       'vx0', 'vx0_err', 'vy0', 'vy0_err',
                                       'ax', 'ax_err', 'ay', 'ay_err',
                                       't0'))
-    
+
     sdx = np.argsort(m0)
     lis = lis[sdx]
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_acc_ref.fits', overwrite=True)
-    
+    lis.write('test_data/random_acc_ref.fits', overwrite=True)
+
     ##########
     # Propogate to new times and distort.
     ##########
@@ -1317,10 +1319,10 @@ def make_fake_starlists_poly1_acc(seed=-1):
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
     shift = [1.0, 1.0]  # pix
-    
+
     for ss in range(len(times)):
         dt = times[ss] - lis['t0']
-        
+
         x = lis['x0'] + (lis['vx0']/1e3) * dt + 0.5*(lis['ax']/1e3) * dt**2
         y = lis['y0'] + (lis['vy0']/1e3) * dt + 0.5*(lis['ay']/1e3) * dt**2
         t = np.ones(N_stars) * times[ss]
@@ -1348,15 +1350,15 @@ def make_fake_starlists_poly1_acc(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_acc_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write('test_data/random_acc_{0:d}.fits'.format(ss), overwrite=True)
 
     return (xy_trans, mag_trans)
-    
+
 def make_fake_starlists_poly1_par(seed=-1):
     # If seed >=0, then set random seed to that value
     if seed >= 0:
         np.random.seed(seed=seed)
-        
+
     N_stars = 200
 
     x0  = np.random.rand(N_stars) * 10.0     # arcsec (increasing to East)
@@ -1380,7 +1382,7 @@ def make_fake_starlists_poly1_par(seed=-1):
     vxe = np.abs(vxe)
     vye = np.abs(vye)
     pie = np.abs(pie)
-    
+
     name = ['star_{0:03d}'.format(ii) for ii in range(N_stars)]
 
     # Make an StarList
@@ -1394,14 +1396,14 @@ def make_fake_starlists_poly1_par(seed=-1):
                                       'vx', 'vx_err', 'vy', 'vy_err',
                                       'pi', 'pi_err',
                                       't0'))
-    
+
     sdx = np.argsort(m0)
     lis = lis[sdx]
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_par_ref.fits', overwrite=True)
-    
+    lis.write('test_data/random_par_ref.fits', overwrite=True)
+
     ##########
     # Propogate to new times and distort.
     ##########
@@ -1412,7 +1414,7 @@ def make_fake_starlists_poly1_par(seed=-1):
                [[  0.0, 1.00,  0.0], [   0.0,  0.0, 1.0]],
                [[250.0, 0.97, 2e-5], [-250.0, 1e-5, 1.001]]]
     mag_trans = [0.1, 0.4, 0.0, -0.3]'''
-    
+
     times = [2018.5, 2019.0, 2019.5, 2020.0, 2020.5, 2021.0, 2021.5, 2022.0]
     xy_trans = [[[ 6.5, 0.99, 1e-5], [  10.1, 1e-5, 0.99]],
                [[100.3, 0.98, 1e-5], [  50.5, 9e-6, 1.001]],
@@ -1427,10 +1429,10 @@ def make_fake_starlists_poly1_par(seed=-1):
     # Convert into pixels (undistorted) with the following info.
     scale = 0.01  # arcsec / pix
     shift = [1.0, 1.0]  # pix
-    
+
     for ss in range(len(times)):
         dt = times[ss] - lis['t0']
-        
+
         par_mod = motion_model.Parallax(pa=0,ra=18.0, dec=-30.0)
         par_mod_dat = par_mod.get_batch_pos_at_time(dt+lis['t0'], x0=lis['x0'],vx=lis['vx']/1e3, pi=lis['pi'],
                             y0=lis['y0'], vy=lis['vy']/1e3, t0=lis['t0'])
@@ -1460,6 +1462,6 @@ def make_fake_starlists_poly1_par(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_par_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write('test_data/random_par_{0:d}.fits'.format(ss), overwrite=True)
 
     return (xy_trans, mag_trans)

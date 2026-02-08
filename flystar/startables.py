@@ -893,7 +893,7 @@ class StarTable(Table):
         Parameters
         ----------
         times : array_like
-            Times at which to predict positions.
+            Times at which to predict positions. Scalar, or (N_times,) array, or (N_stars, N_times) array.
         fill_value : float, optional
             Value to use for missing data, by default np.nan
 
@@ -928,9 +928,8 @@ class StarTable(Table):
 
         unique_motion_models, unique_inv_indices = np.unique(self['motion_model_used'], return_inverse=True)
         indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
-        
+
         # Prepare fit_params, fixed_params, fit_param_errs for each star
-        
         for unique_motion_model, unique_index in indices_by_motion_model.items():
             # Create motion model instance
             motion_model_instance = motion_model.motion_model_map()[unique_motion_model]()
@@ -949,8 +948,8 @@ class StarTable(Table):
                 if param_name + '_mm' in self.colnames:
                     col_name = param_name + '_mm'
                 fixed_params[param_name] = self[col_name][unique_index]
-            
-                # TODO: vectorize obsLocation handling in motion models
+
+                # TODO: vectorize obsLocation handling in motion models?
                 if (param_name == 'obsLocation'):
                     assert np.unique(fixed_params[param_name]).size == 1, \
                         "infer_positions: obsLocation fixed parameter has different values for different stars. Vectorized handling not implemented yet."
