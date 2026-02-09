@@ -12,6 +12,7 @@ import copy
 from flystar import motion_model
 import pandas as pd
 from flystar.motion_model import Empty, Fixed, Linear
+from pandas.api.types import is_string_dtype
 
 class StarTable(Table):
     def __init__(self, *args, ref_list=0, **kwargs):
@@ -615,6 +616,9 @@ class StarTable(Table):
         if not all([_ in self.colnames for _ in ['x', 'y']]):
             raise KeyError(f"fit_motion_model: Missing required columns in the table: {', '.join(['x', 'y'])}!")
 
+        # Make a copy of fixed_params_dict to avoid modifying the original one outside the function
+        fixed_params_dict = copy.deepcopy(fixed_params_dict)
+
         # Check fixed_params_dict is a dict
         if fixed_params_dict is not None:
             if not isinstance(fixed_params_dict, dict):
@@ -631,7 +635,7 @@ class StarTable(Table):
             motion_models = [all_mm_map[mm] for mm in motion_models]
         else:
             mm_names = [mm.name for mm in motion_models]
-        
+
         # Always add Empty and Fixed in motion models
         if 'Fixed' not in mm_names:
             motion_models.insert(0, Fixed)
@@ -670,6 +674,15 @@ class StarTable(Table):
         y_data = np.ma.masked_invalid(self['y'].data, copy=True)
         xe_data = np.ma.masked_invalid(self['xe'].data, copy=True) if 'xe' in self.colnames else np.ones_like(x_data)
         ye_data = np.ma.masked_invalid(self['ye'].data, copy=True) if 'ye' in self.colnames else np.ones_like(y_data)
+        
+        if np.ndim(x_data) == 1:
+            x_data = x_data[:, np.newaxis]
+        if np.ndim(y_data) == 1:
+            y_data = y_data[:, np.newaxis]
+        if np.ndim(xe_data) == 1:
+            xe_data = xe_data[:, np.newaxis]
+        if np.ndim(ye_data) == 1:
+            ye_data = ye_data[:, np.newaxis]
 
         if mask_lists is not None:
             x_data.mask[:, mask_lists] = True
@@ -696,7 +709,7 @@ class StarTable(Table):
             if np.ndim(fixed_params_dict['t0']) == 0:
                 fixed_params_dict['t0'] = np.full(N_stars, fixed_params_dict['t0'])
 
-        t0 = fixed_params_dict['t0']                
+        t0 = fixed_params_dict['t0']
 
         # Prepare fixed_params_dict for each star
         # This avoids checking types and slicing inside the fitting loop
@@ -808,8 +821,12 @@ class StarTable(Table):
         for param in fixed_param_names:
             coldata = np.array([fixed_params_stars[i][param] for i in range(N_stars)])
             if param in self.colnames:
+                if is_string_dtype(self[param]):
+                    if np.array_equal(self[param], coldata):
+                        # Same data, skip
+                        continue
                 # If the column already exists, check if the data are the same
-                if np.allclose(self[param], coldata, equal_nan=True):
+                elif np.allclose(self[param], coldata, equal_nan=True):
                     # Same data, skip
                     continue
                 else:
@@ -818,7 +835,7 @@ class StarTable(Table):
             else:
                 colname = param
 
-            self.add_column(Column(data=coldata, name=colname))
+            self.add_column(Column(data=coldata, name=colname), rename_duplicate=True)
 
 
         # Add a column to keep track of the number of points used in a fit and number of bootstrap used.
@@ -855,27 +872,28 @@ class StarTable(Table):
             chi2_y_array = np.full(n_stars_this_model, np.nan, dtype=float)
 
             # Expensive for loop! Prepare everything beforehand to speed up.
-            for idx, i_star in enumerate(tqdm(unique_index, disable=not show_progress, desc=f"Fitting motion model {unique_motion_model}")):
-                # Fit the star
-                params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
-                    t=t_stars[i_star],
-                    x=x_stars[i_star],
-                    y=y_stars[i_star],
-                    xe=xe_stars[i_star],
-                    ye=ye_stars[i_star],
-                    fixed_params_dict=fixed_params_stars[i_star],
-                    weighting=weighting,
-                    use_scipy=use_scipy,
-                    absolute_sigma=absolute_sigma,
-                    bootstrap=bootstrap,
-                    fill_value=fill_value,
-                    return_chi2=True,
-                    verbose=verbose
-                )
-                params_array[idx] = params
-                param_errs_array[idx] = param_errs
-                chi2_x_array[idx] = chi2_x
-                chi2_y_array[idx] = chi2_y
+            if len(unique_index) > 0:
+                for idx, i_star in enumerate(tqdm(unique_index, disable=not show_progress, desc=f"Fitting motion model {unique_motion_model}")):
+                    # Fit the star
+                    params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
+                        t=t_stars[i_star],
+                        x=x_stars[i_star],
+                        y=y_stars[i_star],
+                        xe=xe_stars[i_star],
+                        ye=ye_stars[i_star],
+                        fixed_params_dict=fixed_params_stars[i_star],
+                        weighting=weighting,
+                        use_scipy=use_scipy,
+                        absolute_sigma=absolute_sigma,
+                        bootstrap=bootstrap,
+                        fill_value=fill_value,
+                        return_chi2=True,
+                        verbose=verbose
+                    )
+                    params_array[idx] = params
+                    param_errs_array[idx] = param_errs
+                    chi2_x_array[idx] = chi2_x
+                    chi2_y_array[idx] = chi2_y
 
             # Store results back to the table
             for j, param_name in enumerate(param_names):

@@ -846,7 +846,7 @@ def test_MosaicToRef_mag_bug():
     """
     make_fake_starlists_poly1_vel()
 
-    ref_list = starlists.StarList.read('random_vel_0.fits')
+    ref_list = starlists.StarList.read('test_data/random_vel_0.fits')
     lists = [ref_list]
 
     msc = align.MosaicToRef(ref_list, lists,
@@ -911,7 +911,7 @@ def test_masked_cols():
 
     for ee in range(len(epochs)):
         lis_file = 'mag' + epochs[ee] + '_ob150029_kp_rms_named.lis'
-        lis = starlists.StarList.from_lis_file(lis_file)
+        lis = starlists.StarList.from_lis_file(f'test_data/{lis_file}')
         list_of_starlists.append(lis)
 
     # Run the align

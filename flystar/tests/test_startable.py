@@ -8,14 +8,14 @@ import pytest
 import os
 import pdb
 
-test_dir = os.path.dirname(__file__)
+test_dir = os.path.dirname(__file__) + '/'
 
 def test_StarTable_init1():
     """
     Test creation of new StarTable.
     """
     # User input
-    cat_file = test_dir + '/test_catalog.fits'
+    cat_file = test_dir + 'test_data/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)
@@ -71,8 +71,8 @@ def test_StarTable_init2():
     Also double check that we can add a second list to it using add_starlist and
     we can get_starlist() as well.
     """
-    list_file1 = 'A.lis'
-    list_file2 = 'B.lis'
+    list_file1 = 'test_data/A.lis'
+    list_file2 = 'test_data/B.lis'
     list1 = StarList.from_lis_file(list_file1)
     list2 = StarList.from_lis_file(list_file2)
 
@@ -267,7 +267,7 @@ def test_get_starlist():
 
 def test_combine_1col():
     # User input
-    cat_file = test_dir + '/test_catalog.fits'
+    cat_file = test_dir + 'test_data/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)
@@ -437,7 +437,7 @@ def test_fit_motion_model_2epoch():
 
 def make_star_table():
     # User input
-    cat_file = test_dir + '/test_catalog.fits'
+    cat_file = test_dir + 'test_data/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)
@@ -472,7 +472,7 @@ def make_star_table():
 
 def make_star_table_1epoch():
     # User input
-    cat_file = test_dir + '/test_catalog.fits'
+    cat_file = test_dir + 'test_data/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)
@@ -500,8 +500,8 @@ def make_star_table_1epoch():
     return startable
 
 def make_star_table_2epoch():
-    # User inpup
-    cat_file = test_dir + '/test_catalog.fits'
+    # User input
+    cat_file = test_dir + 'test_data/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)

@@ -44,15 +44,16 @@ def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     Returns
     -------
     pvec : ndarray
-        Parallax vector components, shape of (2, N_stars, N_times), or (2, N_stars) if N_times=1, or (2, N_times) if N_stars=1.
+        Parallax vector components, shape of (N_stars, 2, N_times), where the second dimension corresponds to the x or y components.
     """
     # Munge inputs into astropy format.
     # times = Time(mjd + 2400000.5, format='jd', scale='tdb')
     ra = np.atleast_1d(ra)
     dec = np.atleast_1d(dec)
     mjd = np.atleast_1d(mjd)
+    pa = np.atleast_1d(pa)
     times = Time(mjd, format='mjd', scale='tdb')  # convert to TDB
-    coord = SkyCoord(ra, dec, unit=(units.deg, units.deg))
+    coord = SkyCoord(ra, dec, unit=(units.deg, units.deg))  # Shape (N_stars,)
 
     directions = coord.cartesian.xyz.value.T # Shape (N_stars, 3)
     north = np.array([0., 0., 1.])
@@ -68,19 +69,18 @@ def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     sun_obs_pos = sun_pos - obs_pos
 
     pos = sun_obs_pos.xyz.T.to(units.au).value  # Shape (N_times, 3)
+    # Broadcast pos to (N_stars, 3, N_times) and take dot product with east and north unit vectors to get components in those directions.
+    pos = np.broadcast_to(pos.T, (directions.shape[0], 3, pos.shape[0])) # Shape (N_stars, 3, N_times)
 
-    e = np.einsum('ti,si->st', pos, _east_projected)    # Shape (N_stars, N_times)
-    n = np.einsum('ti,si->st', pos, _north_projected)   # Shape (N_stars, N_times)
+    e = np.einsum('sdt,sd->st', pos, _east_projected)    # Shape (N_stars, N_times)
+    n = np.einsum('sdt,sd->st', pos, _north_projected)   # Shape (N_stars, N_times)
 
     # Rotate frame e,n->x,y accounting for PA
     pa = np.deg2rad(pa) # shape (N_stars,)
     x = -e * np.cos(pa[:, np.newaxis]) + n * np.sin(pa[:, np.newaxis])  # Shape (N_stars, N_times)
     y =  e * np.sin(pa[:, np.newaxis]) + n * np.cos(pa[:, np.newaxis])  # Shape (N_stars, N_times)
-    pvec = np.array([x, y]) # Shape (2, N_stars, N_times)
-    
-    if pvec.shape[1] == 1 or pvec.shape[2] == 1:
-        pvec = pvec.reshape(2, -1)  # Shape (2, N_stars) or (2, N_times)
-
+    # pvec Shape (N_stars, 2, N_times)
+    pvec = np.stack((x, y), axis=1)
     return pvec
 
 

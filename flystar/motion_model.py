@@ -31,11 +31,37 @@ class MotionModel(ABC):
         and thus the fit values are only input/returned in functions, not stored in the object.
         """
         return
-    
+
+    def _check_param_dimensions(self, fit_params, fit_params_errs, fixed_params_dict):
+        """Check that parameters is either a scalar or length of N_stars
+        
+        Parameters
+        ----------
+        fit_params: array-like
+            Fit parameters, shape (N_params,) or (N_stars, N_params)
+        fit_params_errs: array-like
+            Errors of fit parameters, shape (N_params,) or (N_stars, N_params)
+        fixed_params_dict : dict
+            Dictionary of fixed parameters
+        """
+        N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
+        if fit_params_errs is not None:
+            assert fit_params_errs.shape == fit_params.shape, "fit_params and fit_params_errs must have the same shape!"
+
+        if fixed_params_dict is not None:
+            for key, value in fixed_params_dict.items():
+                # assert key in fixed_params_dict, f"Missing fixed parameter {key} in fixed_params_dict!"
+                value = fixed_params_dict[key]
+                if np.isscalar(value):
+                    continue
+                else:
+                    assert len(value) == N_stars, f"Length of fixed parameter {key} must be either 1 or N_stars={N_stars}!"
+
     def model_fit(self, dt):
         return np.full_like(dt, np.nan)
-    
-    def model(self, t, fit_params, fit_param_errs=None, fixed_params=None):
+
+    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+        self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
         if fit_param_errs is None:
             return np.full_like(t, np.nan), np.full_like(t, np.nan)
         return np.full_like(t, np.nan), np.full_like(t, np.nan), np.full_like(t, np.inf), np.full_like(t, np.inf)
@@ -111,8 +137,8 @@ class MotionModel(ABC):
             Seed for the random number generator, by default None
         Returns
         -------
-        params, params_err, chi2_x, chi2_y
-            Parameters, uncertainties, and chi squares. The corresponding parameter names are in self.fit_param_names.
+        params, params_err(, chi2_x, chi2_y)
+            Parameters, uncertainties, and chi squares if return_chi2 is True. The corresponding parameter names are in self.fit_param_names.
         """
         assert np.ndim(t) == np.ndim(x) == np.ndim(y) == np.ndim(xe) == np.ndim(ye) == 1, "Input arrays must be 1D! Motion model can only fit individual stars"
         assert len(t) == len(x) == len(y) == len(xe) == len(ye), "Input arrays must have the same length!"
@@ -233,7 +259,7 @@ class Empty(MotionModel):
         x, y (, xe, ye)
             Predicted position (and uncertainties) of Empty model, shape (N_times,)
         """
-        
+        self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
         t = np.atleast_1d(t)
         if fit_param_errs is None:
             return np.full_like(t, np.nan), np.full_like(t, np.nan)
@@ -357,6 +383,7 @@ class Fixed(MotionModel):
         self.fixed_params_dict = fixed_params_dict
         t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+        self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
         N_times = len(t)
@@ -510,6 +537,7 @@ class Linear(MotionModel):
         if fixed_params_dict is None:
             fixed_params_dict = self.fixed_params_dict
         assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Linear model."
+        self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
@@ -719,6 +747,7 @@ class Acceleration(MotionModel):
         if fixed_params_dict is None:
             fixed_params_dict = self.fixed_params_dict            
         assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Acceleration model."
+        self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
@@ -840,11 +869,12 @@ class Parallax(MotionModel):
 
     def __init__(self):
         super().__init__()
-        self.plx_vector_cached = None  # Cache for parallax vector
+        self.pvec_cached = None  # Cache for parallax vector
+        self.t_mjd_cached = None  # Cache for times corresponding to cached parallax vector
         return
 
     def calc_parallax_vector(self, t_mjd, ra, dec, pa=0., obsLocation='earth'):
-        """Calculate parallax vector of shape (2, N_times)
+        """Calculate parallax vector of shape (N_stars, 2, N_times)
 
         Parameters
         ----------
@@ -862,24 +892,26 @@ class Parallax(MotionModel):
         Returns
         -------
         pvec
-            Parallax vector of shape (2, N_times)
+            Parallax vector of shape (N_stars, 2, N_times)
         """
-        if self.plx_vector_cached is not None:
+        if self.pvec_cached is not None:
             t_mjd = np.atleast_1d(t_mjd)
-            t_mjd_cached = self.plx_vector_cached[0]
+            t_mjd_cached = self.t_mjd_cached
             if np.array_equal(t_mjd, t_mjd_cached):
                 # If cached values match input times, return cached values
-                return self.plx_vector_cached[1]
+                return self.pvec_cached
 
             elif all(np.isin(t_mjd, t_mjd_cached)):
                 # If all input times are in cached values, return those
                 # Calculate pvec_idxs such that t_mjd_cached[ pvec_idxs ] == t_mjd
                 pvec_idxs = np.array([np.where(t_mjd_cached == t_mjd_i)[0][0] for t_mjd_i in t_mjd])
-                pvec = self.plx_vector_cached[1][:, pvec_idxs]
+                pvec = self.pvec_cached[:, :, pvec_idxs]
                 return pvec
 
-        pvec = parallax.parallax_in_direction(ra, dec, t_mjd, obsLocation=obsLocation, pa=pa)
-        self.plx_vector_cached = [t_mjd, pvec]
+        pvec = parallax.parallax_in_direction(ra, dec, t_mjd, obsLocation=obsLocation, pa=pa)   # Shape (N_stars, 2, N_times)
+        # self.plx_vector_cached = [t_mjd, pvec]
+        self.t_mjd_cached = t_mjd
+        self.pvec_cached = pvec
         return pvec
 
     def model_fit(self, dt, x0, vx, y0, vy, pi):
@@ -902,18 +934,21 @@ class Parallax(MotionModel):
 
         Returns
         -------
-        x_res, y_res : array-like
-            Model positions at time t of Parallax model
+        x_result, y_result : array-like
+            Model positions at time t of Parallax model, shape (N_stars, N_times)
         """
         # x0, vx, y0, vy, pi are all shape (N_stars, N_times)
-        x_res = x0 + vx * dt + pi * self.pvec[0]
-        y_res = y0 + vy * dt + pi * self.pvec[1]
-        return x_res, y_res
-    
+        x_result = x0 + vx * dt + pi * self.pvec[:, 0, :]  # Parallax contribution in x direction
+        y_result = y0 + vy * dt + pi * self.pvec[:, 1, :]  # Parallax contribution in y direction
+        return x_result, y_result
+
     def _model_fit(self, dt, x0, vx, y0, vy, pi):
         """Wrapper for model_fit to return concatenated results for scipy fitting."""
-        x_res, y_res = self.model_fit(dt, x0, vx, y0, vy, pi)
-        return np.hstack([x_res, y_res])  # Shape (N_stars, 2*N_times)
+        x_result, y_result = self.model_fit(dt, x0, vx, y0, vy, pi)
+        # scipy.optimize.curve_fit expects a 1D output array with the same length
+        # as the input ydata. For single-star fits, intermediate broadcasting can
+        # yield arrays with shape (1, N_times); flatten to avoid M=1 interpretation.
+        return np.hstack([np.ravel(x_result), np.ravel(y_result)])  # Shape (2*N_times,)
 
     def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Parallax model.
@@ -941,6 +976,7 @@ class Parallax(MotionModel):
         if fixed_params_dict is None:
             fixed_params_dict = self.fixed_params_dict
         assert all([_ in fixed_params_dict for _ in ['t0', 'ra', 'dec']]), "Fixed parameters t0, ra, and dec are required for Parallax model."
+        self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
@@ -955,14 +991,13 @@ class Parallax(MotionModel):
         obsLocation = fixed_params_dict.get('obsLocation', 'earth')
 
         # TODO: vectorize parallax.parallax_in_direction to handle multiple obsLocation?
-        
         assert isinstance(obsLocation, str) or (np.unique(obsLocation).size == 1), "obsLocation must be a single string for all stars at this time."
         if not isinstance(obsLocation, str):
             obsLocation = np.unique(obsLocation)[0]
 
         dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd  # Shape (N_times,)
-        self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (2, N_times)
+        self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (N_stars, 2, N_times)
         x, y = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis], y0[:, np.newaxis], vy[:, np.newaxis], pi[:, np.newaxis])  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
@@ -975,9 +1010,9 @@ class Parallax(MotionModel):
 
         fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_params)
         x0_err, vx_err, y0_err, vy_err, pi_err = fit_param_errs.T
-        x_err = np.sqrt(x0_err[:, np.newaxis]**2 + (vx_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[0][np.newaxis, :])**2)  # Shape (N_stars, N_times)
-        y_err = np.sqrt(y0_err[:, np.newaxis]**2 + (vy_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[1][np.newaxis, :])**2)  # Shape (N_stars, N_times)
-        
+        x_err = np.sqrt(x0_err[:, np.newaxis]**2 + (vx_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[:, 0, :])**2)  # Shape (N_stars, N_times)
+        y_err = np.sqrt(y0_err[:, np.newaxis]**2 + (vy_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[:, 1, :])**2)  # Shape (N_stars, N_times)
+
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays
             x_err = x_err.flatten()
@@ -1042,14 +1077,24 @@ class Parallax(MotionModel):
         if params_guess is None:
             idx_first, idx_last = np.argmin(t), np.argmax(t)
             t_span = t[idx_last] - t[idx_first]
-            params_guess = [
+            params_guess = np.array([
                 x.mean(), (x[idx_last] - x[idx_first]) / t_span,
                 y.mean(), (y[idx_last] - y[idx_first]) / t_span, 
                 0.1
-            ]
+            ])
+
+        # Convert weights to 1-sigma uncertainties for curve_fit.
+        # calc_weights returns w = 1/sigma^2 for 'var' and w = 1/sigma for 'std'.
+        if weighting == 'std':
+            sigma_x = 1.0 / x_wt
+            sigma_y = 1.0 / y_wt
+        else:
+            sigma_x = 1.0 / np.sqrt(x_wt)
+            sigma_y = 1.0 / np.sqrt(y_wt)
+
         popt, pcov = curve_fit(
             self._model_fit, t - t0, np.hstack([x, y]),
-            p0=params_guess, sigma=np.hstack([x_wt, y_wt]),
+            p0=params_guess, sigma=np.hstack([sigma_x, sigma_y]),
             absolute_sigma=absolute_sigma
         )
         x0, vx, y0, vy, pi = popt

@@ -1,7 +1,7 @@
 import numpy as np
 from . import starlists, transforms, startables
 from collections import Counter
-from scipy.spatial import cKDTree as KDT
+from scipy.spatial import KDTree as KDT
 from astropy.table import Column
 import itertools
 import copy
@@ -279,7 +279,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     #KDTree handling of NaNs throws error in scipy v1.10.1 and newer.
     #Replace NaNs in coords2 with zero (0). -SKT
     kdt = KDT(np.where(np.isfinite(coords2), coords2, 0), balanced_tree=False)
-    
+
     # This returns the number of neighbors within the specified
     # radius. We will use this to find those stars that have no or one
     # match and deal with them easily. The more complicated conflict
@@ -289,7 +289,6 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
 
     # What is the largest number of matches we have for a given star?
     Nmatch_max = Nmatch.max()
-
     # Loop through and handle all the different numbers of matches.
     # This turns out to be the most efficient so we can use numpy
     # array operations. Remember, skip the Nmatch=0 objects... they
@@ -302,7 +301,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
 
         if nn == 1:
             i2_nn = np.array([i2_match[mm][0] for mm in i1_nn])
-            if dm_tol != None:
+            if dm_tol is not None:
                 dm = np.abs(m1[i1_nn] - m2[i2_nn])
                 keep = dm < dm_tol
                 idxs1[i1_nn[keep]] = i1_nn[keep]
@@ -326,7 +325,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
             dr = np.abs(x1_nn - x2_nn, y1_nn - y2_nn)
             dm = np.abs(m1_nn - m2_nn)
 
-            if dm_tol != None:
+            if dm_tol is not None:
                 # Don't even consider stars that exceed our
                 # delta-mag threshold.
                 dr_msk = np.ma.masked_where(dm > dm_tol, dr)
@@ -542,7 +541,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
                                   y_min=xy_match[6], y_max=xy_match[7])
         sl1_cut.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
         sl2_cut.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
-        
+
         # Find the transformation
         # TODO: test 'initial_align' with StarList input
         transf = align.initial_align(sl1_cut, sl2_cut, briteN=n_bright,
@@ -579,7 +578,10 @@ def generic_match(sl1, sl2, init_mode='triangle',
 #        sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
 #                                                     dr_tol=order_dr[i_loop][1],
 #                                                     verbose=verbose)
-
+        import matplotlib.pyplot as plt
+        plt.plot(sl1_match['x'], sl1_match['y'], 'x', ms=10)
+        plt.plot(sl2_match['x'], sl2_match['y'], 'o')
+        plt.show()
         sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
                                                      dr_tol=order_dr[1],
                                                      verbose=verbose)

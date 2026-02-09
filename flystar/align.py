@@ -11,6 +11,7 @@ import time
 import warnings
 import pickle
 from astropy.utils.exceptions import AstropyUserWarning
+from .motion_model import Empty, Fixed
 
 class MosaicSelfRef(object):
     def __init__(
@@ -234,7 +235,7 @@ class MosaicSelfRef(object):
             motion_models.append(all_mm_map['Empty'])
         if 'Fixed' not in mm_names:
             motion_models.append(all_mm_map['Fixed'])
-        
+
         # Sort by increasing n_params
         motion_models = sorted(motion_models, key=lambda mm: mm.n_params)
         self.motion_models = motion_models
@@ -407,16 +408,16 @@ class MosaicSelfRef(object):
         all_epochs = get_all_epochs(self.ref_table)
         self.ref_table.meta['list_times'] = all_epochs
 
-        # Update chi2 values in ref table, as motion_model_used may have changed
-        x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
-        chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
-        chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
-        chi2_x = np.nansum(chi2_x_2d, axis=1)
-        chi2_y = np.nansum(chi2_y_2d, axis=1)
-        chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
-        chi2_y[~np.isfinite(chi2_y_2d).any(axis=1)] = np.nan
-        self.ref_table['chi2_x'] = chi2_x
-        self.ref_table['chi2_y'] = chi2_y
+        # # Update chi2 values in ref table, as motion_model_used may have changed
+        # x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
+        # chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
+        # chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        # chi2_x = np.nansum(chi2_x_2d, axis=1)
+        # chi2_y = np.nansum(chi2_y_2d, axis=1)
+        # chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
+        # chi2_y[~np.isfinite(chi2_y_2d).any(axis=1)] = np.nan
+        # self.ref_table['chi2_x'] = chi2_x
+        # self.ref_table['chi2_y'] = chi2_y
 
         if self.save_path:
             with open(self.save_path, 'wb') as file:
@@ -456,11 +457,12 @@ class MosaicSelfRef(object):
             ### Initial match and transform: 1st order (if we haven't already).
             if trans is None:
                 # Only use "use_in_trans" reference stars, even for initial guessing.
-                keepers = np.where(ref_list['use_in_trans'] == True)[0]
+                keepers = ref_list['use_in_trans']
                 trans = trans_initial_guess(
                     ref_list[keepers],
                     star_list_orig_trim,
                     self.trans_args[0],
+                    motion_models=self.motion_models,
                     mode=self.init_guess_mode,
                     order=self.init_order,
                     verbose=self.verbose,
@@ -485,18 +487,18 @@ class MosaicSelfRef(object):
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
                                                           outlier_tol)
                 if self.verbose > 1:
-                    print( '  Rejected ', len(idx1) - len(keepers), ' outliers.' )
+                    print( '  Rejected ', len(idx1) - sum(keepers), ' outliers.' )
                     
                 idx1 = idx1[keepers]
                 idx2 = idx2[keepers]
 
             # Only use stars specified by "use_in_trans" column.
             if 'use_in_trans' in ref_list.colnames:
-                keepers = np.where(ref_list[idx2]['use_in_trans'] == True)[0]
+                keepers = ref_list[idx2]['use_in_trans']
                 
                 if self.verbose > 1:
-                    print( '  Rejected ', len(idx1) - len(keepers), ' with use_in_trans=False.' )
-                    
+                    print( '  Rejected ', len(idx1) - sum(keepers), ' with use_in_trans=False.' )
+
                 idx1 = idx1[keepers]
                 idx2 = idx2[keepers]
 
@@ -578,15 +580,15 @@ class MosaicSelfRef(object):
             ### Update the "average" values to be used as the reference frame for the next list.
             keep_ref_orig = (self.update_ref_orig==False) or (self.update_ref_orig=='atend') or (self.update_ref_orig=='periter' and ii<(len(self.star_lists) - 1))
             if keep_ref_orig and ii < (len(self.star_lists) - 1):
-                keep_orig = np.where(self.ref_table['ref_orig'] | np.isnan(self.ref_table['x'][:,ii]))[0]
+                keep_orig = self.ref_table['ref_orig'] | np.isnan(self.ref_table['x'][:,ii])
             elif keep_ref_orig:
-                keep_orig = np.where(self.ref_table['ref_orig'])[0]
+                keep_orig = self.ref_table['ref_orig']
             elif ii < (len(self.star_lists) - 1):
-                keep_orig = np.where(np.isnan(self.ref_table['x'][:,ii]))[0]
+                keep_orig = np.isnan(self.ref_table['x'][:,ii])
             else:
                 keep_orig=None
             self.update_ref_table_aggregates(keep_orig=keep_orig)
-                
+
             # Print out some metrics
             if self.verbose > 0:
                 msg1 = '    {0:2s} (mean and std) for {1:10s}: {2:8.5f} +/- {3:8.5f}'
@@ -754,14 +756,15 @@ class MosaicSelfRef(object):
         if 'motion_model_input' not in ref_table.colnames:
             ref_table.add_column(Column(np.repeat(self.motion_models[-1].name, len(ref_table)), name='motion_model_input'))
         # FIXME: Why do we need to set motion_model_used here before fitting?
-        if 'motion_model_used' not in ref_table.colnames:
-            # Order self.motion_models by decreasing n_params
-            sorted_mms = sorted(self.motion_models, key=lambda mm: mm.n_params, reverse=True)
-            # Save the most complex motion model that can infer the positions with the existing columns.
-            for mm in sorted_mms:
-                if all([_ in ref_table.colnames for _ in mm.fit_param_names]) and all([_ in ref_table.colnames for _ in mm.fixed_param_names]):
-                    ref_table.add_column(Column(np.repeat(mm.name, len(ref_table)), name='motion_model_used'))
-                    break
+        # if 'motion_model_used' not in ref_table.colnames:
+        #     # Order self.motion_models by decreasing n_params
+        #     sorted_mms = sorted(self.motion_models, key=lambda mm: mm.n_params, reverse=True)
+        #     # Save the most complex motion model that can infer the positions with the existing columns.
+        #     for mm in sorted_mms:
+        #         if all([_ in ref_table.colnames for _ in mm.fit_param_names]) and all([_ in ref_table.colnames for _ in mm.fixed_param_names]):
+        #             ref_table.add_column(Column(np.repeat(mm.name, len(ref_table)), name='motion_model_used'))
+        #             break
+
         return ref_table
 
     def apply_mag_lim_via_use_in_trans(self, ref_list, ref_mag_lim):
@@ -811,8 +814,8 @@ class MosaicSelfRef(object):
 
         Returns
         ----------
-        keepers : nd.array
-            The indicies of the stars to keep. 
+        keepers : boolean array
+            The boolean array of the stars to keep. 
         """
         # Optionally propogate the reference positions forward in time.
         xref = ref_list['x']
@@ -824,11 +827,11 @@ class MosaicSelfRef(object):
         resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
 
         threshold = outlier_tol * resid_on_old_trans.std()
-        keepers = np.where(resid_on_old_trans < threshold)[0]
+        keepers = resid_on_old_trans < threshold
 
         if verbose:
             msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
-            print(msg.format(len(keepers), len(resid_on_old_trans)))
+            print(msg.format(sum(keepers), len(resid_on_old_trans)))
 
         return keepers
 
@@ -895,21 +898,29 @@ class MosaicSelfRef(object):
         return
 
     def update_ref_table_aggregates(self, keep_orig=None, n_boot=0):
-        """
-        Average positions or fit velocities.
+        """        Average positions or fit velocities.
         Average magnitudes.
         Calculate bootstrap errors if desired.
 
         Update the use_in_trans values as needed. TODO: ????
 
         Updates aggregate columns in self.ref_table in place.
+
+
+        Parameters
+        ----------
+        keep_orig : array-like of bool, optional
+            Boolean array indicating which stars to keep original values for, by default None
+        n_boot : int, optional
+            Number of bootstrap iterations, by default 0
         """
         # Keep track of the original reference values.
         # In certain cases, we will NOT update these.
-        if (keep_orig is not None) and (len(keep_orig) > 0):
+        if (keep_orig is not None) and (sum(keep_orig) > 0):
             vals_orig = {}
             vals_orig['m0'] = self.ref_table['m0'][keep_orig]
             vals_orig['m0_err'] = self.ref_table['m0_err'][keep_orig]
+            # Collect all motion model parameter names
             motion_model_class_names = []
             if 'motion_model_input' in self.ref_table.keys():
                 motion_model_class_names += self.ref_table['motion_model_input'].tolist()
@@ -918,18 +929,25 @@ class MosaicSelfRef(object):
                 vals_orig['motion_model_used'] = self.ref_table['motion_model_used'][keep_orig]
             motion_model_col_names = motion_model.motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
             for mm in motion_model_col_names:
-                if mm in self.ref_table.keys():
+                if f'{mm}_mm' in self.ref_table.keys():
                     vals_orig[mm] = self.ref_table[mm][keep_orig]
-            fit_star_idxs = np.array([idx for idx in range(len(self.ref_table)) if idx not in keep_orig], dtype=int)
+                elif mm in self.ref_table.keys():
+                    vals_orig[mm] = self.ref_table[mm][keep_orig]
+            fit_star_idxs = ~keep_orig
         else:
             fit_star_idxs = None
 
-        # Figure out whether motion fits are necessary
         if ('motion_model_input' in self.ref_table.keys()) and np.all(self.ref_table['motion_model_input']=='Fixed'):
+            self.ref_table.fit_motion_model(
+                motion_models=['Fixed'],
+                weighting=self.vel_weighting,
+                use_scipy=self.use_scipy,
+                absolute_sigma=self.absolute_sigma,
+                verbose=self.verbose
+            )
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
-
         else:
             self.ref_table.fit_motion_model(
                 motion_models=self.motion_models,
@@ -941,7 +959,7 @@ class MosaicSelfRef(object):
                 bootstrap=n_boot,
                 verbose=self.verbose
             )
-            if (keep_orig is not None) and (len(keep_orig) > 0):
+            if (keep_orig is not None) and (sum(keep_orig) > 0):
                 # Determine motion_model_used for keep_orig stars
                 # Filter possible motion models based on available columns
                 motion_models_possible = []
@@ -949,12 +967,12 @@ class MosaicSelfRef(object):
                     required_columns = mm.fit_param_names + mm.fixed_param_names
                     if all(col in self.ref_table.colnames for col in required_columns):
                         motion_models_possible.append((mm, required_columns))
-                
-                # Check if values are finite for required columns
+
+                # Check if values are finite for required columns in possible motion models
                 motion_model_used = []
-                for k in keep_orig:
+                for k in np.where(keep_orig)[0]:
                     for mm, req in motion_models_possible[::-1]:
-                        if all(np.isfinite(self.ref_table[k][col]) for col in req):
+                        if all(np.isfinite(self.ref_table[k][col]) for col in req if self.ref_table[col].dtype.kind in 'f'):
                             motion_model_used.append(mm.name)
                             break
 
@@ -969,7 +987,7 @@ class MosaicSelfRef(object):
             self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
 
         # Replace the originals if we are supposed to keep them fixed.
-        if (keep_orig is not None) and (len(keep_orig) > 0):
+        if (keep_orig is not None) and (sum(keep_orig) > 0):
             for val in vals_orig.keys():
                 self.ref_table[val][keep_orig] = vals_orig[val]
 
@@ -1021,6 +1039,10 @@ class MosaicSelfRef(object):
                 # Fix bad weights:
                 weight[bad] = 0.0
 
+        if weight is not None and np.all(weight == 0.0):
+            # Catch the case where all weights were bad.
+            weight = None
+
         return weight
 
     
@@ -1043,7 +1065,7 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
 
-            xref, yref = infer_positions(star_list_T['t'][0], self.ref_table)
+            xref, yref = infer_positions(star_list_T['t'][0], self.ref_table, self.motion_models)
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -1075,23 +1097,50 @@ class MosaicSelfRef(object):
         """
         # Reference stars will be named. 
         name = self.ref_table['name']
-
+        # Calculate x, y, xe, ye
+        # x, y, xe, ye = infer_positions(epoch, self.ref_table, self.motion_models, return_errors=True)
         if ('motion_model_used' in self.ref_table.colnames):
             x, y, xe, ye = self.ref_table.infer_positions(epoch)
         else:
-            # No velocities... just used average positions.
-            x = self.ref_table['x0']
-            y = self.ref_table['y0']
-            
-            if 'x0_err' in self.ref_table.colnames:
-                xe = self.ref_table['x0_err']
-                ye = self.ref_table['y0_err']
-            else:
-                xe = None
-                ye = None
+            # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
+            for mm in self.motion_models[::-1]:
+                required_columns = mm.fit_param_names + mm.fixed_param_names
+                if all([param in self.ref_table.colnames for param in required_columns]):
+                    # Check if the values are finite for non-string columns in the required columns for this motion model. If not, skip to the next motion model.
+                    if not all([np.isfinite(self.ref_table[param]).all() for param in required_columns if self.ref_table[param].dtype.kind in 'if']):
+                        continue
+
+                    # If we have error columns for all fit parameters, then use them in the model inference. Otherwise, just use the fit parameters without errors.
+                    if all([f'{param}_err' in self.ref_table.colnames for param in mm.fit_param_names]) and all([np.isfinite(self.ref_table[f'{param}_err']).all() for param in mm.fit_param_names]):
+                        x, y, xe, ye = mm().model(
+                            t=epoch,
+                            fit_params=np.array([self.ref_table[param] for param in mm.fit_param_names]).T,
+                            fit_param_errs=np.array([self.ref_table[f'{param}_err'] for param in mm.fit_param_names]).T,
+                            fixed_params_dict={param: self.ref_table[param] for param in mm.fixed_param_names}
+                        )
+                    else:
+                        x, y = mm().model(
+                            t=epoch,
+                            fit_params=np.array([self.ref_table[param] for param in mm.fit_param_names]).T,
+                            fixed_params_dict={param: self.ref_table[param] for param in mm.fixed_param_names}
+                        )
+                        xe = None
+                        ye = None
+                    break
+
+            # # No velocities... just used average positions.
+            # x = self.ref_table['x0']
+            # y = self.ref_table['y0']
+
+            # if 'x0_err' in self.ref_table.colnames:
+            #     xe = self.ref_table['x0_err']
+            #     ye = self.ref_table['y0_err']
+            # else:
+            #     xe = None
+            #     ye = None
 
         m = self.ref_table['m0']
-        
+
         if 'm0_err' in self.ref_table.colnames:
             me = self.ref_table['m0_err']
         else:
@@ -1732,6 +1781,14 @@ class MosaicToRef(MosaicSelfRef):
         self.update_ref_orig = update_ref_orig
         self.use_ref_new = use_ref_new
 
+        # If motion_model_used in columns but params columns are missing, raise a warning and remove motion_model_used column to avoid confusion.
+        if 'motion_model_used' in self.ref_list.colnames:
+            motion_model_params = motion_model.motion_model_param_names(np.unique(self.ref_list['motion_model_used']), with_errors=False, with_fixed=True)
+            missing_params = [param for param in motion_model_params if param not in self.ref_list.colnames]
+            if len(missing_params) > 0:
+                warnings.warn("Warning: 'motion_model_used' column found in ref_list, but the following motion model parameter columns are missing: " + ", ".join(missing_params) + ". Removing 'motion_model_used' column to avoid confusion.")
+                self.ref_list.remove_column('motion_model_used')
+
         # Do some temporary clean up of the reference list.
         if ('x' not in self.ref_list.colnames) and ('x0' in self.ref_list.colnames):
             self.ref_list['x'] = self.ref_list['x0']
@@ -1828,7 +1885,7 @@ class MosaicToRef(MosaicSelfRef):
                 print("**********")
 
             # ALL the action is in here. Match and transform the stack of starlists.
-            # This updates trans objects and the ref_table. 
+            # This updates trans objects and the ref_table.
             self.match_and_transform(self.ref_mag_lim,
                                      self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
                                      self.trans_args[nn])
@@ -1863,7 +1920,7 @@ class MosaicToRef(MosaicSelfRef):
         if self.update_ref_orig:
             keep_orig=None
         else:
-            keep_orig = np.where(self.ref_table['ref_orig'])[0]
+            keep_orig = self.ref_table['ref_orig']
         self.update_ref_table_aggregates(keep_orig=keep_orig)
 
         ##########
@@ -1904,6 +1961,99 @@ class MosaicToRef(MosaicSelfRef):
             with open(self.save_path, 'wb') as file:
                 pickle.dump(self, file)
         return
+
+# TODO: This is sometimes run on a startable, not a starlist, at least as currently used
+def infer_positions(t, startable, motion_models=None, return_errors=False):
+    """
+    Take a startable, check to see if it has motion/velocity columns.
+    If it does, then propagate the positions forward in time 
+    to the desired epoch. If no motion/velocities exist, then just
+    use ['x0', 'y0'] or ['x', 'y']
+
+    Parameters
+    ----------
+    t : float
+        The time to propagate to. Usually in decimal years; 
+        but it should be in the same units
+        as the 't0' column in starlist.
+    startable : StarTable
+        Startable that needs to be inferred.
+    motion_models : list of MotionModel classes or strings
+        The motion models to check for in the startable
+    return_errors : boolean
+        Whether to return the inferred position errors. If True, then the function returns x, y, xe, ye. If False, then it just returns x, y, by default False.
+
+    Returns
+    -------
+    x, y, (xe, ye) : tuple
+        Inferred position (and errors) at time t
+    """
+    if ('motion_model_used' in startable.colnames):
+        x, y, xe, ye = startable.infer_positions(t)
+        if return_errors:
+            return x, y, xe, ye
+        else:
+            return x, y
+
+    # Convert motion_models from strings to MotionModel classes if needed.
+    if motion_models is None:
+        # Setting the default to None to avoid mutable default argument issue
+        # See https://stackoverflow.com/questions/15189245/assigning-class-variable-as-default-value-to-class-method-argument
+        motion_models = [Empty, Fixed]
+    all_mm_map = motion_model.motion_model_map()
+    if all(isinstance(mm, str) for mm in motion_models):
+        mm_names = motion_models
+        motion_models = [all_mm_map[mm] for mm in motion_models]
+    else:
+        mm_names = [mm.name for mm in motion_models]
+
+    # Always add Empty and Fixed in motion models
+    if 'Fixed' not in mm_names:
+        motion_models.insert(0, Fixed)
+    if 'Empty' not in mm_names:
+        motion_models.insert(0, Empty)
+
+    # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
+    # Sort motion models inversely by mm.n_params
+    motion_models = sorted(motion_models, key=lambda mm: mm.n_params, reverse=True)
+    for mm in motion_models:
+        if mm.name == 'Empty':
+            x = startable['x']
+            y = startable['y']
+            return x, y
+
+        required_columns = mm.fit_param_names + mm.fixed_param_names
+        if all([param in startable.colnames for param in required_columns]):
+            # Check if the values are finite for non-string columns in the required columns for this motion model. If not, skip to the next motion model.
+            if not all([np.isfinite(startable[param]).all() for param in required_columns if startable[param].dtype.kind in 'if']):
+                continue
+
+            # If we have error columns for all fit parameters, then use them in the model inference. Otherwise, just use the fit parameters without errors.
+            x, y = mm().model(
+                t=t,
+                fit_params=np.array([startable[param] for param in mm.fit_param_names]).T,
+                fixed_params_dict={param: startable[param] for param in mm.fixed_param_names}
+            )
+            xe = None
+            ye = None
+            break
+    
+    return x, y
+
+    # # If no motion model, check for velocities
+    # elif ('vx' in startable.colnames) and ('vy' in startable.colnames) and (np.isfinite(startable['vx']).all()) and (np.isfinite(startable['vy']).all()):
+    #     x = startable['x0'] + startable['vx'] * (t - startable['t0'])
+    #     y = startable['y0'] + startable['vy'] * (t - startable['t0'])
+
+    # # If no velocities, try fitted positon
+    # elif ('x0' in startable.colnames) and ('y0' in startable.colnames) and (np.isfinite(startable['x0']).all()) and (np.isfinite(startable['y0']).all()):
+    #     x = startable['x0']
+    #     y = startable['y0']
+    # # Otherwise, use measured position
+    # else:
+    #     x = startable['x']
+    #     y = startable['y']
+    # return x, y
 
 def get_all_epochs(t):
     """
@@ -2804,7 +2954,7 @@ def position_transform_from_object(x, y, xe, ye, transform):
     Should be doing:
     ((A**2 + B**2 + C**2) * xe**2)
     """
-            
+
     # xe_new & ye_new in (x,y,xe,ye)
     xe_new = 0
     temp1 = 0
@@ -3016,7 +3166,7 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
                 
     return
 
-def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
+def trans_initial_guess(ref_list, star_list, trans_args, motion_models=None, mode='miracle',
                         ignore_contains='star', verbose=True, n_req_match=3,
                             mag_trans=True, order=1):
     """
@@ -3027,7 +3177,8 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
     is just blind triangle matching on the brightest 50 stars. 
     """
     warnings.filterwarnings('ignore', category=AstropyUserWarning)
-    
+    if motion_models is None:
+        motion_models = []
     if mode == 'name':
         # First trim the two lists down to only those that don't contain
         # the "ignore_contains" string.
@@ -3054,7 +3205,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
 
         # If there are velocities in the reference list, use them.
         # We assume velocities are in the same units as the positions.
-        xref, yref = infer_positions(star_list['t'][0], ref_list)
+        xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models)
         if 'm' in ref_list.colnames:
             mref = ref_list['m']
         else:
@@ -3156,72 +3307,75 @@ def copy_and_rename_for_ref(star_list):
 
     return ref_list
 
-def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
-    """
-    Determine the outliers based on the residual positions between two different
-    starlists and some threshold (in sigma). Return the indices of the stars 
-    to keep (that shouldn't be rejected as outliers). 
+# def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, verbose=True):
+#     """
+#     Determine the outliers based on the residual positions between two different
+#     starlists and some threshold (in sigma). Return the indices of the stars 
+#     to keep (that shouldn't be rejected as outliers). 
 
-    Note that we assume that the star_list and ref_list are already transformed and
-    matched. 
+#     Note that we assume that the star_list and ref_list are already transformed and
+#     matched. 
 
-    Parameters
-    ----------
-    star_list : StarList
-        starlist with 'x', 'y'
+#     Parameters
+#     ----------
+#     star_list : StarList
+#         starlist with 'x', 'y'
 
-    ref_list : StarList
-        starlist with 'x0', 'y0'
+#     ref_list : StarList
+#         starlist with 'x0', 'y0'
 
-    outlier_tol : float
-        Number of sigma inside which we keep stars and outside of which we 
-        reject stars as outliers. 
+#     outlier_tol : float
+#         Number of sigma inside which we keep stars and outside of which we 
+#         reject stars as outliers. 
 
-    Optional Parameters
-    --------------------
-    verbose : boolean
+#     motion_models : list of motion_model objects
+#         The motion models used in the star_list. This is needed to propogate the reference positions forward in time to the epoch of the star_list.
 
-    Returns
-    ----------
-    keepers : nd.array
-        The indicies of the stars to keep. 
-    """
-    # Optionally propogate the reference positions forward in time.
-    xref, yref = infer_positions(star_list['t'][0], ref_list)
+#     Optional Parameters
+#     --------------------
+#     verbose : boolean
 
-    # Residuals
-    x_resid_on_old_trans = star_list['x'] - xref
-    y_resid_on_old_trans = star_list['y'] - yref
-    resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
+#     Returns
+#     ----------
+#     keepers : boolean array
+#         The boolean array of the stars to keep. 
+#     """
+#     # Optionally propogate the reference positions forward in time.
+#     xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models)
 
-    threshold = outlier_tol * resid_on_old_trans.std()
-    keepers = np.where(resid_on_old_trans < threshold)[0]
+#     # Residuals
+#     x_resid_on_old_trans = star_list['x'] - xref
+#     y_resid_on_old_trans = star_list['y'] - yref
+#     resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
 
-    if verbose > 0:
-        msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
-        print(msg.format(len(keepers), len(resid_on_old_trans)))
+#     threshold = outlier_tol * resid_on_old_trans.std()
+#     keepers = resid_on_old_trans < threshold
+
+#     if verbose > 0:
+#         msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
+#         print(msg.format(sum(keepers), len(resid_on_old_trans)))
         
-    return keepers
+#     return keepers
 
-def setup_trans_info(trans_input, trans_args, N_lists, iters):
-    """ Setup transformation info into a usable format.
+# def setup_trans_info(trans_input, trans_args, N_lists, iters):
+#     """ Setup transformation info into a usable format.
 
-    trans_input : list or None
-    trans_args : dict or None
-    N_lists : int
-    iters : int
-    """
-    trans_list = [None for ii in range(N_lists)]
-    if trans_input != None:
-        trans_list = [trans_input[ii] for ii in range(N_lists)]
+#     trans_input : list or None
+#     trans_args : dict or None
+#     N_lists : int
+#     iters : int
+#     """
+#     trans_list = [None for ii in range(N_lists)]
+#     if trans_input != None:
+#         trans_list = [trans_input[ii] for ii in range(N_lists)]
 
-    # Keep a list of trans_args, one for each starlist. If only
-    # a single is passed in, replicate for all star lists, all loop iterations.
-    if type(trans_args) == dict:
-        tmp = trans_args
-        trans_args = [tmp for ii in range(iters)]
+#     # Keep a list of trans_args, one for each starlist. If only
+#     # a single is passed in, replicate for all star lists, all loop iterations.
+#     if type(trans_args) == dict:
+#         tmp = trans_args
+#         trans_args = [tmp for ii in range(iters)]
         
-    return trans_list, trans_args
+#     return trans_list, trans_args
 
 def apply_mag_lim(star_list, mag_lim):
     """ Apply a magnitude limit to the list. If no magnitude limit is 
@@ -3255,85 +3409,44 @@ def apply_mag_lim(star_list, mag_lim):
 
     return star_list_T
 
-def get_weighting_scheme(weights, ref_list, star_list):
-    if 'xe' in ref_list.colnames:
-        var_xref = ref_list['xe']**2
-        var_yref = ref_list['ye']**2
-    else:
-        var_xref = 0.0
-        var_yref = 0.0
+# def get_weighting_scheme(weights, ref_list, star_list):
+#     if 'xe' in ref_list.colnames:
+#         var_xref = ref_list['xe']**2
+#         var_yref = ref_list['ye']**2
+#     else:
+#         var_xref = 0.0
+#         var_yref = 0.0
         
-    if 'xe' in star_list.colnames:
-        var_xlis = star_list['xe']**2
-        var_ylis = star_list['ye']**2
-    else:
-        var_xlis = 0.0
-        var_ylis = 0.0
+#     if 'xe' in star_list.colnames:
+#         var_xlis = star_list['xe']**2
+#         var_ylis = star_list['ye']**2
+#     else:
+#         var_xlis = 0.0
+#         var_ylis = 0.0
 
-    if weights != None:
-        if weights == 'both,var':
-            weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
-        if weights == 'both,std':
-            weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
-        if weights == 'ref,var':
-            weight = 1.0 / (var_xref + var_yref)
-        if weights == 'ref,std':
-            weight = 1.0 / np.sqrt(var_xref + var_yref)
-        if weights == 'list,var':
-            weight = 1.0 / (var_xlis, var_ylis)
-        if weights == 'list,std':
-            weight = 1.0 / np.sqrt(var_xlis, var_ylis)
-    else:
-        weight = None
+#     if weights != None:
+#         if weights == 'both,var':
+#             weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
+#         if weights == 'both,std':
+#             weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
+#         if weights == 'ref,var':
+#             weight = 1.0 / (var_xref + var_yref)
+#         if weights == 'ref,std':
+#             weight = 1.0 / np.sqrt(var_xref + var_yref)
+#         if weights == 'list,var':
+#             weight = 1.0 / (var_xlis, var_ylis)
+#         if weights == 'list,std':
+#             weight = 1.0 / np.sqrt(var_xlis, var_ylis)
+#     else:
+#         weight = None
 
-    # One last check to make sure we had weights at all.
-    # Technically, this is mis-use; but lets handle it anyhow.
-    if ('xe' not in ref_list.colnames) and ('ye' not in star_list.colnames):
-        weight = None
+#     # One last check to make sure we had weights at all.
+#     # Technically, this is mis-use; but lets handle it anyhow.
+#     if ('xe' not in ref_list.colnames) and ('ye' not in star_list.colnames):
+#         weight = None
 
-    return weight
+#     return weight
 
-# TODO: This is sometimes run on a startable, not a starlist, at least as currently used
-def infer_positions(t, startable):
-    """
-    Take a startable, check to see if it has motion/velocity columns.
-    If it does, then propogate the positions forward in time 
-    to the desired epoch. If no motion/velocities exist, then just
-    use ['x0', 'y0'] or ['x', 'y']
-
-    Parameters
-    ----------
-    t_array : float
-        The time to propogate to. Usually in decimal years; 
-        but it should be in the same units
-        as the 't0' column in starlist.
-    startable : StarTable
-        Startable that needs to be inferred.
-
-    Returns
-    -------
-    x, y : tuple
-        Inferred position at time t
-    """
-    # Check for motion model
-    if 'motion_model_used' in startable.colnames:
-        x, y, xe, ye = startable.infer_positions(t)
-
-    # If no motion model, check for velocities
-    elif ('vx' in startable.colnames) and ('vy' in startable.colnames):
-        x = startable['x0'] + startable['vx'] * (t - startable['t0'])
-        y = startable['y0'] + startable['vy'] * (t - startable['t0'])
-        
-    # If no velocities, try fitted positon
-    elif ('x0' in startable.colnames) and ('y0' in startable.colnames):
-        x = startable['x0']
-        y = startable['y0']
-    # Otherwise, use measured position
-    else:
-        x = startable['x']
-        y = startable['y']
-
-    return x, y
 
 def logger(logfile, message, verbose = 9):
     if verbose > 4:

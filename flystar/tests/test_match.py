@@ -164,7 +164,7 @@ def test_generic_match():
     n2 = np.array(['S11', 'S12', 'S13', 'S14', 'S15',
                    'S16', 'S17', 'S18', 'S19'])
 
-    
+
     list1 = Table([n1, x1, y1, m1],
                   names=('name', 'x', 'y', 'm'))
     list2 = Table([n2, x2, y2, m2],
@@ -180,4 +180,7 @@ def test_generic_match():
                               m_match=(None, None, None, None), sigma_match=None,
                               n_bright=8, verbose=True)
 
-    
+if __name__ == '__main__':
+    # test_match_duplicates()
+    # test_miracle_match_briteN()
+    test_generic_match()
