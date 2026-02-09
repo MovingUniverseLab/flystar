@@ -408,16 +408,16 @@ class MosaicSelfRef(object):
         all_epochs = get_all_epochs(self.ref_table)
         self.ref_table.meta['list_times'] = all_epochs
 
-        # # Update chi2 values in ref table, as motion_model_used may have changed
-        # x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
-        # chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
-        # chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
-        # chi2_x = np.nansum(chi2_x_2d, axis=1)
-        # chi2_y = np.nansum(chi2_y_2d, axis=1)
-        # chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
-        # chi2_y[~np.isfinite(chi2_y_2d).any(axis=1)] = np.nan
-        # self.ref_table['chi2_x'] = chi2_x
-        # self.ref_table['chi2_y'] = chi2_y
+        # Update chi2 values in ref table, as motion_model_used may have changed
+        x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
+        chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
+        chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        chi2_x = np.nansum(chi2_x_2d, axis=1)
+        chi2_y = np.nansum(chi2_y_2d, axis=1)
+        chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
+        chi2_y[~np.isfinite(chi2_y_2d).any(axis=1)] = np.nan
+        self.ref_table['chi2_x'] = chi2_x
+        self.ref_table['chi2_y'] = chi2_y
 
         if self.save_path:
             with open(self.save_path, 'wb') as file:
@@ -3307,75 +3307,75 @@ def copy_and_rename_for_ref(star_list):
 
     return ref_list
 
-# def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, verbose=True):
-#     """
-#     Determine the outliers based on the residual positions between two different
-#     starlists and some threshold (in sigma). Return the indices of the stars 
-#     to keep (that shouldn't be rejected as outliers). 
+def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, verbose=True):
+    """
+    Determine the outliers based on the residual positions between two different
+    starlists and some threshold (in sigma). Return the indices of the stars 
+    to keep (that shouldn't be rejected as outliers). 
 
-#     Note that we assume that the star_list and ref_list are already transformed and
-#     matched. 
+    Note that we assume that the star_list and ref_list are already transformed and
+    matched. 
 
-#     Parameters
-#     ----------
-#     star_list : StarList
-#         starlist with 'x', 'y'
+    Parameters
+    ----------
+    star_list : StarList
+        starlist with 'x', 'y'
 
-#     ref_list : StarList
-#         starlist with 'x0', 'y0'
+    ref_list : StarList
+        starlist with 'x0', 'y0'
 
-#     outlier_tol : float
-#         Number of sigma inside which we keep stars and outside of which we 
-#         reject stars as outliers. 
+    outlier_tol : float
+        Number of sigma inside which we keep stars and outside of which we 
+        reject stars as outliers. 
 
-#     motion_models : list of motion_model objects
-#         The motion models used in the star_list. This is needed to propogate the reference positions forward in time to the epoch of the star_list.
+    motion_models : list of motion_model objects
+        The motion models used in the star_list. This is needed to propogate the reference positions forward in time to the epoch of the star_list.
 
-#     Optional Parameters
-#     --------------------
-#     verbose : boolean
+    Optional Parameters
+    --------------------
+    verbose : boolean
 
-#     Returns
-#     ----------
-#     keepers : boolean array
-#         The boolean array of the stars to keep. 
-#     """
-#     # Optionally propogate the reference positions forward in time.
-#     xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models)
+    Returns
+    ----------
+    keepers : boolean array
+        The boolean array of the stars to keep. 
+    """
+    # Optionally propogate the reference positions forward in time.
+    xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models)
 
-#     # Residuals
-#     x_resid_on_old_trans = star_list['x'] - xref
-#     y_resid_on_old_trans = star_list['y'] - yref
-#     resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
+    # Residuals
+    x_resid_on_old_trans = star_list['x'] - xref
+    y_resid_on_old_trans = star_list['y'] - yref
+    resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
 
-#     threshold = outlier_tol * resid_on_old_trans.std()
-#     keepers = resid_on_old_trans < threshold
+    threshold = outlier_tol * resid_on_old_trans.std()
+    keepers = resid_on_old_trans < threshold
 
-#     if verbose > 0:
-#         msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
-#         print(msg.format(sum(keepers), len(resid_on_old_trans)))
+    if verbose > 0:
+        msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
+        print(msg.format(sum(keepers), len(resid_on_old_trans)))
         
-#     return keepers
+    return keepers
 
-# def setup_trans_info(trans_input, trans_args, N_lists, iters):
-#     """ Setup transformation info into a usable format.
+def setup_trans_info(trans_input, trans_args, N_lists, iters):
+    """ Setup transformation info into a usable format.
 
-#     trans_input : list or None
-#     trans_args : dict or None
-#     N_lists : int
-#     iters : int
-#     """
-#     trans_list = [None for ii in range(N_lists)]
-#     if trans_input != None:
-#         trans_list = [trans_input[ii] for ii in range(N_lists)]
+    trans_input : list or None
+    trans_args : dict or None
+    N_lists : int
+    iters : int
+    """
+    trans_list = [None for ii in range(N_lists)]
+    if trans_input != None:
+        trans_list = [trans_input[ii] for ii in range(N_lists)]
 
-#     # Keep a list of trans_args, one for each starlist. If only
-#     # a single is passed in, replicate for all star lists, all loop iterations.
-#     if type(trans_args) == dict:
-#         tmp = trans_args
-#         trans_args = [tmp for ii in range(iters)]
+    # Keep a list of trans_args, one for each starlist. If only
+    # a single is passed in, replicate for all star lists, all loop iterations.
+    if type(trans_args) == dict:
+        tmp = trans_args
+        trans_args = [tmp for ii in range(iters)]
         
-#     return trans_list, trans_args
+    return trans_list, trans_args
 
 def apply_mag_lim(star_list, mag_lim):
     """ Apply a magnitude limit to the list. If no magnitude limit is 
@@ -3409,43 +3409,43 @@ def apply_mag_lim(star_list, mag_lim):
 
     return star_list_T
 
-# def get_weighting_scheme(weights, ref_list, star_list):
-#     if 'xe' in ref_list.colnames:
-#         var_xref = ref_list['xe']**2
-#         var_yref = ref_list['ye']**2
-#     else:
-#         var_xref = 0.0
-#         var_yref = 0.0
+def get_weighting_scheme(weights, ref_list, star_list):
+    if 'xe' in ref_list.colnames:
+        var_xref = ref_list['xe']**2
+        var_yref = ref_list['ye']**2
+    else:
+        var_xref = 0.0
+        var_yref = 0.0
         
-#     if 'xe' in star_list.colnames:
-#         var_xlis = star_list['xe']**2
-#         var_ylis = star_list['ye']**2
-#     else:
-#         var_xlis = 0.0
-#         var_ylis = 0.0
+    if 'xe' in star_list.colnames:
+        var_xlis = star_list['xe']**2
+        var_ylis = star_list['ye']**2
+    else:
+        var_xlis = 0.0
+        var_ylis = 0.0
 
-#     if weights != None:
-#         if weights == 'both,var':
-#             weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
-#         if weights == 'both,std':
-#             weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
-#         if weights == 'ref,var':
-#             weight = 1.0 / (var_xref + var_yref)
-#         if weights == 'ref,std':
-#             weight = 1.0 / np.sqrt(var_xref + var_yref)
-#         if weights == 'list,var':
-#             weight = 1.0 / (var_xlis, var_ylis)
-#         if weights == 'list,std':
-#             weight = 1.0 / np.sqrt(var_xlis, var_ylis)
-#     else:
-#         weight = None
+    if weights != None:
+        if weights == 'both,var':
+            weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
+        if weights == 'both,std':
+            weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
+        if weights == 'ref,var':
+            weight = 1.0 / (var_xref + var_yref)
+        if weights == 'ref,std':
+            weight = 1.0 / np.sqrt(var_xref + var_yref)
+        if weights == 'list,var':
+            weight = 1.0 / (var_xlis, var_ylis)
+        if weights == 'list,std':
+            weight = 1.0 / np.sqrt(var_xlis, var_ylis)
+    else:
+        weight = None
 
-#     # One last check to make sure we had weights at all.
-#     # Technically, this is mis-use; but lets handle it anyhow.
-#     if ('xe' not in ref_list.colnames) and ('ye' not in star_list.colnames):
-#         weight = None
+    # One last check to make sure we had weights at all.
+    # Technically, this is mis-use; but lets handle it anyhow.
+    if ('xe' not in ref_list.colnames) and ('ye' not in star_list.colnames):
+        weight = None
 
-#     return weight
+    return weight
 
 
 def logger(logfile, message, verbose = 9):
