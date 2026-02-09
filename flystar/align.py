@@ -1553,7 +1553,7 @@ class MosaicSelfRef(object):
 
         
         return
-    
+
 
 class MosaicToRef(MosaicSelfRef):
     def __init__(
