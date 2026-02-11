@@ -905,13 +905,18 @@ class StarTable(Table):
             self['t0'][unique_index] = t0[unique_index]
         return
 
-    def infer_positions(self, times, fill_value=np.nan):
+    def infer_positions(self, times, fixed_params_dict=None, fill_value=np.nan):
         """Infer star positions at given times using fitted motion models.
 
         Parameters
         ----------
         times : array_like
             Times at which to predict positions. Scalar, or (N_times,) array, or (N_stars, N_times) array.
+        fixed_params_dict : None or dict, optional
+            Dictionary of fixed parameters to use for prediction. 
+            If not provided, will try to look for fixed parameters in the table columns.
+            If fixed params are found in both the table and the fixed_params_dict, the values in the table will be used and the fixed_params_dict values will be ignored,
+            by default None
         fill_value : float, optional
             Value to use for missing data, by default np.nan
 
@@ -943,7 +948,7 @@ class StarTable(Table):
             xe_pred = np.full(N_stars, np.inf, dtype=float)
             ye_pred = np.full(N_stars, np.inf, dtype=float)
 
-
+        # Calculate the dictionary of {motion_model: indices of stars with this motion model} for faster access during prediction
         unique_motion_models, unique_inv_indices = np.unique(self['motion_model_used'], return_inverse=True)
         indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
 
@@ -962,12 +967,20 @@ class StarTable(Table):
 
             fixed_params = {}
             for param_name in motion_model_instance.fixed_param_names:
-                col_name = param_name
+                col_name = copy.deepcopy(param_name)
+                # If column not in table, check if it's provided in fixed_params_dict. If not, raise error. If provided, use the value from fixed_params_dict for all stars.
+                if (col_name not in self.colnames) and (f'{col_name}_mm' not in self.colnames):
+                    if col_name in fixed_params_dict:
+                        fixed_params[param_name] = fixed_params_dict[col_name]
+                        continue
+                    else:
+                        raise KeyError(f"infer_positions: Fixed parameter '{param_name}' not found in table columns or fixed_params_dict. Please provide the value for this parameter in fixed_params_dict or add a column named '{param_name}' to the table.")
+
+                # If original table has column and fit_motion_model added the column with _mm suffix, use the _mm column for prediction.
                 if param_name + '_mm' in self.colnames:
                     col_name = param_name + '_mm'
                 fixed_params[param_name] = self[col_name][unique_index]
 
-                # TODO: vectorize obsLocation handling in motion models?
                 if (param_name == 'obsLocation'):
                     assert np.unique(fixed_params[param_name]).size == 1, \
                         "infer_positions: obsLocation fixed parameter has different values for different stars. Vectorized handling not implemented yet."

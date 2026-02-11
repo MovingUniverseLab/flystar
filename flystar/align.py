@@ -12,6 +12,7 @@ import warnings
 import pickle
 from astropy.utils.exceptions import AstropyUserWarning
 from .motion_model import Empty, Fixed
+from tqdm import tqdm
 
 class MosaicSelfRef(object):
     def __init__(
@@ -463,11 +464,14 @@ class MosaicSelfRef(object):
                     star_list_orig_trim,
                     self.trans_args[0],
                     motion_models=self.motion_models,
+                    fixed_params_dict=self.fixed_params_dict,
                     mode=self.init_guess_mode,
                     order=self.init_order,
                     verbose=self.verbose,
                     mag_trans=self.mag_trans
                 )
+                if np.isnan(trans.px.parameters).any() or np.isnan(trans.py.parameters).any():
+                    raise ValueError(f"Initial transformation contains NaN parameters. trans.px={trans.px.parameters}, trans.py={trans.py.parameters}.")
 
             if self.mag_trans:
                 star_list_T.transform_xym(trans) # trimmed, transformed
@@ -484,8 +488,7 @@ class MosaicSelfRef(object):
 
             # Outlier rejection
             if outlier_tol != None:
-                keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
-                                                          outlier_tol)
+                keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2], outlier_tol, verbose=self.verbose)
                 if self.verbose > 1:
                     print( '  Rejected ', len(idx1) - sum(keepers), ' outliers.' )
                     
@@ -495,7 +498,7 @@ class MosaicSelfRef(object):
             # Only use stars specified by "use_in_trans" column.
             if 'use_in_trans' in ref_list.colnames:
                 keepers = ref_list[idx2]['use_in_trans']
-                
+
                 if self.verbose > 1:
                     print( '  Rejected ', len(idx1) - sum(keepers), ' with use_in_trans=False.' )
 
@@ -570,10 +573,10 @@ class MosaicSelfRef(object):
                        '. If match count is low, check dr_tol, dm_tol.' )
 
             ## Make plot, if desired
-            plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                  save_path=f"{os.path.dirname(self.save_path)}/Transformed_Positions_{star_list_T['t'][0]}.png" if self.save_path else None,
-                                  show_plot=False)
-
+            if self.save_path:
+                plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
+                                    save_path=f"{os.path.dirname(self.save_path)}/Transformed_Positions_{star_list_T['t'][0]}.png",
+                                    show_plot=False)
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
 
@@ -740,7 +743,7 @@ class MosaicSelfRef(object):
         # Make sure we have a column to indicate whether each star
         # IS USED in the transformation. This will be 2D
         if 'used_in_trans' not in ref_table.colnames:
-            new_col = Column(np.zeros([len(ref_table),1], dtype=bool), name='used_in_trans')
+            new_col = Column(np.zeros([len(ref_table), 1], dtype=bool), name='used_in_trans')
             ref_table.add_column(new_col)
             
         # Keep track of whether this is an original reference star.
@@ -780,8 +783,7 @@ class MosaicSelfRef(object):
             else:
                 mcol = 'm'
 
-            no_use = np.where((ref_list[mcol] < ref_mag_lim[0]) |
-                              (ref_list[mcol] >= ref_mag_lim[1]))
+            no_use = (ref_list[mcol] < ref_mag_lim[0]) | (ref_list[mcol] >= ref_mag_lim[1])
 
             ref_list['use_in_trans'][no_use]  = False
             
@@ -965,14 +967,19 @@ class MosaicSelfRef(object):
                 motion_models_possible = []
                 for mm in self.motion_models:
                     required_columns = mm.fit_param_names + mm.fixed_param_names
-                    if all(col in self.ref_table.colnames for col in required_columns):
+                    if all(col in self.ref_table.colnames or col in self.fixed_params_dict.keys() for col in required_columns):
                         motion_models_possible.append((mm, required_columns))
 
                 # Check if values are finite for required columns in possible motion models
                 motion_model_used = []
                 for k in np.where(keep_orig)[0]:
                     for mm, req in motion_models_possible[::-1]:
-                        if all(np.isfinite(self.ref_table[k][col]) for col in req if self.ref_table[col].dtype.kind in 'f'):
+                        # if all(np.isfinite(self.ref_table[k][col]) for col in req if self.ref_table[col].dtype.kind in 'f'):
+                        req_col_in_table = [col for col in req if col in self.ref_table.colnames]
+                        req_col_in_dict = [col for col in req if (self.fixed_params_dict is not None) and (col in self.fixed_params_dict.keys())]
+                        # If requested column in table/fixed_params dict is numeric, check if values are finite.
+                        if all(np.isfinite(self.ref_table[col][k]) for col in req_col_in_table if np.issubdtype(self.ref_table[col].dtype, np.number)) \
+                        and all(np.isfinite(self.fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(self.fixed_params_dict[col]).dtype, np.number)):
                             motion_model_used.append(mm.name)
                             break
 
@@ -1020,7 +1027,7 @@ class MosaicSelfRef(object):
             if self.trans_weighting == 'list,var':
                 weight = 1.0 / (var_xlis + var_ylis)
             if self.trans_weighting == 'list,std':
-                weight = 1.0 / np.sqrt(var_xlis, var_ylis)
+                weight = 1.0 / np.sqrt(var_xlis + var_ylis)
         else:
             weight = None
 
@@ -1065,7 +1072,7 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
 
-            xref, yref = infer_positions(star_list_T['t'][0], self.ref_table, self.motion_models)
+            xref, yref = infer_positions(star_list_T['t'][0], self.ref_table, self.motion_models, self.fixed_params_dict)
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -1098,18 +1105,17 @@ class MosaicSelfRef(object):
         # Reference stars will be named. 
         name = self.ref_table['name']
         # Calculate x, y, xe, ye
-        # x, y, xe, ye = infer_positions(epoch, self.ref_table, self.motion_models, return_errors=True)
-        if ('motion_model_used' in self.ref_table.colnames):
-            x, y, xe, ye = self.ref_table.infer_positions(epoch)
+        if 'motion_model_used' in self.ref_table.colnames:
+            x, y, xe, ye = self.ref_table.infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)
         else:
             # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
             for mm in self.motion_models[::-1]:
                 required_columns = mm.fit_param_names + mm.fixed_param_names
-                if all([param in self.ref_table.colnames for param in required_columns]):
+                if all([param in self.ref_table.colnames or param in self.fixed_params_dict.keys() for param in required_columns]):
                     # Check if the values are finite for non-string columns in the required columns for this motion model. If not, skip to the next motion model.
                     if not all([np.isfinite(self.ref_table[param]).all() for param in required_columns if self.ref_table[param].dtype.kind in 'if']):
                         continue
-
+                    print(f"Inferring positions using motion model {mm.name}.")
                     # If we have error columns for all fit parameters, then use them in the model inference. Otherwise, just use the fit parameters without errors.
                     if all([f'{param}_err' in self.ref_table.colnames for param in mm.fit_param_names]) and all([np.isfinite(self.ref_table[f'{param}_err']).all() for param in mm.fit_param_names]):
                         x, y, xe, ye = mm().model(
@@ -1302,8 +1308,7 @@ class MosaicSelfRef(object):
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
         ### DECREASE PRECISION ON ARRAYS (32 bit instead of 64: dtype=np.float32)
         ### AT SOME POINT, NEED TO CONVERT BACK (LOOK UP HOW TO DO THIS CAREFULLY)
-        t1 = time.time()
-        for ii in range(n_boot):
+        for ii in tqdm(range(n_boot), desc='Bootstrap iterations', disable=not show_progress):
             # Recalculate transformations using bootstrap sample of
             # reference stars. Use a loop for each epoch here, so we
             # can handle case where different reference stars are used
@@ -1514,7 +1519,7 @@ class MosaicSelfRef(object):
         # self.ref_table['motion_model_used'] = np.array([motion_model_list[d].name for d in mm_digitized], dtype='U20')
 
 
-        x_pred, y_pred, _, _ = self.ref_table.infer_positions(t_arr)
+        x_pred, y_pred, _, _ = self.ref_table.infer_positions(t_arr, fixed_params_dict=self.fixed_params_dict)
         xe_comb = np.hypot(self.ref_table['xe'], self.ref_table['xe_boot'])
         ye_comb = np.hypot(self.ref_table['ye'], self.ref_table['ye_boot'])
         data_dict['chi2_x_boot'] = np.nansum((self.ref_table['x']-x_pred)**2/(xe_comb)**2,axis=1)
@@ -1784,7 +1789,7 @@ class MosaicToRef(MosaicSelfRef):
         # If motion_model_used in columns but params columns are missing, raise a warning and remove motion_model_used column to avoid confusion.
         if 'motion_model_used' in self.ref_list.colnames:
             motion_model_params = motion_model.motion_model_param_names(np.unique(self.ref_list['motion_model_used']), with_errors=False, with_fixed=True)
-            missing_params = [param for param in motion_model_params if param not in self.ref_list.colnames]
+            missing_params = [param for param in motion_model_params if (param not in self.ref_list.colnames) and (f'{param}_err' not in self.ref_list.colnames) and (param not in self.fixed_params_dict.keys())]
             if len(missing_params) > 0:
                 warnings.warn("Warning: 'motion_model_used' column found in ref_list, but the following motion model parameter columns are missing: " + ", ".join(missing_params) + ". Removing 'motion_model_used' column to avoid confusion.")
                 self.ref_list.remove_column('motion_model_used')
@@ -1947,7 +1952,7 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table.meta['list_times'] = all_epochs
 
         # Update chi2 values in ref table, as motion_model_used may have changed
-        x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
+        x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs, fixed_params_dict=self.fixed_params_dict)
         chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
         chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
         chi2_x = np.nansum(chi2_x_2d, axis=1)
@@ -1963,7 +1968,7 @@ class MosaicToRef(MosaicSelfRef):
         return
 
 # TODO: This is sometimes run on a startable, not a starlist, at least as currently used
-def infer_positions(t, startable, motion_models=None, return_errors=False):
+def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, return_errors=False):
     """
     Take a startable, check to see if it has motion/velocity columns.
     If it does, then propagate the positions forward in time 
@@ -1989,7 +1994,7 @@ def infer_positions(t, startable, motion_models=None, return_errors=False):
         Inferred position (and errors) at time t
     """
     if ('motion_model_used' in startable.colnames):
-        x, y, xe, ye = startable.infer_positions(t)
+        x, y, xe, ye = startable.infer_positions(t, fixed_params_dict=fixed_params_dict)
         if return_errors:
             return x, y, xe, ye
         else:
@@ -2016,6 +2021,7 @@ def infer_positions(t, startable, motion_models=None, return_errors=False):
     # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
     # Sort motion models inversely by mm.n_params
     motion_models = sorted(motion_models, key=lambda mm: mm.n_params, reverse=True)
+    pdb.set_trace()
     for mm in motion_models:
         if mm.name == 'Empty':
             x = startable['x']
@@ -2034,8 +2040,6 @@ def infer_positions(t, startable, motion_models=None, return_errors=False):
                 fit_params=np.array([startable[param] for param in mm.fit_param_names]).T,
                 fixed_params_dict={param: startable[param] for param in mm.fixed_param_names}
             )
-            xe = None
-            ye = None
             break
     
     return x, y
@@ -3166,9 +3170,19 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
                 
     return
 
-def trans_initial_guess(ref_list, star_list, trans_args, motion_models=None, mode='miracle',
-                        ignore_contains='star', verbose=True, n_req_match=3,
-                            mag_trans=True, order=1):
+def trans_initial_guess(
+    ref_list,
+    star_list,
+    trans_args,
+    motion_models=None,
+    fixed_params_dict=None,
+    mode='miracle',
+    ignore_contains='star',
+    verbose=True,
+    n_req_match=3,
+    mag_trans=True,
+    order=1
+):
     """
     Take two starlists and perform an initial matching and transformation.
 
@@ -3190,7 +3204,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, motion_models=None, mod
                                                     star_list['name'][idx_s],
                                                     assume_unique=True,
                                                     return_indices=True)
-        
+
         x1m = star_list['x'][idx_s][ndx_s]
         y1m = star_list['y'][idx_s][ndx_s]
         m1m = star_list['m'][idx_s][ndx_s]
@@ -3205,7 +3219,7 @@ def trans_initial_guess(ref_list, star_list, trans_args, motion_models=None, mod
 
         # If there are velocities in the reference list, use them.
         # We assume velocities are in the same units as the positions.
-        xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models)
+        xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models, fixed_params_dict=fixed_params_dict)
         if 'm' in ref_list.colnames:
             mref = ref_list['m']
         else:
@@ -3307,7 +3321,7 @@ def copy_and_rename_for_ref(star_list):
 
     return ref_list
 
-def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, verbose=True):
+def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, fixed_params_dict=None, verbose=True):
     """
     Determine the outliers based on the residual positions between two different
     starlists and some threshold (in sigma). Return the indices of the stars 
@@ -3320,20 +3334,17 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, v
     ----------
     star_list : StarList
         starlist with 'x', 'y'
-
     ref_list : StarList
         starlist with 'x0', 'y0'
-
     outlier_tol : float
         Number of sigma inside which we keep stars and outside of which we 
         reject stars as outliers. 
-
     motion_models : list of motion_model objects
-        The motion models used in the star_list. This is needed to propogate the reference positions forward in time to the epoch of the star_list.
-
-    Optional Parameters
-    --------------------
-    verbose : boolean
+        The motion models to use in the star_list
+    fixed_params_dict : dict or None, optional
+        Dictionary of fixed parameters for motion models, by default None
+    verbose : boolean, optional
+        If True, print information about the outlier rejection process, by default True
 
     Returns
     ----------
@@ -3341,7 +3352,7 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, v
         The boolean array of the stars to keep. 
     """
     # Optionally propogate the reference positions forward in time.
-    xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models)
+    xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models, fixed_params_dict=fixed_params_dict)
 
     # Residuals
     x_resid_on_old_trans = star_list['x'] - xref

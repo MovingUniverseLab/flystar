@@ -513,7 +513,7 @@ def test_MosaicToRef_hst_me():
     # dec = '-34:27:05.01'
 
     # Load up a Gaia catalog (queried around the RA/Dec above)
-    my_gaia = Table.read('mb10364_data/my_gaia.fits')
+    my_gaia = Table.read('test_data/mb10364_data/my_gaia.fits')
     my_gaia['me'] = 0.01
 
     my_gaia.rename_columns(
@@ -523,9 +523,9 @@ def test_MosaicToRef_hst_me():
     # Gather the list of starlists. For first pass, don't modify the starlists.
     # Loop through the observations and read them in, in prep for alignment with Gaia
     epochs = [2011.83, 2012.73, 2013.81]
-    starlist_names = ['mb10364_data/2011_10_31_F606W_MATCHUP_XYMEEE_final.calib',
-                      'mb10364_data/2012_09_25_F606W_MATCHUP_XYMEEE_final.calib',
-                      'mb10364_data/2013_10_24_F606W_MATCHUP_XYMEEE_final.calib']
+    starlist_names = ['test_data/mb10364_data/2011_10_31_F606W_MATCHUP_XYMEEE_final.calib',
+                      'test_data/mb10364_data/2012_09_25_F606W_MATCHUP_XYMEEE_final.calib',
+                      'test_data/mb10364_data/2013_10_24_F606W_MATCHUP_XYMEEE_final.calib']
 
     list_of_starlists = []
 
@@ -545,17 +545,21 @@ def test_MosaicToRef_hst_me():
 
         list_of_starlists.append(lis)
 
-    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
-                        dr_tol=[0.1], dm_tol=[5],
-                        outlier_tol=[None], mag_lim=[13, 21],
-                        trans_class=transforms.PolyTransform,
-                        trans_args=[{'order': 1}],
-                        motion_models=['Empty', 'Fixed'],
-                        use_ref_new=False,
-                        update_ref_orig=False,
-                        mag_trans=False,
-                        trans_weighting='both,std',
-                        init_guess_mode='miracle', verbose=False)
+    msc = align.MosaicToRef(
+        my_gaia, list_of_starlists, iters=1,
+        dr_tol=[0.1], dm_tol=[5],
+        outlier_tol=[None], mag_lim=[13, 21],
+        trans_class=transforms.PolyTransform,
+        trans_args=[{'order': 1}],
+        motion_models=['Empty', 'Fixed'],
+        use_ref_new=False,
+        update_ref_orig=False,
+        mag_trans=False,
+        trans_weighting='both,std',
+        init_guess_mode='miracle', 
+        save_path='test_data/mb10364_data/test_MosaicToRef_hst_me.pkl',
+        verbose=False
+    )
     msc.fit()
 
     assert 'me' in msc.ref_table.colnames
@@ -1467,26 +1471,27 @@ def make_fake_starlists_poly1_par(seed=-1):
     return (xy_trans, mag_trans)
 
 if __name__ == '__main__':
-    import pickle
-    import matplotlib.pyplot as plt
-    with open('test_data/my_gaia.pkl', 'rb') as f:
-        my_gaia = pickle.load(f)
-    with open('test_data/list_of_starlists.pkl', 'rb') as f:
-        list_of_starlists = pickle.load(f)
-    ra_deg, dec_deg = 18.0, -30.0
-    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=3,
-                        dr_tol=[0.2, 0.1, 0.08], dm_tol=[5,5,5],
-                        outlier_tol=[None, None, 3], mag_lim=[6, 20],
-                        trans_class=transforms.PolyTransform,
-                        trans_args=[{'order': 1}, {'order': 1}, {'order': 1}], 
-                        motion_models=['Empty','Fixed','Linear','Parallax'],
-                        fixed_params_dict = {'ra':ra_deg, 'dec':dec_deg, 'pa':0.0, 'obsLocation':'earth'},
-                        use_ref_new=True,
-                        update_ref_orig=False, 
-                        mag_trans=True,
-                        trans_weighting='both,std',
-                        init_guess_mode='name', verbose=3)
-    msc.fit()
-    for i in range(msc.ref_table['x'].shape[1]):
-        plt.scatter(msc.ref_table['x'][:, i], msc.ref_table['y'][:, i])
-    plt.show()
+    test_MosaicToRef_hst_me()
+    # import pickle
+    # import matplotlib.pyplot as plt
+    # with open('test_data/my_gaia.pkl', 'rb') as f:
+    #     my_gaia = pickle.load(f)
+    # with open('test_data/list_of_starlists.pkl', 'rb') as f:
+    #     list_of_starlists = pickle.load(f)
+    # ra_deg, dec_deg = 18.0, -30.0
+    # msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=3,
+    #                     dr_tol=[0.2, 0.1, 0.08], dm_tol=[5,5,5],
+    #                     outlier_tol=[None, None, 3], mag_lim=[6, 20],
+    #                     trans_class=transforms.PolyTransform,
+    #                     trans_args=[{'order': 1}, {'order': 1}, {'order': 1}], 
+    #                     motion_models=['Empty','Fixed','Linear','Parallax'],
+    #                     fixed_params_dict = {'ra':ra_deg, 'dec':dec_deg, 'pa':0.0, 'obsLocation':'earth'},
+    #                     use_ref_new=True,
+    #                     update_ref_orig=False, 
+    #                     mag_trans=True,
+    #                     trans_weighting='both,std',
+    #                     init_guess_mode='name', verbose=3)
+    # msc.fit()
+    # for i in range(msc.ref_table['x'].shape[1]):
+    #     plt.scatter(msc.ref_table['x'][:, i], msc.ref_table['y'][:, i])
+    # plt.show()
