@@ -18,7 +18,7 @@ class MosaicSelfRef(object):
     def __init__(
             self,
             list_of_starlists,
-            # Alignment tolerance parameters
+            # Alignment parameters
             ref_index=0,
             iters=2,
             dr_tol=[1, 1], 
@@ -37,6 +37,7 @@ class MosaicSelfRef(object):
             mag_lim=None,
             # Motion model parameters
             motion_models=['Empty', 'Fixed'],
+            motion_model_for_new_star=None,
             fixed_params_dict=None,
             vel_weighting='var',
             use_scipy=True,
@@ -50,7 +51,7 @@ class MosaicSelfRef(object):
         Make a mosaic object by passing in a list of starlists and then running fit(). 
 
         Required Parameters
-        ----------
+        -------------------
         list_of_starlists : array of StarList objects
             An array or list of flystar.starlists.StarList objects (which are Astropy Tables).
             There should be one for each starlist and they must contain 'x', 'y', and 'm' columns.
@@ -68,7 +69,7 @@ class MosaicSelfRef(object):
             for those stars not trimmed out by the other criteria.
 
         Optional Parameters
-        ----------
+        -------------------
         ref_index : int
             The index of the reference epoch. (default = 0). Note that this is the reference
             list only for the first iteration. Subsequent iterations will utilize the sigma-clipped 
@@ -89,6 +90,41 @@ class MosaicSelfRef(object):
             The outlier tolerance (in units of sigma) for rejecting outlier stars. 
             This is a list of tol values, one for each iteration of matching/transformation.
 
+        trans_class : transforms.Transform2D object (or subclass)
+            The transform class that will be used to when deriving the optimal
+            transformation parameters between each list and the reference list. 
+
+        trans_args : dictionary
+            A dictionary (or a list of dictionaries) containing any extra keywords that are needed 
+            in the transformation object. For instance, "order". Note that if a list is passed in, 
+            then the transformation argument (i.e. order) will be changed for every iteration in
+            iters.
+
+        trans_input : array or list of transform objects
+            def = None. If not None, then this should contain an array or list of transform
+            objects that will be used as the initial guess in the alignment and matching. 
+
+        trans_weighting : str
+            Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
+            to weight by the positional uncertainties (variances) in the individual starlists, or also with
+            the uncertainties in the reference frame itself.  Note weighting only works when there
+            are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
+
+        init_order : int
+            The order of the initial transformation used for the first iteration.
+
+        init_guess_mode : string
+            If no initial transformations are passed in via the trans_input keyword, then we have
+            to make the initial transformation and matching blindly. We can do this in a couple of 
+            different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
+
+        calc_trans_inverse: boolean
+            If true, then calculate the inverse transformation (from reference to starlist)
+            in addition to the normal transformation (from starlist to reference). The inverse
+            calculation is calculated by switching the order to the positions in match_and_transform.
+            The inverse transformations are saved in self.trans_list_inverse.
+            self.trans_list_inverse doesn't exist if calc_trans_inverse == False
+
         mag_trans : boolean
             If true, this will also calculate and (temporarily) apply a zeropoint offset to 
             magnitudes in each list to bring them into a common magnitude system. This is 
@@ -104,52 +140,19 @@ class MosaicSelfRef(object):
             separately for each list and each iteration, you need to pass in a 2D array that
             has shape (N_lists, 2).
 
-        trans_weighting : str
-            Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
-            to weight by the positional uncertainties (variances) in the individual starlists, or also with
-            the uncertainties in the reference frame itself.  Note weighting only works when there
-            are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
-            
-        vel_weighting : str
-            Either 'var' (def) or 'std', depending on whether you want to weight the motion model
-            fits by the variance or standard deviation of the position data
-
-        trans_input : array or list of transform objects
-            def = None. If not None, then this should contain an array or list of transform
-            objects that will be used as the initial guess in the alignment and matching. 
-
-        trans_class : transforms.Transform2D object (or subclass)
-            The transform class that will be used to when deriving the optimal
-            transformation parameters between each list and the reference list. 
-
-        trans_args : dictionary
-            A dictionary (or a list of dictionaries) containing any extra keywords that are needed 
-            in the transformation object. For instance, "order". Note that if a list is passed in, 
-            then the transformation argument (i.e. order) will be changed for every iteration in
-            iters.
-
-       calc_trans_inverse: boolean
-            If true, then calculate the inverse transformation (from reference to starlist)
-            in addition to the normal transformation (from starlist to reference). The inverse
-            calculation is calculated by switching the order to the positions in match_and_transform.
-            The inverse transformations are saved in self.trans_list_inverse.
-
-            self.trans_list_inverse doesn't exist if calc_trans_inverse == False
-
-        init_guess_mode : string
-            If no initial transformations are passed in via the trans_input keyword, then we have
-            to make the initial transformation and matching blindly. We can do this in a couple of 
-            different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
-
-        iter_callback : None or function
-            A function to call (that accepts a StarTable object and an iteration number)
-            at the end of every iteration. This can be used for plotting or printing state.
-
         motion_models : list of MotionModel or str, optional
             Motion models or their names to use for new or unassigned stars
 
+        motion_model_for_new_star : str or MotionModel, optional
+            Motion model or its name for newly added stars in the ref table. Used in add_rows_for_new_stars().
+            If None, the most complex motion model in motion_models will be used, by default None.
+
         fixed_params_dict : None or dict
-            Dictionary of motion model fixed parameters
+            Dictionary of motion model fixed parameters, e.g., ra, dec, pa, obsLocation, t0, etc. See motion_model classes for details.
+
+        vel_weighting : str
+            Either 'var' (def) or 'std', depending on whether you want to weight the motion model
+            fits by the variance or standard deviation of the position data
 
         use_scipy : bool, optional
             If True, use scipy.optimize.curve_fit for velocity fitting. If False, use linear
@@ -159,16 +162,20 @@ class MosaicSelfRef(object):
             If True, the velocity fit will use absolute errors in the data. If False, relative
             errors will be used, by default False.
 
+        iter_callback : None or function
+            A function to call (that accepts a StarTable object and an iteration number)
+            at the end of every iteration. This can be used for plotting or printing state.
+
         save_path : str, optional
             Path to save the MosaicSelfRef object as a pickle file.
-        
-        verbose : int (0 to 9, inclusive)
+
+        verbose : bool or int (0 to 9, inclusive)
             Controls the verbosity of print statements. (0 least, 9 most verbose).
             For backwards compatibility, 0 = False, 9 = True.
             (Note: technically right now no checks on whether the number is an integer or not...)
 
         Example
-        ----------
+        -------
         msc = align.MosaicToRef(list_of_starlists, iters=1,
                                 dr_tol=[0.1], dm_tol=[5],
                                 outlier_tol=[None], mag_lim=[13, 21],
@@ -179,7 +186,7 @@ class MosaicSelfRef(object):
         msc.fit()
 
         # Access a list of all the transformation parameters:
-        trans_list = msc.trans_list 
+        trans_list = msc.trans_list
 
         # Access the fully-combined reference table.
         stars_table = msc.ref_table
@@ -193,8 +200,7 @@ class MosaicSelfRef(object):
         # Overplot the best-fit proper motion.
         times = stars_table['t'][0, :]
         plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
-        plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))   
-
+        plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
         """
 
         self.star_lists = list_of_starlists
@@ -219,7 +225,7 @@ class MosaicSelfRef(object):
         self.iter_callback = iter_callback
         self.save_path = save_path
         self.verbose = verbose
-        
+
         # Setup save_path:
         if self.save_path:
             assert self.save_path.endswith('.pkl'), 'Save_path must end with .pkl'
@@ -228,6 +234,7 @@ class MosaicSelfRef(object):
 
         all_mm_map = motion_model.motion_model_map()
         if all(isinstance(mm, str) for mm in motion_models):
+            assert all(mm in all_mm_map.keys() for mm in motion_models), f"All motion model names must be in {list(all_mm_map.keys())}"
             mm_names = motion_models
             motion_models = [all_mm_map[mm] for mm in motion_models]
         else:
@@ -240,6 +247,12 @@ class MosaicSelfRef(object):
         # Sort by increasing n_params
         motion_models = sorted(motion_models, key=lambda mm: mm.n_params)
         self.motion_models = motion_models
+
+        if motion_model_for_new_star is None:
+            self.motion_model_for_new_star = self.motion_models[-1]
+        elif isinstance(motion_model_for_new_star, str):
+            assert motion_model_for_new_star in all_mm_map.keys(), f"motion_model_for_new_star must be in {list(all_mm_map.keys())}"
+            self.motion_model_for_new_star = all_mm_map[motion_model_for_new_star]
 
         # For backwards compatibility.
         if self.verbose is True:
@@ -268,11 +281,6 @@ class MosaicSelfRef(object):
         #       is passed in, replicate for all star lists, all loop iterations.
         ##########
         self.setup_trans_info()
-        
-        # Make sure the motion models are ready
-        # self.motion_model_dict = motion_model.validate_motion_model_dict(self.motion_model_dict,
-        #                             StarTable(), self.default_motion_model)
-
         return
 
     def fix_iterable_conditions(self):
@@ -549,7 +557,7 @@ class MosaicSelfRef(object):
                                      ml='m_lis_T', mr='m_ref',
                                      dx='dx_mpix', dy='dy_mpix', dm='dm',
                                      xo='x_orig', yo='y_orig', mo='m_orig'))
-                
+
                 fmt = '{nr:20s} {n:20s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
                 fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
                 for foo in range(len(idx1)):
@@ -567,7 +575,7 @@ class MosaicSelfRef(object):
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-            
+
             if self.verbose > 1:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
@@ -654,6 +662,11 @@ class MosaicSelfRef(object):
         array in the original reference star list.
         """
         col_arrays = {}
+        # Remove motion_model_used if present, as it can only be determined by fit_motion_model function
+        if 'motion_model_used' in star_list.colnames:
+            warnings.warn("The input reference star list contains a 'motion_model_used' column. This column will be removed and re-calculated by the fit_motion_model function.")
+            star_list.remove_column('motion_model_used')
+
         motion_model_col_names = motion_model.motion_model_param_names(self.motion_models, with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
         if 't0' not in motion_model_col_names:
             motion_model_col_names.insert(0, 't0')
@@ -876,7 +889,7 @@ class MosaicSelfRef(object):
             self.ref_table, 
             star_list, 
             idx_lis,
-            motion_model=self.motion_models[-1].name
+            motion_model_name=self.motion_model_for_new_star.name
         )
 
         if len(idx_ref_new) > 0:
@@ -961,37 +974,39 @@ class MosaicSelfRef(object):
                 bootstrap=n_boot,
                 verbose=self.verbose
             )
-            if (keep_orig is not None) and (sum(keep_orig) > 0):
-                # Determine motion_model_used for keep_orig stars
-                # Filter possible motion models based on available columns
-                motion_models_possible = []
-                for mm in self.motion_models:
-                    required_columns = mm.fit_param_names + mm.fixed_param_names
-                    if all(col in self.ref_table.colnames or col in self.fixed_params_dict.keys() for col in required_columns):
-                        motion_models_possible.append((mm, required_columns))
-
-                # Check if values are finite for required columns in possible motion models
-                motion_model_used = []
-                for k in np.where(keep_orig)[0]:
-                    for mm, req in motion_models_possible[::-1]:
-                        # if all(np.isfinite(self.ref_table[k][col]) for col in req if self.ref_table[col].dtype.kind in 'f'):
-                        req_col_in_table = [col for col in req if col in self.ref_table.colnames]
-                        req_col_in_dict = [col for col in req if (self.fixed_params_dict is not None) and (col in self.fixed_params_dict.keys())]
-                        # If requested column in table/fixed_params dict is numeric, check if values are finite.
-                        if all(np.isfinite(self.ref_table[col][k]) for col in req_col_in_table if np.issubdtype(self.ref_table[col].dtype, np.number)) \
-                        and all(np.isfinite(self.fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(self.fixed_params_dict[col]).dtype, np.number)):
-                            motion_model_used.append(mm.name)
-                            break
-
-                # Assign the determined motion models
-                self.ref_table['motion_model_used'][keep_orig] = motion_model_used
-
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
                 weights_col = None
             else:
                 weights_col = 'me'
             self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
+
+        # if (keep_orig is not None) and (sum(keep_orig) > 0):
+        # Determine motion_model_used for keep_orig stars
+        # Filter possible motion models based on available columns
+        motion_models_possible = []
+        for mm in self.motion_models:
+            required_columns = mm.fit_param_names + mm.fixed_param_names
+            if all(col in self.ref_table.colnames or (self.fixed_params_dict is not None and col in self.fixed_params_dict.keys()) for col in required_columns):
+                motion_models_possible.append((mm, required_columns))
+
+        # Check if values are finite for required columns in possible motion models
+        motion_model_used = []
+        # for k in np.where(keep_orig)[0]:
+        for k in range(len(self.ref_table)):
+            for mm, req in motion_models_possible[::-1]:
+                # if all(np.isfinite(self.ref_table[k][col]) for col in req if self.ref_table[col].dtype.kind in 'f'):
+                req_col_in_table = [col for col in req if col in self.ref_table.colnames]
+                req_col_in_dict = [col for col in req if (self.fixed_params_dict is not None) and (col in self.fixed_params_dict.keys())]
+                # If requested column in table/fixed_params dict is numeric, check if values are finite.
+                if all(np.isfinite(self.ref_table[col][k]) for col in req_col_in_table if np.issubdtype(self.ref_table[col].dtype, np.number)) \
+                and all(np.isfinite(self.fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(self.fixed_params_dict[col]).dtype, np.number)):
+                    motion_model_used.append(mm.name)
+                    break
+
+        # Assign the determined motion models
+        # self.ref_table['motion_model_used'][keep_orig] = motion_model_used
+        self.ref_table['motion_model_used'] = motion_model_used
 
         # Replace the originals if we are supposed to keep them fixed.
         if (keep_orig is not None) and (sum(keep_orig) > 0):
@@ -1111,10 +1126,17 @@ class MosaicSelfRef(object):
             # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
             for mm in self.motion_models[::-1]:
                 required_columns = mm.fit_param_names + mm.fixed_param_names
-                if all([param in self.ref_table.colnames or param in self.fixed_params_dict.keys() for param in required_columns]):
+                if all([param in self.ref_table.colnames or (self.fixed_params_dict is not None and param in self.fixed_params_dict.keys()) for param in required_columns]):
                     # Check if the values are finite for non-string columns in the required columns for this motion model. If not, skip to the next motion model.
-                    if not all([np.isfinite(self.ref_table[param]).all() for param in required_columns if self.ref_table[param].dtype.kind in 'if']):
+
+                    if any([param not in self.ref_table.colnames for param in required_columns]):
+                        # If any required column is missing, skip to the next motion model.
                         continue
+
+                    if not all([np.isfinite(self.ref_table[param]).all() for param in required_columns if self.ref_table[param].dtype.kind in 'if']):
+                        # If any required column has non-finite values, skip to the next motion model.
+                        continue
+                    
                     print(f"Inferring positions using motion model {mm.name}.")
                     # If we have error columns for all fit parameters, then use them in the model inference. Otherwise, just use the fit parameters without errors.
                     if all([f'{param}_err' in self.ref_table.colnames for param in mm.fit_param_names]) and all([np.isfinite(self.ref_table[f'{param}_err']).all() for param in mm.fit_param_names]):
@@ -1565,7 +1587,7 @@ class MosaicToRef(MosaicSelfRef):
         self, 
         ref_list, 
         list_of_starlists, 
-        # Alignment tolerance parameters
+        # Alignment parameters
         iters=2,
         dr_tol=[1, 1], 
         dm_tol=[2, 1],
@@ -1587,6 +1609,7 @@ class MosaicToRef(MosaicSelfRef):
         ref_mag_lim=None,
         # Motion model parameters
         motion_models=['Empty', 'Fixed'],
+        motion_model_for_new_star=None,
         fixed_params_dict=None,
         vel_weighting='var',
         use_scipy=True,
@@ -1599,7 +1622,7 @@ class MosaicToRef(MosaicSelfRef):
 
         """
         Required Parameters
-        ----------
+        -------------------
         ref_list : StarList object
             Can optionally have velocities. All starlists will be aligned to this one. 
 
@@ -1637,6 +1660,61 @@ class MosaicToRef(MosaicSelfRef):
             The outlier tolerance (in units of sigma) for rejecting outlier stars. 
             This is a list of tol values, one for each iteration of matching/transformation.
 
+        use_ref_new : boolean
+            Each pass, new stars are matched and added to the ref_table. However, we don't 
+            necessarily want to use these in the reference frame in subsequent passes. 
+            If True, then the new stars will be used in later passes/iterations.
+            If False, then the new stars will be carried, but not used in the transformation.
+            We determine which stars to use through setting a boolean use_in_trans flag.
+
+        update_ref_orig : boolean or str
+            Should we update the reference values (position, velocity, t0) after each starlist
+            is transformed in each iteration? 
+
+                False if you want to get into an absolute reference frame and are using Gaia data. 
+                True if you want to use the reference list as more of an initial guess.
+                'periter' if you want to align all the starlists, then calculate the velocity.
+
+            Note that this only impacts the stars that are in the original reference list... the
+            newly identified stars that end up in ref_table will always be updated; but not always
+            used for transformation fitting.
+
+        trans_class : transforms.Transform2D object (or subclass)
+            The transform class that will be used to when deriving the optimal
+            transformation parameters between each list and the reference list. 
+
+        trans_args : dictionary
+            A dictionary (or a list of dictionaries) containing any extra keywords that are needed 
+            in the transformation object. For instance, "order". Note that if a list is passed in, 
+            then the transformation argument (i.e. order) will be changed for every iteration in
+            iters.
+
+        trans_input : array or list of transform objects
+            def = None. If not None, then this should contain an array or list of transform
+            objects that will be used as the initial guess in the alignment and matching. 
+
+        trans_weighting : str
+            Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
+            to weight by the positional uncertainties (variances) in the individual starlists, or also with
+            the uncertainties in the reference frame itself.  Note weighting only works when there
+            are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
+
+        init_order: int
+            Polynomial transformation order to use for initial guess transformation.
+            Order=1 should be used in most cases, but sometimes higher order is needed
+
+        init_guess_mode : string
+            If no initial transformations are passed in via the trans_input keyword, then we have
+            to make the initial transformation and matching blindly. We can do this in a couple of 
+            different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
+
+        calc_trans_inverse: boolean
+            If true, then calculate the inverse transformation (from reference to starlist)
+            in addition to the normal transformation (from starlist to reference). The inverse
+            calculation is calculated by switching the order to the positions in match_and_transform.
+            The inverse transformations are saved in self.trans_list_inverse.
+            self.trans_list_inverse doesn't exist if calc_trans_inverse == False
+
         mag_trans : boolean
             If true, this will also calculate and (temporarily) apply a zeropoint offset to 
             magnitudes in each list to bring them into a common magnitude system. This is 
@@ -1656,75 +1734,19 @@ class MosaicToRef(MosaicSelfRef):
             If different from None, it indicates the minimum and maximum magnitude
             on the reference catalog for finding the transformations.
 
-        trans_weighting : str
-            Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
-            to weight by the positional uncertainties (variances) in the individual starlists, or also with
-            the uncertainties in the reference frame itself.  Note weighting only works when there
-            are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
+        motion_models : list of str or MotionModel objects
+            List of motion model names (strings) or MotionModel objects to use
+
+        motion_model_for_new_star : str or MotionModel, optional
+            Motion model or its name for newly added stars in the ref table. Used in add_rows_for_new_stars().
+            If None, the most complex motion model in motion_models will be used, by default None.
+
+        fixed_params_dict : None or dict
+            Dictionary of fixed parameters for motion models
             
         vel_weighting : str
             Either 'var' (def) or 'std', depending on whether you want to weight the motion model
             fits by the variance or standard deviation of the position data
-
-        trans_input : array or list of transform objects
-            def = None. If not None, then this should contain an array or list of transform
-            objects that will be used as the initial guess in the alignment and matching. 
-
-        trans_class : transforms.Transform2D object (or subclass)
-            The transform class that will be used to when deriving the optimal
-            transformation parameters between each list and the reference list. 
-
-        trans_args : dictionary
-            A dictionary (or a list of dictionaries) containing any extra keywords that are needed 
-            in the transformation object. For instance, "order". Note that if a list is passed in, 
-            then the transformation argument (i.e. order) will be changed for every iteration in
-            iters.
-
-        init_order: int
-            Polynomial transformation order to use for initial guess transformation.
-            Order=1 should be used in most cases, but sometimes higher order is needed
-
-        calc_trans_inverse: boolean
-            If true, then calculate the inverse transformation (from reference to starlist)
-            in addition to the normal transformation (from starlist to reference). The inverse
-            calculation is calculated by switching the order to the positions in match_and_transform.
-            The inverse transformations are saved in self.trans_list_inverse.
-
-            self.trans_list_inverse doesn't exist if calc_trans_inverse == False
-
-        update_ref_orig : boolean or str
-            Should we update the reference values (position, velocity, t0) after each starlist
-            is transformed in each iteration? 
-
-                False if you want to get into an absolute reference frame and are using Gaia data. 
-                True if you want to use the reference list as more of an initial guess.
-                'periter' if you want to align all the starlists, then calculate the velocity.
-
-            Note that this only impacts the stars that are in the original reference list... the
-            newly identified stars that end up in ref_table will always be updated; but not always
-            used for transformation fitting.
-
-        use_ref_new : boolean
-            Each pass, new stars are matched and added to the ref_table. However, we don't 
-            necessarily want to use these in the reference frame in subsequent passes. 
-            If True, then the new stars will be used in later passes/iterations.
-            If False, then the new stars will be carried, but not used in the transformation.
-            We determine which stars to use through setting a boolean use_in_trans flag.
-
-        init_guess_mode : string
-            If no initial transformations are passed in via the trans_input keyword, then we have
-            to make the initial transformation and matching blindly. We can do this in a couple of 
-            different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
-
-        iter_callback : None or function
-            A function to call (that accepts a StarTable object and an iteration number)
-            at the end of every iteration. This can be used for plotting or printing state.
-
-        motion_models : list of str or MotionModel objects
-            List of motion model names (strings) or MotionModel objects to use
-
-        fixed_params_dict : None or dict
-            Dictionary of fixed parameters for motion models
 
         use_scipy : bool, optional
             If True, use scipy.optimize.curve_fit for velocity fitting. If False, use linear algebra fitting, by default True.
@@ -1732,11 +1754,20 @@ class MosaicToRef(MosaicSelfRef):
         absolute_sigma : bool, optional
             If True, the velocity fit will use absolute errors in the data. If False, relative errors will be used, by default False.
 
+        iter_callback : None or function
+            A function to call (that accepts a StarTable object and an iteration number)
+            at the end of every iteration. This can be used for plotting or printing state.
+
         save_path : str, optional
             Path to save the MosaicToRef object as a pickle file.
 
+        verbose : bool or int (0 to 9, inclusive)
+            Controls the verbosity of print statements. (0 least, 9 most verbose).
+            For backwards compatibility, 0 = False, 9 = True.
+            (Note: technically right now no checks on whether the number is an integer or not...)
+                
         Example
-        ----------
+        -------
         msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
                                 dr_tol=[0.1], dm_tol=[5],
                                 outlier_tol=[None], mag_lim=[13, 21],
@@ -1766,20 +1797,37 @@ class MosaicToRef(MosaicSelfRef):
         plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
         plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))   
         """
-        super().__init__(list_of_starlists, ref_index=-1, iters=iters,
-                         dr_tol=dr_tol, dm_tol=dm_tol,
-                         outlier_tol=outlier_tol, trans_args=trans_args,
-                         init_order=init_order,
-                         mag_trans=mag_trans, mag_lim=mag_lim,
-                         trans_weighting=trans_weighting, vel_weighting=vel_weighting,
-                         trans_input=trans_input, trans_class=trans_class,
-                         calc_trans_inverse=calc_trans_inverse,
-                         init_guess_mode=init_guess_mode,
-                         iter_callback=iter_callback,
-                         motion_models=motion_models,
-                         fixed_params_dict=fixed_params_dict,
-                         verbose=verbose, use_scipy=use_scipy,
-                         absolute_sigma=absolute_sigma, save_path=save_path)
+        super().__init__(
+            list_of_starlists, 
+            # Alignment parameters
+            ref_index=-1, 
+            iters=iters,
+            dr_tol=dr_tol, 
+            dm_tol=dm_tol,
+            outlier_tol=outlier_tol, 
+            # Transformation parameters
+            trans_class=trans_class,
+            trans_args=trans_args,
+            trans_input=trans_input,
+            trans_weighting=trans_weighting,
+            init_order=init_order,
+            init_guess_mode=init_guess_mode,
+            calc_trans_inverse=calc_trans_inverse,
+            # Magnitude parameters
+            mag_trans=mag_trans,
+            mag_lim=mag_lim,
+            # Motion model parameters
+            motion_models=motion_models,
+            motion_model_for_new_star=motion_model_for_new_star,
+            fixed_params_dict=fixed_params_dict,
+            vel_weighting=vel_weighting,
+            use_scipy=use_scipy,
+            absolute_sigma=absolute_sigma,
+            # Advanced options
+            iter_callback=iter_callback,
+            save_path=save_path,
+            verbose=verbose
+        )
 
         self.ref_list = copy.deepcopy(ref_list)
         self.ref_mag_lim = ref_mag_lim
@@ -1787,12 +1835,17 @@ class MosaicToRef(MosaicSelfRef):
         self.use_ref_new = use_ref_new
 
         # If motion_model_used in columns but params columns are missing, raise a warning and remove motion_model_used column to avoid confusion.
+        # if 'motion_model_used' in self.ref_list.colnames:
+        #     motion_model_params = motion_model.motion_model_param_names(np.unique(self.ref_list['motion_model_used']), with_errors=False, with_fixed=True)
+        #     missing_params = [param for param in motion_model_params if (param not in self.ref_list.colnames) and (f'{param}_err' not in self.ref_list.colnames) and (param not in self.fixed_params_dict.keys())]
+        #     if len(missing_params) > 0:
+        #         warnings.warn("Warning: 'motion_model_used' column found in ref_list, but the following motion model parameter columns are missing: " + ", ".join(missing_params) + ". Removing 'motion_model_used' column to avoid confusion.")
+        #         self.ref_list.remove_column('motion_model_used')
+
+        # If motion_model_used in columns, remove it and raise a warning, since it will only be determined after the fit.
         if 'motion_model_used' in self.ref_list.colnames:
-            motion_model_params = motion_model.motion_model_param_names(np.unique(self.ref_list['motion_model_used']), with_errors=False, with_fixed=True)
-            missing_params = [param for param in motion_model_params if (param not in self.ref_list.colnames) and (f'{param}_err' not in self.ref_list.colnames) and (param not in self.fixed_params_dict.keys())]
-            if len(missing_params) > 0:
-                warnings.warn("Warning: 'motion_model_used' column found in ref_list, but the following motion model parameter columns are missing: " + ", ".join(missing_params) + ". Removing 'motion_model_used' column to avoid confusion.")
-                self.ref_list.remove_column('motion_model_used')
+            warnings.warn("Warning: 'motion_model_used' column found in ref_list. This column will be determined after the fit, so it is being removed from the input ref_list to avoid confusion.")
+            self.ref_list.remove_column('motion_model_used')
 
         # Do some temporary clean up of the reference list.
         if ('x' not in self.ref_list.colnames) and ('x0' in self.ref_list.colnames):
@@ -1807,10 +1860,6 @@ class MosaicToRef(MosaicSelfRef):
             self.ref_list['me'] = self.ref_list['m0_err']
         if ('t' not in self.ref_list.colnames) and ('t0' in self.ref_list.colnames):
             self.ref_list['t'] = self.ref_list['t0']
-
-        # Make sure the motion models are ready
-        # self.motion_model_dict = motion_model.validate_motion_model_dict(self.motion_model_dict,
-        #                             self.ref_list, self.default_motion_model)
 
         return
 
@@ -2021,7 +2070,6 @@ def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, re
     # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
     # Sort motion models inversely by mm.n_params
     motion_models = sorted(motion_models, key=lambda mm: mm.n_params, reverse=True)
-    pdb.set_trace()
     for mm in motion_models:
         if mm.name == 'Empty':
             x = startable['x']
@@ -2205,7 +2253,7 @@ def reset_ref_values(ref_table):
                 
     return
 
-def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model='Fixed'):
+def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fixed'):
     """
     For each star that is in star_list and NOT in idx_list, make a 
     new row in the reference table. The values will be empty (None, NAN, etc.). 
@@ -2219,8 +2267,8 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model='Fixed')
     idx_list : array or list
         The indices of the non-new stars (those that matched already). The complement
         of this array will be used as the new stars.
-    motion_model : str
-        The motion model to assign to the new stars.
+    motion_model_name : str
+        The motion model name to assign to the new stars.
 
     Returns
     ----------
@@ -2251,9 +2299,9 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model='Fixed')
             elif ref_table[col_name].dtype == np.dtype('bool'):
                 new_col_empty = False
             elif col_name=='motion_model_input':
-                new_col_empty = motion_model
+                new_col_empty = motion_model_name
             elif col_name=='motion_model_used':
-                new_col_empty = 'Fixed'
+                new_col_empty = 'Empty'
             else:
                 new_col_empty = np.nan
             
@@ -3343,12 +3391,12 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, f
         The motion models to use in the star_list
     fixed_params_dict : dict or None, optional
         Dictionary of fixed parameters for motion models, by default None
-    verbose : boolean, optional
+    verbose : bool, optional
         If True, print information about the outlier rejection process, by default True
 
     Returns
     ----------
-    keepers : boolean array
+    keepers : bool array
         The boolean array of the stars to keep. 
     """
     # Optionally propogate the reference positions forward in time.
