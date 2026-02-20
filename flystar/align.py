@@ -255,7 +255,7 @@ class MosaicSelfRef(object):
 
         if self.mag_lim is None:
             self.mag_lim = np.repeat([[None, None]], len(self.star_lists), axis=0)
-        elif (len(self.mag_lim) == 2):
+        elif (len(self.mag_lim) == 2) and (np.ndim(self.mag_lim) == 1):
             self.mag_lim = np.repeat([self.mag_lim], len(self.star_lists), axis=0)
         assert len(self.mag_lim) == len(self.star_lists)
 
@@ -2894,8 +2894,8 @@ def trans_initial_guess(ref_list, star_list, trans_args, motion_model_dict, mode
     if mode == 'name':
         # First trim the two lists down to only those that don't contain
         # the "ignore_contains" string.
-        idx_r = np.flatnonzero(np.char.find(ref_list['name'], ignore_contains) == -1)
-        idx_s = np.flatnonzero(np.char.find(star_list['name'], ignore_contains) == -1)
+        idx_r = np.flatnonzero(np.char.find(ref_list['name'].astype(str), ignore_contains) == -1)
+        idx_s = np.flatnonzero(np.char.find(star_list['name'].astype(str), ignore_contains) == -1)
 
         # Match the star names
         name_matches, ndx_r, ndx_s = np.intersect1d(ref_list['name'][idx_r],
