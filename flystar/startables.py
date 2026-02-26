@@ -37,7 +37,7 @@ class StarTable(Table):
         -------------------------
         motion_model : 1D numpy.array with shape = N_stars
             string indicating motion model type for each star
-            
+
         xe : 2D numpy.array with shape = (N_stars, N_lists)
             Position uncertainties of N_stars in each of N_lists in the x dimension.
 
@@ -50,7 +50,7 @@ class StarTable(Table):
         ep_name : 2D numpy.array with shape = (N_stars, N_lists)
             Names in each epoch for each of N_stars in each of N_lists. This is
             useful for tracking purposes.
-        
+
         corr : 2D numpy.array with shape = (N_stars, N_lists)
             Fitting correlation for each of N_stars in each of N_lists.
 
@@ -75,7 +75,7 @@ class StarTable(Table):
         print(t['name'][0:10])  # print the first 10 star names
         print(t['x'][0:10, 0])  # print x from the first epoch/list/column for the first 10 stars
         """
-        
+
         # Check if the required arguments are present
         arg_req = ('name', 'x', 'y', 'm')
 
@@ -149,7 +149,7 @@ class StarTable(Table):
                            names=('name', 'x', 'y', 'm'))
             self['name'] = self['name'].astype('U20')
             self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
-            
+
             for meta_arg in meta_tab:
                 if meta_arg in kwargs:
                     self.meta[meta_arg] = kwargs[meta_arg]
@@ -173,12 +173,12 @@ class StarTable(Table):
             #    self['motion_model_input'] = np.repeat(self.default_motion_model, len(self['name']))
 
         return
-    
+
     def add_starlist(self, **kwargs):
         """
-        Add data from a new list to an existing StarTable. 
+        Add data from a new list to an existing StarTable.
         Note, you can pass in the data via a StarList object or
-        via a series of keywords with a 1D array on each. 
+        via a series of keywords with a 1D array on each.
         In either case, the number of stars must already match
         the existing number of stars in the StarTable.
 
@@ -214,15 +214,15 @@ class StarTable(Table):
                 old_type = self[col_name].info.dtype
                 new_data = np.empty((old_data.shape[0], old_data.shape[1] + 1), dtype=old_type)
                 new_data[:, :-1] = old_data
-                
+
                 # Save the new data array (with both old and new data in it) to the table.
-                self[col_name] = new_data 
-                
+                self[col_name] = new_data
+
                 if (col_name in starlist.colnames):            # Add data if it was input
                     self[col_name][:, -1] = starlist[col_name]
                 else:                               # Add junk data it if wasn't input
                     self._set_invalid_list_values(col_name, -1)
-                
+
 
         ##########
         # Update the table meta-data. Remember that entries are lists not numpy arrays.
@@ -258,12 +258,12 @@ class StarTable(Table):
     def _add_list_data_from_keywords(self, **kwargs):
         # # Check if the required arguments are present
         # arg_req = ('x', 'y', 'm')
-        
+
         # for arg_test in arg_req:
         #     if arg_test not in kwargs:
         #         err_msg = "Added lists require a '{0:s}' argument"
         #         raise TypeError(err_msg.format(arg_test))
-            
+
         # # If we have errors, we need them in both dimensions.
         # if ('xe' in kwargs) ^ ('ye' in kwargs):
         #     raise TypeError("Added lists with errors require both 'xe' and" +
@@ -281,15 +281,15 @@ class StarTable(Table):
                 old_type = self[col_name].info.dtype
                 new_data = np.empty((old_data.shape[0], old_data.shape[1] + 1), dtype=old_type)
                 new_data[:, :-1] = old_data
-                
+
                 # Save the new data array (with both old and new data in it) to the table.
                 self[col_name] = new_data
-                
+
                 if (col_name in kwargs):            # Add data if it was input
                     self[col_name][:, -1] = kwargs[col_name]
                 else:                               # Add junk data it if wasn't input
                     self._set_invalid_list_values(col_name, -1)
-                    
+
 
         # Update the table meta-data. Remember that entries are lists not numpy arrays.
         for key in self.meta.keys():
@@ -309,7 +309,7 @@ class StarTable(Table):
 
         # Update the n_lists meta keyword.
         self.meta['n_lists'] += 1
-                
+
         return
 
     def _set_invalid_list_values(self, col_name, col_idx):
@@ -323,7 +323,7 @@ class StarTable(Table):
             self[col_name][:, col_idx] = np.nan
         else:
             self[col_name][:, col_idx] = None
-        
+
         return
 
     def _set_invalid_star_values(self, col_name, row_idx):
@@ -337,13 +337,13 @@ class StarTable(Table):
             self[col_name][row_idx] = np.nan
         else:
             self[col_name][row_idx] = None
-        
+
         return
-    
+
     def _append_invalid_meta_values(self, key):
         """
-        For an existing meta keyword that is a list (already known), 
-        add an invalid value depending on the type. 
+        For an existing meta keyword that is a list (already known),
+        add an invalid value depending on the type.
         """
         if issubclass(type(self.meta[key][0]), np.integer):
             self.meta[key] = np.append(self.meta[key], [-1])
@@ -359,11 +359,11 @@ class StarTable(Table):
         warnings.warn(err_msg, UserWarning)
 
         return
-        
-        
+
+
     def get_starlist(self, list_index):
         """
-        Return a StarList object for the specified list_index or epoch. 
+        Return a StarList object for the specified list_index or epoch.
 
         Parameters
         ----------
@@ -383,16 +383,16 @@ class StarTable(Table):
                 col_req_dict[col_name] = self[col_name]
 
         starlist = StarList(**col_req_dict)
-        
+
         for col_name in self.colnames:
             if col_name in col_req_names:
                 pass
-            
+
             if len(self[col_name].data.shape) == 2:      # Find the 2D columns
                 starlist[col_name] = self[col_name][:, list_index]
             else:
                 starlist[col_name] = self[col_name]
-        
+
         return starlist
 
 
@@ -402,7 +402,7 @@ class StarTable(Table):
         direction. For 'x', 'y' this means calculating the average position with
         outlier rejection. Optionally, weight by the 'xe' and 'ye' individual
         uncertainties. Optionally, use sigma clipping.
-        "mask_lists" is a list with the indices of starlists that are 
+        "mask_lists" is a list with the indices of starlists that are
         excluded from the combination.
         Also, count the number of times a star is found in starlists.
         """
@@ -419,11 +419,11 @@ class StarTable(Table):
             weights_colm = 'me'
         else:
             weights_colm = None
-            
+
         self.combine_lists('x', weights_col=weights_colx, mask_lists=mask_lists, sigma=sigma)
         self.combine_lists('y', weights_col=weights_coly, mask_lists=mask_lists, sigma=sigma)
         self.combine_lists('m', weights_col=weights_colm, mask_lists=mask_lists, sigma=sigma, ismag=True)
-        
+
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None,
@@ -437,10 +437,10 @@ class StarTable(Table):
         <col_name_in>0e -- the std (with outlier rejection)
 
         Masking of NaN values is also performed.
-        
-        "mask_lists" is a list with the indices of starlists that are 
+
+        "mask_lists" is a list with the indices of starlists that are
         excluded from the combination.
-        
+
         A flag can be stored in the metadata to record if the average was
         weighted or not.
         """
@@ -454,31 +454,31 @@ class StarTable(Table):
         val_2d = np.ma.masked_invalid(val_2d)
         if mask_val:
             val_2d = np.ma.masked_values(val_2d, mask_val)
-        
+
         if mask_lists is not False:
             # Remove a list
             if isinstance(mask_lists, list):
                 if all(isinstance(item, int) for item in mask_lists):
                     val_2d.mask[:, mask_lists] = True
-                
+
             # Throw a warning if mask_lists is not a list
             if not isinstance(mask_lists, list):
                 raise RuntimeError('mask_lists needs to be a list.')
 
         # Decide if we are going to have weights (before we
         # do the expensive sigma clipping routine). Note that
-        # if we have only 1 column to average, then we can't do weighting. 
+        # if we have only 1 column to average, then we can't do weighting.
         if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
             err_2d = self[weights_col].data
-    
+
             if ismag:
                 # Convert to flux error
                 err_2d = err_2d * val_2d * np.log(10) / 2.5
-            
+
             np.seterr(divide='ignore')
             wgt_2d = np.ma.masked_invalid(1.0 / err_2d**2)
             np.seterr(divide='warn')
-                
+
             if meta_add:
                 self.meta[col_name_in + '0'] = 'weighted'
         else:
@@ -493,7 +493,7 @@ class StarTable(Table):
             warnings.filterwarnings('default', category=RuntimeWarning)
         else:
             val_2d_clip = val_2d
-    
+
             # Calculate the (weighted) mean and standard deviation along
         # the N_lists direction (axis=1).
         if wgt_2d is not None:
@@ -521,7 +521,7 @@ class StarTable(Table):
         else:
             self.add_column(Column(data=avg.data, name=col_name_avg))
             self.add_column(Column(data=std.data, name=col_name_std))
-        
+
         return
 
     def detections(self):
@@ -529,25 +529,25 @@ class StarTable(Table):
         Find where stars are detected.
         # """
         n_detect = np.sum(~np.isnan(self['x']), axis=1)
-        
+
         if 'n_detect' in self.colnames:
             self['n_detect'] = n_detect
         else:
             self.add_column(Column(n_detect), name='n_detect')
-        
+
         return
-    
+
     def fit_motion_model(
-            self, 
+            self,
             motion_models=None,
             fixed_params_dict=None,
-            weighting='var', 
-            use_scipy=False, 
-            absolute_sigma=True, 
+            weighting='var',
+            use_scipy=False,
+            absolute_sigma=True,
             select_stars=None,
             bootstrap=0,
-            verbose=True, 
-            mask_value=None, 
+            verbose=True,
+            mask_value=None,
             mask_lists=None,
             fill_value=np.nan,
             show_progress=True
@@ -562,7 +562,7 @@ class StarTable(Table):
             The behavior is as follows:
             1. If 'motion_model_input' column is NOT in table:
                 - Use the most complex model that has enough parameters to fit the data (n_fit >= n_params).
-                - If multiple models are supplied, prioritize the model with the most parameters to fit. 
+                - If multiple models are supplied, prioritize the model with the most parameters to fit.
                 - If multiple models have the same number of parameters, raise AssertionError: not sure which to use.
             2. If 'motion_model_input' column IS in table:
                 - Use the model specified in the 'motion_model_input' column.
@@ -674,7 +674,7 @@ class StarTable(Table):
         y_data = np.ma.masked_invalid(self['y'].data, copy=True)
         xe_data = np.ma.masked_invalid(self['xe'].data, copy=True) if 'xe' in self.colnames else np.ones_like(x_data)
         ye_data = np.ma.masked_invalid(self['ye'].data, copy=True) if 'ye' in self.colnames else np.ones_like(y_data)
-        
+
         if np.ndim(x_data) == 1:
             x_data = x_data[:, np.newaxis]
         if np.ndim(y_data) == 1:
@@ -697,7 +697,7 @@ class StarTable(Table):
         else:
             t_data = copy.deepcopy(np.array(self.meta['list_times']))
             t_data = np.broadcast_to(t_data, x_data.shape)
-        
+
         # Add default t0 if not provided in fixed_params_dict
         if fixed_params_dict is None:
             weights = 1/np.hypot(xe_data, ye_data) if xe_data is not None else None
@@ -771,7 +771,7 @@ class StarTable(Table):
                 x=n_fit,
                 bins=mm_n_params
             ) - 1  # Convert to 0-based index
-        
+
             # Assign motion models to stars
             self['motion_model_used'] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
 
@@ -913,7 +913,7 @@ class StarTable(Table):
         times : array_like
             Times at which to predict positions. Scalar, or (N_times,) array, or (N_stars, N_times) array.
         fixed_params_dict : None or dict, optional
-            Dictionary of fixed parameters to use for prediction. 
+            Dictionary of fixed parameters to use for prediction.
             If not provided, will try to look for fixed parameters in the table columns.
             If fixed params are found in both the table and the fixed_params_dict, the values in the table will be used and the fixed_params_dict values will be ignored,
             by default None
@@ -931,7 +931,7 @@ class StarTable(Table):
         N_stars = len(self)
         times = np.atleast_1d(times)
         N_times = len(times)
-        
+
         if (N_stars > 1) and (N_times > 1):
             x_pred = np.full((N_stars, N_times), fill_value, dtype=float)
             y_pred = np.full((N_stars, N_times), fill_value, dtype=float)
@@ -1048,7 +1048,7 @@ class StarTable(Table):
                 x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
 
         return x, y, xe, ye
-                
+
 
 
     def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
@@ -1058,7 +1058,7 @@ class StarTable(Table):
         the absolute frame using either Gaia or a Galactic model. This modified the
         motion model fit parameters as well as the time series astrometry, assuming
         zero error on the shift values.
-        
+
         Parameters
         ----------
         delta_vx : float, optional
@@ -1093,7 +1093,7 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
     the absolute frame using either Gaia or a Galactic model. This modified the
     motion model fit parameters as well as the time series astrometry, assuming
     zero error on the shift values.
-    
+
     Parameters
     ----------
     delta_vx : float, optional

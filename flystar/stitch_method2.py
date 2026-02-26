@@ -42,7 +42,7 @@ def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2,
         if weights==None, we don't use weights.
 
     """
-    
+
     #--------------------------------------------------
     # Initial transformation with brightest briteN stars
     #--------------------------------------------------
@@ -98,7 +98,7 @@ def weighted_mean(df,x,xe,frames_in_use):
 	# error = xe or ye
 	# all_frames = e.g. ['A', 'B', 'C', ...]
 
-	
+
 
 	cols_x=["{0}_{1}".format(x,f) for f in frames_in_use] # columns for x_* e.g. ['x_A', 'x_B', 'x_C', ....]
 	cols_xe=["{0}_{1}".format(xe,f) for f in frames_in_use] # columns for xe_* e.g. ['xe_A', 'xe_B', 'xe_C', ....]
@@ -120,11 +120,11 @@ def weighted_mean(df,x,xe,frames_in_use):
 			xe_master.append(array_xe[i][mask][0])
 		else:
 			rows_to_drop.append(i)
-			
+
 	df=df.drop(rows_to_drop)
 	df[x]=np.array(x_master)
 	df[xe]=np.array(xe_master)
-	
+
 
 	return df
 
@@ -132,12 +132,12 @@ def normal_mean(df,x,frames_in_use):
 
 	cols_x=["{0}_{1}".format(x,f) for f in frames_in_use]
 	df[x]=df[cols_x].mean(axis=1)
-	
+
 	return df
 
 
 def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaster='./master.lis'):
-	
+
 	# all_starslist: the list of the names of all starlists e.g. ['A', 'B', 'C', ... ]
 	# name_initial_ref: the name of the reference that you use in the very first match.
 	# corr_thresh : threshold for correlation values.
@@ -149,11 +149,11 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 		input_starslists.remove(name_initial_ref)
 
 	for name_starlist in input_starslists:
-		
+
 		starlist=starlists.read_starlist('{0}.lis'.format(name_starlist))
 		if 'ref' not in locals():
 			ref=starlists.read_starlist('{0}.lis'.format(name_initial_ref))
-			
+
 
 		#------------ Choose good stars to use for a trans object --------------------
 
@@ -162,14 +162,14 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 
 		# Select the very first 11 columns (i.e. the master reference) consistent with those of the starlist.
 		# Table -> dataframe -> Table, which lets us avoid the following error: 'MaskedColumn' object has no attribute '_mask'
-		
+
 		ref_for_align=ref_for_align.to_pandas()
-	
+
 		ref_for_align=Table.from_pandas(ref_for_align[starlist_for_align.colnames])
 
 		_,_,_,trans=align_starlists(starlist_for_align,ref_for_align,order=2,dr_tol=1,N_loop=15)
 
-	
+
 		#------------ Transform the whole starlist using the trans object and match with the reference -------------
 
 		starlist_transformed=align.transform_from_object(starlist,trans)
@@ -183,7 +183,7 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 		#-------------Convert the astropy talbes into dataframes ---------------------
 		df_ref=ref.to_pandas()
 		df_starlist_transformed=starlist_transformed.to_pandas()
-	
+
 		#-------------Columns 11-21 contain the measurments for the initial reference--------------
 
 		colnames=starlist.colnames
@@ -199,11 +199,11 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 			for col in colnames:
 				df_ref['{0}_{1}'.format(col,name_starlist)]=np.nan
 				df_ref.loc[idx_ref_matched,'{0}_{1}'.format(col,name_starlist)]= np.array(df_starlist_transformed.loc[idx_starlist_transformed_matched,col])
-	
+
 		else:
 
 			for col in colnames:
-		
+
 				df_ref.insert(len(df_ref.columns),'{0}_{1}'.format(col,name_starlist),np.nan)
 				df_ref.loc[idx_ref_matched,'{0}_{1}'.format(col,name_starlist)]= np.array(df_starlist_transformed.loc[idx_starlist_transformed_matched,col])
 
@@ -218,7 +218,7 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 		#-------------- Figure out which frames are currently included in the master frame -----------
 
 		frames_in_use=sorted(set([column[-1] for column in columns if (column[-1] in all_starlists)]))
-		
+
 		#-------------- Average the measurements -------------
 		for col in colnames:
 			if (col!='name') and (col!='x') and (col!='y') and (col!='xe') and (col!='ye') and (col!='N_frames'):
@@ -226,7 +226,7 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 
 		df_comb=weighted_mean(df_comb,'x','xe',frames_in_use)
 		df_comb=weighted_mean(df_comb,'y','ye',frames_in_use)
-		
+
 		#-------------Recalculate 'N_frames' for the master frame -> N_frames = the number of input starlists containing the star-----------
 		# N_frames = the number of notnull columns at each row in the master frame divided by the number of columns in an input starlist, then minus one.
 		# The "minus one" at the end accounts for the very first columns, i.e. master columns, that contain the averaged values of all the input starlists.
@@ -244,7 +244,7 @@ def stitch(all_starlists, name_initial_ref, N_iter=5, corr_thresh=0.8,  outMaste
 		#-------------- Convert the final dataframe back into an astropy table ------
 
 		ref=Table.from_pandas(df_comb)
-		
+
 	ref.write(outMaster,format='ascii.commented_header', header_start=-1, overwrite=True)
 
 	return

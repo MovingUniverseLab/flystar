@@ -26,7 +26,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     and brightness uncertainties, the more bigger the bin sizes should really
     be. But this isn't well tested.
     """
-    
+
     if verbose:
         print( '')
         print( '  miracle_match_briteN: use brightest {0}'.format(Nbrite))
@@ -51,7 +51,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
         print( '  miracle_match_briteN: ')
     x1, y1, m1 = order_by_brite(xin1, yin1, min1, Nbrite, verbose=verbose)
     x2, y2, m2 = order_by_brite(xin2, yin2, min2, Nbrite, verbose=verbose)
-    
+
     ####################
     #
     # Triangle Matching
@@ -107,7 +107,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     idx2_vmax_hist = idx2_vmax_hist[good_idx2]
     idx2_angl_hist = idx2_angl_hist[good_idx2]
 
-    
+
     ##########
     # Possible Matches
     ##########
@@ -121,7 +121,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     # Now vote for all stars in the triangles that have possible matches (same vmax, angle)
     # between the first and second lists.
     votes = np.zeros((Nbrite, Nbrite))
-    
+
     matches = np.where(stars_in1_matches2[:,0] >= 0)[0]
     match_stars1 = stars_in1_matches2[matches,:]
     match_stars2 = stars_in_tri2[matches,:]
@@ -134,7 +134,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     add_votes(votes, match_stars1[:,0], match_stars2[:,0])
     add_votes(votes, match_stars1[:,1], match_stars2[:,1])
     add_votes(votes, match_stars1[:,2], match_stars2[:,2])
-    
+
     ##########
     # Find matching triangles with most votes (and that pass threshold)
     ##########
@@ -203,8 +203,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     if one is found that is the best match in both brightness and positional offsets
     (closest in both), then the match is made. Otherwise,
     their is a conflict and no match is returned for the star.
-    
- 
+
+
     Parameters
     x1 : array-like
         X coordinate in the first catalog
@@ -226,9 +226,9 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
         How close in delta-magnitude a match has to be to count as a match.
         If None, then any delta-magnitude is allowed.
     verbose : bool or int, optional
-        Prints on screen information on the matching. Higher verbose values 
+        Prints on screen information on the matching. Higher verbose values
         (up to 9) provide more detail.
- 
+
     Returns
     -------
     idx1 : int array
@@ -241,27 +241,27 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
         Distance between the matches.
     dm : float array
         Delta-mag between the matches. (m1 - m2)
- 
+
     """
- 
+
     x1 = np.array(x1, copy=False)
     y1 = np.array(y1, copy=False)
     m1 = np.array(m1, copy=False)
     x2 = np.array(x2, copy=False)
     y2 = np.array(y2, copy=False)
     m2 = np.array(m2, copy=False)
- 
+
     if x1.shape != y1.shape:
         raise ValueError('x1 and y1 do not match!')
     if x2.shape != y2.shape:
         raise ValueError('x2 and y2 do not match!')
- 
+
     # Setup coords1 pairs and coords 2 pairs
     # this is equivalent to, but faster than just doing np.array([x1, y1])
     coords1 = np.empty((x1.size, 2))
     coords1[:, 0] = x1
     coords1[:, 1] = y1
- 
+
     # this is equivalent to, but faster than just doing np.array([x1, y1])
     coords2 = np.empty((x2.size, 2))
     coords2[:, 0] = x2
@@ -374,7 +374,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
         # Assume the duplicates are confused first... see if we
         # can resolve the confusion below.
         keep[dups] = False
-        
+
         dm_dups = m1[idxs1[dups]] - m2[idxs2[dups]]
         dr_dups = np.hypot(x1[idxs1[dups]] - x2[idxs2[dups]], y1[idxs1[dups]] - y2[idxs2[dups]])
 
@@ -395,12 +395,12 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     idxs2 = idxs2[keep]
     dr = dr[keep]
     dm = dm[keep]
- 
+
     return idxs1, idxs2, dr, dm
 
 def calc_triangles_vmax_angle(x, y):
     idx = np.arange(len(x), dtype=np.int16)
-    
+
     # Option 1 -- this takes 0.217 seconds for 50 objects
     # t1 = time.time()
     # combo_iter1 = itertools.combinations(idx1, 3)
@@ -409,53 +409,53 @@ def calc_triangles_vmax_angle(x, y):
     # print( 'Finished Option 1: ', t2 - t1)
     # print( combo_idx1_1.shape)
     # print( combo_idx1_1)
-    
+
     # Option 2 -- this takes 0.016 seconds for 50 objects
     combo_iter = itertools.combinations(idx, 3)
     combo_dt = np.dtype('i2,i2,i2')
     combo_idx_tmp = np.fromiter(combo_iter, dtype=combo_dt)
     combo_idx = combo_idx_tmp.view(np.int16).reshape(-1, 3)
-    
+
     ii0 = combo_idx[:,0]
     ii1 = combo_idx[:,1]
     ii2 = combo_idx[:,2]
-    
+
     dxab = x[ii1] - x[ii0]
     dyab = y[ii1] - y[ii0]
     dxac = x[ii2] - x[ii0]
     dyac = y[ii2] - y[ii0]
-    
+
     dab = np.hypot(dxab, dyab)
     dac = np.hypot(dxac, dyac)
-    
+
     dmax = np.max([dab, dac], axis=0)
     dmin = np.min([dab, dac], axis=0)
-    
+
     vmax = dmin ** 2 / dmax ** 2
     vmax[dab < dac] *= -1
-    
+
     vdprod = dxab * dxac + dyab * dyac
     vcprod = dxab * dyac - dyab * dxac
-    
+
     angle = np.degrees( np.arctan2( vdprod, vcprod) )
     angle[angle < 0] += 360.0
     angle[angle > 360] -= 360.0
-    
+
     return combo_idx, vmax, angle
 
 def add_votes(votes, match1, match2):
     # Construct a histogram of how often a bin is matched... then add the delta
     flat_idx = np.ravel_multi_index((match1, match2), dims=votes.shape)
-    
+
     # extract the unique indices and their position
     unique_idx, idx_idx = np.unique(flat_idx, return_inverse=True)
-    
+
     # aggregate the repeated indices
     deltas = np.bincount(idx_idx)
-    
+
     # Sum them to the array
     votes.flat[unique_idx] += deltas
-    
+
     return
 
 
@@ -512,7 +512,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
         init_mode
     verbose : bool, optional
         Prints on screen information on the matching
-    
+
     Returns
     -------
     transf : Transform2D
@@ -522,16 +522,16 @@ def generic_match(sl1, sl2, init_mode='triangle',
 
     """
     from . import align
-    
+
     #  Check the input StarLists and transform them into astropy Tables
     if not isinstance(sl1, starlists.StarList):
         raise TypeError("The first catalog has to be a StarList")
     if not isinstance(sl2, starlists.StarList):
         raise TypeError("The second catalog has to be a StarList")
-    
+
     #  Find the initial transformation
     if init_mode == 'triangle': #  Blind triangles method
-        
+
         #  Prepare the reduced starlists for matching
         sl1_cut = copy.deepcopy(sl1)
         sl2_cut = copy.deepcopy(sl2)
@@ -546,16 +546,16 @@ def generic_match(sl1, sl2, init_mode='triangle',
         # TODO: test 'initial_align' with StarList input
         transf = align.initial_align(sl1_cut, sl2_cut, briteN=n_bright,
                                      transformModel=model, order=order_dr[0]) #order_dr[i_loop][0] ?
-        
+
     elif init_mode == 'match_name': #  Name match
         sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(sl1, sl2)
         transf = model(sl2['x'][sl2_idx_init], sl2['y'][sl2_idx_init],
                        sl1['x'][sl1_idx_init], sl1['y'][sl1_idx_init],
                        order=int(order_dr[0][0]))
-        
+
     elif init_mode == 'load': #  Load a transformation file
         transf = transforms.Transform2D.from_file(kwargs['transf_file'])
-        
+
     else: #  None of the above
         raise TypeError("Unrecognized initial matching method")
 
@@ -564,16 +564,16 @@ def generic_match(sl1, sl2, init_mode='triangle',
     sl2_match = copy.deepcopy(sl2)
     sl1_match.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
     sl2_match.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
-    
+
     #  Refine the transformation
     if sigma_match:
         order_dr_len = len(order_dr)
-        
+
         for i_loop in range(sigma_match[1]):
             order_dr = np.vstack((np.array(order_dr), np.array(order_dr[-1])))
-    
+
     for i_loop in range(len(order_dr)):
-        
+
         #  Transform and match the catalog to the reference frame
 #        sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
 #                                                     dr_tol=order_dr[i_loop][1],
@@ -588,7 +588,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
 
         #  Transform the catalog to the reference frame
         sl2_transf_match = align.transform_from_object(sl2_match, transf)
-        
+
         # Sigma-rejection
         if sigma_match and (i_loop >= order_dr_len):
             resid = np.sqrt((sl1_match['x'][sl1_idx] -
@@ -597,29 +597,29 @@ def generic_match(sl1, sl2, init_mode='triangle',
                             sl2_transf_match['y'][sl2_idx])**2)
             sl1_idx = sl1_idx[resid <= (sigma_match[0] * np.std(resid))]
             sl2_idx = sl2_idx[resid <= (sigma_match[0] * np.std(resid))]
-        
+
         # Test section to observe the matching catalogs before refining the transformation
         """
         from matplotlib import pyplot
-        
+
         _, axarr = pyplot.subplots(nrows=1, ncols=1, figsize=(10,10))
         axarr.scatter(sl1_match['x'][sl1_idx], sl1_match['y'][sl1_idx])
         xlim = axarr.get_xlim()
         ylim = axarr.get_ylim()
-        
+
         _, axarr = pyplot.subplots(nrows=1, ncols=1, figsize=(10, 10))
         axarr.scatter(sl2_transf_match['x'][sl2_idx], sl2_transf_match['y'][sl2_idx])
         axarr.set_xlim(xlim)
         axarr.set_ylim(ylim)
         """
-        
+
         #  Find a better transformation
         transf, _ = align.find_transform(sl2_match[sl2_idx],
                                          sl2_transf_match[sl2_idx],
                                          sl1_match[sl1_idx], transModel=model,
                                          order=order_dr[0], verbose=verbose)
 #                                         order=int(order_dr[i_loop][0]), verbose=verbose)
-        
+
         # This section was used for testing transformations with normalized
         # coordinates. Only several catalogs had reduced residuals when using
         # high order polynomials (>3), some of them became unstable
@@ -638,15 +638,15 @@ def generic_match(sl1, sl2, init_mode='triangle',
                                          sl1_match_norm, transModel=model,
                                          order=poly_order, verbose=verbose)
         c_exp = np.zeros(len(transf.px._parameters))
-        
+
         for i_c in range(len(transf.px._parameters)):
             c_exp[i_c] = int(transf.px._param_names[i_c][1:].split('_')[0]) +\
                          int(transf.px._param_names[i_c][1:].split('_')[1])
-        
+
         c_corr = mm ** (1 - c_exp)
         transf.px._parameters = transf.px._parameters * c_corr
         transf.py._parameters = transf.py._parameters * c_corr"""
-    
+
     # Do the final transformation and matching using
     sl2_idx, sl1_idx = align.transform_and_match(sl2, sl1, transf, dr_tol=dr_final,
                                                  verbose=verbose)
@@ -661,10 +661,10 @@ def generic_match(sl1, sl2, init_mode='triangle',
 #         ep_name=np.column_stack((np.array(sl1['name'][sl1_idx]), np.array(sl2_transf['name'][sl2_idx]))),
 #         list_times=[sl1.meta['list_time'], sl2.meta['list_time']],
 #         list_names=[sl1.meta['list_name'], sl2.meta['list_name']])
-    
+
     for col in sl1.colnames:
         if col in sl2.colnames:
             if col not in ['name', 'x', 'y', 'm']:
                 st.add_column(Column(np.column_stack((np.array(sl1[col][sl1_idx]),np.array(sl2_transf[col][sl2_idx]))), name=col))
-    
+
     return transf, st

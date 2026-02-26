@@ -31,7 +31,7 @@ def restrict_by_name(table1, table2):
 
     name1 = table1['name']
     name2 = table2['name']
-    
+
     Name = np.intersect1d(name1, name2)
     # trim out stars begin with 'star'
     idx = []
@@ -67,7 +67,7 @@ def restrict_by_area(table1, area, exclude=False):
     exclude: boolean (default=False)
         If true, *exclude* the stars that fall within the given area. If false,
         then only return stars that fall within the given area
-        
+
     Output:
     ------
     array of indicies corresponding to stars which are within the designated
@@ -76,7 +76,7 @@ def restrict_by_area(table1, area, exclude=False):
     # Extract star coordinates
     xpos = table1['x']
     ypos = table1['y']
-    
+
     # Extract desired coordinate ranges
     x_range = area[0]
     y_range = area[1]
@@ -89,7 +89,7 @@ def restrict_by_area(table1, area, exclude=False):
     else:
         good = np.where( ( (xpos < x_range[0]) | (xpos > x_range[1]) ) &
                          ( (ypos < y_range[0]) | (ypos > y_range[1]) ) )
-        
+
     return good[0]
 
 def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
@@ -114,7 +114,7 @@ def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
 
     idx_starlist: array of indicies
         Indicies of the matched stars in the starlist.
-        
+
     Output:
     -------
     idx_label_f: array of indicies in the label catalog that fulfill the restrict
@@ -122,15 +122,15 @@ def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
 
     idx_starlist_f: array of indicies in the starlist that fulfill the restrict
     condition
-    
-    
+
+
     label_trim: astropy table
          label table with only use > 2 stars
 
     starlist_trim: astropy table
          reference table with only stars that correspond to use > 2 stars
          in the label_mat table.
-    
+
     """
     print( 'Restrict option activated')
 
@@ -151,7 +151,7 @@ def restrict_by_use(label_mat, starlist_mat, idx_label, idx_starlist):
     print( 'Restrict option activated')
     print(( 'Keeping {0} of {1} stars'.format(len(idx_restrict),
                                             len(label_mat))))
-    
+
     return idx_label_f, idx_starlist_f
 
 
@@ -188,7 +188,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
          If true, multiply the x positions and velocities by -1.0. This is
          useful when label.dat has +x to the east, while reference starlist
          has +x to the west.
-         
+
     #OLD# tref: reference epoch that label.dat is converted to.
 
     Output:
@@ -196,11 +196,11 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
     labelFile: astropy.table.
     containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r0,
     (if prop_to_time: x, y, xe, ye, t)
-    
+
     x and y is in arcsec,
     converted to tref epoch,
     *(-1) so it increases to west
-    
+
     vx, vy, vxe, vye is converted to arcsec/yr
 
     """
@@ -248,7 +248,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
         t_label['y'].format = '.5f'
         t_label['xe'].format = '.5f'
         t_label['ye'].format = '.5f'
-    
+
     # flip the x axis if flipX is True
     if flipX == True:
         t_label['x0'] = t_label['x0'] * (-1.0)
@@ -295,7 +295,7 @@ def read_label_accel(labelFile, prop_to_time=None, flipX=True):
          If true, multiply the x positions and velocities by -1.0. This is
          useful when label.dat has +x to the east, while reference starlist
          has +x to the west.
-         
+
     #OLD# tref: reference epoch that label.dat is converted to.
 
     Output:
@@ -303,11 +303,11 @@ def read_label_accel(labelFile, prop_to_time=None, flipX=True):
     labelFile: astropy.table.
     containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r0,
     (if prop_to_time: x, y, xe, ye, t)
-    
+
     x and y is in arcsec,
     converted to tref epoch,
     *(-1) so it increases to west
-    
+
     vx, vy, vxe, vye is converted to arcsec/yr
 
     """
@@ -411,11 +411,11 @@ def read_starlist(starlistFile, error=True):
             col7: corr
             col8: N_frames
             col9: ? (left as default)
-        
+
     error: boolean (default=True)
         If true, assumes starlist has error columns. This significantly
         changes the order of the columns.
-    
+
     Output:
     ------
     starlist astropy table.
@@ -425,7 +425,7 @@ def read_starlist(starlistFile, error=True):
 
     # Check if this already has column names:
     cols = t_ref.colnames
-    
+
     if cols[0] != 'col1':
         t_ref['name'] = t_ref['name'].astype(str)
         return t_ref
@@ -436,7 +436,7 @@ def read_starlist(starlistFile, error=True):
     t_ref.rename_column(cols[2], 't')
     t_ref.rename_column(cols[3], 'x')
     t_ref.rename_column(cols[4], 'y')
-    
+
     if error==True:
         t_ref.rename_column(cols[5], 'xe')
         t_ref.rename_column(cols[6], 'ye')
@@ -449,7 +449,7 @@ def read_starlist(starlistFile, error=True):
         t_ref.rename_column(cols[6], 'corr')
         t_ref.rename_column(cols[7], 'N_frames')
         t_ref.rename_column(cols[8], 'flux')
-        
+
     return t_ref
 
 
@@ -481,7 +481,7 @@ class StarList(Table):
 
     me : 1D numpy.array with shape = N_stars
         Magnitude uncertainties of N_stars.
-        
+
     corr : 1D numpy.array with shape = N_stars
         Fitting correlation of N_stars.
 
@@ -495,7 +495,7 @@ class StarList(Table):
 
 
     """
-    
+
     def __init__(self, *args, **kwargs):
         """
         """
@@ -503,7 +503,7 @@ class StarList(Table):
         arg_req = ('name', 'x', 'y', 'm')
 
         found_all_required = True
-        
+
         for arg_test in arg_req:
             if arg_test not in kwargs:
                 found_all_required = False
@@ -583,7 +583,7 @@ class StarList(Table):
                         self.add_column(MaskedColumn(data=kwargs[arg], name=arg))
                     else:
                         self.add_column(Column(data=kwargs[arg], name=arg))
-        
+
         return
 
     @classmethod
@@ -641,7 +641,7 @@ class StarList(Table):
             t_ref.rename_column(cols[2], 't')
             t_ref.rename_column(cols[3], 'x')
             t_ref.rename_column(cols[4], 'y')
-            
+
             if error==True:
                 t_ref.rename_column(cols[5], 'xe')
                 t_ref.rename_column(cols[6], 'ye')
@@ -654,7 +654,7 @@ class StarList(Table):
                 t_ref.rename_column(cols[6], 'corr')
                 t_ref.rename_column(cols[7], 'N_frames')
                 t_ref.rename_column(cols[8], 'flux')
-                
+
         if ('me' not in cols) and ('snr' in cols) and (error == True):
             t_ref['me'] = 1.0 / t_ref['snr']
 
@@ -667,16 +667,16 @@ class StarList(Table):
                 msg = 'Star list and metric list have different lengths.\n'
                 msg += '\t len(stars) = {0:d}\n'
                 msg += '\t len(fvu) = {1:d}\n'
-                
+
                 raise RuntimeError(msg.format(len(t_ref), len(t_fvu)))
-            
-            t_ref = astropy.table.hstack([t_ref, t_fvu])        
+
+            t_ref = astropy.table.hstack([t_ref, t_fvu])
 
         return cls.from_table(t_ref)
 
     def to_lis_file(self, filename):
         _out = open(filename, 'w')
-        
+
         hdr = '{name:13s}  {mag:>6s}  {year:>8s}  '
         hdr += '{x:>9s}  {y:>9s}  {xe:>9s}  {ye:>9s}  '
         hdr += '{snr:>20s}  {corr:>6s}  {nimg:>8s}  {flux:>20s}\n'
@@ -684,7 +684,7 @@ class StarList(Table):
         _out.write(hdr.format(name='# name', mag='m', year='t',
                               x='x', y='y', xe='xe', ye='ye',
                               snr='snr', corr='corr', nimg='N_frames', flux='flux'))
-    
+
 
         fmt = '{name:13s}  {mag:6.3f}  {year:8.3f}  '
         fmt += '{x:9.3f}  {y:9.3f}  {xe:9.3f}  {ye:9.3f}  '
@@ -697,10 +697,10 @@ class StarList(Table):
                                   flux=self['flux'][ss]))
 
         _out.close()
-        
+
         return
-    
-    
+
+
     @classmethod
     def from_table(cls, table):
         """
@@ -709,7 +709,7 @@ class StarList(Table):
         will be added to the new StarList object that is returned.
         """
         starlist = cls(name=table['name'], x=table['x'], y=table['y'], m=table['m'], meta=table.meta)
-        
+
         for col in table.colnames:
             if col in ['name', 'x', 'y', 'm']:
                 continue
@@ -721,10 +721,10 @@ class StarList(Table):
     def fubar(self):
         print('This is in StarList')
         return
-    
+
     def restrict_by_value(self, **kwargs):
         """
-        Restrict a table to any min/max range of column values. For instance, 
+        Restrict a table to any min/max range of column values. For instance,
         to restrict to only stars between 10 <= m <= 15, use:
 
         starlist.restrict_by_value(m_min=10, m_max=15)
@@ -732,10 +732,10 @@ class StarList(Table):
         where 'm' was the column name.
 
         This function acts on self, so the rows are removed
-        forever. 
+        forever.
         """
         # Loop through all conditions and build up
-        # an array of indicies of rows to remove. 
+        # an array of indicies of rows to remove.
         remove_flag = np.zeros(len(self), dtype=bool)
 
         for key, value in kwargs.items():
@@ -743,20 +743,20 @@ class StarList(Table):
                 # Get the name of the column to act on and
                 # whether the condition is min or max.
                 key_split = key.split('_')
-                
-                # Support column names such as x_0. 
+
+                # Support column names such as x_0.
                 col = '_'.join(key_split[:-1])
 
                 if key_split[-1] == 'min':
                     remove_flag = np.logical_or(remove_flag, self[col] <= value)
-                
+
                 if key_split[-1] == 'max':
                     remove_flag = np.logical_or(remove_flag, self[col] >= value)
 
         rem_idx = np.where(remove_flag == True)[0]
-        
+
         self.remove_rows(rem_idx)
-        
+
         return
 
     def transform_xym(self, trans):
@@ -769,7 +769,7 @@ class StarList(Table):
 
         self.transform_xy(trans)
         self.transform_m(trans)
-            
+
         return
 
     def transform_xy(self, trans):
@@ -781,7 +781,7 @@ class StarList(Table):
         """
         if trans == None:
             return
-        
+
         x_T, y_T = trans.evaluate(self['x'], self['y'])
         self['x'] = x_T
         self['y'] = y_T
@@ -792,7 +792,7 @@ class StarList(Table):
             self['ye'] = ye_T
 
         return
-    
+
     def transform_m(self, trans):
         """
         Apply a transformation (instance of flystar.transforms.Transform2D)
@@ -802,14 +802,14 @@ class StarList(Table):
         """
         if trans == None:
             return
-    
+
         m_T = trans.evaluate_mag(self['m'])
         self['m'] = m_T
 
         if 'me' in self.colnames:
             me_T = trans.evaluate_magerror(self['m'], self['me'])
             self['me'] = me_T
-    
+
         return
 
 
