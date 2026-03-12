@@ -419,6 +419,11 @@ class MosaicSelfRef(object):
 
         # Update chi2 values in ref table, as motion_model_used may have changed
         x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
+        # Ensure x_inferred and y_inferred is 2D for chi2 calculation
+        if x_inferred.ndim == 1:
+            x_inferred = x_inferred[:, np.newaxis]
+        if y_inferred.ndim == 1:
+            y_inferred = y_inferred[:, np.newaxis]
         chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
         chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
         chi2_x = np.nansum(chi2_x_2d, axis=1)
@@ -662,14 +667,8 @@ class MosaicSelfRef(object):
         array in the original reference star list.
         """
         col_arrays = {}
-        # Remove motion_model_used if present, as it can only be determined by fit_motion_model function
-        if 'motion_model_used' in star_list.colnames:
-            warnings.warn("The input reference star list contains a 'motion_model_used' column. This column will be removed and re-calculated by the fit_motion_model function.")
-            star_list.remove_column('motion_model_used')
 
-        motion_model_col_names = motion_model.motion_model_param_names(self.motion_models, with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
-        if 't0' not in motion_model_col_names:
-            motion_model_col_names.insert(0, 't0')
+        motion_model_col_names = motion_model.all_motion_model_param_names(with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
         for col_name in star_list.colnames:
             if col_name == 'name':
                 # The "name" column will be 1D; but we will also add a "name_in_list" column.
@@ -745,7 +744,7 @@ class MosaicSelfRef(object):
         # This is necessary for later steps, even if the columns are just zeros.
         final_new_cols = np.concatenate((new_cols_arr, new_err_cols))
         for ii in final_new_cols:
-            assert ii in ref_table.keys()
+            assert ii in ref_table.keys(), f"ref_table is missing necessary column {ii}."
 
         # Make sure we have a column to indicate whether each star
         # CAN BE USED in the transformation. This will be 1D
@@ -984,29 +983,31 @@ class MosaicSelfRef(object):
         # if (keep_orig is not None) and (sum(keep_orig) > 0):
         # Determine motion_model_used for keep_orig stars
         # Filter possible motion models based on available columns
-        motion_models_possible = []
-        for mm in self.motion_models:
-            required_columns = mm.fit_param_names + mm.fixed_param_names
-            if all(col in self.ref_table.colnames or (self.fixed_params_dict is not None and col in self.fixed_params_dict.keys()) for col in required_columns):
-                motion_models_possible.append((mm, required_columns))
+        motion_model_used = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
 
-        # Check if values are finite for required columns in possible motion models
-        motion_model_used = []
-        # for k in np.where(keep_orig)[0]:
-        for k in range(len(self.ref_table)):
-            for mm, req in motion_models_possible[::-1]:
-                # if all(np.isfinite(self.ref_table[k][col]) for col in req if self.ref_table[col].dtype.kind in 'f'):
-                req_col_in_table = [col for col in req if col in self.ref_table.colnames]
-                req_col_in_dict = [col for col in req if (self.fixed_params_dict is not None) and (col in self.fixed_params_dict.keys())]
-                # If requested column in table/fixed_params dict is numeric, check if values are finite.
-                if all(np.isfinite(self.ref_table[col][k]) for col in req_col_in_table if np.issubdtype(self.ref_table[col].dtype, np.number)) \
-                and all(np.isfinite(self.fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(self.fixed_params_dict[col]).dtype, np.number)):
-                    motion_model_used.append(mm.name)
-                    break
+        # motion_models_possible = []
+        # for mm in self.motion_models:
+        #     required_columns = mm.fit_param_names + mm.fixed_param_names
+        #     if all(col in self.ref_table.colnames or (self.fixed_params_dict is not None and col in self.fixed_params_dict.keys()) for col in required_columns):
+        #         motion_models_possible.append((mm, required_columns))
+
+        # # Check if values are finite for required columns in possible motion models
+        # motion_model_used = []
+        # # for k in np.where(keep_orig)[0]:
+        # for k in range(len(self.ref_table)):
+        #     for mm, req in motion_models_possible[::-1]:
+        #         # if all(np.isfinite(self.ref_table[k][col]) for col in req if self.ref_table[col].dtype.kind in 'f'):
+        #         req_col_in_table = [col for col in req if col in self.ref_table.colnames]
+        #         req_col_in_dict = [col for col in req if (self.fixed_params_dict is not None) and (col in self.fixed_params_dict.keys())]
+        #         # If requested column in table/fixed_params dict is numeric, check if values are finite.
+        #         if all(np.isfinite(self.ref_table[col][k]) for col in req_col_in_table if np.issubdtype(self.ref_table[col].dtype, np.number)) \
+        #         and all(np.isfinite(self.fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(self.fixed_params_dict[col]).dtype, np.number)):
+        #             motion_model_used.append(mm.name)
+        #             break
 
         # Assign the determined motion models
         # self.ref_table['motion_model_used'][keep_orig] = motion_model_used
-        self.ref_table['motion_model_used'] = motion_model_used
+        self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U15')
 
         # Replace the originals if we are supposed to keep them fixed.
         if (keep_orig is not None) and (sum(keep_orig) > 0):
@@ -1120,41 +1121,45 @@ class MosaicSelfRef(object):
         # Reference stars will be named.
         name = self.ref_table['name']
         # Calculate x, y, xe, ye
-        if 'motion_model_used' in self.ref_table.colnames:
-            x, y, xe, ye = self.ref_table.infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)
-        else:
-            # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
-            for mm in self.motion_models[::-1]:
-                required_columns = mm.fit_param_names + mm.fixed_param_names
-                if all([param in self.ref_table.colnames or (self.fixed_params_dict is not None and param in self.fixed_params_dict.keys()) for param in required_columns]):
-                    # Check if the values are finite for non-string columns in the required columns for this motion model. If not, skip to the next motion model.
 
-                    if any([param not in self.ref_table.colnames for param in required_columns]):
-                        # If any required column is missing, skip to the next motion model.
-                        continue
+        if 'motion_model_used' not in self.ref_table.colnames:
+            motion_model_used = determine_motion_model(self.ref_table)
+            self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U15')
 
-                    if not all([np.isfinite(self.ref_table[param]).all() for param in required_columns if self.ref_table[param].dtype.kind in 'if']):
-                        # If any required column has non-finite values, skip to the next motion model.
-                        continue
+        x, y, xe, ye = self.ref_table.infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)
+        # else:
+            # # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
+            # for mm in self.motion_models[::-1]:
+            #     required_columns = mm.fit_param_names + mm.fixed_param_names
+            #     if all([(param in self.ref_table.colnames) or (self.fixed_params_dict is not None and param in self.fixed_params_dict.keys()) for param in required_columns]):
+            #         # Check if the values are finite for non-string columns in the required columns for this motion model. If not, skip to the next motion model.
 
-                    print(f"Inferring positions using motion model {mm.name}.")
-                    # If we have error columns for all fit parameters, then use them in the model inference. Otherwise, just use the fit parameters without errors.
-                    if all([f'{param}_err' in self.ref_table.colnames for param in mm.fit_param_names]) and all([np.isfinite(self.ref_table[f'{param}_err']).all() for param in mm.fit_param_names]):
-                        x, y, xe, ye = mm().model(
-                            t=epoch,
-                            fit_params=np.array([self.ref_table[param] for param in mm.fit_param_names]).T,
-                            fit_param_errs=np.array([self.ref_table[f'{param}_err'] for param in mm.fit_param_names]).T,
-                            fixed_params_dict={param: self.ref_table[param] for param in mm.fixed_param_names}
-                        )
-                    else:
-                        x, y = mm().model(
-                            t=epoch,
-                            fit_params=np.array([self.ref_table[param] for param in mm.fit_param_names]).T,
-                            fixed_params_dict={param: self.ref_table[param] for param in mm.fixed_param_names}
-                        )
-                        xe = None
-                        ye = None
-                    break
+            #         if any([param not in self.ref_table.colnames for param in required_columns]):
+            #             # If any required column is missing, skip to the next motion model.
+            #             continue
+
+            #         if not all([np.isfinite(self.ref_table[param]).all() for param in required_columns if self.ref_table[param].dtype.kind in 'if']):
+            #             # If any required column has non-finite values, skip to the next motion model.
+            #             continue
+
+            #         print(f"Inferring positions using motion model {mm.name}.")
+            #         # If we have error columns for all fit parameters, then use them in the model inference. Otherwise, just use the fit parameters without errors.
+            #         if all([f'{param}_err' in self.ref_table.colnames for param in mm.fit_param_names]) and all([np.isfinite(self.ref_table[f'{param}_err']).all() for param in mm.fit_param_names]):
+            #             x, y, xe, ye = mm().model(
+            #                 t=epoch,
+            #                 fit_params=np.array([self.ref_table[param] for param in mm.fit_param_names]).T,
+            #                 fit_param_errs=np.array([self.ref_table[f'{param}_err'] for param in mm.fit_param_names]).T,
+            #                 fixed_params_dict={param: self.ref_table[param] for param in mm.fixed_param_names}
+            #             )
+            #         else:
+            #             x, y = mm().model(
+            #                 t=epoch,
+            #                 fit_params=np.array([self.ref_table[param] for param in mm.fit_param_names]).T,
+            #                 fixed_params_dict={param: self.ref_table[param] for param in mm.fixed_param_names}
+            #             )
+            #             xe = None
+            #             ye = None
+            #         break
 
             # # No velocities... just used average positions.
             # x = self.ref_table['x0']
@@ -2002,6 +2007,11 @@ class MosaicToRef(MosaicSelfRef):
 
         # Update chi2 values in ref table, as motion_model_used may have changed
         x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs, fixed_params_dict=self.fixed_params_dict)
+        # Convert x_inferred and y_inferred to 2D arrays if they are 1D (i.e. if only one epoch), so that the chi2 calculation works correctly.
+        if x_inferred.ndim == 1:
+            x_inferred = x_inferred[:, np.newaxis]
+        if y_inferred.ndim == 1:
+            y_inferred = y_inferred[:, np.newaxis]
         chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
         chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
         chi2_x = np.nansum(chi2_x_2d, axis=1)
@@ -2106,6 +2116,55 @@ def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, re
     #     x = startable['x']
     #     y = startable['y']
     # return x, y
+
+def determine_motion_model(startable, motion_models=None, fixed_params_dict=None):
+    """Determine motion model used in star table based on the finite model parameter columns
+
+    Parameters
+    ----------
+    startable : startable
+        Startable with motion model parameter columns
+    motion_models : list of MotionModel or str, optional
+        List of motion model classes or their names to select from.
+        If None, all available motion models will be considered, by default None
+    fixed_params_dict : dict, optional
+        Dictionary of fixed parameters, by default None
+
+    Returns
+    -------
+    motion_model_used : list
+        List of motion model used for each star
+    """
+
+    if motion_models is None:
+        motion_models = motion_model.MotionModel.__subclasses__()
+    elif all(isinstance(mm, str) for mm in motion_models):
+        all_mm_map = motion_model.motion_model_map()
+        motion_models = [all_mm_map[mm] for mm in motion_models]
+
+    if fixed_params_dict is None:
+        fixed_params_dict = {}
+
+    motion_models_possible = []
+    for mm in motion_models:
+        required_columns = mm.fit_param_names + mm.fixed_param_names
+        req_col_in_table = [col for col in required_columns if (col in startable.colnames)]
+        req_col_in_dict = [col for col in required_columns if (col in fixed_params_dict.keys())]
+        if all((col in startable.colnames) or (col in fixed_params_dict.keys()) for col in required_columns):
+            motion_models_possible.append((mm, req_col_in_table, req_col_in_dict))
+
+    # Check if values are finite for required columns in possible motion models
+    motion_model_used = []
+
+    for k in tqdm(range(len(startable)), desc='Determining motion model for each star'):
+        for mm, req_col_in_table, req_col_in_dict in motion_models_possible[::-1]:
+            # If requested column in table/fixed_params dict is numeric, check if values are finite.
+            if all(np.isfinite(startable[col][k]) for col in req_col_in_table if np.issubdtype(startable[col].dtype, np.number)) \
+            and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
+                motion_model_used.append(mm.name)
+                break
+    return motion_model_used
+
 
 def get_all_epochs(t):
     """
@@ -2310,8 +2369,12 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
             else:
                 new_col_shape = [N_newstars, ref_table[col_name].shape[1]]
 
-            new_col_data = Column(data=np.tile(new_col_empty, new_col_shape),
-                                  name=col_name, dtype=ref_table[col_name].dtype)
+            new_col_data = Column(
+                data=np.tile(new_col_empty, new_col_shape),
+                name=col_name, 
+                dtype=ref_table[col_name].dtype
+            )
+
             col_arrays[new_col_name] = new_col_data
 
         ref_table_new = StarTable(**col_arrays)
@@ -3318,7 +3381,7 @@ def update_old_and_new_names(ref_table, list_index, idx_ref_new):
     new_name_len_max = 0
 
     for ss in idx_ref_new:
-        new_name = '{0:3d}_{1:s}'.format(list_index, ref_table['name_in_list'][ss, list_index])
+        new_name = f"{list_index:3d}_{str(ref_table['name_in_list'][ss, list_index]):s}"
         new_names.append(new_name)
         new_name_len_max = max(new_name_len_max, len(new_name))
 
