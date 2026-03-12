@@ -1446,29 +1446,27 @@ def make_fake_starlists_poly1_par(seed=-1):
     return (xy_trans, mag_trans)
 
 if __name__ == '__main__':
-    test_MosaicSelfRef()
-    # test_MosaicToRef_hst_me()
-    # import pickle
-    # import matplotlib.pyplot as plt
-    # with open(f'{test_data_path}/my_gaia.pkl', 'rb') as f:
-    #     my_gaia = pickle.load(f)
-    # with open(f'{test_data_path}/list_of_starlists.pkl', 'rb') as f:
-    #     list_of_starlists = pickle.load(f)
-    # ra_deg, dec_deg = 18.0, -30.0
-    # my_gaia.remove_column('motion_model_used')
-    # msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=3,
-    #                     dr_tol=[0.2, 0.1, 0.08], dm_tol=[5,5,5],
-    #                     outlier_tol=[None, None, 3], mag_lim=[6, 20],
-    #                     trans_class=transforms.PolyTransform,
-    #                     trans_args=[{'order': 1}, {'order': 1}, {'order': 1}], 
-    #                     motion_models=['Empty','Fixed','Linear','Parallax'],
-    #                     fixed_params_dict = {'ra':ra_deg, 'dec':dec_deg, 'pa':0.0, 'obsLocation':'earth'},
-    #                     use_ref_new=True,
-    #                     update_ref_orig=False, 
-    #                     mag_trans=True,
-    #                     trans_weighting='both,std',
-    #                     init_guess_mode='name', verbose=3)
-    # msc.fit()
-    # for i in range(msc.ref_table['x'].shape[1]):
-    #     plt.scatter(msc.ref_table['x'][:, i], msc.ref_table['y'][:, i])
-    # plt.show()
+    import pickle
+    import matplotlib.pyplot as plt
+    with open(f'{test_data_path}/my_gaia.pkl', 'rb') as f:
+        my_gaia = pickle.load(f)
+    with open(f'{test_data_path}/list_of_starlists.pkl', 'rb') as f:
+        list_of_starlists = pickle.load(f)
+    ra_deg, dec_deg = 18.0, -30.0
+    my_gaia.remove_column('motion_model_used')
+    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=3,
+                        dr_tol=[0.2, 0.1, 0.08], dm_tol=[5,5,5],
+                        outlier_tol=[None, None, 3], mag_lim=[6, 20],
+                        trans_class=transforms.PolyTransform,
+                        trans_args=[{'order': 1}, {'order': 1}, {'order': 1}], 
+                        motion_models=['Empty','Fixed','Linear','Parallax'],
+                        fixed_params_dict = {'ra':ra_deg, 'dec':dec_deg, 'pa':0.0, 'obsLocation':'earth'},
+                        use_ref_new=True,
+                        update_ref_orig=False, 
+                        mag_trans=True,
+                        trans_weighting='both,std',
+                        init_guess_mode='name', verbose=3)
+    msc.fit()
+    for i in range(msc.ref_table['x'].shape[1]):
+        plt.scatter(msc.ref_table['x'][:, i], msc.ref_table['y'][:, i])
+    plt.show()
