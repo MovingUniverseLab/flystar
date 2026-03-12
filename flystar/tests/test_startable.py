@@ -7,15 +7,16 @@ import numpy as np
 import pytest
 import os
 import pdb
+import flystar
 
-test_dir = os.path.dirname(__file__) + '/'
+test_data_path = f'{flystar.__path__[0]}/tests/test_data'
 
 def test_StarTable_init1():
     """
     Test creation of new StarTable.
     """
     # User input
-    cat_file = test_dir + 'test_data/test_catalog.fits'
+    cat_file = f'{test_data_path}/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)
@@ -267,7 +268,7 @@ def test_get_starlist():
 
 def test_combine_1col():
     # User input
-    cat_file = test_dir + 'test_data/test_catalog.fits'
+    cat_file = f'{test_data_path}/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)
@@ -437,7 +438,7 @@ def test_fit_motion_model_2epoch():
 
 def make_star_table():
     # User input
-    cat_file = test_dir + 'test_data/test_catalog.fits'
+    cat_file = f'{test_data_path}/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)
@@ -472,7 +473,7 @@ def make_star_table():
 
 def make_star_table_1epoch():
     # User input
-    cat_file = test_dir + 'test_data/test_catalog.fits'
+    cat_file = f'{test_data_path}/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)
@@ -501,7 +502,7 @@ def make_star_table_1epoch():
 
 def make_star_table_2epoch():
     # User input
-    cat_file = test_dir + 'test_data/test_catalog.fits'
+    cat_file = f'{test_data_path}/test_catalog.fits'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file)

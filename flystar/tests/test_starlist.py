@@ -1,13 +1,14 @@
 from astropy.table import Table
 from flystar.starlists import StarList
 import os,  pdb
+import flystar
 
-test_dir = os.path.dirname(__file__) + '/'
+test_data_path = f'{flystar.__path__[0]}/tests/test_data'
 
 
 def make_star_list():
     # User input
-    cat_file = test_dir + 'test_data/A.lis'
+    cat_file = f'{test_data_path}/A.lis'
 
     # Read and arrange the test input
     cat_tab = Table.read(cat_file, format='ascii', delimiter=r'\s')
@@ -25,7 +26,7 @@ def make_star_list():
     # Name is a unique name for each star and is a 1D array.
     
     starlist_time = 2011.1
-    starlist_name = 'test_data/A.lis'
+    starlist_name = f'{test_data_path}/A.lis'
 
     # Generate the starlist
     starlist = StarList(name=name_in, x=x_in, y=y_in, m=m_in, xe=xe_in,

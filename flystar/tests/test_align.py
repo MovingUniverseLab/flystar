@@ -492,8 +492,8 @@ def test_MosaicToRef_hst_me():
     my_gaia['me'] = 0.01
 
     my_gaia.rename_columns(
-        ['x0e', 'y0e'],
-        ['x0_err', 'y0_err']
+        ['x0e', 'y0e', 'vxe', 'vye'],
+        ['x0_err', 'y0_err', 'vx_err', 'vy_err']
     )
     # Gather the list of starlists. For first pass, don't modify the starlists.
     # Loop through the observations and read them in, in prep for alignment with Gaia
@@ -825,7 +825,7 @@ def test_MosaicToRef_mag_bug():
     """
     make_fake_starlists_poly1_vel()
 
-    ref_list = starlists.StarList.read('test_data/random_vel_0.fits')
+    ref_list = starlists.StarList.read(f'{test_data_path}/random_vel_0.fits')
     lists = [ref_list]
 
     msc = align.MosaicToRef(ref_list, lists,
@@ -1078,7 +1078,7 @@ def make_fake_starlists_poly0_vel(seed=-1):
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('test_data/random_vel_ref.fits', overwrite=True)
+    lis.write(f'{test_data_path}/random_vel_ref.fits', overwrite=True)
 
     ##########
     # Propogate to new times and distort.
