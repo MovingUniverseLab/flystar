@@ -675,6 +675,7 @@ class StarTable(Table):
         xe_data = np.ma.masked_invalid(self['xe'].data, copy=True) if 'xe' in self.colnames else np.ones_like(x_data)
         ye_data = np.ma.masked_invalid(self['ye'].data, copy=True) if 'ye' in self.colnames else np.ones_like(y_data)
 
+        # Ensure data is 2D for consistent indexing, even if we have only one list/epoch (shape (N_stars, 1) instead of (N_stars,))
         if np.ndim(x_data) == 1:
             x_data = x_data[:, np.newaxis]
         if np.ndim(y_data) == 1:
@@ -736,16 +737,16 @@ class StarTable(Table):
 
 
         # Calculate mask array
-        xy_mask = (~x_data.mask) & (~y_data.mask)
+        xy_mask = ~ (x_data.mask | y_data.mask)
         self['n_fit'] = xy_mask.sum(axis=1)
 
         # Convert to lists of arrays for faster access during fitting
-        t_stars = [np.array(t_data[i][xy_mask[i]]) for i in range(N_stars)]
-        x_stars = [np.array(x_data[i][xy_mask[i]]) for i in range(N_stars)]
-        y_stars = [np.array(y_data[i][xy_mask[i]]) for i in range(N_stars)]
-        xe_stars = [np.array(xe_data[i][xy_mask[i]]) if xe_data is not None else None for i in range(N_stars)]
-        ye_stars = [np.array(ye_data[i][xy_mask[i]]) if ye_data is not None else None for i in range(N_stars)]
-
+        idx = [np.flatnonzero(xy_mask[i]) for i in range(N_stars)]
+        t_stars = [np.array(t_data[i][idx[i]]) for i in range(N_stars)]
+        x_stars = [np.array(x_data[i][idx[i]]) for i in range(N_stars)]
+        y_stars = [np.array(y_data[i][idx[i]]) for i in range(N_stars)]
+        xe_stars = [np.array(xe_data[i][idx[i]]) for i in range(N_stars)] if xe_data is not None else [None]*N_stars
+        ye_stars = [np.array(ye_data[i][idx[i]]) for i in range(N_stars)] if ye_data is not None else [None]*N_stars
 
         ###########################
         ####### Determine MM ######
