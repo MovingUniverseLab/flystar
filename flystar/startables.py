@@ -738,7 +738,11 @@ class StarTable(Table):
 
         # Calculate mask array
         xy_mask = ~ (x_data.mask | y_data.mask)
-        self['n_fit'] = xy_mask.sum(axis=1)
+        # Calculate n_fit: unique times & unmasked x y values
+        self['n_fit'] = np.array([
+            len(set(t_data[i][xy_mask[i]]))
+            for i in range(N_stars)
+        ])
 
         # Convert to lists of arrays for faster access during fitting
         idx = [np.flatnonzero(xy_mask[i]) for i in range(N_stars)]
