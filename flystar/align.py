@@ -361,7 +361,7 @@ class MosaicSelfRef(object):
             # This updates trans objects and the ref_table.
             self.match_and_transform(self.mag_lim[self.ref_index],
                                      self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
-                                     self.trans_args[nn])
+                                     self.trans_args[nn], nn)
 
             # Clean up the reference table
             # Find where stars are detected.
@@ -438,7 +438,7 @@ class MosaicSelfRef(object):
                 pickle.dump(self, file)
         return
 
-    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args):
+    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None):
         """
         Given some reference list of positions, loop through all the starlists
         transform and match them.
@@ -449,6 +449,8 @@ class MosaicSelfRef(object):
                 msg2 = '      {0:8s} < {1:0.3f}'
                 print(" ")
                 print("   **********")
+                if nn is not None:
+                    print(f"   Iteration {nn+1} / {self.iters}")
                 print(msg.format((ii + 1), len(self.star_lists), len(self.star_lists[ii])))
                 print(msg2.format('dr', dr_tol))
                 print(msg2.format('|dm|', dm_tol))
@@ -1947,7 +1949,7 @@ class MosaicToRef(MosaicSelfRef):
             # This updates trans objects and the ref_table.
             self.match_and_transform(self.ref_mag_lim,
                                      self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
-                                     self.trans_args[nn])
+                                     self.trans_args[nn], nn)
 
             # Clean up the reference table
             # Find where stars are detected.
