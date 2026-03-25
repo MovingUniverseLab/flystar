@@ -3351,7 +3351,7 @@ def trans_initial_guess(
     assert len(x1m) >= n_req_match, \
         f'Failed to find more than {n_req_match} (only {len(x1m)}) matches, giving up.'
     if verbose > 1:
-        print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
+        print('Initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
     # Calculate position transformation based on matches
     if ('order' in trans_args) and (trans_args['order'] == 0):
@@ -3370,7 +3370,10 @@ def trans_initial_guess(
         trans.mag_offset = 0
 
     if verbose > 1:
-        print('init guess: ', trans.px.parameters, trans.py.parameters)
+        print('Initial guess:')
+        print(f'{trans.px.parameters=}')
+        print(f'{trans.py.parameters=}')
+        print(f'{trans.mag_offset=}')
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
 
