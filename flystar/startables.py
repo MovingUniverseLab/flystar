@@ -672,8 +672,19 @@ class StarTable(Table):
         N_stars = len(self)
         x_data = np.ma.masked_invalid(self['x'].data, copy=True)
         y_data = np.ma.masked_invalid(self['y'].data, copy=True)
-        xe_data = np.ma.masked_invalid(self['xe'].data, copy=True) if 'xe' in self.colnames else np.ones_like(x_data)
-        ye_data = np.ma.masked_invalid(self['ye'].data, copy=True) if 'ye' in self.colnames else np.ones_like(y_data)
+        xe_data = np.ma.masked_invalid(self['xe'].data, copy=True) if 'xe' in self.colnames else None
+        ye_data = np.ma.masked_invalid(self['ye'].data, copy=True) if 'ye' in self.colnames else None
+        # Mask out close to 0 values
+        if xe_data is not None:
+            xe_data.mask[np.isclose(xe_data, 0)] = True
+        if ye_data is not None:
+            ye_data.mask[np.isclose(ye_data, 0)] = True
+
+        # If all of xe and ye is masked for a star, effectively no uncertainties provided, fill with 1.
+        if (xe_data is not None) and (ye_data is not None):
+            fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
+            xe_data[fill_with_one] = 1.
+            ye_data[fill_with_one] = 1.
 
         # Ensure data is 2D for consistent indexing, even if we have only one list/epoch (shape (N_stars, 1) instead of (N_stars,))
         if np.ndim(x_data) == 1:
@@ -701,10 +712,10 @@ class StarTable(Table):
 
         # Add default t0 if not provided in fixed_params_dict
         if fixed_params_dict is None:
-            weights = 1/np.hypot(xe_data, ye_data) if xe_data is not None else None
+            weights = 1/np.hypot(xe_data, ye_data) if (xe_data is not None) and (ye_data is not None) else None
             fixed_params_dict = {'t0': np.average(t_data, axis=1, weights=weights)}
         elif 't0' not in fixed_params_dict:
-            weights = 1/np.hypot(xe_data, ye_data) if xe_data is not None else None
+            weights = 1/np.hypot(xe_data, ye_data) if (xe_data is not None) and (ye_data is not None) else None
             fixed_params_dict['t0'] = np.average(t_data, axis=1, weights=weights)
         else:
             if np.ndim(fixed_params_dict['t0']) == 0:
@@ -738,6 +749,8 @@ class StarTable(Table):
 
         # Calculate mask array
         xy_mask = ~ (x_data.mask | y_data.mask)
+        if (xe_data is not None) and (ye_data is not None):
+            xy_mask = xy_mask & (~ (xe_data.mask | ye_data.mask))
         # Calculate n_fit: unique times & unmasked x y values
         self['n_fit'] = np.array([
             len(set(t_data[i][xy_mask[i]]))
