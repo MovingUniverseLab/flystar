@@ -645,18 +645,18 @@ class StarList(Table):
             if error==True:
                 t_ref.rename_column(cols[5], 'xe')
                 t_ref.rename_column(cols[6], 'ye')
-                t_ref.rename_column(cols[7], 'me')
+                t_ref.rename_column(cols[7], 'snr')
                 t_ref.rename_column(cols[8], 'corr')
                 t_ref.rename_column(cols[9], 'N_frames')
                 t_ref.rename_column(cols[10], 'flux')
             else:
-                t_ref.rename_column(cols[5], 'me')
+                t_ref.rename_column(cols[5], 'snr')
                 t_ref.rename_column(cols[6], 'corr')
                 t_ref.rename_column(cols[7], 'N_frames')
                 t_ref.rename_column(cols[8], 'flux')
 
-        # if ('me' not in cols) and ('snr' in cols) and (error == True):
-        #     t_ref['me'] = 1.0 / t_ref['snr']
+        if ('me' not in cols) and ('snr' in cols) and (error == True):
+            t_ref['me'] = 1.0 / t_ref['snr']
 
         if fvu_file is not None:
             t_fvu = Table.read(fvu_file, format='ascii.no_header')
