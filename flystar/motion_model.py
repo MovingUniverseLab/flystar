@@ -137,7 +137,7 @@ class MotionModel(ABC):
             Seed for the random number generator, by default None
         Returns
         -------
-        params, params_err(, chi2_x, chi2_y)
+        params, param_errs(, chi2_x, chi2_y)
             Parameters, uncertainties, and chi squares if return_chi2 is True. The corresponding parameter names are in self.fit_param_names.
         """
         assert np.ndim(t) == np.ndim(x) == np.ndim(y) == np.ndim(xe) == np.ndim(ye) == 1, "Input arrays must be 1D! Motion model can only fit individual stars"
