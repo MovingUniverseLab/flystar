@@ -1,13 +1,13 @@
+import os
+import pdb
+import pytest
+import flystar
+import numpy as np
 from astropy.table import Table
 from astropy import table
 from flystar import motion_model
 from flystar.startables import StarTable
 from flystar.starlists import StarList
-import numpy as np
-import pytest
-import os
-import pdb
-import flystar
 
 test_data_path = f'{flystar.__path__[0]}/tests/test_data'
 
