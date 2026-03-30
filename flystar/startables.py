@@ -549,8 +549,7 @@ class StarTable(Table):
             verbose=True,
             mask_value=None,
             mask_lists=None,
-            fill_value=np.nan,
-            show_progress=True
+            fill_value=np.nan
     ):
         """Fit velocity for star table
 
@@ -591,8 +590,6 @@ class StarTable(Table):
             Indices of lists to mask/exclude from fitting, by default None
         fill_value : float, optional
             Fill value when there is not enough data points to fit, by default np.nan
-        show_progress : bool, optional
-            Show progress bar or not, by default True
 
         Raises
         ------
@@ -681,6 +678,7 @@ class StarTable(Table):
             ye_data.mask[np.isclose(ye_data, 0)] = True
 
         # If all of xe and ye is masked for a star, effectively no uncertainties provided, fill with 1.
+        # Note that this automatically turn the mask to False for these stars
         if (xe_data is not None) and (ye_data is not None):
             fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
             xe_data[fill_with_one] = 1.
@@ -751,19 +749,18 @@ class StarTable(Table):
         xy_mask = ~ (x_data.mask | y_data.mask)
         if (xe_data is not None) and (ye_data is not None):
             xy_mask = xy_mask & (~ (xe_data.mask | ye_data.mask))
+
+        # Calculate n_fit: unmasked x y values
+        # This will be used to determine which motion model to use for each star. 
+        # Note that we don't require unique times here
+        # as scipy.curve_fit and Linear algebra can fit non-unique times.
+        # self['n_fit'] = np.sum(xy_mask, axis=1)
+
         # Calculate n_fit: unique times & unmasked x y values
         self['n_fit'] = np.array([
             len(set(t_data[i][xy_mask[i]]))
             for i in range(N_stars)
         ])
-
-        # Convert to lists of arrays for faster access during fitting
-        idx = [np.flatnonzero(xy_mask[i]) for i in range(N_stars)]
-        t_stars = [np.array(t_data[i][idx[i]]) for i in range(N_stars)]
-        x_stars = [np.array(x_data[i][idx[i]]) for i in range(N_stars)]
-        y_stars = [np.array(y_data[i][idx[i]]) for i in range(N_stars)]
-        xe_stars = [np.array(xe_data[i][idx[i]]) for i in range(N_stars)] if xe_data is not None else [None]*N_stars
-        ye_stars = [np.array(ye_data[i][idx[i]]) for i in range(N_stars)] if ye_data is not None else [None]*N_stars
 
         ###########################
         ####### Determine MM ######
@@ -785,6 +782,7 @@ class StarTable(Table):
             self['motion_model_used'][reassign_mm] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
 
         else:
+            # If motion_model_input column is not provided, use the most complicated model in motion_models with n_fit >= n_params.
             mm_digitized = np.digitize(
                 x=n_fit,
                 bins=mm_n_params
@@ -874,8 +872,10 @@ class StarTable(Table):
         else:
             indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
 
+        # Unmasked indices for each star:
+        unmasked_idx = [np.flatnonzero(xy_mask[i]) for i in range(N_stars)]
 
-        # Expensive for loop! Prepare everything beforehand to speed up.
+        # For each motion model
         for unique_motion_model, unique_index in indices_by_motion_model.items():
             # Create motion model instance
             motion_model_instance = input_mm_map[unique_motion_model]()
@@ -889,16 +889,24 @@ class StarTable(Table):
             chi2_x_array = np.full(n_stars_this_model, np.nan, dtype=float)
             chi2_y_array = np.full(n_stars_this_model, np.nan, dtype=float)
 
+            # Prepare data as lists of arrays for faster access during fitting
+            t_stars = [np.array(t_data[i][unmasked_idx[i]]) for i in unique_index]
+            x_stars = [np.array(x_data[i][unmasked_idx[i]]) for i in unique_index]
+            y_stars = [np.array(y_data[i][unmasked_idx[i]]) for i in unique_index]
+            xe_stars = [np.array(xe_data[i][unmasked_idx[i]]) for i in unique_index] if xe_data is not None else [None]*n_stars_this_model
+            ye_stars = [np.array(ye_data[i][unmasked_idx[i]]) for i in unique_index] if ye_data is not None else [None]*n_stars_this_model
+
+            # For each star
             # Expensive for loop! Prepare everything beforehand to speed up.
             if len(unique_index) > 0:
-                for idx, i_star in enumerate(tqdm(unique_index, disable=not show_progress, desc=f"Fitting motion model {unique_motion_model}")):
+                for idx, i_star in enumerate(tqdm(unique_index, disable=not verbose, desc=f"Fitting motion model {unique_motion_model}")):
                     # Fit the star
                     params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
-                        t=t_stars[i_star],
-                        x=x_stars[i_star],
-                        y=y_stars[i_star],
-                        xe=xe_stars[i_star],
-                        ye=ye_stars[i_star],
+                        t=t_stars[idx],
+                        x=x_stars[idx],
+                        y=y_stars[idx],
+                        xe=xe_stars[idx],
+                        ye=ye_stars[idx],
                         fixed_params_dict=fixed_params_stars[i_star],
                         weighting=weighting,
                         use_scipy=use_scipy,
