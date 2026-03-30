@@ -255,10 +255,10 @@ class MosaicSelfRef(object):
             self.motion_model_for_new_star = all_mm_map[motion_model_for_new_star]
 
         # For backwards compatibility.
-        if self.verbose is True:
-            self.verbose = 9
-        if self.verbose is False:
-            self.verbose = 0
+        # if self.verbose is True:
+        #     self.verbose = 9
+        # if self.verbose is False:
+        #     self.verbose = 0
 
         self.N_lists = len(self.star_lists)
 
@@ -369,7 +369,8 @@ class MosaicSelfRef(object):
 
             ### Drop all stars that have 0 detections.
             idx = np.where((self.ref_table['n_detect'] == 0))[0]
-            print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+            if self.verbose:
+                print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
             if self.iter_callback != None:
@@ -406,7 +407,8 @@ class MosaicSelfRef(object):
 
         ### Drop all stars that have 0 detections.
         idx = np.where((self.ref_table['n_detect'] == 0))[0]
-        print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+        if self.verbose:
+            print(f'  *** Getting rid of {len(idx):d} out of {len(self.ref_table):d} junk sources')
         self.ref_table.remove_rows(idx)
 
         if self.iter_callback != None:
@@ -436,6 +438,9 @@ class MosaicSelfRef(object):
         if self.save_path:
             with open(self.save_path, 'wb') as file:
                 pickle.dump(self, file)
+        print('================================')
+        print(f'Done with fit()')
+        print('================================')
         return
 
     def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None):
@@ -954,13 +959,13 @@ class MosaicSelfRef(object):
             fit_star_idxs = None
 
         if ('motion_model_input' in self.ref_table.keys()) and np.all(self.ref_table['motion_model_input']=='Fixed'):
-            self.ref_table.fit_motion_model(
-                motion_models=['Fixed'],
-                weighting=self.vel_weighting,
-                use_scipy=self.use_scipy,
-                absolute_sigma=self.absolute_sigma,
-                verbose=self.verbose
-            )
+            # self.ref_table.fit_motion_model(
+            #     motion_models=['Fixed'],
+            #     weighting=self.vel_weighting,
+            #     use_scipy=self.use_scipy,
+            #     absolute_sigma=self.absolute_sigma,
+            #     verbose=self.verbose
+            # )
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
@@ -1219,7 +1224,7 @@ class MosaicSelfRef(object):
 
         return
 
-    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True, update_errors=False):
+    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, update_errors=False, verbose=True):
         """
         Function to calculate bootstrap errors for the transformations as well
         as the proper motions. For each iteration, this will:
@@ -1260,15 +1265,11 @@ class MosaicSelfRef(object):
            to calculate positional alignment errors. If false, only
            calculate position alignment errors.
 
-        weighting: str
-            'var' or 'std' weighting for velocity fitting, by default 'var'. If 'var', use the variance of the residuals to weight the fit.
-            If 'std', use the standard deviation of the residuals to weight the fit.
-
-        absolute_sigma: boolean
-            If True, use the absolute sigma in the velocity fitting. If False, use the relative sigma, by default False.
-
         update_errors: boolean
             If True, save the starlist errors as xe_list, bootstrap errors as xe_boot, and their quad sum as xe (and likewise for ye and me). If False (default), leave the starlist errors in place as xe and bootstrap errors as xe_boot.
+
+        verbose: boolean
+            Print verbose information or not, by default True
 
         Output:
         ------
@@ -1283,7 +1284,7 @@ class MosaicSelfRef(object):
         For stars that fail boot_epochs_min criteria, np.nan is used
         """
         # First, assert than n_boot > 0
-        assert n_boot > 0
+        assert n_boot > 0, f'{n_boot=} is not possive!'
 
         ref_table = copy.deepcopy(self.ref_table)
         n_epochs = len(ref_table['x'][0])
@@ -1337,7 +1338,7 @@ class MosaicSelfRef(object):
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
         ### DECREASE PRECISION ON ARRAYS (32 bit instead of 64: dtype=np.float32)
         ### AT SOME POINT, NEED TO CONVERT BACK (LOOK UP HOW TO DO THIS CAREFULLY)
-        for ii in tqdm(range(n_boot), desc='Bootstrap iterations', disable=not show_progress):
+        for ii in tqdm(range(n_boot), desc='Bootstrap iterations', disable=not verbose):
             # Recalculate transformations using bootstrap sample of
             # reference stars. Use a loop for each epoch here, so we
             # can handle case where different reference stars are used
@@ -1448,7 +1449,7 @@ class MosaicSelfRef(object):
                 m_boot_sum += m_trans_arr
                 m2_boot_sum += m_trans_arr**2
 
-            t2 = time.time()
+            # t2 = time.time()
             #print('=================================================')
             #print('Time to do {0} epochs: {1}s'.format(n_epochs,  t2-t1))
             #print('=================================================')
@@ -1486,7 +1487,8 @@ class MosaicSelfRef(object):
                     fixed_params_dict=fixed_params_dict,
                     weighting=self.vel_weighting,
                     use_scipy=self.use_scipy,
-                    absolute_sigma=self.absolute_sigma
+                    absolute_sigma=self.absolute_sigma,
+                    verbose=self.verbose
                 )
 
                 # Save proper motion fit results to output arrays
@@ -1549,6 +1551,10 @@ class MosaicSelfRef(object):
 
 
         x_pred, y_pred, _, _ = self.ref_table.infer_positions(t_arr, fixed_params_dict=self.fixed_params_dict)
+        if np.ndim(x_pred) == 1:
+            x_pred = x_pred[:, np.newaxis]
+        if np.ndim(y_pred) == 1:
+            y_pred = y_pred[:, np.newaxis]
         xe_comb = np.hypot(self.ref_table['xe'], self.ref_table['xe_boot'])
         ye_comb = np.hypot(self.ref_table['ye'], self.ref_table['ye_boot'])
         data_dict['chi2_x_boot'] = np.nansum((self.ref_table['x']-x_pred)**2/(xe_comb)**2,axis=1)
@@ -1571,9 +1577,10 @@ class MosaicSelfRef(object):
                 col[idx_good] = data_dict[ff]
                 self.ref_table.add_column(col)
 
-        print('===============================')
-        print('Done with bootstrap')
-        print('===============================')
+        if verbose:
+            print('===============================')
+            print('Done with bootstrap')
+            print('===============================')
 
         if update_errors:
             self.ref_table['xe_list'] = self.ref_table['xe']
@@ -1990,14 +1997,14 @@ class MosaicToRef(MosaicSelfRef):
         ##########
         # Find where stars are detected.
         if self.verbose > 0:
-            print('')
             print('   Preparing the reference table...')
 
         self.ref_table.detections()
 
         ### Drop all stars that have 0 detections.
         idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
-        print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+        if self.verbose:
+            print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
 
         if self.iter_callback != None:
@@ -2026,6 +2033,9 @@ class MosaicToRef(MosaicSelfRef):
         if self.save_path:
             with open(self.save_path, 'wb') as file:
                 pickle.dump(self, file)
+        print('================================')
+        print(f'Done with fit()')
+        print('================================')
         return
 
 # TODO: This is sometimes run on a startable, not a starlist, at least as currently used
@@ -2158,7 +2168,7 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
     # Check if values are finite for required columns in possible motion models
     motion_model_used = []
 
-    for k in tqdm(range(len(startable)), desc='Determining motion model for each star'):
+    for k in range(len(startable)):
         for mm, req_col_in_table, req_col_in_dict in motion_models_possible[::-1]:
             # If requested column in table/fixed_params dict is numeric, check if values are finite.
             if all(np.isfinite(startable[col][k]) for col in req_col_in_table if np.issubdtype(startable[col].dtype, np.number)) \
