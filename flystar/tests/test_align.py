@@ -114,10 +114,11 @@ def test_MosaicSelfRef_vel_tconst():
     assert 'y0_err' in msc.ref_table.colnames
     assert 'm0' in msc.ref_table.colnames
     assert 'm0_err' in msc.ref_table.colnames
-    assert 'vx' in msc.ref_table.colnames
-    assert 'vx_err' in msc.ref_table.colnames
-    assert 'vy' in msc.ref_table.colnames
-    assert 'vy_err' in msc.ref_table.colnames
+    # Since they are in the same epoch, no velocity information can be inferred
+    # assert 'vx' in msc.ref_table.colnames
+    # assert 'vx_err' in msc.ref_table.colnames
+    # assert 'vy' in msc.ref_table.colnames
+    # assert 'vy_err' in msc.ref_table.colnames
     assert 't0' in msc.ref_table.colnames
 
     # Check that we have some matched stars... should be at least 35 stars
