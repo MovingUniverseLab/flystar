@@ -120,7 +120,7 @@ class MotionModel(ABC):
         weighting : str, optional
             Use standard error weighting ('std': w=1/xe, 1/ye) or variance weighting ('var': w=1/xe**2, 1/ye**2), by default 'var'
         use_scipy : bool, optional
-            Use scipy for optmization. Otherwise, use linear algebraic solution (Linear model only), which is faster for < 300 epochs, by default True
+            Use scipy for optimization. Otherwise, use linear algebraic solution (Linear model only), which is faster for < 300 epochs, by default True
         absolute_sigma : bool, optional
             Absolute sigma. See scipy.optimize.curve_fit for details, by default True
         fill_value : float, optional
@@ -142,6 +142,10 @@ class MotionModel(ABC):
         """
         assert np.ndim(t) == np.ndim(x) == np.ndim(y) == np.ndim(xe) == np.ndim(ye) == 1, "Input arrays must be 1D! Motion model can only fit individual stars"
         assert len(t) == len(x) == len(y) == len(xe) == len(ye), "Input arrays must have the same length!"
+
+        if not verbose:
+            warnings.filterwarnings("ignore", category=OptimizeWarning)
+
         fit_result = self.run_fit(
             t, x, y, xe, ye,
             fixed_params_dict=fixed_params_dict,
@@ -202,6 +206,9 @@ class MotionModel(ABC):
             # Account for odd case
             inf_errs = [np.all(arr==np.inf) for arr in np.transpose(np.array(bb_params_errs))]
             param_errs[inf_errs] = 0.0
+
+        if not verbose:
+            warnings.resetwarnings()
 
         if return_chi2:
             return params, param_errs, chi2_x, chi2_y
@@ -433,11 +440,10 @@ class Fixed(MotionModel):
         degree_of_freedom = n_obs - self.n_params
         # Not enough data points to fit model
         if degree_of_freedom < 0:
-            if verbose:
-                warnings.warn(
-                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
-                    OptimizeWarning, stacklevel=2
-                )
+            warnings.warn(
+                f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                OptimizeWarning, stacklevel=2
+            )
             params = np.full(self.n_params, fill_value)
             param_errors = np.full(self.n_params, np.inf)
             return params, param_errors, np.nan, np.nan
@@ -468,7 +474,7 @@ class Fixed(MotionModel):
             else:
                 # degree_of_freedom == 0, as < 0 case already handled above
                 warnings.warn(
-                    f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value np.inf.',
+                    f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to np.inf.',
                     OptimizeWarning, stacklevel=2
                 )
                 # Set parameter uncertainties to np.inf, same behavior as scipy.optimize.curve_fit
@@ -600,11 +606,10 @@ class Linear(MotionModel):
         degree_of_freedom = n_obs - self.n_params
         # Not enough data points to fit model
         if degree_of_freedom < 0:
-            if verbose:
-                warnings.warn(
-                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
-                    OptimizeWarning, stacklevel=2
-                )
+            warnings.warn(
+                f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                OptimizeWarning, stacklevel=2
+            )
             params = np.full(self.n_params, fill_value)
             param_errors = np.full(self.n_params, np.inf)
             if return_chi2:
@@ -636,18 +641,39 @@ class Linear(MotionModel):
         # Linear algebraic solution
         # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution_scheme
         X_mat_t = np.vander(dt, 2)
+
         # x calculation
         W_mat_x = np.diag(x_wt)
-        XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t
-        pcov_x = np.linalg.inv(XTWX_mat_x)  # Covariance Matrix
+        XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t # Shape (2, 2)
+        pcov_x = np.linalg.pinv(XTWX_mat_x)  # Covariance Matrix
         popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
-        perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
+
+        # Singular matrix (not enough unique times): Fill uncertainty with Inf.
+        if np.linalg.matrix_rank(XTWX_mat_x) < 2:
+            warnings.warn(
+                f'Singular matrix. Covariance of the parameters could not be estimated. Setting parameter uncertainties to np.inf.',
+                OptimizeWarning, stacklevel=2
+            )
+            perr_x = np.full_like(popt_x, np.inf)
+        else:
+            perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
+
         # y calculation
         W_mat_y = np.diag(y_wt)
-        XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t
-        pcov_y = np.linalg.inv(XTWX_mat_y)  # Covariance Matrix
+        XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t # Shape (2, 2)
+        pcov_y = np.linalg.pinv(XTWX_mat_y)  # Covariance Matrix
         popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
-        perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
+
+        # Singular matrix (not enough unique times): Fill uncertainty with Inf.
+        if np.linalg.matrix_rank(XTWX_mat_y) < 2:
+            warnings.warn(
+                f'Singular matrix. Covariance of the parameters could not be estimated. Setting parameter uncertainties to np.inf.',
+                OptimizeWarning, stacklevel=2
+            )
+            perr_y = np.full_like(popt_y, np.inf)
+        else:
+            perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
+
         # prepare values to return
         vx, x0 = popt_x
         vy, y0 = popt_y
@@ -676,7 +702,7 @@ class Linear(MotionModel):
             else:
                 # degree_of_freedom == 0, as < 0 case already handled above
                 warnings.warn(
-                    f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to fill value np.inf.',
+                    f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to np.inf.',
                     OptimizeWarning, stacklevel=2
                 )
                 # Set parameter uncertainties to np.inf, same behavior as scipy.optimize.curve_fit
@@ -816,11 +842,10 @@ class Acceleration(MotionModel):
         degree_of_freedom = n_obs - self.n_params
         # Not enough data points to fit model
         if degree_of_freedom < 0:
-            if verbose:
-                warnings.warn(
-                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
-                    OptimizeWarning, stacklevel=2
-                )
+            warnings.warn(
+                f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                OptimizeWarning, stacklevel=2
+            )
             params = np.full(self.n_params, fill_value)
             param_errors = np.full(self.n_params, np.inf)
             if return_chi2:
@@ -1054,11 +1079,10 @@ class Parallax(MotionModel):
         degree_of_freedom = n_fit - self.n_params
         # Not enough data points to fit model
         if degree_of_freedom < 0:
-            if verbose:
-                warnings.warn(
-                    f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
-                    OptimizeWarning, stacklevel=2
-                )
+            warnings.warn(
+                f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                OptimizeWarning, stacklevel=2
+            )
             params = np.full(self.n_params, fill_value)
             param_errors = np.full(self.n_params, np.inf)
             if return_chi2:
