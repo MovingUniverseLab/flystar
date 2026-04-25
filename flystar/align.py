@@ -233,6 +233,11 @@ class MosaicSelfRef(object):
         self.prefix_name = prefix_name
         self.verbose = verbose
 
+        # Check x and y are 1d
+        for ii in range(len(self.star_lists)):
+            if self.star_lists[ii]['x'].ndim != 1 or self.star_lists[ii]['y'].ndim != 1:
+                raise ValueError(f"StarList at index {ii} has x and y that are not 1D. x.ndim={self.star_lists[ii]['x'].ndim}, y.ndim={self.star_lists[ii]['y'].ndim}. Please flatten these columns to be 1D.")
+
         if outlier_tol is None:
             self.outlier_tol = [None] * self.iters
         else:
@@ -735,12 +740,13 @@ class MosaicSelfRef(object):
             else:
                 new_col_name = col_name
 
-            # Make every column's 2D arrays except "name" and those
+            # Make every column's 2D arrays per star except "name" and those
             # columns used for the motion model.
             if col_name in motion_model_col_names:
                 col_arrays[new_col_name] = star_list[col_name].data
             else:
-                new_col_data = np.array([star_list[col_name].data]).T
+                new_col_data = star_list[col_name].data[:, None]
+                # new_col_data = np.array([star_list[col_name].data]).T
                 col_arrays[new_col_name] = new_col_data
 
         # Use the columns from the ref list to make the ref_table.
@@ -1604,8 +1610,8 @@ class MosaicSelfRef(object):
             y_pred = y_pred[:, np.newaxis]
         xe_comb = np.hypot(self.ref_table['xe'], self.ref_table['xe_boot'])
         ye_comb = np.hypot(self.ref_table['ye'], self.ref_table['ye_boot'])
-        data_dict['chi2_x_boot'] = np.nansum((self.ref_table['x']-x_pred)**2/(xe_comb)**2,axis=1)
-        data_dict['chi2_y_boot'] = np.nansum((self.ref_table['y']-y_pred)**2/(ye_comb)**2,axis=1)
+        data_dict['chi2_x_boot'] = np.nansum((self.ref_table['x'] - x_pred)**2 / xe_comb**2, axis=1)
+        data_dict['chi2_y_boot'] = np.nansum((self.ref_table['y'] - y_pred)**2 / ye_comb**2, axis=1)
         for ff in ['chi2_x_boot', 'chi2_y_boot']:
             col = Column(np.ones(len(self.ref_table)), name=ff)
             col.fill(np.nan)

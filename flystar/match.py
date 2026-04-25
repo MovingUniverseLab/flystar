@@ -38,10 +38,11 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     nin2 = len(xin2)
 
     if (nin1 < Nbrite) or (nin2 < Nbrite):
-        print(( 'You need at least {0} to '.format(Nbrite)))
-        print( 'find the matches...')
-        print(( 'NIN1: ', nin1))
-        print(( 'NIN2: ', nin2))
+        print(f'WARNING: You need at least {Nbrite} to find the matches...')
+        print(f'NIN1: {nin1}')
+        print(f'NIN2: {nin2}')
+        # Nbrite = min(nin1, nin2)
+        # print(f'Updating Nbrite to {Nbrite}...')
         return (0, None, None, None, None, None, None)
 
     # Take the Nbrite brightest stars from each list and order by brightness.

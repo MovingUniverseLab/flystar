@@ -1,20 +1,20 @@
-from . import motion_model, startables
-import numpy as np
-import matplotlib.mlab as mlab
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib import colors
-import matplotlib.cm as cm
-from scipy.stats import chi2
-from scipy.optimize import curve_fit
-from scipy.stats import norm
 import pdb
 import math
 import astropy
-from astropy.table import Table
+import matplotlib
+import numpy as np
+import matplotlib.mlab as mlab
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from matplotlib import cm
+from scipy.stats import chi2
+from scipy.stats import norm
+from scipy.optimize import curve_fit
 from astropy.io import ascii
-from astropy.coordinates import SkyCoord
 from astropy import units as u
+from astropy.table import Table
+from astropy.coordinates import SkyCoord
+from . import motion_model, startables
 
 ####################################################
 # Code for making diagnostic plots for astrometry
@@ -39,7 +39,7 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None,
         transformation. Standard column headers are assumed.
 
     starlist: astropy table
-        Transformed starist with the reference starlist coordinates.
+        Transformed starlist with the reference starlist coordinates.
         Standard column headers are assumed
 
     starlist_mat: astropy table
@@ -1964,13 +1964,13 @@ def plot_quiver_residuals_magcolor(x_t, y_t, x_ref, y_ref, mag, good_idx, ref_id
         quiv_label_val = 1.0
         unit2 = 'mas'
 
-        norm = matplotlib.colors.Normalize()
+        norm = mcolors.Normalize()
         norm.autoscale(mag)
-        cm = matplotlib.cm.viridis
-        sm = matplotlib.cm.ScalarMappable(cmap=cm, norm=norm)
+        cmap = matplotlib.colormaps['viridis']
+        sm = matplotlib.cm.ScalarMappable(cmap=cmap, norm=norm)
 
 #         cmap = mpl.cm.cool
-#         norm = mpl.colors.Normalize(vmin=np.min(mag), vmax=np.max(mag))
+#         norm = mpl.mcolors.Normalize(vmin=np.min(mag), vmax=np.max(mag))
 #
 #         cb1 = mpl.colorbar.ColorbarBase(ax, cmap=cmap,
 #                                         norm=norm,
@@ -2945,7 +2945,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
             plt.errorbar(rs(time), rs(x), yerr=rs(xerr), fmt='k.')
             #plt.errorbar(time, x, yerr=xerr, fmt='k.')
         else:
-            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, x, xerr, time_color):
@@ -2977,7 +2977,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         if not color_time:
             plt.errorbar(rs(time), rs(y), yerr=rs(yerr), fmt='k.')
         else:
-            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, y, yerr, time_color):
@@ -3007,7 +3007,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         if not color_time:
             plt.errorbar(rs(time), rs(m), yerr=rs(merr), fmt='k.')
         else:
-            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, m, merr, time_color):
@@ -3039,7 +3039,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         if not color_time:
             plt.errorbar(rs(time), rs(x - fitLineX)*1e3, yerr=rs(xerr)*1e3, fmt='k.')
         else:
-            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, (x - fitLineX)*1e3, xerr*1e3, time_color):
@@ -3067,7 +3067,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         if not color_time:
             plt.errorbar(rs(time), rs(y - fitLineY)*1e3, yerr=rs(yerr)*1e3, fmt='k.')
         else:
-            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, (y - fitLineY)*1e3, yerr*1e3, time_color):
@@ -3095,7 +3095,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         if not color_time:
             plt.errorbar(rs(time), rs(m - fitLineM), yerr=rs(merr), fmt='k.')
         else:
-            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, ee, color in zip(time, (m - fitLineM), merr, time_color):
@@ -3126,7 +3126,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
             sc = plt.scatter(x, y, s=0, c=dtime, vmin=0, vmax=1, cmap='hsv')
             clb = plt.colorbar(sc)
             clb.ax.tick_params(labelsize=fontsize1)
-            norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+            norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
             mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
             time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
             for xx, yy, eexx, eeyy, color in zip(x, y, xerr, yerr, time_color):
@@ -3368,7 +3368,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             if not color_time:
                 plt.errorbar(rs(time), rs(x), yerr=rs(xerr), marker='.', color=color, ls='none')
             else:
-                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
                 time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
                 for xx, yy, ee, color in zip(time, x, xerr, time_color):
@@ -3400,7 +3400,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             if not color_time:
                 plt.errorbar(rs(time), rs(y), yerr=rs(yerr), marker='.', color=color, ls='none')
             else:
-                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
                 time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
                 for xx, yy, ee, color in zip(time, y, yerr, time_color):
@@ -3430,7 +3430,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             if not color_time:
                 plt.errorbar(rs(time), rs(m), yerr=rs(merr), marker='.', color=color, ls='none')
             else:
-                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
                 time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
                 for xx, yy, ee, color in zip(time, m, merr, time_color):
@@ -3462,7 +3462,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             if not color_time:
                 plt.errorbar(rs(time), rs(x - fitLineX)*1e3, yerr=rs(xerr)*1e3, marker='.', color=color, ls='none')
             else:
-                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
                 time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
                 for xx, yy, ee, color in zip(time, (x - fitLineX)*1e3, xerr*1e3, time_color):
@@ -3490,7 +3490,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             if not color_time:
                 plt.errorbar(rs(time), rs(y - fitLineY)*1e3, yerr=rs(yerr)*1e3, marker='.', color=color, ls='none')
             else:
-                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
                 time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
                 for xx, yy, ee, color in zip(time, (y - fitLineY)*1e3, yerr*1e3, time_color):
@@ -3518,7 +3518,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             if not color_time:
                 plt.errorbar(rs(time), rs(m - fitLineM), yerr=rs(merr), marker='.', color=color, ls='none')
             else:
-                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
                 time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
                 for xx, yy, ee, color in zip(time, (m - fitLineM), merr, time_color):
@@ -3549,7 +3549,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
                 sc = plt.scatter(x, y, s=0, c=dtime, vmin=0, vmax=1, cmap='hsv')
                 clb = plt.colorbar(sc)
                 clb.ax.tick_params(labelsize=fontsize1)
-                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
                 time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
                 for xx, yy, eexx, eeyy, color in zip(x, y, xerr, yerr, time_color):
@@ -3719,7 +3719,7 @@ def plot_sky(stars_tab,
     yearsInt = np.floor(epochs).astype('int')
 
     # Set up a color scheme
-    cnorm = colors.Normalize(stars_tab['t'][0, :].min(), stars_tab['t'][0, :].max() + 1)
+    cnorm = mcolors.Normalize(stars_tab['t'][0, :].min(), stars_tab['t'][0, :].max() + 1)
     cmap = plt.cm.gist_ncar
 
     colorList = []
@@ -3891,3 +3891,89 @@ class PrintSelected(object):
             self.fig.canvas.draw()
 
         return
+
+
+def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, label='starlist', fig=None, figsize=(600, 600), show=True):
+    """Plot stars with plotly in interactive html format
+
+    Parameters
+    ----------
+    x : array-like
+        x positions
+    y : array-like
+        y positions
+    m : array-like, optional
+        magnitude to be added in hover label, by default None
+    marker_size : int, optional
+        Size of marker, by default 10
+    color : str or array, optional
+        Color of marker, either a string (e.g., 'red') or rgba array, by default 'C0'
+    alpha : float, optional
+        Opacity of marker color, by default 0.7
+    label : str, optional
+        Label for the star list, by default 'starlist'
+    fig : plotly.graph_objects.Figure object, optional
+        Figure if the stars are to be added to an exisiting plot, by default None
+    figsize : tuple, optional
+        Figure size, by default (600, 600)
+    show : bool, optional
+        Show figure or not, by default True
+
+    Returns
+    -------
+    fig : plotly.graph_objects.Figure
+        Figure object
+    """
+    import plotly.graph_objects as go
+    x = np.asarray(x)
+    y = np.asarray(y)
+    hover_template = 'x: %{x:.3f}<br>y: %{y:.3f}'
+        
+
+    if isinstance(color, str) and color.startswith('C') and color[1:].isdigit():
+        color = mcolors.to_rgba(color, alpha=alpha)
+        color = f'rgba({color[0]*255}, {color[1]*255}, {color[2]*255}, {color[3]:.2f})'
+
+    if m is not None:
+        m = np.asarray(m)
+        hover_template += '<br>m: %{customdata:.2f}'
+        fig_data = go.Scatter(
+            x=x,
+            y=y,
+            mode='markers',
+            marker=dict(
+                size=marker_size,
+                color=color
+            ),
+            hovertemplate=hover_template,
+            customdata=m,  # Add magnitude to hover data
+            name=label
+        )
+    else:
+        fig_data = go.Scatter(
+            x=x,
+            y=y,
+            mode='markers',
+            marker=dict(
+                size=marker_size,
+                color=color
+            ),
+            hovertemplate=hover_template,
+            name=label
+        )
+    
+    if fig is None:
+        fig = go.Figure(data=[fig_data])
+    else:
+        fig.add_trace(fig_data)
+    
+    fig.update_layout(
+        xaxis_title='x',
+        yaxis_title='y',
+        xaxis=dict(scaleanchor='y', scaleratio=1),  # Ensure equal aspect ratio
+        width=figsize[0],
+        height=figsize[1]
+    )
+    if show:
+        fig.show()
+    return fig
