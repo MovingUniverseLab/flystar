@@ -1,5 +1,5 @@
 from astropy.table import Table, Column, MaskedColumn, hstack
-from astropy.stats import sigma_clipping
+from astropy.stats import sigma_clip
 from astropy.time import Time
 from scipy.optimize import curve_fit
 from tqdm import tqdm
@@ -13,7 +13,7 @@ from flystar import motion_model
 import pandas as pd
 from flystar.motion_model import Empty, Fixed, Linear
 from pandas.api.types import is_string_dtype
-
+from collections.abc import Iterable
 class StarTable(Table):
     def __init__(self, *args, ref_list=0, **kwargs):
         """
@@ -102,9 +102,9 @@ class StarTable(Table):
             # Check if the type and size of the arguments are correct.
             # Name checking: type and shape
             if (not isinstance(kwargs['name'], np.ndarray)) or (len(kwargs['name']) != n_stars):
-                err_msg = "The '{0:s}' argument has to be a numpy array "
-                err_msg += "with length = {1:d}"
-                raise TypeError(err_msg.format('name', n_stars))
+                err_msg = f"The 'name' argument has to be a numpy array, not {type(kwargs['name'])};"
+                err_msg += f"Its length should be {n_stars}, not {len(kwargs['name'])}."
+                raise TypeError(err_msg)
 
             # Check all the 2D arrays.
             arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'name_in_list')
@@ -112,17 +112,17 @@ class StarTable(Table):
             for arg_test in arg_tab:
                 if arg_test in kwargs:
                     if not isinstance(kwargs[arg_test], np.ndarray):
-                        err_msg = "The '{0:s}' argument has to be a numpy array"
-                        raise TypeError(err_msg.format(arg_test))
+                        err_msg = f"The '{arg_test}' argument has to be a numpy array, not {type(kwargs[arg_test])}"
+                        raise TypeError(err_msg)
 
                     if kwargs[arg_test].shape != (n_stars, n_lists):
-                        err_msg = "The '{0:s}' argument has to have shape = ({1:d}, {2:d})"
-                        raise TypeError(err_msg.format(arg_test, n_stars, n_lists))
+                        err_msg = f"The '{arg_test}' argument has to have shape = ({n_stars}, {n_lists})"
+                        raise TypeError(err_msg)
 
             # Check that the reference list is specified.
             if ref_list not in range(n_lists):
-                err_msg = "The 'ref_list' argument has to be an integer between 0 and {0:d}"
-                raise IndexError(err_msg.format(n_lists-1))
+                err_msg = f"The 'ref_list' argument has to be an integer between 0 and {n_lists-1}"
+                raise IndexError(err_msg)
 
             # We have to have special handling of meta-data (i.e. info that has
             # dimensions of n_lists).
@@ -135,13 +135,12 @@ class StarTable(Table):
 
                 if meta_test in kwargs:
                     if len(kwargs[meta_test]) != n_lists:
-                        err_msg = "The '{0:s}' argument has to have length = {1:d}"
-                        raise ValueError(err_msg.format(meta_test, n_lists))
+                        err_msg = f"The '{meta_test}' argument has to have length = {n_lists}"
+                        raise ValueError(err_msg)
 
                     if not all(isinstance(tt, meta_type_test) for tt in kwargs[meta_test]):
-                        err_msg = "The '{0:s}' argument has to be a list of {1:s}."
-                        raise TypeError(err_msg.format(meta_test, str(meta_type_test)))
-
+                        err_msg = f"The '{meta_test}' argument has to be a list of {str(meta_type_test)}."
+                        raise TypeError(err_msg)
             #####
             # Create the startable
             #####
@@ -238,7 +237,7 @@ class StarTable(Table):
 
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if isinstance(self.meta[tab_key], collections.abc.Iterable) and (len(self.meta[tab_key]) == self.meta['n_lists']) and (not isinstance(self.meta[tab_key], str)):
+            if isinstance(self.meta[tab_key], Iterable) and (len(self.meta[tab_key]) == self.meta['n_lists']) and (not isinstance(self.meta[tab_key], str)):
 
                 # If we find the key in the starlists' meta argument, then add the new values.
                 # Otherwise, add "None".
@@ -295,7 +294,7 @@ class StarTable(Table):
         for key in self.meta.keys():
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
-            if isinstance(self.meta[key], collections.abc.Iterable) and (len(self.meta[key]) == self.meta['n_lists']) and (not isinstance(self.meta[key], str)):
+            if isinstance(self.meta[key], Iterable) and (len(self.meta[key]) == self.meta['n_lists']) and (not isinstance(self.meta[key], str)):
                 # If we find the key is the passed in meta argument, then add the new values.
                 # Otherwise, add "None".
                 if 'meta' in kwargs:
@@ -396,7 +395,7 @@ class StarTable(Table):
         return starlist
 
 
-    def combine_lists_xym(self, weighted_xy=True, weighted_m=True, mask_lists=False, sigma=3):
+    def combine_lists_xym(self, weighted_xy=True, weighted_m=True, mask_lists=None, sigma=3):
         """
         For x, y and m columns in the table, collapse along the lists
         direction. For 'x', 'y' this means calculating the average position with
@@ -427,7 +426,7 @@ class StarTable(Table):
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None,
-                      mask_lists=False, meta_add=True, ismag=False, sigma=3):
+                      mask_lists=None, meta_add=True, ismag=False, sigma=3):
         """
         For the specified column (col_name_in), collapse along the starlists
         direction and calculated the average value, with outlier rejection.
@@ -444,68 +443,71 @@ class StarTable(Table):
         A flag can be stored in the metadata to record if the average was
         weighted or not.
         """
-        # Get the array we are going to combine.  Make a copy so we don't mod it.
-        val_2d = copy.deepcopy( self[col_name_in].data )
+        if mask_lists is not None:
+            # Extract list of indices that we want to keep (i.e. not mask)
+            mask_lists = np.atleast_1d(mask_lists)
+            assert mask_lists.dtype == int, "mask_lists needs to be a list of integers."
+            list_indices = np.array([i for i in np.arange(self[col_name_in].data.shape[1]) if i not in mask_lists])
+        else:
+            # Use all indices
+            list_indices = np.arange(self[col_name_in].data.shape[1])
+
+        val_2d = np.ma.masked_invalid(self[col_name_in].data[:, list_indices])
 
         if ismag:
             # Convert to flux.
-            val_2d = 10**(-val_2d / 2.5)
+            val_2d = 10**(-0.4 * val_2d)
         # Make a mask of invalid (NaN) values and a user-specified invalid value.
-        val_2d = np.ma.masked_invalid(val_2d)
+
         if mask_val:
             val_2d = np.ma.masked_values(val_2d, mask_val)
 
-        if mask_lists is not False:
-            # Remove a list
-            if isinstance(mask_lists, list):
-                if all(isinstance(item, int) for item in mask_lists):
-                    val_2d.mask[:, mask_lists] = True
-
-            # Throw a warning if mask_lists is not a list
-            if not isinstance(mask_lists, list):
-                raise RuntimeError('mask_lists needs to be a list.')
+        # Figure out which ones are outliers. Returns a masked array.
+        if sigma:
+            # with warnings.catch_warnings():
+            #     warnings.filterwarnings('ignore', category=RuntimeWarning)
+            val_2d_clip = sigma_clip(val_2d, sigma=sigma, maxiters=5, axis=1)
+        else:
+            val_2d_clip = val_2d
 
         # Decide if we are going to have weights (before we
         # do the expensive sigma clipping routine). Note that
         # if we have only 1 column to average, then we can't do weighting.
         if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
-            err_2d = self[weights_col].data
+            err_2d = np.ma.masked_invalid(self[weights_col].data[:, list_indices])
 
             if ismag:
                 # Convert to flux error
-                err_2d = err_2d * val_2d * np.log(10) / 2.5
+                err_2d = 0.4 * np.log(10) * val_2d * err_2d
 
-            np.seterr(divide='ignore')
-            wgt_2d = np.ma.masked_invalid(1.0 / err_2d**2)
-            np.seterr(divide='warn')
+            # Unify masks
+            unified_mask = val_2d_clip.mask | err_2d.mask
+            val_2d_clip.mask = unified_mask
+            err_2d.mask = unified_mask
+
+            # Inverse variance weights minimize the propagated uncertainty
+            wgt_2d = np.ma.masked_invalid(1. / err_2d**2)
+
+            # Calculate the weighted mean and uncertainty
+            avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
+            std = np.ma.sqrt(1 / np.ma.sum(wgt_2d, axis=1))
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'weighted'
         else:
             wgt_2d = None
+            # Calculate the weighted mean and uncertainty
+            avg = np.ma.mean(val_2d_clip, axis=1)
+            std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(list_indices)) # Standard error of the mean            
+
             if meta_add:
                 self.meta[col_name_in + '0'] = 'not_weighted'
 
-        # Figure out which ones are outliers. Returns a masked array.
-        if sigma:
-            warnings.filterwarnings('ignore', category=RuntimeWarning)
-            val_2d_clip = sigma_clipping.sigma_clip(val_2d, sigma=sigma, maxiters=5, axis=1)
-            warnings.filterwarnings('default', category=RuntimeWarning)
-        else:
-            val_2d_clip = val_2d
-
-            # Calculate the (weighted) mean and standard deviation along
-        # the N_lists direction (axis=1).
-        if wgt_2d is not None:
-            avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
-            std = np.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
-        else:
-            avg = np.ma.mean(val_2d_clip, axis=1)
-            std = np.ma.std(val_2d_clip, axis=1)
+        # FIXME: What does this part do?
         # To Do: bring the previous uncertainties of stars that are detected
         # in only one input frame.
         if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
-            mask_for_singles = ((~np.isnan(val_2d_clip)).sum(axis=1)==1)
+            mask_for_singles = ((np.isfinite(val_2d_clip)).sum(axis=1)==1)
             std[mask_for_singles]=np.nanmean(err_2d[mask_for_singles], axis=1)
 
         # Save off our new AVG and STD into new columns with shape (N_stars).
@@ -513,14 +515,19 @@ class StarTable(Table):
         col_name_std = col_name_in + '0_err'
 
         if ismag:
-            std = (2.5 / np.log(10)) * std / avg
+            std = 2.5 / np.log(10) * std / avg
             avg = -2.5 * np.ma.log10(avg)
+
+        # Fill mask with nan or inf
+        avg = avg.filled(np.nan)
+        std = std.filled(np.inf)
+
         if col_name_avg in self.colnames:
-            self[col_name_avg] = avg.data
-            self[col_name_std] = std.data
+            self[col_name_avg] = avg
+            self[col_name_std] = std
         else:
-            self.add_column(Column(data=avg.data, name=col_name_avg))
-            self.add_column(Column(data=std.data, name=col_name_std))
+            self.add_column(Column(data=avg, name=col_name_avg))
+            self.add_column(Column(data=std, name=col_name_std))
 
         return
 
@@ -533,7 +540,7 @@ class StarTable(Table):
         if 'n_detect' in self.colnames:
             self['n_detect'] = n_detect
         else:
-            self.add_column(Column(n_detect), name='n_detect')
+            self.add_column(Column(data=n_detect, name='n_detect'))
 
         return
 
@@ -542,7 +549,7 @@ class StarTable(Table):
             motion_models=None,
             fixed_params_dict=None,
             weighting='var',
-            use_scipy=False,
+            use_scipy=True,
             absolute_sigma=True,
             select_stars=None,
             bootstrap=0,
@@ -667,11 +674,17 @@ class StarTable(Table):
         ###########################
         # Prepare data for fitting
         N_stars = len(self)
-        x_data = np.ma.masked_invalid(self['x'].data, copy=True)
-        y_data = np.ma.masked_invalid(self['y'].data, copy=True)
-        xe_data = np.ma.masked_invalid(self['xe'].data, copy=True) if 'xe' in self.colnames else None
-        ye_data = np.ma.masked_invalid(self['ye'].data, copy=True) if 'ye' in self.colnames else None
-        # Mask out close to 0 values
+        N_times = self['x'].data.shape[1]
+        if mask_lists is not None:
+            list_indices = np.array([i for i in range(N_times) if i not in mask_lists])
+        else:
+            list_indices = np.arange(N_times)
+        x_data = np.ma.masked_invalid(self['x'].data[:, list_indices], copy=True)
+        y_data = np.ma.masked_invalid(self['y'].data[:, list_indices], copy=True)
+        xe_data = np.ma.masked_invalid(self['xe'].data[:, list_indices], copy=True) if 'xe' in self.colnames else None
+        ye_data = np.ma.masked_invalid(self['ye'].data[:, list_indices], copy=True) if 'ye' in self.colnames else None
+
+        # Mask out close to 0 values to avoid infinite weights
         if xe_data is not None:
             xe_data.mask[np.isclose(xe_data, 0)] = True
         if ye_data is not None:
@@ -694,18 +707,18 @@ class StarTable(Table):
         if np.ndim(ye_data) == 1:
             ye_data = ye_data[:, np.newaxis]
 
-        if mask_lists is not None:
-            x_data.mask[:, mask_lists] = True
-            y_data.mask[:, mask_lists] = True
-            xe_data.mask[:, mask_lists] = True
-            ye_data.mask[:, mask_lists] = True
+        # if mask_lists is not None:
+        #     x_data.mask[:, mask_lists] = True
+        #     y_data.mask[:, mask_lists] = True
+        #     xe_data.mask[:, mask_lists] = True
+        #     ye_data.mask[:, mask_lists] = True
 
         # t_data: 2d array with shape (N_stars, N_epochs)
         # t0: 1d array with shape (N_stars,)
         if 't' in self.colnames:
-            t_data = copy.deepcopy(self['t'].data)
+            t_data = copy.deepcopy(self['t'].data[:, list_indices])
         else:
-            t_data = copy.deepcopy(np.array(self.meta['list_times']))
+            t_data = copy.deepcopy(np.array(self.meta['list_times']))[list_indices]
             t_data = np.broadcast_to(t_data, x_data.shape)
 
         # Add default t0 if not provided in fixed_params_dict
