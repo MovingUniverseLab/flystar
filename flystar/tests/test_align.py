@@ -1446,9 +1446,9 @@ def make_fake_starlists_poly1_par(seed=-1):
 
     return (xy_trans, mag_trans)
 
-if __name__ == '__main__':
-    import pickle
-    import matplotlib.pyplot as plt
+# if __name__ == '__main__':
+    # import pickle
+    # import matplotlib.pyplot as plt
     # with open(f'{test_data_path}/my_gaia.pkl', 'rb') as f:
     #     my_gaia = pickle.load(f)
     # with open(f'{test_data_path}/list_of_starlists.pkl', 'rb') as f:
