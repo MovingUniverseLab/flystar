@@ -1,18 +1,19 @@
+import os
+import pdb
+import copy
+import time
+import pickle
+import warnings
+import datetime
 import numpy as np
+from tqdm import tqdm
 from . import match, transforms, plots, motion_model
 from .starlists import StarList
 from .startables import StarTable
-from astropy.table import Table, Column, vstack
-import datetime
-import copy
-import os
-import pdb
-import time
-import warnings
-import pickle
-from astropy.utils.exceptions import AstropyUserWarning
 from .motion_model import Empty, Fixed
-from tqdm import tqdm
+from astropy.table import Table, Column, vstack
+from astropy.utils.exceptions import AstropyUserWarning
+
 
 class MosaicSelfRef(object):
     def __init__(
@@ -23,7 +24,7 @@ class MosaicSelfRef(object):
             iters=2,
             dr_tol=[1, 1],
             dm_tol=[2, 1],
-            outlier_tol=[None, None],
+            outlier_tol=None,
             # Transformation parameters
             trans_class=transforms.PolyTransform,
             trans_args=[{'order': 2}, {'order': 2}],
@@ -45,6 +46,7 @@ class MosaicSelfRef(object):
             # Advanced options
             iter_callback=None,
             save_path=None,
+            prefix_name='msr',
             verbose=True
     ):
         """
@@ -89,6 +91,7 @@ class MosaicSelfRef(object):
         outlier_tol : list or array
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
             This is a list of tol values, one for each iteration of matching/transformation.
+            If not provided, will be None for each iteration.
 
         trans_class : transforms.Transform2D object (or subclass)
             The transform class that will be used to when deriving the optimal
@@ -169,6 +172,9 @@ class MosaicSelfRef(object):
         save_path : str, optional
             Path to save the MosaicSelfRef object as a pickle file.
 
+        prefix_name : str, optional
+            Prefix for the file names, including PREFIX_input.log, PREFIX.pkl, PREFIX_ref_table.fits.
+
         verbose : bool or int (0 to 9, inclusive)
             Controls the verbosity of print statements. (0 least, 9 most verbose).
             For backwards compatibility, 0 = False, 9 = True.
@@ -176,20 +182,20 @@ class MosaicSelfRef(object):
 
         Example
         -------
-        msc = align.MosaicToRef(list_of_starlists, iters=1,
+        mtr = align.MosaicToRef(list_of_starlists, iters=1,
                                 dr_tol=[0.1], dm_tol=[5],
                                 outlier_tol=[None], mag_lim=[13, 21],
                                 trans_class=transforms.PolyTransform,
                                 trans_args=[{'order': 1}],
                                 weights='both,std',
                                 init_guess_mode='miracle', verbose=False)
-        msc.fit()
+        mtr.fit()
 
         # Access a list of all the transformation parameters:
-        trans_list = msc.trans_list
+        trans_list = mtr.trans_list
 
         # Access the fully-combined reference table.
-        stars_table = msc.ref_table
+        stars_table = mtr.ref_table
 
         # Plot the magnitude of the first star vs. time:
         # Overplot the mean magnitude.
@@ -208,7 +214,7 @@ class MosaicSelfRef(object):
         self.iters = iters
         self.dr_tol = dr_tol
         self.dm_tol = dm_tol
-        self.outlier_tol = outlier_tol
+        # self.outlier_tol = outlier_tol
         self.trans_args = trans_args
         self.init_order = init_order
         self.mag_trans = mag_trans
@@ -224,13 +230,13 @@ class MosaicSelfRef(object):
         self.init_guess_mode = init_guess_mode
         self.iter_callback = iter_callback
         self.save_path = save_path
+        self.prefix_name = prefix_name
         self.verbose = verbose
 
-        # Setup save_path:
-        if self.save_path:
-            assert self.save_path.endswith('.pkl'), 'Save_path must end with .pkl'
-            if not os.path.exists(os.path.dirname(self.save_path)):
-                os.makedirs(os.path.dirname(self.save_path))
+        if outlier_tol is None:
+            self.outlier_tol = [None] * self.iters
+        else:
+            self.outlier_tol = outlier_tol
 
         all_mm_map = motion_model.motion_model_map()
         if all(isinstance(mm, str) for mm in motion_models):
@@ -326,6 +332,45 @@ class MosaicSelfRef(object):
         additional motion_model columns
 
         """
+        # Setup save_path:
+        if self.save_path:
+            if not os.path.exists(os.path.dirname(self.save_path)):
+                os.makedirs(os.path.dirname(self.save_path))
+
+        # Save input params
+        input_filename = f'{self.prefix_name}_input.txt'
+        input_dict = {
+            'ref_index': self.ref_index,
+            'iters': self.iters,
+            'dr_tol': self.dr_tol,
+            'dm_tol': self.dm_tol,
+            'outlier_tol': self.outlier_tol,
+            'trans_class': self.trans_class,
+            'trans_args': self.trans_args,
+            'trans_input': self.trans_input,
+            'trans_weighting': self.trans_weighting,
+            'init_order': self.init_order,
+            'init_guess_mode': self.init_guess_mode,
+            'calc_trans_inverse': self.calc_trans_inverse,
+            'mag_trans': self.mag_trans,
+            'mag_lim': self.mag_lim,
+            'motion_models': self.motion_models,
+            'fixed_params_dict': self.fixed_params_dict,
+            'vel_weighting': self.vel_weighting,
+            'use_scipy': self.use_scipy,
+            'absolute_sigma': self.absolute_sigma,
+            'iter_callback': self.iter_callback,
+            'save_path': self.save_path,
+            'prefix_name': self.prefix_name,
+            'verbose': self.verbose
+        }
+        if self.save_path is not None:
+            if not os.path.exists(self.save_path):
+                os.makedirs(self.save_path)
+            with open(os.path.join(self.save_path, input_filename), 'w') as file:
+                for key, value in input_dict.items():
+                    file.write(f'{key}:\t{value}\n')
+
         ##########
         # Setup a reference table to store data. It will contain:
         #    x0, y0, m0 -- the running average of positions: 1D
@@ -435,12 +480,18 @@ class MosaicSelfRef(object):
         self.ref_table['chi2_x'] = chi2_x
         self.ref_table['chi2_y'] = chi2_y
 
-        if self.save_path:
-            with open(self.save_path, 'wb') as file:
+        if self.save_path is not None:
+            filename = f'{self.prefix_name}.pkl'
+            with open(os.path.join(self.save_path, filename), 'wb') as file:
                 pickle.dump(self, file)
-        print('================================')
-        print(f'Done with fit()')
-        print('================================')
+            # Using pickle here because nan in a fits file is auto-converted to a masked value in astropy.io.fits.open()
+            filename = f'{self.prefix_name}_ref_table.pkl'
+            with open(os.path.join(self.save_path, filename), 'wb') as file:
+                pickle.dump(self.ref_table, file)
+
+        print('===================================')
+        print('========== Done with fit ==========')
+        print('===================================')
         return
 
     def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None):
@@ -713,15 +764,14 @@ class MosaicSelfRef(object):
         new_cols_arr = ['x0', 'y0', 'm0']
         orig_cols_arr = ['x', 'y', 'm']
         ref_cols = ref_table.keys()
-        for ii in range(len(new_cols_arr)):
-            if not new_cols_arr[ii] in ref_cols:
+        for new_col, orig_col in zip(new_cols_arr, orig_cols_arr):
+            if new_col not in ref_cols:
                 # Some munging to convert data shape from (N,1) to (N,),
                 # since these are all 1D cols
-                vals = np.array(ref_table[orig_cols_arr[ii]]).flatten()
+                vals = np.array(ref_table[orig_col]).flatten()
 
                 # Now add to ref_table
-                new_col = Column(vals, name=new_cols_arr[ii])
-                ref_table.add_column(new_col)
+                ref_table.add_column(vals, name=new_col)
 
         # Do the same thing for the x0e, y0e, m0e columns, but
         # ONLY IF THEY ALREADY EXIST IN REF_TABLE! Otherwise,
@@ -730,22 +780,20 @@ class MosaicSelfRef(object):
         # work later on.
         new_err_cols = ['x0_err', 'y0_err', 'm0_err']
         orig_err_cols = ['xe', 'ye', 'me']
-        for ii in range(len(new_err_cols)):
+        for new_err_col, orig_err_col in zip(new_err_cols, orig_err_cols):
             # If the orig col name (e.g. xe) is in the ref_table, but the new col name
             # (e.g. x0e) doesn't exist, then add the x0e column as a duplicate of xe.
-            if (orig_err_cols[ii] in ref_cols) & (not new_err_cols[ii] in ref_cols):
+            if (orig_err_col in ref_cols) and (new_err_col not in ref_cols):
                 # Some munging to convert data shape from (N,1) to (N,),
                 # since these are all 1D cols
-                vals = np.transpose(np.array(ref_table[orig_err_cols[ii]]))[0]
+                vals = np.transpose(np.array(ref_table[orig_err_col]))[0]
                 # Now add to ref_table
-                new_col = Column(vals, name=new_err_cols[ii])
-                ref_table.add_column(new_col)
-            elif (not orig_err_cols[ii] in ref_cols) & (not new_err_cols[ii] in ref_cols):
+                ref_table.add_column(vals, name=new_err_col)
+            elif (orig_err_col not in ref_cols) and (new_err_col not in ref_cols):
                 # If neither the orig_err_col or new_err_col is in the ref_table, put in the
                 # new_err_cols as an array of zeros
                 vals = np.zeros(len(ref_table))
-                new_col = Column(vals, name=new_err_cols[ii])
-                ref_table.add_column(new_col)
+                ref_table.add_column(vals, name=new_err_col)
 
         # Final check: ref_table should now have x0, y0, m0, x0e, y0e, and m0e columns
         # This is necessary for later steps, even if the columns are just zeros.
@@ -756,18 +804,15 @@ class MosaicSelfRef(object):
         # Make sure we have a column to indicate whether each star
         # CAN BE USED in the transformation. This will be 1D
         if 'use_in_trans' not in ref_table.colnames:
-            new_col = Column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
-            ref_table.add_column(new_col)
+            ref_table.add_column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
 
         # Make sure we have a column to indicate whether each star
         # IS USED in the transformation. This will be 2D
         if 'used_in_trans' not in ref_table.colnames:
-            new_col = Column(np.zeros([len(ref_table), 1], dtype=bool), name='used_in_trans')
-            ref_table.add_column(new_col)
+            ref_table.add_column(np.zeros([len(ref_table), 1], dtype=bool), name='used_in_trans')
 
         # Keep track of whether this is an original reference star.
-        col_ref_orig = Column(np.ones(len(ref_table), dtype=bool), name='ref_orig')
-        ref_table.add_column(col_ref_orig)
+        ref_table.add_column(np.ones(len(ref_table), dtype=bool), name='ref_orig')
         # Now reset the original values to invalids... they will be filled in
         # at later times. Preserve content only in the columns: name, x0, y0, m0 (and 0e).
         # Note that these are all the 1D columsn.
@@ -776,7 +821,7 @@ class MosaicSelfRef(object):
                 ref_table._set_invalid_list_values(col_name, -1)
 
         if 'motion_model_input' not in ref_table.colnames:
-            ref_table.add_column(Column(np.repeat(self.motion_models[-1].name, len(ref_table)), name='motion_model_input'))
+            ref_table.add_column(np.repeat(self.motion_models[-1].name, len(ref_table)), name='motion_model_input')
         # FIXME: Why do we need to set motion_model_used here before fitting?
         # if 'motion_model_used' not in ref_table.colnames:
         #     # Order self.motion_models by decreasing n_params
@@ -784,7 +829,7 @@ class MosaicSelfRef(object):
         #     # Save the most complex motion model that can infer the positions with the existing columns.
         #     for mm in sorted_mms:
         #         if all([_ in ref_table.colnames for _ in mm.fit_param_names]) and all([_ in ref_table.colnames for _ in mm.fixed_param_names]):
-        #             ref_table.add_column(Column(np.repeat(mm.name, len(ref_table)), name='motion_model_used'))
+        #             ref_table.add_column(np.repeat(mm.name, len(ref_table)), name='motion_model_used')
         #             break
 
         return ref_table
@@ -990,7 +1035,7 @@ class MosaicSelfRef(object):
         # if (keep_orig is not None) and (sum(keep_orig) > 0):
         # Determine motion_model_used for keep_orig stars
         # Filter possible motion models based on available columns
-        motion_model_used = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
+        motion_model_used, n_fit = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
 
         # motion_models_possible = []
         # for mm in self.motion_models:
@@ -1014,7 +1059,8 @@ class MosaicSelfRef(object):
 
         # Assign the determined motion models
         # self.ref_table['motion_model_used'][keep_orig] = motion_model_used
-        self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U15')
+        self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
+        self.ref_table['n_fit'] = Column(n_fit, name='n_fit', dtype=int)
 
         # Replace the originals if we are supposed to keep them fixed.
         if (keep_orig is not None) and (sum(keep_orig) > 0):
@@ -1130,8 +1176,9 @@ class MosaicSelfRef(object):
         # Calculate x, y, xe, ye
 
         if 'motion_model_used' not in self.ref_table.colnames:
-            motion_model_used = determine_motion_model(self.ref_table)
-            self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U15')
+            motion_model_used, n_fit = determine_motion_model(self.ref_table)
+            self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
+            self.ref_table['n_fit'] = Column(n_fit, name='n_fit', dtype=int)
 
         x, y, xe, ye = self.ref_table.infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)
         # else:
@@ -1605,7 +1652,7 @@ class MosaicToRef(MosaicSelfRef):
         iters=2,
         dr_tol=[1, 1],
         dm_tol=[2, 1],
-        outlier_tol=[None, None],
+        outlier_tol=None,
         # Reference behavior (MosiacToRef specific)
         use_ref_new=False,
         update_ref_orig=False,
@@ -1631,6 +1678,7 @@ class MosaicToRef(MosaicSelfRef):
         # Advanced options
         iter_callback=None,
         save_path=None,
+        prefix_name='mtr',
         verbose=True
     ):
 
@@ -1782,7 +1830,7 @@ class MosaicToRef(MosaicSelfRef):
 
         Example
         -------
-        msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
+        mtr = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
                                 dr_tol=[0.1], dm_tol=[5],
                                 outlier_tol=[None], mag_lim=[13, 21],
                                 trans_class=transforms.PolyTransform,
@@ -1792,13 +1840,13 @@ class MosaicToRef(MosaicSelfRef):
                                 mag_trans=False,
                                 weights='both,std',
                                 init_guess_mode='miracle', verbose=False)
-        msc.fit()
+        mtr.fit()
 
         # Access a list of all the transformation parameters:
-        trans_list = msc.trans_list
+        trans_list = mtr.trans_list
 
         # Access the fully-combined reference table.
-        stars_table = msc.ref_table
+        stars_table = mtr.ref_table
 
         # Plot the magnitude of the first star vs. time:
         # Overplot the mean magnitude.
@@ -1840,6 +1888,7 @@ class MosaicToRef(MosaicSelfRef):
             # Advanced options
             iter_callback=iter_callback,
             save_path=save_path,
+            prefix_name=prefix_name,
             verbose=verbose
         )
 
@@ -1900,28 +1949,70 @@ class MosaicToRef(MosaicSelfRef):
 
         """
         # Create a log file of the parameters used in the fit.
+        # Setup save_path:
+        if self.save_path:
+            if not os.path.exists(os.path.dirname(self.save_path)):
+                os.makedirs(os.path.dirname(self.save_path))
+
+        # Save input params
+        input_filename = f'{self.prefix_name}_input.txt'
+        input_dict = {
+            'iters': self.iters,
+            'dr_tol': self.dr_tol,
+            'dm_tol': self.dm_tol,
+            'outlier_tol': self.outlier_tol,
+            'use_ref_new': self.use_ref_new,
+            'update_ref_orig': self.update_ref_orig,
+            'trans_class': self.trans_class,
+            'trans_args': self.trans_args,
+            'trans_input': self.trans_input,
+            'trans_weighting': self.trans_weighting,
+            'init_order': self.init_order,
+            'init_guess_mode': self.init_guess_mode,
+            'calc_trans_inverse': self.calc_trans_inverse,
+            'mag_trans': self.mag_trans,
+            'mag_lim': self.mag_lim,
+            'ref_mag_lim': self.ref_mag_lim,
+            'motion_models': self.motion_models,
+            'fixed_params_dict': self.fixed_params_dict,
+            'vel_weighting': self.vel_weighting,
+            'use_scipy': self.use_scipy,
+            'absolute_sigma': self.absolute_sigma,
+            'iter_callback': self.iter_callback,
+            'save_path': self.save_path,
+            'prefix_name': self.prefix_name,
+            'verbose': self.verbose
+        }
         if self.save_path is not None:
-            with open(f'{os.path.dirname(self.save_path)}/MosaicToRef_input_params.log', 'w',) as _log:
-                logger(_log, 'Parameters used for fit: ', self.verbose)
-                logger(_log, '------------------------- ', self.verbose)
-                logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
-                logger(_log, '  dm_tol = ' + str(self.dm_tol), self.verbose)
-                logger(_log, '  outlier_tol = ' + str(self.outlier_tol), self.verbose)
-                logger(_log, '  trans_args = ' + str(self.trans_args), self.verbose)
-                logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
-                logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
-                logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
-                logger(_log, '  trans_weighting = ' + str(self.trans_weighting), self.verbose)
-                logger(_log, '  vel_weighting = ' + str(self.vel_weighting), self.verbose)
-                logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
-                logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
-                logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
-                logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
-                logger(_log, '  motion_models = ' + str([mm.name for mm in self.motion_models]), self.verbose)
-                logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
-                logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
-                logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
-                logger(_log, '-------------------------\n', self.verbose)
+            if not os.path.exists(self.save_path):
+                os.makedirs(self.save_path)
+            with open(os.path.join(self.save_path, input_filename), 'w') as file:
+                for key, value in input_dict.items():
+                    file.write(f'{key}:\t{value}\n')
+
+
+        # if self.save_path is not None:
+        #     with open(f'{os.path.dirname(self.save_path)}/MosaicToRef_input_params.log', 'w',) as _log:
+        #         logger(_log, 'Parameters used for fit: ', self.verbose)
+        #         logger(_log, '------------------------- ', self.verbose)
+        #         logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
+        #         logger(_log, '  dm_tol = ' + str(self.dm_tol), self.verbose)
+        #         logger(_log, '  outlier_tol = ' + str(self.outlier_tol), self.verbose)
+        #         logger(_log, '  trans_args = ' + str(self.trans_args), self.verbose)
+        #         logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
+        #         logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
+        #         logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
+        #         logger(_log, '  trans_weighting = ' + str(self.trans_weighting), self.verbose)
+        #         logger(_log, '  vel_weighting = ' + str(self.vel_weighting), self.verbose)
+        #         logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
+        #         logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
+        #         logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
+        #         logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
+        #         logger(_log, '  motion_models = ' + str([mm.name for mm in self.motion_models]), self.verbose)
+        #         logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
+        #         logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
+        #         logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
+        #         logger(_log, '-------------------------\n', self.verbose)
 
 
         ##########
@@ -2002,7 +2093,7 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table.detections()
 
         ### Drop all stars that have 0 detections.
-        idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
+        idx = np.where((self.ref_table['n_detect'] == 0))[0] # & (self.ref_table['ref_orig'] == False))[0]
         if self.verbose:
             print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
@@ -2030,12 +2121,18 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table['chi2_x'] = chi2_x
         self.ref_table['chi2_y'] = chi2_y
 
-        if self.save_path:
-            with open(self.save_path, 'wb') as file:
+        if self.save_path is not None:
+            filename = f'{self.prefix_name}.pkl'
+            with open(os.path.join(self.save_path, filename), 'wb') as file:
                 pickle.dump(self, file)
-        print('================================')
-        print(f'Done with fit()')
-        print('================================')
+            # Using pickle here because nan in a fits file is auto-converted to a masked value in astropy.io.fits.open()
+            filename = f'{self.prefix_name}_ref_table.pkl'
+            with open(os.path.join(self.save_path, filename), 'wb') as file:
+                pickle.dump(self.ref_table, file)
+
+        print('===================================')
+        print('========== Done with fit ==========')
+        print('===================================')
         return
 
 # TODO: This is sometimes run on a startable, not a starlist, at least as currently used
@@ -2146,6 +2243,8 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
     -------
     motion_model_used : list
         List of motion model used for each star
+    n_fit : list
+        List of number of number of observations used to fit for each star
     """
 
     if motion_models is None:
@@ -2167,6 +2266,7 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
 
     # Check if values are finite for required columns in possible motion models
     motion_model_used = []
+    n_fit = []
 
     for k in range(len(startable)):
         for mm, req_col_in_table, req_col_in_dict in motion_models_possible[::-1]:
@@ -2174,8 +2274,9 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
             if all(np.isfinite(startable[col][k]) for col in req_col_in_table if np.issubdtype(startable[col].dtype, np.number)) \
             and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
                 motion_model_used.append(mm.name)
+                n_fit.append(mm.n_params)
                 break
-    return motion_model_used
+    return motion_model_used, n_fit
 
 
 def get_all_epochs(t):
@@ -2198,7 +2299,7 @@ def get_all_epochs(t):
 
         all_epochs.append(t['t'][good,ii])
 
-    all_epochs = np.array(all_epochs)
+    # all_epochs = np.array(all_epochs)
     return all_epochs
 
 
@@ -2250,19 +2351,17 @@ def setup_ref_table_from_starlist(star_list, motion_models):
     assert len(new_cols_arr) == len(orig_cols_arr)
     ref_cols = ref_table.keys()
 
-    for ii in range(len(new_cols_arr)):
-        if not new_cols_arr[ii] in ref_cols:
+    for new_col, orig_col in zip(new_cols_arr, orig_cols_arr):
+        if new_col not in ref_cols:
             # Some munging to convert data shape from (N,1) to (N,),
             # since these are all 1D cols
-            vals =np.array(ref_table[orig_cols_arr[ii]]).flatten()
+            vals = np.array(ref_table[orig_col]).flatten()
 
             # Now add to ref_table
-            new_col = Column(vals, name=new_cols_arr[ii])
-            ref_table.add_column(new_col)
+            ref_table.add_column(vals, name=new_col)
 
     if 'use_in_trans' not in ref_table.colnames:
-        new_col = Column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
-        ref_table.add_column(new_col)
+        ref_table.add_column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
 
     # Now reset the original values to invalids... they will be filled in
     # at later times. Preserve content only in the columns: name, x0, y0, m0 (and 0e).
