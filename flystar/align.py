@@ -494,9 +494,10 @@ class MosaicSelfRef(object):
             with open(os.path.join(self.save_path, filename), 'wb') as file:
                 pickle.dump(self.ref_table, file)
 
-        print('===================================')
-        print('========== Done with fit ==========')
-        print('===================================')
+        if self.verbose > 0:
+            print('===================================')
+            print('========== Done with fit ==========')
+            print('===================================')
         return
 
     def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None):
@@ -746,7 +747,6 @@ class MosaicSelfRef(object):
                 col_arrays[new_col_name] = star_list[col_name].data
             else:
                 new_col_data = star_list[col_name].data[:, None]
-                # new_col_data = np.array([star_list[col_name].data]).T
                 col_arrays[new_col_name] = new_col_data
 
         # Use the columns from the ref list to make the ref_table.
@@ -2136,9 +2136,10 @@ class MosaicToRef(MosaicSelfRef):
             with open(os.path.join(self.save_path, filename), 'wb') as file:
                 pickle.dump(self.ref_table, file)
 
-        print('===================================')
-        print('========== Done with fit ==========')
-        print('===================================')
+        if self.verbose > 0:
+            print('===================================')
+            print('========== Done with fit ==========')
+            print('===================================')
         return
 
 # TODO: This is sometimes run on a startable, not a starlist, at least as currently used
