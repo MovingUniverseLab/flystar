@@ -681,8 +681,8 @@ class StarTable(Table):
             list_indices = np.arange(N_times)
         x_data = np.ma.masked_invalid(self['x'].data[:, list_indices], copy=True)
         y_data = np.ma.masked_invalid(self['y'].data[:, list_indices], copy=True)
-        xe_data = np.ma.masked_invalid(self['xe'].data[:, list_indices], copy=True) if 'xe' in self.colnames else None
-        ye_data = np.ma.masked_invalid(self['ye'].data[:, list_indices], copy=True) if 'ye' in self.colnames else None
+        xe_data = np.ma.masked_invalid(self['xe'].data[:, list_indices], copy=True) if 'xe' in self.colnames else np.ones_like(x_data)
+        ye_data = np.ma.masked_invalid(self['ye'].data[:, list_indices], copy=True) if 'ye' in self.colnames else np.ones_like(y_data)
 
         # Mask out close to 0 values to avoid infinite weights
         if xe_data is not None:
