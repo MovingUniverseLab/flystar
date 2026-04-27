@@ -467,7 +467,7 @@ class MosaicSelfRef(object):
         # Add times into ref_table meta data
         # complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in self.ref_table['t'].T])
         all_epochs = get_all_epochs(self.ref_table)
-        self.ref_table.meta['list_times'] = all_epochs
+        self.ref_table.meta['list_times'] = list(all_epochs)
 
         # Update chi2 values in ref table, as motion_model_used may have changed
         x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
@@ -2306,7 +2306,7 @@ def get_all_epochs(t):
 
         all_epochs.append(t['t'][good,ii])
 
-    # all_epochs = np.array(all_epochs)
+    all_epochs = np.array(all_epochs)
     return all_epochs
 
 

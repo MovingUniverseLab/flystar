@@ -121,14 +121,14 @@ def test_combine_lists():
     # Test 5: make sure mask_list is working.
     ##########
     # Test 5ai: Non-masked, weighted_m=False
-    tt.combine_lists_xym(weighted_xy=True, weighted_m=False, mask_lists=False)
+    tt.combine_lists_xym(weighted_xy=True, weighted_m=False, mask_lists=None)
     assert np.arange(1.8, 38, 4) == pytest.approx(tt['x0'].data)
     assert np.arange(1.8, 38, 4) == pytest.approx(tt['y0'].data)
     avg_m = -2.5 * np.log10((4 * 10**-0.4 + 1)/5)
     assert avg_m * np.ones(10) == pytest.approx(tt['m0'].data)
 
     # Test 5aii: Non-masked, weighted_m=True
-    tt.combine_lists_xym(weighted_xy=True, weighted_m=True, mask_lists=False)
+    tt.combine_lists_xym(weighted_xy=True, weighted_m=True, mask_lists=None)
     assert np.arange(1.8, 38, 4) == pytest.approx(tt['x0'].data)
     assert np.arange(1.8, 38, 4) == pytest.approx(tt['y0'].data)
     avg_m_weight = 0.9391744564422395
@@ -147,9 +147,10 @@ def test_combine_lists():
     assert np.ones(10) == pytest.approx(tt['m0'].data)
 
     # Test 5c: Things that should break the code.
-    with pytest.raises(RuntimeError):
-        t.combine_lists_xym(weighted_xy=True, weighted_m=True, mask_lists=np.arange(2))
-    with pytest.raises(RuntimeError):
+    # with pytest.raises(RuntimeError):
+    #     This would not break the code anymore
+    #     t.combine_lists_xym(weighted_xy=True, weighted_m=True, mask_lists=np.arange(2))
+    with pytest.raises(AssertionError):
         t.combine_lists_xym(weighted_xy=True, weighted_m=True, mask_lists=True)
 
     return
@@ -556,3 +557,7 @@ def make_tiny_star_table():
                           xe=xe_in, ye=ye_in, me=me_in)
 
     return startable
+
+
+if __name__ == "__main__":
+    test_fit_motion_models()
