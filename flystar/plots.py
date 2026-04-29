@@ -3937,7 +3937,7 @@ def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, label='star
     if m is not None:
         m = np.asarray(m)
         hover_template += '<br>m: %{customdata:.2f}'
-        fig_data = go.Scatter(
+        fig_data = go.Scattergl(
             x=x,
             y=y,
             mode='markers',
@@ -3950,7 +3950,7 @@ def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, label='star
             name=label
         )
     else:
-        fig_data = go.Scatter(
+        fig_data = go.Scattergl(
             x=x,
             y=y,
             mode='markers',
