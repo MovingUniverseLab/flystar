@@ -3893,7 +3893,7 @@ class PrintSelected(object):
         return
 
 
-def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, label='starlist', fig=None, figsize=(600, 600), show=True):
+def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, symbol='circle', label='starlist', fig=None, figsize=(600, 600), show=True):
     """Plot stars with plotly in interactive html format
 
     Parameters
@@ -3910,6 +3910,8 @@ def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, label='star
         Color of marker, either a string (e.g., 'red') or rgba array, by default 'C0'
     alpha : float, optional
         Opacity of marker color, by default 0.7
+    symbol : str, optional
+        Marker symbol, by default 'circle'
     label : str, optional
         Label for the star list, by default 'starlist'
     fig : plotly.graph_objects.Figure object, optional
