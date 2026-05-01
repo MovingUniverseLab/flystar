@@ -80,11 +80,11 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None,
         plt.axis('equal')
 
     if save_path:
-        plt.savefig(save_path)
+        plt.savefig(save_path, dpi=300)
     if show_plot:
         plt.show()
-
-    plt.close()
+    else:
+        plt.close()
     return
 
 
@@ -137,9 +137,9 @@ def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, xlim=None, fi
         plt.xlim([xlim[0], xlim[1]])
     plt.legend()
     if fileName != None:
-        plt.savefig(root + fileName[3:8] + 'Positions_hist_' + '.png')
+        plt.savefig(root + fileName[3:8] + 'Positions_hist_' + '.png', dpi=300)
     else:
-        plt.savefig(root + 'Positions_hist.png')
+        plt.savefig(root + 'Positions_hist.png', dpi=300)
 
     plt.close()
     return
@@ -274,7 +274,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
                                                  deg_freedom)
     plt.annotate(txt, xy=(0.25,0.74), xycoords='figure fraction', color='black')
     xstr2 = 'With Outliers'
-    xstr3 = '{0} with +/- {1}+ sigma'.format(len(ratio_x) - len(good[0]), outlier)
+    xstr3 = '{0} with ± {1}+ sigma'.format(len(ratio_x) - len(good[0]), outlier)
     plt.annotate(xstr2, xy=(0.29, 0.83), xycoords='figure fraction', color='black')
     plt.annotate(xstr3, xy=(0.25, 0.80), xycoords='figure fraction', color='black')
 
@@ -294,9 +294,9 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
         plt.xlim([xlim[0], xlim[1]])
     plt.legend()
     if fileName != None:
-        plt.savefig(root + fileName[3:8] + 'Positions_err_ratio_hist_' + '.png')
+        plt.savefig(root + fileName[3:8] + 'Positions_err_ratio_hist_' + '.png', dpi=300)
     else:
-        plt.savefig(root + 'Positions_err_ratio_hist.png')
+        plt.savefig(root + 'Positions_err_ratio_hist.png', dpi=300)
 
     plt.close()
     return
@@ -332,9 +332,9 @@ def mag_diff_hist(ref_mat, starlist_mat, bins=25, fileName=None, root='./'):
     plt.ylabel('N stars')
     plt.title('Magnitude Difference for matched stars')
     if fileName != None:
-        plt.savefig(root + fileName[3:8] + 'Magnitude_hist_' + '.png')
+        plt.savefig(root + fileName[3:8] + 'Magnitude_hist_' + '.png', dpi=300)
     else:
-        plt.savefig(root + 'Magnitude_hist.png')
+        plt.savefig(root + 'Magnitude_hist.png', dpi=300)
 
     plt.close()
     return
@@ -433,17 +433,17 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
     if sigma:
         if fileName != None:
             plt.title('(Reference - Transformed Starlist positions) / sigma')
-            plt.savefig(root + fileName[3:8] + 'Positions_quiver_sigma_' + '.png')
+            plt.savefig(root + fileName[3:8] + 'Positions_quiver_sigma_' + '.png', dpi=300)
         else:
             plt.title('(Reference - Transformed Starlist positions) / sigma')
-            plt.savefig(root + 'Positions_quiver_sigma.png')
+            plt.savefig(root + 'Positions_quiver_sigma.png', dpi=300)
     else:
         if fileName != None:
             plt.title('Reference - Transformed Starlist positions')
-            plt.savefig(root + fileName[3:8] + 'Positions_quiver_' + '.png')
+            plt.savefig(root + fileName[3:8] + 'Positions_quiver_' + '.png', dpi=300)
         else:
             plt.title('Reference - Transformed Starlist positions')
-            plt.savefig(root + 'Positions_quiver.png')
+            plt.savefig(root + 'Positions_quiver.png', dpi=300)
 
     plt.close()
     return
@@ -488,7 +488,7 @@ def vpd(ref, starlist_trans, vxlim, vylim):
         plt.axis([vxlim[0], vylim[1], vylim[0], vylim[1]])
     plt.title('Reference and Transformed Proper Motions')
     plt.legend()
-    plt.savefig('Transformed_velocities.png')
+    plt.savefig('Transformed_velocities.png', dpi=300)
 
     return
 
@@ -564,7 +564,7 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     plt.title('Vy Residuals, Matched')
     if vylim != None:
         plt.xlim([vylim[0], vylim[1]])
-    plt.savefig('Vel_err_ratio_dist.png')
+    plt.savefig('Vel_err_ratio_dist.png', dpi=300)
 
     return
 
@@ -622,7 +622,7 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
         plt.xlabel('Reference_vx - Transformed_vx (reference coords)')
         plt.ylabel('Reference_vy - Transformed_vy (reference coords)')
     plt.title('Proper Motion Residuals')
-    plt.savefig('resid_vpd.png')
+    plt.savefig('resid_vpd.png', dpi=300)
 
     return
 
@@ -980,7 +980,7 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
             plt.ylabel('Number of Epochs')
 
             plt.subplots_adjust(wspace=0.4, hspace=0.4, right=0.95, top=0.95)
-            plt.savefig(rootDir+'plots/plotStarRadial_' + starName + '.png')
+            plt.savefig(rootDir+'plots/plotStarRadial_' + starName + '.png', dpi=300)
             plt.show()
 
     title = rootDir.split('/')[-2]
@@ -988,10 +988,10 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
 
     if Nstars == 1:
         plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9)
-        plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
+        plt.savefig(rootDir+'plots/plotStar_' + starName + '.png', dpi=300)
     else:
         plt.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
-        plt.savefig(rootDir+'plots/plotStar_all.png')
+        plt.savefig(rootDir+'plots/plotStar_all.png', dpi=300)
         plt.show()
 
     plt.show()
@@ -1058,7 +1058,7 @@ def plot_pm_error(tab, save_path=None):
     ax.set_ylabel('PM Error (mas/yr)')
     plt.tight_layout()
     if save_path is not None:
-        plt.savefig(save_path)
+        plt.savefig(save_path, dpi=300)
     plt.show()
     return
 
@@ -1070,7 +1070,7 @@ def plot_mag_error(tab, save_path=None):
     ax.set_ylabel('Mag Error (mag)')
     plt.tight_layout()
     if save_path is not None:
-        plt.savefig(save_path)
+        plt.savefig(save_path, dpi=300)
     plt.show()
     return
 
@@ -1131,7 +1131,7 @@ def plot_mean_residuals_by_epoch(tab):
 
     return
 
-def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=None, save_path=None):
+def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=None, save_path=None, show_plot=True):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
@@ -1162,7 +1162,8 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
             unit=unit,
             scale=scale,
             plotlim=plotlim,
-            save_path=f'{save_path}/Quiver_Residual_{ee}.pdf' if save_path else None
+            show_plot=show_plot,
+            save_path=f'{save_path}/Quiver_Residual_{ee}.png' if save_path else None
         )
 
         # Building up average dr for a set of stars.
@@ -1207,7 +1208,7 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
     return
 
 
-def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None, cte_fit=None, mlim=15, save_path=None):
+def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None, cte_fit=None, mlim=15, show_plot=True, save_path=None):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
@@ -1234,14 +1235,14 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                                        xt_mod, yt_mod,
                                        good_idx, ref_idx,
                                        'Epoch {0:d}'.format(ee),
-                                       unit=unit, scale=scale, plotlim=plotlim, save_path=f'{save_path}/Quiver_Residual_{ee}.pdf' if save_path else None)
+                                       unit=unit, scale=scale, plotlim=plotlim, show_plot=show_plot, save_path=f'{save_path}/Quiver_Residual_{ee}.png' if save_path else None)
 
         plot_quiver_residuals_orig(tab['x'][:, ee], tab['y'][:, ee],
                                    xt_mod, yt_mod,
                                    good_idx, ref_idx,
                                    tab['x_orig'][:, ee], tab['y_orig'][:, ee], da,
                                    'Epoch {0:d}'.format(ee),
-                                   scale=scale_orig, plotlim=plotlim, save_path=f'{save_path}/Quiver_Residual_Orig_{ee}.pdf' if save_path else None)
+                                   scale=scale_orig, plotlim=plotlim, show_plot=show_plot, save_path=f'{save_path}/Quiver_Residual_Orig_{ee}.png' if save_path else None)
 
         plot_mag_scatter(tab['m'][:, ee],
                          tab['m0'], tab['m0_err'],
@@ -1251,7 +1252,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                          good_idx, ref_idx,
                          'Epoch {0:d}'.format(ee), da=da,
                          xorig=tab['x_orig'][:, ee], yorig=tab['y_orig'][:, ee],
-                         cte_fit=cte_fit, mlim=mlim, save_path=f'{save_path}/Mag_Scatter_{ee}.pdf' if save_path else None)
+                         cte_fit=cte_fit, mlim=mlim, show_plot=show_plot, save_path=f'{save_path}/Mag_Scatter_{ee}.png' if save_path else None)
 
         plot_y_scatter(tab['m'][:, ee],
                          tab['m0'], tab['m0_err'],
@@ -1261,7 +1262,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
                          good_idx, ref_idx,
                          'Epoch {0:d}'.format(ee), da=da,
                          xorig=tab['x_orig'][:, ee], yorig=tab['y_orig'][:, ee],
-                         cte_fit=cte_fit, mlim=mlim, save_path=f'{save_path}/Y_Scatter_{ee}.pdf' if save_path else None)
+                         cte_fit=cte_fit, mlim=mlim, show_plot=show_plot, save_path=f'{save_path}/Y_Scatter_{ee}.png' if save_path else None)
 
 #        plot_quiver_residuals_orig_angle_xy(tab['x'][:, ee], tab['y'][:, ee],
 #                                            xt_mod, yt_mod,
@@ -1805,7 +1806,7 @@ def T_line(m, a, b):
 
 
 def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
-                          unit='pixel', scale=None, plotlim=None, save_path=None):
+                          unit='pixel', scale=None, plotlim=None, save_path=None, show_plot=True):
     """
     unit : str
         'pixel' or 'arcsec'
@@ -1858,18 +1859,21 @@ def plot_quiver_residuals(x_t, y_t, x_ref, y_ref, good_idx, ref_idx, title,
         ax.set_ylim(-1 * plotlim, plotlim)
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path)
-    plt.show()
+        plt.savefig(save_path, dpi=300)
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
-    str_fmt = 'Residuals (mean, std): dx = {0:7.3f} +/- {1:7.3f} {5:s}  dy = {2:7.3f} +/- {3:7.3f} {5:s} for {4:s} stars'
+    str_fmt = '{0:s}: Residuals (mean, std): dx = {1:7.3f} ± {2:7.3f} {6:s}  dy = {3:7.3f} ± {4:7.3f} {6:s} for {5:s} stars'
     if len(ref_idx) > 1:
-        print(str_fmt.format(dx[good_idx][ref_idx].mean(), dx[good_idx][ref_idx].std(),
+        print(str_fmt.format(title, dx[good_idx][ref_idx].mean(), dx[good_idx][ref_idx].std(),
                              dy[good_idx][ref_idx].mean(), dy[good_idx][ref_idx].std(), 'REF', unit2))
     else:
-        print(str_fmt.format(dx[good_idx][ref_idx].mean(), 0.0,
+        print(str_fmt.format(title, dx[good_idx][ref_idx].mean(), 0.0,
                              dy[good_idx][ref_idx].mean(), 0.0, 'REF', unit2))
 
-    print(str_fmt.format(dx[good_idx].mean(), dx[good_idx].std(),
+    print(str_fmt.format(title, dx[good_idx].mean(), dx[good_idx].std(),
                          dy[good_idx].mean(), dy[good_idx].std(), 'GOOD', unit2))
 
 
@@ -2080,7 +2084,7 @@ def plot_quiver_residuals_orig(x_t, y_t, x_ref, y_ref, good_idx, ref_idx,
         ax.set_ylim(-1 * plotlim, plotlim)
     plt.tight_layout()
     if save_path:
-        plt.savefig(save_path)
+        plt.savefig(save_path, dpi=300)
     plt.show()
     plt.pause(1)
 
@@ -2423,7 +2427,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
 
     plt.tick_params(labelsize=20, direction='in', right=True, top=True)
 
-    plt.savefig(str(filter)+'_chi2_dist.png', dpi=400)
+    plt.savefig(str(filter)+'_chi2_dist.png', dpi=300)
 
     chi2red_x = x / Ndof
     chi2red_y = y / Ndof
@@ -2760,7 +2764,7 @@ def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, fil
 
     plt.tick_params(labelsize=20, direction='in', right=True, top=True)
 
-    plt.savefig(str(filter)+'_chi2_dist_mag.png', dpi=400)
+    plt.savefig(str(filter)+'_chi2_dist_mag.png', dpi=300)
 
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
     fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
@@ -3179,10 +3183,10 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 
     if Nstars == 1:
         plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9)
-        # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
+        # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png', dpi=300)
     else:
         plt.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
-        # plt.savefig(rootDir+'plots/plotStar_all.png')
+        # plt.savefig(rootDir+'plots/plotStar_all.png', dpi=300)
         plt.show()
 
     plt.show()
@@ -3602,13 +3606,13 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
 
     if Nstars == 1:
         plt.subplots_adjust(wspace=0.4, hspace=0.4, left = 0.15, bottom = 0.1, right=0.9, top=0.9)
-        # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png')
+        # plt.savefig(rootDir+'plots/plotStar_' + starName + '.png', dpi=300)
     else:
         plt.subplots_adjust(wspace=0.6, hspace=0.6, left = 0.08, bottom = 0.05, right=0.95, top=0.90)
-        # plt.savefig(rootDir+'plots/plotStar_all.png')
+        # plt.savefig(rootDir+'plots/plotStar_all.png', dpi=300)
         plt.show()
     if save_name is not None:
-        plt.savefig(save_name + '.png')
+        plt.savefig(save_name + '.png', dpi=300)
     plt.show()
 
     return
@@ -3815,9 +3819,9 @@ def plot_sky(stars_tab,
     if saveplot:
         plt.show(block=0)
         if (center_star != None):
-            plt.savefig('plot_sky_' + center_star + '.png')
+            plt.savefig('plot_sky_' + center_star + '.png', dpi=300)
         else:
-            plt.savefig('plot_sky.png')
+            plt.savefig('plot_sky.png', dpi=300)
     else:
         plt.show()
 
@@ -3893,7 +3897,7 @@ class PrintSelected(object):
         return
 
 
-def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, symbol='circle', label='starlist', fig=None, figsize=(600, 600), show=True):
+def plotly_stars(x, y, m=None, marker_size=3, color=None, alpha=0.7, symbol='circle', label='starlist', fig=None, figsize=(700, 700), show=True):
     """Plot stars with plotly in interactive html format
 
     Parameters
@@ -3906,8 +3910,8 @@ def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, symbol='cir
         magnitude to be added in hover label, by default None
     marker_size : int, optional
         Size of marker, by default 10
-    color : str or array, optional
-        Color of marker, either a string (e.g., 'red') or rgba array, by default 'C0'
+    color : array or str, optional
+        Color of marker, either a string (e.g., 'red') or rgba array, by default None
     alpha : float, optional
         Opacity of marker color, by default 0.7
     symbol : str, optional
@@ -3917,7 +3921,7 @@ def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, symbol='cir
     fig : plotly.graph_objects.Figure object, optional
         Figure if the stars are to be added to an exisiting plot, by default None
     figsize : tuple, optional
-        Figure size, by default (600, 600)
+        Figure size, by default (700, 700)
     show : bool, optional
         Show figure or not, by default True
 
@@ -3931,7 +3935,6 @@ def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, symbol='cir
     y = np.asarray(y)
     hover_template = 'x: %{x:.3f}<br>y: %{y:.3f}'
         
-
     if isinstance(color, str) and color.startswith('C') and color[1:].isdigit():
         color = mcolors.to_rgba(color, alpha=alpha)
         color = f'rgba({color[0]*255}, {color[1]*255}, {color[2]*255}, {color[3]:.2f})'
@@ -3945,7 +3948,8 @@ def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, symbol='cir
             mode='markers',
             marker=dict(
                 size=marker_size,
-                color=color
+                color=color,
+                symbol=symbol
             ),
             hovertemplate=hover_template,
             customdata=m,  # Add magnitude to hover data
@@ -3958,7 +3962,8 @@ def plotly_stars(x, y, m=None, marker_size=3, color='C0', alpha=0.7, symbol='cir
             mode='markers',
             marker=dict(
                 size=marker_size,
-                color=color
+                color=color,
+                symbol=symbol
             ),
             hovertemplate=hover_template,
             name=label
