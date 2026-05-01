@@ -77,10 +77,13 @@ class MotionModel(ABC):
         absolute_sigma=True,
         params_guess=None,
         fill_value=np.nan,
+        return_chi2=False,
         verbose=True
     ):
         # Run a single fit (used both for overall fit + bootstrap iterations)
-        return np.full(self.n_params, fill_value), np.full(self.n_params, np.inf), np.nan, np.nan
+        if return_chi2:
+            return np.full(self.n_params, fill_value), np.full(self.n_params, np.inf), np.nan, np.nan
+        return np.full(self.n_params, fill_value), np.full(self.n_params, np.inf)
 
     def calc_weights(self, xe, ye, weighting='var'):
         if weighting=='std':
@@ -279,15 +282,15 @@ class Empty(MotionModel):
         return np.full_like(t, np.nan), np.full_like(t, np.nan), np.full_like(t, np.inf), np.full_like(t, np.inf)
 
     def run_fit(
-            self, t, x, y, xe, ye,
-            fixed_params_dict=None,
-            weighting='var',
-            use_scipy=True,
-            absolute_sigma=True,
-            fill_value=np.nan,
-            params_guess=None,
-            return_chi2=False,
-            verbose=True
+        self, t, x, y, xe, ye,
+        fixed_params_dict=None,
+        weighting='var',
+        use_scipy=True,
+        absolute_sigma=True,
+        params_guess=None,
+        fill_value=np.nan,
+        return_chi2=False,
+        verbose=True
     ):
         """Fit stellar motion parameters
 
@@ -430,15 +433,15 @@ class Fixed(MotionModel):
         return x, y, x_err, y_err
 
     def run_fit(
-            self, t, x, y, xe, ye,
-            fixed_params_dict=None,
-            weighting='var',
-            use_scipy=True,
-            absolute_sigma=True,
-            fill_value=np.nan,
-            params_guess=None,
-            return_chi2=False,
-            verbose=True
+        self, t, x, y, xe, ye,
+        fixed_params_dict=None,
+        weighting='var',
+        use_scipy=True,
+        absolute_sigma=True,
+        params_guess=None,
+        fill_value=np.nan,
+        return_chi2=False,
+        verbose=True
     ):
         if verbose and (not use_scipy):
             warnings.warn("Fixed model has no non-scipy fitter option. Running with scipy.")
@@ -588,15 +591,15 @@ class Linear(MotionModel):
         return x, y, x_err, y_err
 
     def run_fit(
-            self, t, x, y, xe, ye,
-            fixed_params_dict=None,
-            weighting='var',
-            use_scipy=True,
-            absolute_sigma=True,
-            fill_value=np.nan,
-            params_guess=None,
-            return_chi2=False,
-            verbose=True
+        self, t, x, y, xe, ye,
+        fixed_params_dict=None,
+        weighting='var',
+        use_scipy=True,
+        absolute_sigma=True,
+        params_guess=None,
+        fill_value=np.nan,
+        return_chi2=False,
+        verbose=True
     ):
         if fixed_params_dict is None:
             fixed_params_dict = {}
