@@ -734,20 +734,6 @@ class StarTable(Table):
 
         t0 = fixed_params_dict['t0']
 
-        # Prepare fixed_params_dict for each star
-        # This avoids checking types and slicing inside the fitting loop
-        fixed_params_stars = [{} for _ in range(N_stars)]
-        # Identify array parameters (length N_stars) and scalar parameters
-        array_params = {k: v for k, v in fixed_params_dict.items() if np.ndim(v) > 0 and len(v) == N_stars}
-        scalar_params = {k: v for k, v in fixed_params_dict.items() if k not in array_params}
-
-        # Construct list of dicts for each star
-        # Using list comprehension for speed
-        fixed_params_stars = [
-            {**scalar_params, **{k: v[i] for k, v in array_params.items()}}
-            for i in range(N_stars)
-        ]
-
         # Apply mask_value if provided
         if mask_value:
             x_data = np.ma.masked_values(x_data, mask_value)
@@ -774,6 +760,7 @@ class StarTable(Table):
             len(set(t_data[i][xy_mask[i]]))
             for i in range(N_stars)
         ])
+
 
         ###########################
         ####### Determine MM ######
@@ -809,11 +796,56 @@ class StarTable(Table):
         if 'Parallax' in mm_used and 'obsLocation' not in fixed_params_dict:
             fixed_params_dict['obsLocation'] = 'earth'
 
+
+        ############################
+        # Prepare Fixed Parameters #
+        ############################
+        # If required fixed params in self but not provided in fixed_params_dict, add them to fixed_params_dict
+        motion_model_used = [all_mm_map[name] for name in np.unique(self['motion_model_used'])]
+        raise_key_error = False
+        missing_params = []
+        for mm in motion_model_used:
+            # Check required fixed parameters
+            for param in mm.required_fixed_param_names:
+                if param not in fixed_params_dict:
+                    if param in self.colnames:
+                        fixed_params_dict[param] = self[param].data
+                    else:
+                        raise_key_error = True
+                        missing_params.append(f"'{param}'")
+
+            # Check optional fixed parameters
+            # Set to default value if not provided in fixed_params_dict or in self
+            for param, value in mm.optional_fixed_params.items():
+                if param not in fixed_params_dict:
+                    if param in self.colnames:
+                        fixed_params_dict[param] = self[param].data
+                    else:
+                        fixed_params_dict[param] = value
+
+        if raise_key_error:
+            raise KeyError(f"fit_motion_model: Missing required fixed parameter(s) for the motion models used: {', '.join(missing_params)}! Please provide them in fixed_params_dict or as columns in the table.")
+
+
+        # Prepare fixed_params_dict for each star
+        # This avoids checking types and slicing inside the fitting loop
+        fixed_params_stars = [{} for _ in range(N_stars)]
+        # Identify array parameters (length N_stars) and scalar parameters
+        array_params = {k: v for k, v in fixed_params_dict.items() if np.ndim(v) > 0 and len(v) == N_stars}
+        scalar_params = {k: v for k, v in fixed_params_dict.items() if k not in array_params}
+
+        # Construct list of dicts for each star
+        # Using list comprehension for speed
+        fixed_params_stars = [
+            {**scalar_params, **{k: v[i] for k, v in array_params.items()}}
+            for i in range(N_stars)
+        ]
+
+
         ############################
         ####### Prepare Table ######
         ############################
         # Fill table with all possible motion model parameter names as new columns.
-        motion_model_used = [all_mm_map[name] for name in np.unique(self['motion_model_used'])]
         new_col_list = motion_model.motion_model_param_names(motion_model_used, with_errors=True, with_fixed=False)
         new_col_list += ['chi2_x', 'chi2_y', 'n_params']
 
