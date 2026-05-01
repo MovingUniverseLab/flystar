@@ -6,6 +6,8 @@ from scipy.optimize import curve_fit, OptimizeWarning
 import warnings
 
 class MotionModel(ABC):
+    name = "MotionModel"
+
     # Fit paramters: Shared fit parameters
     fit_param_names = []
 
@@ -15,13 +17,14 @@ class MotionModel(ABC):
     # Fixed parameters: These are parameters that are required for the model, but are not
     # fit quantities. For example, RA and Dec in a parallax model.
     fixed_param_names = []
+    required_fixed_param_names = []
+    optional_fixed_params = {}
+
     fixed_meta_data = []
 
     # Non-fit paramters: Custom paramters that will not be fit.
     # These parameters should be derived from the fit parameters and
     # they must exist as a variable on the model object
-    optional_param_names = []
-    name = "MotionModel"
 
     def __init__(self, *args, **kwargs):
         """
@@ -232,9 +235,12 @@ class MotionModel(ABC):
         return chi2x, chi2y
 
 class Empty(MotionModel):
+    name = "Empty"
     fit_param_names = []
     fixed_param_names = []
-    name = "Empty"
+    required_fixed_param_names = []
+    optional_fixed_params = {}
+
     # Number of fit parameters/required observations in each direction
     n_params = int((len(fit_param_names) + 1) / 2)
 
@@ -334,13 +340,14 @@ class Fixed(MotionModel):
     """
     A non-moving motion model for a star on the sky.
     """
-
+    name = "Fixed"
     fit_param_names = ['x0','y0']
     fixed_param_names = []
+    required_fixed_param_names = []
+    optional_fixed_params = {}
+
     # Number of fit parameters/required observations in each direction
     n_params = int((len(fit_param_names) + 1) / 2)
-
-    name = "Fixed"
 
     def __init__(self, **kwargs):
         # Must call after setting parameters.
@@ -489,12 +496,14 @@ class Linear(MotionModel):
     """
     A 2D linear motion model for a star on the sky.
     """
+    name = "Linear"
     fit_param_names = ['x0', 'vx', 'y0', 'vy']
-    fixed_param_names = ['t0']
+    required_fixed_param_names = ['t0']
+    optional_fixed_params = {}
+    fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
 
     # Number of fit parameters/required observations in each direction
     n_params = int((len(fit_param_names) + 1) / 2)
-    name = "Linear"
 
     def __init__(self, **kwargs):
         # Must call after setting parameters.
@@ -717,9 +726,11 @@ class Acceleration(MotionModel):
     """
     A 2D accelerating motion model for a star on the sky.
     """
-    fit_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
-    fixed_param_names = ['t0']
     name = "Acceleration"
+    fit_param_names = ['x0', 'vx0', 'ax', 'y0', 'vy0', 'ay']
+    required_fixed_param_names = ['t0']
+    optional_fixed_params = {}
+    fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
 
     # Number of fit parameters/required observations in each direction
     n_params = int((len(fit_param_names) + 1) / 2)
@@ -885,9 +896,12 @@ class Parallax(MotionModel):
     Optional PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describes observer location, default is 'earth'.
     """
-    fit_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
-    fixed_param_names = ['t0', 'ra', 'dec', 'pa', 'obsLocation']
     name = "Parallax"
+    fit_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
+    required_fixed_param_names = ['t0', 'ra', 'dec']
+    optional_fixed_params = {'pa': 0., 'obsLocation': 'earth'}
+    fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
+    
 
     # Number of fit parameters/required observations in each direction
     n_params = int((len(fit_param_names) + 1) / 2)
