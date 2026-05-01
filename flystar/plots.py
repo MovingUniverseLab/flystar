@@ -3897,7 +3897,7 @@ class PrintSelected(object):
         return
 
 
-def plotly_stars(x, y, m=None, marker_size=3, color=None, alpha=0.7, symbol='circle', label='starlist', fig=None, figsize=(700, 700), show=True):
+def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=0.7, symbol='circle', label='starlist', fig=None, figsize=(700, 700), show=True):
     """Plot stars with plotly in interactive html format
 
     Parameters
@@ -3908,6 +3908,8 @@ def plotly_stars(x, y, m=None, marker_size=3, color=None, alpha=0.7, symbol='cir
         y positions
     m : array-like, optional
         magnitude to be added in hover label, by default None
+    star_name : array-like, optional
+        Star names to be added in hover label, by default None
     marker_size : int, optional
         Size of marker, by default 10
     color : array or str, optional
@@ -3939,35 +3941,34 @@ def plotly_stars(x, y, m=None, marker_size=3, color=None, alpha=0.7, symbol='cir
         color = mcolors.to_rgba(color, alpha=alpha)
         color = f'rgba({color[0]*255}, {color[1]*255}, {color[2]*255}, {color[3]:.2f})'
 
+    customdata = []
+    if star_name is not None:
+        hover_template = 'name: %{customdata[0]}<br>' + hover_template
+        customdata.append(star_name)
+
     if m is not None:
         m = np.asarray(m)
-        hover_template += '<br>m: %{customdata:.2f}'
-        fig_data = go.Scattergl(
-            x=x,
-            y=y,
-            mode='markers',
-            marker=dict(
-                size=marker_size,
-                color=color,
-                symbol=symbol
-            ),
-            hovertemplate=hover_template,
-            customdata=m,  # Add magnitude to hover data
-            name=label
-        )
-    else:
-        fig_data = go.Scattergl(
-            x=x,
-            y=y,
-            mode='markers',
-            marker=dict(
-                size=marker_size,
-                color=color,
-                symbol=symbol
-            ),
-            hovertemplate=hover_template,
-            name=label
-        )
+        m_idx = len(customdata)
+        hover_template += f'<br>m: %{{customdata[{m_idx}]:.2f}}'
+        customdata.append(m)
+
+    if customdata:
+        customdata = np.column_stack(customdata)
+    hover_template += '<extra></extra>'
+
+    fig_data = go.Scattergl(
+        x=x,
+        y=y,
+        mode='markers',
+        marker=dict(
+            size=marker_size,
+            color=color,
+            symbol=symbol
+        ),
+        customdata=customdata,
+        hovertemplate=hover_template,
+        name=label
+    )
     
     if fig is None:
         fig = go.Figure(data=[fig_data])
