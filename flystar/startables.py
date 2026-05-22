@@ -1003,21 +1003,10 @@ class StarTable(Table):
         times = np.atleast_1d(times)
         N_times = len(times)
 
-        if (N_stars > 1) and (N_times > 1):
-            x_pred = np.full((N_stars, N_times), fill_value, dtype=float)
-            y_pred = np.full((N_stars, N_times), fill_value, dtype=float)
-            xe_pred = np.full((N_stars, N_times), np.inf, dtype=float)
-            ye_pred = np.full((N_stars, N_times), np.inf, dtype=float)
-        elif N_stars==1:
-            x_pred = np.full(N_times, fill_value, dtype=float)
-            y_pred = np.full(N_times, fill_value, dtype=float)
-            xe_pred = np.full(N_times, np.inf, dtype=float)
-            ye_pred = np.full(N_times, np.inf, dtype=float)
-        else:
-            x_pred = np.full(N_stars, fill_value, dtype=float)
-            y_pred = np.full(N_stars, fill_value, dtype=float)
-            xe_pred = np.full(N_stars, np.inf, dtype=float)
-            ye_pred = np.full(N_stars, np.inf, dtype=float)
+        x_pred = np.full((N_stars, N_times), fill_value, dtype=float)
+        y_pred = np.full((N_stars, N_times), fill_value, dtype=float)
+        xe_pred = np.full((N_stars, N_times), np.inf, dtype=float)
+        ye_pred = np.full((N_stars, N_times), np.inf, dtype=float)
 
         # Calculate the dictionary of {motion_model: indices of stars with this motion model} for faster access during prediction
         unique_motion_models, unique_inv_indices = np.unique(self['motion_model_used'], return_inverse=True)
@@ -1058,14 +1047,34 @@ class StarTable(Table):
                     fixed_params[param_name] = fixed_params[param_name][0]
 
             # Predict positions
+            # shape = (N_stars_this_model, N_times) or (N_stars_this_model,) if N_times=1 or (N_times,) if N_stars_this_model=1 or scalar
             x, y, xe, ye = motion_model_instance.model(
                 times, fit_params, fit_param_errs, fixed_params
             )
+            if N_stars==1 and N_times > 1:
+                # Reshape (N_times,) to (1, N_times)
+                x = x[np.newaxis, :]
+                y = y[np.newaxis, :]
+                xe = xe[np.newaxis, :]
+                ye = ye[np.newaxis, :]
+            elif N_times==1 and N_stars > 1:
+                # Reshape (N_stars,) to (N_stars, 1)
+                x = x[:, np.newaxis]
+                y = y[:, np.newaxis]
+                xe = xe[:, np.newaxis]
+                ye = ye[:, np.newaxis]
+
             x_pred[unique_index] = x
             y_pred[unique_index] = y
             xe_pred[unique_index] = xe
             ye_pred[unique_index] = ye
 
+        if N_stars==1 or N_times==1:
+            # Reshape back to 1D array or scalar
+            x_pred = x_pred.flatten()
+            y_pred = y_pred.flatten()
+            xe_pred = xe_pred.flatten()
+            ye_pred = ye_pred.flatten()
         return x_pred, y_pred, xe_pred, ye_pred
 
 
