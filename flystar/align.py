@@ -1285,7 +1285,7 @@ class MosaicSelfRef(object):
         1) Draw full-size bootstrap w/replacement sample from reference stars in
         ref_table and re-calculate the transformations for each epoch
         2) Apply transformation to all stars in each epoch
-        If calc_vel_in_bootstraps:
+        If calc_vel_in_bootstrap:
             3) For each star, draw full-size boostrap sample w/replacement from epochs
             4) Calculate proper motion for each star using resampled epochs
 
@@ -1631,9 +1631,9 @@ class MosaicSelfRef(object):
                 self.ref_table.add_column(col)
 
         if verbose:
-            print('===============================')
-            print('Done with bootstrap')
-            print('===============================')
+            print('===================================')
+            print('======= Done with bootstrap =======')
+            print('===================================')
 
         if update_errors:
             self.ref_table['xe_list'] = self.ref_table['xe']

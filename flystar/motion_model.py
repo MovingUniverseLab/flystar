@@ -222,7 +222,28 @@ class MotionModel(ABC):
             return params, param_errs
 
 
-    def calc_chi2(self, t, x, y, xe, ye, fit_params, fixed_params_dict=None, reduced=False):
+    # def calc_chi2(self, dt, x, y, x_wt, y_wt, popt_x, popt_y, reduced=False, parallax=False):
+    #     X_mat_t = np.vander(dt, 2)
+    #     residual_x = x - X_mat_t @ popt_x
+    #     residual_y = y - X_mat_t @ popt_y
+
+    #     W_mat_x = np.diag(x_wt)
+    #     W_mat_y = np.diag(y_wt)
+
+    #     chi2_x = residual_x.T @ W_mat_x @ residual_x
+    #     chi2_y = residual_y.T @ W_mat_y @ residual_y
+
+    #     if reduced:
+    #         if len(dt) == self.n_params:
+    #             return np.inf, np.inf
+    #         if not parallax:
+    #             degree_of_freedom = len(x) - self.n_params
+    #         else:
+    #             degree_of_freedom = 2*len(x) - len(self.fit_param_names)
+    #         chi2_x, chi2_y = chi2_x / degree_of_freedom, chi2_y / degree_of_freedom
+    #     return chi2_x, chi2_y
+
+    def calc_chi2(self, t, x, y, xe, ye, fit_params, fixed_params_dict=None, reduced=False, parallax=False):
         """
         Get the chi^2 value for the input motion model parameters and data.
         """
@@ -232,9 +253,11 @@ class MotionModel(ABC):
         if reduced:
             if len(t) == self.n_params:
                 return np.inf, np.inf
-            else:
+            if not parallax:
                 degree_of_freedom = len(x) - self.n_params
-                chi2x, chi2y = chi2x / degree_of_freedom, chi2y / degree_of_freedom
+            else:
+                degree_of_freedom = 2*len(x) - len(self.fit_param_names)
+            chi2x, chi2y = chi2x / degree_of_freedom, chi2y / degree_of_freedom
         return chi2x, chi2y
 
 class Empty(MotionModel):
@@ -276,10 +299,24 @@ class Empty(MotionModel):
             Predicted position (and uncertainties) of Empty model, shape (N_times,)
         """
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
+
         t = np.atleast_1d(t)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+
+        N_stars = fit_params.shape[0]
+        N_times = len(t)
+
+        if N_times == N_stars or N_times == 1 or N_stars == 1:
+            # Assume each time corresponds to each star, so N_times = 1
+            x = np.full(N_stars, np.nan)
+            y = np.full(N_stars, np.nan)
+        else:
+            x = np.full((N_stars, N_times), np.nan)
+            y = np.full((N_stars, N_times), np.nan)
+
         if fit_param_errs is None:
-            return np.full_like(t, np.nan), np.full_like(t, np.nan)
-        return np.full_like(t, np.nan), np.full_like(t, np.nan), np.full_like(t, np.inf), np.full_like(t, np.inf)
+            return x, y
+        return x, y, np.full_like(x, np.inf), np.full_like(y, np.inf)
 
     def run_fit(
         self, t, x, y, xe, ye,
@@ -373,9 +410,7 @@ class Fixed(MotionModel):
         x : array-like
             Predicted positions, shape (N_times,) if scalar x0, else (N_stars, N_times)
         """
-        dt = np.atleast_1d(dt)
-        x0 = np.asarray(x0)
-        return np.broadcast_to(x0[:, np.newaxis], (x0.shape[0], dt.shape[0])) if x0.ndim > 0 else np.full_like(dt, x0)
+        return x0 + np.zeros_like(x0) * dt
 
     def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Predicted positions (and uncertainties, if fit_param_errs is provided) at time t of Fixed model.
@@ -402,13 +437,22 @@ class Fixed(MotionModel):
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
-        N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
+        N_stars = fit_params.shape[0]
         N_times = len(t)
         x0, y0 = fit_params.T  # Each shape (N_stars,)
 
+        # FIXME: Do we want this assumption?
+        if N_times == N_stars:
+            # Assume each time corresponds to each star, so N_times = 1
+            dt = t[:, np.newaxis]  # Shape (N_stars, 1)
+            N_times = 1
+        else:
+            # Else, calculate each time for each star
+            dt = t[np.newaxis, :]  - np.zeros(N_stars)[:, np.newaxis]  # Shape (N_stars, N_times)
+
         # Return results in (N_stars, N_times) shape
-        x = self.model_fit(t, x0)  # Shape (N_stars, N_times)
-        y = self.model_fit(t, y0)  # Shape (N_stars, N_times)
+        x = self.model_fit(t, x0[:, np.newaxis])  # Shape (N_stars, N_times)
+        y = self.model_fit(t, y0[:, np.newaxis])  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays
@@ -560,13 +604,19 @@ class Linear(MotionModel):
         t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
 
-        N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
+        N_stars = fit_params.shape[0]
         N_times = len(t)
 
         x0, vx, y0, vy = fit_params.T  # Each shape (N_stars,)
         t0 = np.atleast_1d(fixed_params_dict['t0'])  # Shape (N_stars,) or (1,)
 
-        dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+        if N_times == N_stars:
+            # Assume each time corresponds to each star, so N_times = 1
+            dt = t - t0 # Shape (N_stars,)
+            dt = dt[:, np.newaxis]  # Shape (N_stars, 1)
+            N_times = 1
+        else:
+            dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
 
         x = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis])  # Shape (N_stars, N_times)
         y = self.model_fit(dt, y0[:, np.newaxis], vy[:, np.newaxis])  # Shape (N_stars, N_times)
@@ -636,8 +686,8 @@ class Linear(MotionModel):
             params_guess = [x.mean(), 0., y.mean(), 0.]
 
         if use_scipy:
-            x_opt, x_cov = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:2]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma)
-            y_opt, y_cov = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[2:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma)
+            x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:2]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, full_output=True)
+            y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[2:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, full_output=True)
             x0, vx = x_opt
             y0, vy = y_opt
             x0e, vxe = np.sqrt(x_cov.diagonal())
@@ -645,7 +695,9 @@ class Linear(MotionModel):
             params = np.array([x0, vx, y0, vy])
             param_errors = np.array([x0e, vxe, y0e, vye])
             if return_chi2:
-                chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
+                # chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
+                chi2_x = np.sum(x_info['fvec']**2)
+                chi2_y = np.sum(y_info['fvec']**2)
                 return params, param_errors, chi2_x, chi2_y
             else:
                 return params, param_errors
@@ -792,13 +844,19 @@ class Acceleration(MotionModel):
         t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
 
-        N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
+        N_stars = fit_params.shape[0]
         N_times = len(t)
 
         x0, vx0, ax, y0, vy0, ay = fit_params.T  # Each shape (N_stars,)
         t0 = np.atleast_1d(fixed_params_dict['t0'])  # Shape (N_stars,) or (1,)
 
-        dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+        if N_times == N_stars:
+            # Assume each time corresponds to each star, so N_times = 1
+            dt = t - t0 # Shape (N_stars,)
+            dt = dt[:, np.newaxis]  # Shape (N_stars, 1)
+            N_times = 1
+        else:
+            dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
 
         x = self.model_fit(dt, x0[:, np.newaxis], vx0[:, np.newaxis], ax[:, np.newaxis])  # Shape (N_stars, N_times)
         y = self.model_fit(dt, y0[:, np.newaxis], vy0[:, np.newaxis], ay[:, np.newaxis])  # Shape (N_stars, N_times)
@@ -876,8 +934,8 @@ class Acceleration(MotionModel):
             t_span = t[idx_last] - t[idx_first]
             params_guess = [x.mean(), (x[idx_last] - x[idx_first]) / t_span, 0., y.mean(), (y[idx_last] - y[idx_first]) / t_span, 0.]
 
-        x_opt, x_cov = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma)
-        y_opt, y_cov = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma)
+        x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, return_full=True)
+        y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, return_full=True)
         x0, vx0, ax = x_opt
         y0, vy0, ay = y_opt
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
@@ -886,7 +944,9 @@ class Acceleration(MotionModel):
         params = np.array([x0, vx0, ax, y0, vy0, ay])
         param_errors = np.array([x0e, vx0e, axe, y0e, vy0e, aye])
         if return_chi2:
-            chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
+            # chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
+            chi2_x = np.sum(x_info['fvec']**2)
+            chi2_y = np.sum(y_info['fvec']**2)
             return params, param_errors, chi2_x, chi2_y
         else:
             return params, param_errors
@@ -904,7 +964,7 @@ class Parallax(MotionModel):
     required_fixed_param_names = ['t0', 'ra', 'dec']
     optional_fixed_params = {'pa': 0., 'obsLocation': 'earth'}
     fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
-    
+
 
     # Number of fit parameters/required observations in each direction
     n_params = int((len(fit_param_names) + 1) / 2)
@@ -1022,7 +1082,8 @@ class Parallax(MotionModel):
 
         t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
-        N_stars = fit_params.shape[0] if fit_params.ndim > 1 else 1
+
+        N_stars = fit_params.shape[0]
         N_times = len(t)
 
         x0, vx, y0, vy, pi = fit_params.T  # Each shape (N_stars,)
@@ -1037,7 +1098,15 @@ class Parallax(MotionModel):
         if not isinstance(obsLocation, str):
             obsLocation = np.unique(obsLocation)[0]
 
-        dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+
+        if N_times == N_stars:
+            # Assume each time corresponds to each star, so N_times = 1
+            dt = t - t0 # Shape (N_stars,)
+            dt = dt[:, np.newaxis]  # Shape (N_stars, 1)
+            N_times = 1
+        else:
+            dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd  # Shape (N_times,)
         self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (N_stars, 2, N_times)
         x, y = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis], y0[:, np.newaxis], vy[:, np.newaxis], pi[:, np.newaxis])  # Shape (N_stars, N_times)
@@ -1133,10 +1202,10 @@ class Parallax(MotionModel):
             sigma_x = 1.0 / np.sqrt(x_wt)
             sigma_y = 1.0 / np.sqrt(y_wt)
 
-        popt, pcov = curve_fit(
+        popt, pcov, infodict, mesg, ier = curve_fit(
             self._model_fit, t - t0, np.hstack([x, y]),
             p0=params_guess, sigma=np.hstack([sigma_x, sigma_y]),
-            absolute_sigma=absolute_sigma
+            absolute_sigma=absolute_sigma, full_output=True
         )
         x0, vx, y0, vy, pi = popt
         x0_err, vx_err, y0_err, vy_err, pi_err = np.sqrt(pcov.diagonal())
@@ -1145,7 +1214,9 @@ class Parallax(MotionModel):
         param_errors = np.array([x0_err, vx_err, y0_err, vy_err, pi_err])
 
         if return_chi2:
-            chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
+            # chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
+            chi2_x = np.sum(infodict['fvec'][:len(t)]**2)
+            chi2_y = np.sum(infodict['fvec'][len(t):]**2)
             return params, param_errors, chi2_x, chi2_y
         else:
             return params, param_errors
