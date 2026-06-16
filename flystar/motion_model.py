@@ -934,8 +934,8 @@ class Acceleration(MotionModel):
             t_span = t[idx_last] - t[idx_first]
             params_guess = [x.mean(), (x[idx_last] - x[idx_first]) / t_span, 0., y.mean(), (y[idx_last] - y[idx_first]) / t_span, 0.]
 
-        x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, return_full=True)
-        y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, return_full=True)
+        x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, full_output=True)
+        y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, full_output=True)
         x0, vx0, ax = x_opt
         y0, vy0, ay = y_opt
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())

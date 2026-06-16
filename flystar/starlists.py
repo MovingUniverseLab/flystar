@@ -454,50 +454,45 @@ def read_starlist(starlistFile, error=True):
 
 
 class StarList(Table):
-    """
-    A StarList is an astropy.Table with star catalog from a single image.
-
-    Required table columns (input as keywords):
-    -------------------------
-    name : 1D numpy.array with shape = N_stars
-        List of names of the stars in the table.
-
-    x : 1D numpy.array with shape = N_stars
-        Positions of N_stars in the x dimension.
-
-    y : 1D numpy.array with shape = N_stars
-        Positions of N_stars in the y dimension.
-
-    m : 1D numpy.array with shape = N_stars
-        Magnitudes of N_stars.
-
-    Optional table columns (input as keywords):
-    -------------------------
-    xe : 1D numpy.array with shape = N_stars
-        Position uncertainties of N_stars in the x dimension.
-
-    ye : 1D numpy.array with shape = N_stars
-        Position uncertainties of N_stars in the y dimension.
-
-    me : 1D numpy.array with shape = N_stars
-        Magnitude uncertainties of N_stars.
-
-    corr : 1D numpy.array with shape = N_stars
-        Fitting correlation of N_stars.
-
-    Optional table meta data
-    -------------------------
-    list_name : str
-        Name of the starlist.
-
-    list_time : int or float
-        Time/date of the starlist.
-
-
-    """
-
     def __init__(self, *args, **kwargs):
         """
+        A StarList is an astropy.Table with star catalog from a single image.
+
+        Required table columns (input as keywords):
+        -------------------------
+        name : 1D numpy.array with shape = N_stars
+            List of names of the stars in the table.
+
+        x : 1D numpy.array with shape = N_stars
+            Positions of N_stars in the x dimension.
+
+        y : 1D numpy.array with shape = N_stars
+            Positions of N_stars in the y dimension.
+
+        m : 1D numpy.array with shape = N_stars
+            Magnitudes of N_stars.
+
+        Optional table columns (input as keywords):
+        -------------------------
+        xe : 1D numpy.array with shape = N_stars
+            Position uncertainties of N_stars in the x dimension.
+
+        ye : 1D numpy.array with shape = N_stars
+            Position uncertainties of N_stars in the y dimension.
+
+        me : 1D numpy.array with shape = N_stars
+            Magnitude uncertainties of N_stars.
+
+        corr : 1D numpy.array with shape = N_stars
+            Fitting correlation of N_stars.
+
+        Optional table meta data
+        -------------------------
+        list_name : str
+            Name of the starlist.
+
+        list_time : int or float
+            Time/date of the starlist.
         """
         # Check if the required arguments are present
         arg_req = ('name', 'x', 'y', 'm')
@@ -526,6 +521,7 @@ class StarList(Table):
 
             # Check if the type and size of the arguments are correct.
             # Name checking: type and shape
+            kwargs['name'] = np.asarray(kwargs['name'])
             if (not isinstance(kwargs['name'], np.ndarray)) or (
                 len(kwargs['name']) != n_stars):
                 err_msg = "The '{0:s}' argument has to be a numpy array "

@@ -1,19 +1,20 @@
+import copy
+import itertools
 import numpy as np
+import matplotlib.pyplot as plt
 from . import starlists, transforms, startables
 from collections import Counter
-from scipy.spatial import KDTree as KDT
 from astropy.table import Column
-import itertools
-import copy
+from scipy.spatial import KDTree as KDT
 
 
-def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
-                         Nbins_vmax=200, Nbins_angle=360,verbose=False):
+def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite, 
+                         polygon1=None, polygon2=None, buffer=0, Nbins_vmax=200, Nbins_angle=360,verbose=False):
     """
     Take two input starlists and select the <Nbrite> brightest stars from
     each. Then perform a triangle matching algorithm along the lines of
     Groth 1986.
-
+    
     For every possible triangle (combination of 3 stars) in a starlist,
     compute the ratio of two sides and the angle between those sides.
     These quantities are invariant under scale and rotation transformations.
@@ -33,17 +34,108 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
         print( '  miracle_match_briteN:  ')
         print( '  miracle_match_briteN:  ')
 
+    xin1 = np.array(xin1)
+    yin1 = np.array(yin1)
+    min1 = np.array(min1)
+    xin2 = np.array(xin2)
+    yin2 = np.array(yin2)
+    min2 = np.array(min2)
+
+    if polygon1 is not None and polygon2 is not None:
+        import shapely
+        points1 = shapely.points(xin1, yin1)
+        points2 = shapely.points(xin2, yin2)
+        overlap = polygon1.intersection(polygon2).buffer(buffer)
+        in_poly1 = shapely.contains(overlap, points1)
+        in_poly2 = shapely.contains(overlap, points2)
+        xin1 = xin1[in_poly1]
+        yin1 = yin1[in_poly1]
+        min1 = min1[in_poly1]
+        xin2 = xin2[in_poly2]
+        yin2 = yin2[in_poly2]
+        min2 = min2[in_poly2]
+    # else:
+    #     # Only look for matches within overlapping minimum-bounding-boxes of the 2 lists
+    #     valid1 = (np.isfinite(xin1)) & (np.isfinite(yin1)) & (np.isfinite(min1))
+    #     valid2 = (np.isfinite(xin2)) & (np.isfinite(yin2)) & (np.isfinite(min2))
+    #     if (sum(valid1) < Nbrite) or (sum(valid2) < Nbrite):
+    #         raise ValueError(
+    #             f'Not enough valid stars to find matches! Need at least {Nbrite} valid stars.\n' +
+    #             f'Valid stars in list 1: {sum(valid1)}\n' +
+    #             f'Valid stars in list 2: {sum(valid2)}\n'
+    #         )
+
+    #     xin1 = xin1[valid1]
+    #     yin1 = yin1[valid1]
+    #     min1 = min1[valid1]
+    #     xin2 = xin2[valid2]
+    #     yin2 = yin2[valid2]
+    #     min2 = min2[valid2]
+
+    #     xmin1, xmax1 = np.min(xin1), np.max(xin1)
+    #     ymin1, ymax1 = np.min(yin1), np.max(yin1)
+    #     xmin2, xmax2 = np.min(xin2), np.max(xin2)
+    #     ymin2, ymax2 = np.min(yin2), np.max(yin2)
+
+    #     # Find the overlapping minimum bounding box
+    #     x_overlap = (max(xmin1, xmin2), min(xmax1, xmax2))
+    #     y_overlap = (max(ymin1, ymin2), min(ymax1, ymax2))
+    #     if x_overlap[0] >= x_overlap[1] or y_overlap[0] >= y_overlap[1]:
+    #         fig, ax = plt.subplots()
+    #         ax.scatter(xin1, yin1, s=1, label='List 1')
+    #         ax.scatter(xin2, yin2, s=1, label='List 2')
+    #         ax.set_aspect('equal')
+    #         ax.legend()
+    #         plt.show()
+    #         raise ValueError('The two star lists do not have an overlapping region!')
+
+    #     # Select overlapping regions
+    #     in_overlap1 = (xin1 >= x_overlap[0]) & (xin1 <= x_overlap[1]) & (yin1 >= y_overlap[0]) & (yin1 <= y_overlap[1])
+    #     in_overlap2 = (xin2 >= x_overlap[0]) & (xin2 <= x_overlap[1]) & (yin2 >= y_overlap[0]) & (yin2 <= y_overlap[1])
+    #     if sum(in_overlap1) < Nbrite or sum(in_overlap2) < Nbrite:
+    #         raise ValueError(
+    #             'Not enough stars in the overlapping region to find matches!\n' + 
+    #             f'Stars in overlap for list 1: {sum(in_overlap1)}\n' +
+    #             f'Stars in overlap for list 2: {sum(in_overlap2)}\n'
+    #         )
+
+    #     from matplotlib.patches import Rectangle
+    #     fig, ax = plt.subplots()
+    #     polygon1 = Rectangle((xmin1, ymin1), xmax1-xmin1, ymax1-ymin1, fill=True, edgecolor='C0', facecolor='C0', alpha=0.5, label='MBB List 1')
+    #     polygon2 = Rectangle((xmin2, ymin2), xmax2-xmin2, ymax2-ymin2, fill=True, edgecolor='C2', facecolor='C2', alpha=0.5, label='MBB List 2')
+    #     polygon_overlap = Rectangle((x_overlap[0], y_overlap[0]), x_overlap[1]-x_overlap[0], y_overlap[1]-y_overlap[0], fill=True, edgecolor='red', facecolor='C3', alpha=0.5, label='Overlap Region')
+    #     ax.scatter(xin1, yin1, s=1, label='List 1')
+    #     ax.scatter(xin2, yin2, s=1, label='List 2')
+    #     ax.add_patch(polygon1)
+    #     ax.add_patch(polygon2)
+    #     ax.add_patch(polygon_overlap)
+    #     ax.set_aspect('equal')
+    #     ax.legend()
+    #     plt.show()
+
+    #     xin1 = xin1[in_overlap1]
+    #     yin1 = yin1[in_overlap1]
+    #     min1 = min1[in_overlap1]
+    #     xin2 = xin2[in_overlap2]
+    #     yin2 = yin2[in_overlap2]
+    #     min2 = min2[in_overlap2]
+
     # Get/check the lengths of the two starlists
     nin1 = len(xin1)
     nin2 = len(xin2)
 
     if (nin1 < Nbrite) or (nin2 < Nbrite):
-        print(f'WARNING: You need at least {Nbrite} to find the matches...')
-        print(f'NIN1: {nin1}')
-        print(f'NIN2: {nin2}')
-        # Nbrite = min(nin1, nin2)
-        # print(f'Updating Nbrite to {Nbrite}...')
-        return (0, None, None, None, None, None, None)
+        raise ValueError(
+            f'Not enough stars in the overlapping region to find matches! Need at least {Nbrite} valid stars.\n' +
+            f'Stars in overlap for list 1: {nin1}\n' +
+            f'Stars in overlap for list 2: {nin2}\n'
+        )
+        # print(f'WARNING: You need at least {Nbrite} to find the matches...')
+        # print(f'NIN1: {nin1}')
+        # print(f'NIN2: {nin2}')
+        # # Nbrite = min(nin1, nin2)
+        # # print(f'Updating Nbrite to {Nbrite}...')
+        # return (0, None, None, None, None, None, None)
 
     # Take the Nbrite brightest stars from each list and order by brightness.
     if verbose:
@@ -108,7 +200,6 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     idx2_vmax_hist = idx2_vmax_hist[good_idx2]
     idx2_angl_hist = idx2_angl_hist[good_idx2]
 
-
     ##########
     # Possible Matches
     ##########
@@ -163,7 +254,6 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     x1_mat = x1[votes_sdx[0, good]]
     y1_mat = y1[votes_sdx[0, good]]
     m1_mat = m1[votes_sdx[0, good]]
-
     return len(x1_mat), x1_mat, y1_mat, m1_mat, x2_mat, y2_mat, m2_mat
 
 
@@ -387,7 +477,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
         if dm_min == dr_min:
             keep[dups[dm_min]] = True
         else:
-            if verbose:
+            if verbose > 3:
                 print('    confused, dropping star at',x2[idxs2[dups]][0],y2[idxs2[dups]][0])
 
 
@@ -580,9 +670,10 @@ def generic_match(sl1, sl2, init_mode='triangle',
 #                                                     dr_tol=order_dr[i_loop][1],
 #                                                     verbose=verbose)
         import matplotlib.pyplot as plt
+        plt.clf()
         plt.plot(sl1_match['x'], sl1_match['y'], 'x', ms=10)
         plt.plot(sl2_match['x'], sl2_match['y'], 'o')
-        plt.show()
+
         sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
                                                      dr_tol=order_dr[1],
                                                      verbose=verbose)
