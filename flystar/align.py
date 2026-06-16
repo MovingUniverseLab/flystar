@@ -1645,6 +1645,11 @@ class MosaicSelfRef(object):
             print("Saved starlist errors to xe_list and added xe_boot to xe in quadrature.")
             print("The same was done for ye and me.")
 
+        if self.save_path is not None:
+            with open(os.path.join(self.save_path, self.prefix_name+'_bootstrap.pkl'), 'wb') as file:
+                pickle.dump(self, file)
+            with open(os.path.join(self.save_path, self.prefix_name+'_ref_table_bootstrap.pkl'), 'wb') as file:
+                pickle.dump(self.ref_table, file)
 
         return
 
