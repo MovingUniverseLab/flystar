@@ -1,4 +1,5 @@
 import os
+import gc
 import pdb
 import copy
 import time
@@ -6,6 +7,7 @@ import pickle
 import warnings
 import datetime
 import numpy as np
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 from . import match, transforms, plots, motion_model
 from .starlists import StarList
@@ -19,12 +21,14 @@ class MosaicSelfRef(object):
     def __init__(
             self,
             list_of_starlists,
+            starlist_vertices=None,
             # Alignment parameters
             ref_index=0,
             iters=2,
             dr_tol=[1, 1],
             dm_tol=[2, 1],
             outlier_tol=None,
+            briteN=None,
             # Transformation parameters
             trans_class=transforms.PolyTransform,
             trans_args=[{'order': 2}, {'order': 2}],
@@ -72,6 +76,11 @@ class MosaicSelfRef(object):
 
         Optional Parameters
         -------------------
+        starlist_vertices : list or array
+            A list or array of polygon vertices coordinates for each starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
+            If not provided, will be None and will use minimum bounding box of the starlist positions.
+            Shape of (N_lists, N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for each starlist, by default None
+
         ref_index : int
             The index of the reference epoch. (default = 0). Note that this is the reference
             list only for the first iteration. Subsequent iterations will utilize the sigma-clipped
@@ -92,6 +101,10 @@ class MosaicSelfRef(object):
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
             This is a list of tol values, one for each iteration of matching/transformation.
             If not provided, will be None for each iteration.
+        
+        briteN : int
+            If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
+            Default is min(50, len(star_list)).
 
         trans_class : transforms.Transform2D object (or subclass)
             The transform class that will be used to when deriving the optimal
@@ -210,11 +223,12 @@ class MosaicSelfRef(object):
         """
 
         self.star_lists = list_of_starlists
+        self.starlist_vertices = starlist_vertices
         self.ref_index = ref_index
         self.iters = iters
         self.dr_tol = dr_tol
         self.dm_tol = dm_tol
-        # self.outlier_tol = outlier_tol
+        self.briteN = briteN
         self.trans_args = trans_args
         self.init_order = init_order
         self.mag_trans = mag_trans
@@ -232,6 +246,12 @@ class MosaicSelfRef(object):
         self.save_path = save_path
         self.prefix_name = prefix_name
         self.verbose = verbose
+
+        if self.starlist_vertices is not None:
+            import shapely
+            self.reflist_polygon = shapely.make_valid(shapely.Polygon(self.starlist_vertices[self.ref_index]))
+        else:
+            self.reflist_polygon = None
 
         # Check x and y are 1d
         for ii in range(len(self.star_lists)):
@@ -505,6 +525,8 @@ class MosaicSelfRef(object):
         Given some reference list of positions, loop through all the starlists
         transform and match them.
         """
+        if self.starlist_vertices is not None:
+            import shapely
         for ii in range(len(self.star_lists)):
             if self.verbose > 0:
                 msg  = '   Matching catalog {0} / {1} with {2:d} stars'
@@ -537,15 +559,19 @@ class MosaicSelfRef(object):
                 # Only use "use_in_trans" reference stars, even for initial guessing.
                 keepers = ref_list['use_in_trans']
                 trans = trans_initial_guess(
-                    ref_list[keepers],
-                    star_list_orig_trim,
-                    self.trans_args[0],
-                    motion_models=self.motion_models,
-                    fixed_params_dict=self.fixed_params_dict,
+                    ref_list=ref_list[keepers],
+                    star_list=star_list_orig_trim,
+                    trans_args=self.trans_args[0],
                     mode=self.init_guess_mode,
                     order=self.init_order,
-                    verbose=self.verbose,
-                    mag_trans=self.mag_trans
+                    briteN=self.briteN,
+                    polygon_reflist=self.reflist_polygon,
+                    polygon_starlist=shapely.Polygon(self.starlist_vertices[ii]) if self.starlist_vertices is not None else None,
+                    buffer=dr_tol,
+                    motion_models=self.motion_models,
+                    fixed_params_dict=self.fixed_params_dict,
+                    mag_trans=self.mag_trans,                    
+                    verbose=self.verbose
                 )
                 if np.isnan(trans.px.parameters).any() or np.isnan(trans.py.parameters).any():
                     raise ValueError(f"Initial transformation contains NaN parameters. trans.px={trans.px.parameters}, trans.py={trans.py.parameters}.")
@@ -652,7 +678,7 @@ class MosaicSelfRef(object):
             ## Make plot, if desired
             if self.save_path:
                 plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                    save_path=f"{os.path.dirname(self.save_path)}/Transformed_Positions_{star_list_T['t'][0]}.png",
+                                    save_path=os.path.join(self.save_path, f"Transformed_Positions_{ii}_{star_list_T['t'][0]}.png"),
                                     show_plot=False)
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
@@ -668,6 +694,10 @@ class MosaicSelfRef(object):
             else:
                 keep_orig=None
             self.update_ref_table_aggregates(keep_orig=keep_orig)
+
+            # Update ref list polygon
+            if self.starlist_vertices is not None:
+                self.reflist_polygon = shapely.make_valid(self.reflist_polygon.union(shapely.Polygon(self.starlist_vertices[ii])))
 
             # Print out some metrics
             if self.verbose > 0:
@@ -687,7 +717,7 @@ class MosaicSelfRef(object):
                 print(msg1.format('dm', 'trans stars', dm_u.mean(), dm_u.std()))
                 print('    Used {0:d} trans ref stars.'.format(len(used)))
                 print('    Dropped {0:d} matches after transform.'.format(len(used) - len(used_good)))
-
+            gc.collect()  # clean up memory after each iteration
         return
 
     def setup_trans_info(self):
@@ -1155,7 +1185,7 @@ class MosaicSelfRef(object):
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
 
             if self.verbose > 0:
-                fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} +/- {4:6.4f}, dm = {5:5.2f} +/- {6:4.2f}'
+                fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} ± {4:6.4f}, dm = {5:5.2f} ± {6:4.2f}]'
                 print(fmt.format(len(idx_lis), len(star_list_T), ii, dr.mean(), dr.std(), dm.mean(), dm.std()))
 
             copy_over_values(self.ref_table, self.star_lists[ii], star_list_T, ii, idx_ref, idx_lis)
@@ -1654,11 +1684,13 @@ class MosaicToRef(MosaicSelfRef):
         self,
         ref_list,
         list_of_starlists,
+        starlist_vertices=None,
         # Alignment parameters
         iters=2,
         dr_tol=[1, 1],
         dm_tol=[2, 1],
         outlier_tol=None,
+        briteN=None,
         # Reference behavior (MosiacToRef specific)
         use_ref_new=False,
         update_ref_orig=False,
@@ -1713,6 +1745,11 @@ class MosaicToRef(MosaicSelfRef):
 
         Optional Parameters
         ----------
+        starlist_vertices : list or array
+            A list or array of polygon vertices coordinates for each starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
+            If not provided, will be None and will use minimum bounding box of the starlist positions.
+            Shape of (N_lists, N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for each starlist, by default None
+
         iters : int
             The number of iterations used in the matching and transformation.  TO DO: INNER/OUTER?
 
@@ -1727,6 +1764,10 @@ class MosaicToRef(MosaicSelfRef):
         outlier_tol : list or array
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
             This is a list of tol values, one for each iteration of matching/transformation.
+
+        briteN : int
+            If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
+            Default is min(50, len(star_list)).
 
         use_ref_new : boolean
             Each pass, new stars are matched and added to the ref_table. However, we don't
@@ -1867,12 +1908,14 @@ class MosaicToRef(MosaicSelfRef):
         """
         super().__init__(
             list_of_starlists,
+            starlist_vertices=starlist_vertices,
             # Alignment parameters
             ref_index=-1,
             iters=iters,
             dr_tol=dr_tol,
             dm_tol=dm_tol,
             outlier_tol=outlier_tol,
+            briteN=briteN,
             # Transformation parameters
             trans_class=trans_class,
             trans_args=trans_args,
@@ -3403,14 +3446,18 @@ def trans_initial_guess(
     ref_list,
     star_list,
     trans_args,
+    mode='miracle',
+    order=1,
+    briteN=None,
+    n_req_match=3,
+    polygon_reflist=None,
+    polygon_starlist=None,
+    buffer=0,
     motion_models=None,
     fixed_params_dict=None,
-    mode='miracle',
     ignore_contains='star',
-    verbose=True,
-    n_req_match=3,
     mag_trans=True,
-    order=1
+    verbose=True
 ):
     """
     Take two starlists and perform an initial matching and transformation.
@@ -3444,7 +3491,10 @@ def trans_initial_guess(
 
     else:
         # Default is miracle match.
-        briteN = min(50, len(star_list))
+        if briteN is None:
+            briteN = min(50, len(star_list))
+        else:
+            assert (type(briteN) == int) and (briteN > 0), f'briteN must be a positive integer, but got {briteN}.'
 
         # If there are velocities in the reference list, use them.
         # We assume velocities are in the same units as the positions.
@@ -3461,11 +3511,21 @@ def trans_initial_guess(
             xref,
             yref,
             mref,
-            briteN
+            briteN,
+            polygon_reflist,
+            polygon_starlist,
+            buffer=buffer
         )
 
-    assert len(x1m) >= n_req_match, \
-        f'Failed to find more than {n_req_match} (only {len(x1m)}) matches, giving up.'
+    if len(x1m) < n_req_match:
+        fig, ax = plt.subplots()
+        ax.scatter(star_list['x'], star_list['y'], s=1, label='star_list')
+        ax.scatter(xref, yref, s=1, label='ref_list')
+        ax.legend()
+        ax.set_aspect('equal')
+        plt.show()
+        raise AssertionError(f'Failed to find more than {n_req_match} (only {len(x1m)}) matches, giving up.')
+
     if verbose > 1:
         print('Initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
