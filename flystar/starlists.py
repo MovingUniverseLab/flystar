@@ -544,8 +544,8 @@ class StarList(Table):
                         raise TypeError(err_msg.format(arg_test))
 
                     if kwargs[arg_test].shape != (n_stars,):
-                        err_msg = "The '{0:s}' argument has to have shape = ({1:d},)"
-                        raise TypeError(err_msg.format(arg_test, n_stars))
+                        err_msg = "The '{0:s}' argument has to have shape = ({1:d},), but has shape = {2}"
+                        raise TypeError(err_msg.format(arg_test, n_stars, kwargs[arg_test].shape))
 
             # We have to have special handling of meta-data
             meta_tab = ('list_time', 'list_name')
@@ -645,18 +645,18 @@ class StarList(Table):
             if error==True:
                 t_ref.rename_column(cols[5], 'xe')
                 t_ref.rename_column(cols[6], 'ye')
-                t_ref.rename_column(cols[7], 'snr')
+                t_ref.rename_column(cols[7], 'me')
                 t_ref.rename_column(cols[8], 'corr')
                 t_ref.rename_column(cols[9], 'N_frames')
                 t_ref.rename_column(cols[10], 'flux')
             else:
-                t_ref.rename_column(cols[5], 'snr')
+                t_ref.rename_column(cols[5], 'me')
                 t_ref.rename_column(cols[6], 'corr')
                 t_ref.rename_column(cols[7], 'N_frames')
                 t_ref.rename_column(cols[8], 'flux')
 
-        if ('me' not in cols) and ('snr' in cols) and (error == True):
-            t_ref['me'] = 1.0 / t_ref['snr']
+        # if ('me' not in cols) and ('snr' in cols) and (error == True):
+        #     t_ref['me'] = 1.0 / t_ref['snr']
 
         if fvu_file is not None:
             t_fvu = Table.read(fvu_file, format='ascii.no_header')
