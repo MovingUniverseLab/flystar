@@ -354,6 +354,7 @@ def test_Parallax():
         fit_params=params,
         fixed_params_dict=fixed_params_dict
     )
+    plt.clf()
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
     ax1.plot(t, x_model, color='C3', lw=2, label='Model x')
     ax1.plot(t, x_true, color='C0', ls='--', label='True x')
@@ -368,7 +369,7 @@ def test_Parallax():
     ax2.set_ylabel('y')
     ax2.legend()
     plt.tight_layout()
-    plt.show()
+
     # Confirm true value is within error bar of fit value
     assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
 
