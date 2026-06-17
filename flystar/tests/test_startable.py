@@ -311,7 +311,7 @@ def test_fit_motion_models():
     tab = table.vstack((tab1, tab2, tab3))
     tab.meta = tab1.meta
 
-    tab.fit_motion_model(verbose=True, mask_value=-100000.)
+    tab.fit_motion_models(verbose=True, mask_value=-100000.)
 
     # Test creation of new variables
     np.testing.assert_equal(len(tab['vx']), len(tab))
@@ -341,7 +341,7 @@ def test_fit_motion_models():
     x0_orig = tab['x0']
     vxe_orig = tab['vx_err']
     x0e_orig = tab['x0_err']
-    tab.fit_motion_model(verbose=False, mask_value=-100000.)
+    tab.fit_motion_models(verbose=False, mask_value=-100000.)
 
     np.testing.assert_allclose(tab['vx'], vx_orig)
     np.testing.assert_allclose(tab['x0'], x0_orig)
@@ -352,7 +352,7 @@ def test_fit_motion_models():
     # Test fixed_t0 functionality
     ##########
     fixed_t0 = tab['t0'] + np.random.normal(size=len(tab))
-    tab.fit_motion_model(verbose=False, mask_value=-100000., fixed_params_dict={'t0': fixed_t0})
+    tab.fit_motion_models(verbose=False, mask_value=-100000., fixed_params_dict={'t0': fixed_t0})
     np.testing.assert_allclose(tab['t0'], fixed_t0)
 
     ##########
@@ -360,7 +360,7 @@ def test_fit_motion_models():
     ##########
     tab_b = table.vstack((tab1, tab2, tab3))
     tab_b.meta = tab1.meta
-    tab_b.fit_motion_model(verbose=True, bootstrap=50)
+    tab_b.fit_motion_models(verbose=True, bootstrap=50)
 
     np.testing.assert_equal(tab_b.meta['n_bootstrap'], 50)
     np.testing.assert_array_less(tab['x0_err'][0], tab_b['x0_err'][0])
@@ -372,7 +372,7 @@ def test_fit_motion_models():
     # Test what happens with no velocity errors
     ##########
     tab.remove_columns(['xe', 'ye', 'x0', 'y0', 'x0_err', 'y0_err', 'vx', 'vy', 'vx_err', 'vy_err', 'n_fit'])
-    tab.fit_motion_model(verbose=False)
+    tab.fit_motion_models(verbose=False)
 
     np.testing.assert_equal(len(tab['vx']), len(tab))
     np.testing.assert_equal(len(tab['vy']), len(tab))
@@ -389,7 +389,7 @@ def test_fit_motion_models():
     #########
     # Test 5a: Masked
     print("Testing Masked List")
-    tt.fit_motion_model(verbose=False, mask_lists=[1])
+    tt.fit_motion_models(verbose=False, mask_lists=[1])
     np.testing.assert_allclose(np.arange(2.25, 48, 5), tt['x0'].data)
     np.testing.assert_allclose(np.arange(2.25, 48, 5), tt['y0'].data)
     np.testing.assert_allclose(np.full(10, 0.05), tt['x0_err'].data)
@@ -417,7 +417,7 @@ def test_fit_motion_model_2epoch():
     tab_2 = table.vstack((tab1, tab2, tab3))
     tab_2.meta=tab1.meta
 
-    tab_2.fit_motion_model(verbose=False, mask_value=-100000.)
+    tab_2.fit_motion_models(verbose=False, mask_value=-100000.)
 
     assert all([_ in tab_2.colnames for _ in ['n_fit', 't0', 'x0', 'y0', 'vx', 'vy', 'x0_err', 'y0_err', 'vx_err', 'vy_err']])
 

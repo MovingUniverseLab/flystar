@@ -12,7 +12,8 @@ class MotionModel(ABC):
     fit_param_names = []
 
     # Number of fit parameters/required observations in each direction
-    n_params = int((len(fit_param_names) + 1) / 2)
+    n_params = len(fit_param_names)
+    required_epochs = int((n_params + 1) / 2)
 
     # Fixed parameters: These are parameters that are required for the model, but are not
     # fit quantities. For example, RA and Dec in a parallax model.
@@ -173,18 +174,18 @@ class MotionModel(ABC):
         # Bootstrap errors
         n_obs = len(t)
 
-        if bootstrap > 0 and n_obs > (self.n_params):
+        if (bootstrap > 0) and (n_obs > self.required_epochs):
             rng = np.random.default_rng(seed)
             edx = np.arange(n_obs, dtype=int)
             # Precompute All Bootstrap Draws at Once
             # Ensure there are enough unique points in each bootstrap sample
             bdx_unique = np.stack([
-                rng.choice(edx, size=self.n_params, replace=False)
+                rng.choice(edx, size=self.required_epochs, replace=False)
                 for _ in range(bootstrap)
             ])
             # Draw with replacement for the rest
             bdx_extra = np.stack([
-                rng.choice(edx, size=n_obs - self.n_params, replace=True)
+                rng.choice(edx, size=n_obs - self.required_epochs, replace=True)
                 for _ in range(bootstrap)
             ])
             bdx_all = np.hstack((bdx_unique, bdx_extra))
@@ -234,10 +235,10 @@ class MotionModel(ABC):
     #     chi2_y = residual_y.T @ W_mat_y @ residual_y
 
     #     if reduced:
-    #         if len(dt) == self.n_params:
+    #         if len(dt) == self.required_epochs:
     #             return np.inf, np.inf
     #         if not parallax:
-    #             degree_of_freedom = len(x) - self.n_params
+    #             degree_of_freedom = len(x) - self.required_epochs
     #         else:
     #             degree_of_freedom = 2*len(x) - len(self.fit_param_names)
     #         chi2_x, chi2_y = chi2_x / degree_of_freedom, chi2_y / degree_of_freedom
@@ -251,10 +252,10 @@ class MotionModel(ABC):
         chi2x = np.sum((x - x_pred)**2 / xe**2)
         chi2y = np.sum((y - y_pred)**2 / ye**2)
         if reduced:
-            if len(t) == self.n_params:
+            if len(t) == self.required_epochs:
                 return np.inf, np.inf
             if not parallax:
-                degree_of_freedom = len(x) - self.n_params
+                degree_of_freedom = len(x) - self.required_epochs
             else:
                 degree_of_freedom = 2*len(x) - len(self.fit_param_names)
             chi2x, chi2y = chi2x / degree_of_freedom, chi2y / degree_of_freedom
@@ -268,7 +269,8 @@ class Empty(MotionModel):
     optional_fixed_params = {}
 
     # Number of fit parameters/required observations in each direction
-    n_params = int((len(fit_param_names) + 1) / 2)
+    n_params = len(fit_param_names)
+    required_epochs = int((n_params + 1) / 2)
 
     def __init__(self, **kwargs):
         """Empty motion model, returns nan for values and inf for uncertainties.
@@ -387,7 +389,8 @@ class Fixed(MotionModel):
     optional_fixed_params = {}
 
     # Number of fit parameters/required observations in each direction
-    n_params = int((len(fit_param_names) + 1) / 2)
+    n_params = len(fit_param_names)
+    required_epochs = int((n_params + 1) / 2)
 
     def __init__(self, **kwargs):
         # Must call after setting parameters.
@@ -491,7 +494,7 @@ class Fixed(MotionModel):
             warnings.warn("Fixed model has no non-scipy fitter option. Running with scipy.")
 
         n_obs = len(t)
-        degree_of_freedom = n_obs - self.n_params
+        degree_of_freedom = n_obs - self.required_epochs
         # Not enough data points to fit model
         if degree_of_freedom < 0:
             warnings.warn(
@@ -550,7 +553,8 @@ class Linear(MotionModel):
     fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
 
     # Number of fit parameters/required observations in each direction
-    n_params = int((len(fit_param_names) + 1) / 2)
+    n_params = len(fit_param_names)
+    required_epochs = int((n_params + 1) / 2)
 
     def __init__(self, **kwargs):
         # Must call after setting parameters.
@@ -665,7 +669,7 @@ class Linear(MotionModel):
         ye = np.atleast_1d(ye)
 
         n_obs = len(t)
-        degree_of_freedom = n_obs - self.n_params
+        degree_of_freedom = n_obs - self.required_epochs
         # Not enough data points to fit model
         if degree_of_freedom < 0:
             warnings.warn(
@@ -787,8 +791,9 @@ class Acceleration(MotionModel):
     optional_fixed_params = {}
     fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
 
-    # Number of fit parameters/required observations in each direction
-    n_params = int((len(fit_param_names) + 1) / 2)
+    # Number of required observations in each direction
+    n_params = len(fit_param_names)
+    required_epochs = int((n_params + 1) / 2)
 
     def __init__(self):
         # Must call after setting parameters.
@@ -911,7 +916,7 @@ class Acceleration(MotionModel):
                 warnings.warn("Acceleration model has no non-scipy fitter option. Running with scipy.")
 
         n_obs = len(t)
-        degree_of_freedom = n_obs - self.n_params
+        degree_of_freedom = n_obs - self.required_epochs
         # Not enough data points to fit model
         if degree_of_freedom < 0:
             warnings.warn(
@@ -966,8 +971,9 @@ class Parallax(MotionModel):
     fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
 
 
-    # Number of fit parameters/required observations in each direction
-    n_params = int((len(fit_param_names) + 1) / 2)
+    # Number of required observations in each direction
+    n_params = len(fit_param_names)
+    required_epochs = int((n_params + 1) / 2)
 
     def __init__(self):
         super().__init__()
@@ -1162,7 +1168,7 @@ class Parallax(MotionModel):
         obsLocation = fixed_params_dict['obsLocation']
 
         n_fit = len(t)
-        degree_of_freedom = n_fit - self.n_params
+        degree_of_freedom = n_fit - self.required_epochs
         # Not enough data points to fit model
         if degree_of_freedom < 0:
             warnings.warn(
@@ -1291,6 +1297,6 @@ def motion_model_map():
     mm_map = dict(
         [(mm.__name__, mm) for mm in MotionModel.__subclasses__()]
     )
-    # Sort by n_params
-    mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].n_params))
+    # Sort by required epochs
+    mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].required_epochs))
     return mm_map

@@ -544,7 +544,7 @@ class StarTable(Table):
 
         return
 
-    def fit_motion_model(
+    def fit_motion_models(
             self,
             motion_models=None,
             fixed_params_dict=None,
@@ -567,12 +567,12 @@ class StarTable(Table):
             Empty and Fixed models are always added automatically for stars with n_fit = 0 or 1.
             The behavior is as follows:
             1. If 'motion_model_input' column is NOT in table:
-                - Use the most complex model that has enough parameters to fit the data (n_fit >= n_params).
+                - Use the most complex model that has enough parameters to fit the data (n_fit >= required_epochs).
                 - If multiple models are supplied, prioritize the model with the most parameters to fit.
                 - If multiple models have the same number of parameters, raise AssertionError: not sure which to use.
             2. If 'motion_model_input' column IS in table:
                 - Use the model specified in the 'motion_model_input' column.
-                - If not enough data points to fit the specified model, use the most complex model in any 'motion_model_input' column that has enough parameters to fit the data (n_fit >= n_params) among the provided motion_models and 'motion_model_input'.
+                - If not enough data points to fit the specified model, use the most complex model in any 'motion_model_input' column that has enough parameters to fit the data (n_fit >= required_epochs) among the provided motion_models and 'motion_model_input'.
             The actual used motion model is stored in the 'motion_model_used' column. The default motion_models are [Empty, Fixed, Linear].
         fixed_params_dict : dict, optional
             Dictionary of fixed parameters for motion models, e.g., {'t0': 0., 'ra': np.array([...]), 'dec': np.array([...])}.
@@ -656,17 +656,17 @@ class StarTable(Table):
                 if mm_name not in mm_names:
                     motion_models.append(all_mm_map[mm_name])
 
-            # Sort motion models by n_params
-            motion_models = sorted(motion_models, key=lambda mm: mm.n_params)
+            # Sort motion models by required epochs
+            motion_models = sorted(motion_models, key=lambda mm: mm.required_epochs)
 
         input_mm_map = {mm.name: mm for mm in motion_models}
 
-        mm_n_params = np.sort([mm.n_params for mm in motion_models])
+        mm_required_epochs = np.sort([mm.required_epochs for mm in motion_models])
         if 'motion_model_input' not in self.colnames:
-            # If motion_model_input column is not provided, assert that motion model n_params are unique and sorted
+            # If motion_model_input column is not provided, assert that motion model required_epochs are unique and sorted
             # Otherwise the fitter does not know which motion model to use based on n_obs
-            assert len(mm_n_params) == len(set(mm_n_params)), \
-                f"fit_motion_model: Provided motion model n_params are not unique! Motion Models are: {[_.name for _ in motion_models]} Cannot decide which motion model to use based on n_obs. Please provide unique motion_models or a 'motion_model_input' column."
+            assert len(mm_required_epochs) == len(set(mm_required_epochs)), \
+                f"fit_motion_models: Provided motion model required_epochs are not unique! Motion Models are: {[_.name for _ in motion_models]}" + '\n' + "Cannot decide which motion model to use based on n_obs. Please provide unique motion_models or a 'motion_model_input' column."
 
 
         ###########################
@@ -768,13 +768,13 @@ class StarTable(Table):
         n_fit = np.array(self['n_fit'])
         if 'motion_model_input' in self.colnames:
             # Determine which motion model to use based on motion_model_input column
-            # If n_fit < required n_params for the input motion model, use the most complicated motion model with n_fit >= n_params
-            required_params = np.array([all_mm_map[mm_name].n_params for mm_name in self['motion_model_input']])
+            # If n_fit < required_epochs for the input motion model, use the most complicated motion model with n_fit >= required_epochs
+            required_params = np.array([all_mm_map[mm_name].required_epochs for mm_name in self['motion_model_input']])
             reassign_mm = n_fit < required_params
 
             mm_digitized = np.digitize(
                 x=n_fit[reassign_mm],
-                bins=mm_n_params
+                bins=mm_required_epochs
             ) - 1  # Convert to 0-based index
 
             # Assign motion models to stars
@@ -782,10 +782,10 @@ class StarTable(Table):
             self['motion_model_used'][reassign_mm] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
 
         else:
-            # If motion_model_input column is not provided, use the most complicated model in motion_models with n_fit >= n_params.
+            # If motion_model_input column is not provided, use the most complicated model in motion_models with n_fit >= required_epochs.
             mm_digitized = np.digitize(
                 x=n_fit,
-                bins=mm_n_params
+                bins=mm_required_epochs
             ) - 1  # Convert to 0-based index
 
             # Assign motion models to stars
@@ -847,7 +847,7 @@ class StarTable(Table):
         ############################
         # Fill table with all possible motion model parameter names as new columns.
         new_col_list = motion_model.motion_model_param_names(motion_model_used, with_errors=True, with_fixed=False)
-        new_col_list += ['chi2_x', 'chi2_y', 'n_params']
+        new_col_list += ['chi2_x', 'chi2_y', 'required_epochs']
 
         if 't0' not in new_col_list:
             new_col_list.append('t0')
@@ -972,7 +972,7 @@ class StarTable(Table):
                 self[param_name + '_err'][unique_index] = param_errs_array[:, j]
             self['chi2_x'][unique_index] = chi2_x_array
             self['chi2_y'][unique_index] = chi2_y_array
-            self['n_params'][unique_index] = motion_model_instance.n_params
+            self['required_epochs'][unique_index] = motion_model_instance.required_epochs
             self['t0'][unique_index] = t0[unique_index]
         return
 
