@@ -28,7 +28,6 @@ class MosaicSelfRef(object):
             dr_tol=[1, 1],
             dm_tol=[2, 1],
             outlier_tol=None,
-            briteN=None,
             # Transformation parameters
             trans_class=transforms.PolyTransform,
             trans_args=[{'order': 2}, {'order': 2}],
@@ -36,13 +35,14 @@ class MosaicSelfRef(object):
             trans_weighting=None,
             init_order=1,
             init_guess_mode='miracle',
+            briteN=None,
             calc_trans_inverse=False,
             # Magnitude parameters
             mag_trans=True,
             mag_lim=None,
             # Motion model parameters
             motion_models=['Empty', 'Fixed'],
-            motion_model_for_new_star=None,
+            # motion_model_for_new_star=None,
             fixed_params_dict=None,
             vel_weighting='var',
             use_scipy=True,
@@ -78,7 +78,6 @@ class MosaicSelfRef(object):
         -------------------
         starlist_vertices : list or array
             A list or array of polygon vertices coordinates for each starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
-            If not provided, will be None and will use minimum bounding box of the starlist positions.
             Shape of (N_lists, N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for each starlist, by default None
 
         ref_index : int
@@ -101,10 +100,6 @@ class MosaicSelfRef(object):
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
             This is a list of tol values, one for each iteration of matching/transformation.
             If not provided, will be None for each iteration.
-        
-        briteN : int
-            If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
-            Default is min(50, len(star_list)).
 
         trans_class : transforms.Transform2D object (or subclass)
             The transform class that will be used to when deriving the optimal
@@ -133,6 +128,10 @@ class MosaicSelfRef(object):
             If no initial transformations are passed in via the trans_input keyword, then we have
             to make the initial transformation and matching blindly. We can do this in a couple of
             different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
+
+        briteN : int
+            If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
+            Default is min(50, len(star_list)).
 
         calc_trans_inverse: boolean
             If true, then calculate the inverse transformation (from reference to starlist)
@@ -228,7 +227,6 @@ class MosaicSelfRef(object):
         self.iters = iters
         self.dr_tol = dr_tol
         self.dm_tol = dm_tol
-        self.briteN = briteN
         self.trans_args = trans_args
         self.init_order = init_order
         self.mag_trans = mag_trans
@@ -242,6 +240,7 @@ class MosaicSelfRef(object):
         self.absolute_sigma = absolute_sigma
         self.fixed_params_dict = fixed_params_dict
         self.init_guess_mode = init_guess_mode
+        self.briteN = briteN
         self.iter_callback = iter_callback
         self.save_path = save_path
         self.prefix_name = prefix_name
@@ -276,14 +275,14 @@ class MosaicSelfRef(object):
             motion_models.append(all_mm_map['Fixed'])
 
         # Sort by increasing n_params
-        motion_models = sorted(motion_models, key=lambda mm: mm.n_params)
+        motion_models = sorted(motion_models, key=lambda mm: mm.required_epochs)
         self.motion_models = motion_models
 
-        if motion_model_for_new_star is None:
-            self.motion_model_for_new_star = self.motion_models[-1]
-        elif isinstance(motion_model_for_new_star, str):
-            assert motion_model_for_new_star in all_mm_map.keys(), f"motion_model_for_new_star must be in {list(all_mm_map.keys())}"
-            self.motion_model_for_new_star = all_mm_map[motion_model_for_new_star]
+        # if motion_model_for_new_star is None:
+        #     self.motion_model_for_new_star = self.motion_models[-1]
+        # elif isinstance(motion_model_for_new_star, str):
+        #     assert motion_model_for_new_star in all_mm_map.keys(), f"motion_model_for_new_star must be in {list(all_mm_map.keys())}"
+        #     self.motion_model_for_new_star = all_mm_map[motion_model_for_new_star]
 
         # For backwards compatibility.
         # if self.verbose is True:
@@ -976,7 +975,8 @@ class MosaicSelfRef(object):
             self.ref_table,
             star_list,
             idx_lis,
-            motion_model_name=self.motion_model_for_new_star.name
+            # motion_model_name=self.motion_model_for_new_star.name
+            motion_model_name=self.motion_models[-1].name
         )
 
         if len(idx_ref_new) > 0:
@@ -1040,7 +1040,7 @@ class MosaicSelfRef(object):
             fit_star_idxs = None
 
         if ('motion_model_input' in self.ref_table.keys()) and np.all(self.ref_table['motion_model_input']=='Fixed'):
-            # self.ref_table.fit_motion_model(
+            # self.ref_table.fit_motion_models(
             #     motion_models=['Fixed'],
             #     weighting=self.vel_weighting,
             #     use_scipy=self.use_scipy,
@@ -1051,7 +1051,7 @@ class MosaicSelfRef(object):
             weighted_m = ('me' in self.ref_table.colnames)
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
         else:
-            self.ref_table.fit_motion_model(
+            self.ref_table.fit_motion_models(
                 motion_models=self.motion_models,
                 fixed_params_dict=self.fixed_params_dict,
                 weighting=self.vel_weighting,
@@ -1415,7 +1415,7 @@ class MosaicSelfRef(object):
 
         all_mm_map = motion_model.motion_model_map()
         motion_model_list = [all_mm_map[mm_name] for mm_name in motion_model_list]
-        motion_boot_min_epochs = np.max([mm.n_params for mm in motion_model_list])
+        motion_boot_min_epochs = np.max([mm.required_epochs for mm in motion_model_list])
 
         ### IF MEMORY PROBLEMS HERE:
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
@@ -1565,7 +1565,7 @@ class MosaicSelfRef(object):
                     fixed_params_dict = self.fixed_params_dict.copy()
                     fixed_params_dict['t0'] = t0_arr
 
-                star_table.fit_motion_model(
+                star_table.fit_motion_models(
                     motion_models=self.motion_models,
                     fixed_params_dict=fixed_params_dict,
                     weighting=self.vel_weighting,
@@ -1689,13 +1689,13 @@ class MosaicToRef(MosaicSelfRef):
         self,
         ref_list,
         list_of_starlists,
+        reflist_vertex=None,
         starlist_vertices=None,
         # Alignment parameters
         iters=2,
         dr_tol=[1, 1],
         dm_tol=[2, 1],
         outlier_tol=None,
-        briteN=None,
         # Reference behavior (MosiacToRef specific)
         use_ref_new=False,
         update_ref_orig=False,
@@ -1706,6 +1706,7 @@ class MosaicToRef(MosaicSelfRef):
         trans_weighting=None,
         init_order=1,
         init_guess_mode='miracle',
+        briteN=None,
         calc_trans_inverse=False,
         # Magnitude parameters
         mag_trans=True,
@@ -1713,7 +1714,7 @@ class MosaicToRef(MosaicSelfRef):
         ref_mag_lim=None,
         # Motion model parameters
         motion_models=['Empty', 'Fixed'],
-        motion_model_for_new_star=None,
+        # motion_model_for_new_star=None,
         fixed_params_dict=None,
         vel_weighting='var',
         use_scipy=True,
@@ -1750,9 +1751,12 @@ class MosaicToRef(MosaicSelfRef):
 
         Optional Parameters
         ----------
+        reflist_vertex : array
+            An array of polygon vertices coordinates for the reference starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
+            Shape of (N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for the reference starlist, by default None
+
         starlist_vertices : list or array
             A list or array of polygon vertices coordinates for each starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
-            If not provided, will be None and will use minimum bounding box of the starlist positions.
             Shape of (N_lists, N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for each starlist, by default None
 
         iters : int
@@ -1769,10 +1773,6 @@ class MosaicToRef(MosaicSelfRef):
         outlier_tol : list or array
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
             This is a list of tol values, one for each iteration of matching/transformation.
-
-        briteN : int
-            If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
-            Default is min(50, len(star_list)).
 
         use_ref_new : boolean
             Each pass, new stars are matched and added to the ref_table. However, we don't
@@ -1821,6 +1821,10 @@ class MosaicToRef(MosaicSelfRef):
             If no initial transformations are passed in via the trans_input keyword, then we have
             to make the initial transformation and matching blindly. We can do this in a couple of
             different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
+
+        briteN : int
+            If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
+            Default is min(50, len(star_list)).
 
         calc_trans_inverse: boolean
             If true, then calculate the inverse transformation (from reference to starlist)
@@ -1913,14 +1917,12 @@ class MosaicToRef(MosaicSelfRef):
         """
         super().__init__(
             list_of_starlists,
-            starlist_vertices=starlist_vertices,
             # Alignment parameters
             ref_index=-1,
             iters=iters,
             dr_tol=dr_tol,
             dm_tol=dm_tol,
             outlier_tol=outlier_tol,
-            briteN=briteN,
             # Transformation parameters
             trans_class=trans_class,
             trans_args=trans_args,
@@ -1928,13 +1930,14 @@ class MosaicToRef(MosaicSelfRef):
             trans_weighting=trans_weighting,
             init_order=init_order,
             init_guess_mode=init_guess_mode,
+            briteN=briteN,
             calc_trans_inverse=calc_trans_inverse,
             # Magnitude parameters
             mag_trans=mag_trans,
             mag_lim=mag_lim,
             # Motion model parameters
             motion_models=motion_models,
-            motion_model_for_new_star=motion_model_for_new_star,
+            # motion_model_for_new_star=motion_model_for_new_star,
             fixed_params_dict=fixed_params_dict,
             vel_weighting=vel_weighting,
             use_scipy=use_scipy,
@@ -1946,10 +1949,17 @@ class MosaicToRef(MosaicSelfRef):
             verbose=verbose
         )
 
+        self.starlist_vertices = starlist_vertices
         self.ref_list = copy.deepcopy(ref_list)
         self.ref_mag_lim = ref_mag_lim
         self.update_ref_orig = update_ref_orig
         self.use_ref_new = use_ref_new
+
+        if reflist_vertex is not None:
+            import shapely
+            self.reflist_polygon = shapely.make_valid(shapely.Polygon(reflist_vertex))
+        else:
+            self.reflist_polygon = None
 
         # If motion_model_used in columns but params columns are missing, raise a warning and remove motion_model_used column to avoid confusion.
         # if 'motion_model_used' in self.ref_list.colnames:
@@ -2243,7 +2253,7 @@ def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, re
 
     # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
     # Sort motion models inversely by mm.n_params
-    motion_models = sorted(motion_models, key=lambda mm: mm.n_params, reverse=True)
+    motion_models = sorted(motion_models, key=lambda mm: mm.required_epochs, reverse=True)
     for mm in motion_models:
         if mm.name == 'Empty':
             x = startable['x']
