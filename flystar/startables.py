@@ -535,7 +535,7 @@ class StarTable(Table):
         """
         Find where stars are detected.
         # """
-        n_detect = np.sum(~np.isnan(self['x']), axis=1)
+        n_detect = np.sum(np.isfinite(self['x']) & np.isfinite(self['y']), axis=1)
 
         if 'n_detect' in self.colnames:
             self['n_detect'] = n_detect
@@ -972,8 +972,11 @@ class StarTable(Table):
                 self[param_name + '_err'][unique_index] = param_errs_array[:, j]
             self['chi2_x'][unique_index] = chi2_x_array
             self['chi2_y'][unique_index] = chi2_y_array
-            self['required_epochs'][unique_index] = motion_model_instance.required_epochs
             self['t0'][unique_index] = t0[unique_index]
+
+        # Update required_epochs regardless of selections
+        for mm in motion_model_used:
+            self['required_epochs'][self['motion_model_used'] == mm.name] = mm.required_epochs
         return
 
     def infer_positions(self, times, fixed_params_dict=None, fill_value=np.nan):

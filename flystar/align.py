@@ -976,7 +976,8 @@ class MosaicSelfRef(object):
             star_list,
             idx_lis,
             # motion_model_name=self.motion_model_for_new_star.name
-            motion_model_name=self.motion_models[-1].name
+            motion_model_name=self.motion_models[-1].name,
+            fixed_params_dict=self.fixed_params_dict
         )
 
         if len(idx_ref_new) > 0:
@@ -1029,6 +1030,8 @@ class MosaicSelfRef(object):
             if 'motion_model_used' in self.ref_table.keys():
                 motion_model_class_names += self.ref_table['motion_model_used'][keep_orig].tolist()
                 vals_orig['motion_model_used'] = self.ref_table['motion_model_used'][keep_orig]
+                vals_orig['required_epochs'] = self.ref_table['required_epochs'][keep_orig]
+                # vals_orig['n_fit'] = self.ref_table['n_fit'][keep_orig]
             motion_model_col_names = motion_model.motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
             for mm in motion_model_col_names:
                 if f'{mm}_mm' in self.ref_table.keys():
@@ -1071,7 +1074,7 @@ class MosaicSelfRef(object):
         # if (keep_orig is not None) and (sum(keep_orig) > 0):
         # Determine motion_model_used for keep_orig stars
         # Filter possible motion models based on available columns
-        motion_model_used, n_fit = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
+        motion_model_used, required_epochs = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
 
         # motion_models_possible = []
         # for mm in self.motion_models:
@@ -1096,7 +1099,8 @@ class MosaicSelfRef(object):
         # Assign the determined motion models
         # self.ref_table['motion_model_used'][keep_orig] = motion_model_used
         self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
-        self.ref_table['n_fit'] = Column(n_fit, name='n_fit', dtype=int)
+        # self.ref_table['n_fit'] = Column(required_epochs, name='n_fit', dtype=int)
+        self.ref_table['required_epochs'] = Column(required_epochs, name='required_epochs', dtype=int)
 
         # Replace the originals if we are supposed to keep them fixed.
         if (keep_orig is not None) and (sum(keep_orig) > 0):
@@ -1212,9 +1216,10 @@ class MosaicSelfRef(object):
         # Calculate x, y, xe, ye
 
         if 'motion_model_used' not in self.ref_table.colnames:
-            motion_model_used, n_fit = determine_motion_model(self.ref_table)
+            motion_model_used, required_epochs = determine_motion_model(self.ref_table)
             self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
-            self.ref_table['n_fit'] = Column(n_fit, name='n_fit', dtype=int)
+            # self.ref_table['n_fit'] = Column(required_epochs, name='n_fit', dtype=int)
+            self.ref_table['required_epochs'] = Column(required_epochs, name='required_epochs', dtype=int)
 
         x, y, xe, ye = self.ref_table.infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)
         # else:
@@ -2308,8 +2313,8 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
     -------
     motion_model_used : list
         List of motion model used for each star
-    n_fit : list
-        List of number of number of observations used to fit for each star
+    required_epochs : list
+        List of required epochs for each star
     """
 
     if motion_models is None:
@@ -2331,7 +2336,7 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
 
     # Check if values are finite for required columns in possible motion models
     motion_model_used = []
-    n_fit = []
+    required_epochs = []
 
     for k in range(len(startable)):
         for mm, req_col_in_table, req_col_in_dict in motion_models_possible[::-1]:
@@ -2339,9 +2344,9 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
             if all(np.isfinite(startable[col][k]) for col in req_col_in_table if np.issubdtype(startable[col].dtype, np.number)) \
             and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
                 motion_model_used.append(mm.name)
-                n_fit.append(mm.n_params)
+                required_epochs.append(mm.required_epochs)
                 break
-    return motion_model_used, n_fit
+    return motion_model_used, required_epochs
 
 
 def get_all_epochs(t):
@@ -2488,7 +2493,7 @@ def reset_ref_values(ref_table):
 
     return
 
-def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fixed'):
+def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fixed', fixed_params_dict=None):
     """
     For each star that is in star_list and NOT in idx_list, make a
     new row in the reference table. The values will be empty (None, NAN, etc.).
@@ -2504,6 +2509,8 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
         of this array will be used as the new stars.
     motion_model_name : str
         The motion model name to assign to the new stars.
+    fixed_params_dict : dict
+        The default fixed parameters to assign to the new stars.
 
     Returns
     ----------
@@ -2521,22 +2528,35 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
     idx_lis_new = np.array(list(set(idx_lis_orig) - set(idx_list)))
     N_newstars = len(idx_lis_new)
 
+    mm_map = motion_model.motion_model_map()
+    mm = mm_map[motion_model_name]
+
+    # Add optional fixed params default values into fixed params dict, prioritizing values in fixed_params_dict
+    if fixed_params_dict is not None:
+        fixed_params_dict.update({k: v for k, v in mm.optional_fixed_params.items() if k not in fixed_params_dict})
+    else:
+        fixed_params_dict = mm.optional_fixed_params.copy()
+
     if N_newstars > 0:
         col_arrays = {}
 
         for col_name in ref_table.colnames:
             new_col_name = col_name
-
-            if ref_table[col_name].dtype == np.dtype('float'):
+            
+            if col_name in fixed_params_dict.keys():
+                new_col_empty = fixed_params_dict[col_name]
+            elif col_name=='required_epochs':
+                new_col_empty = mm.required_epochs
+            elif col_name=='motion_model_input':
+                new_col_empty = motion_model_name
+            elif col_name=='motion_model_used':
+                new_col_empty = 'Empty'
+            elif ref_table[col_name].dtype == np.dtype('float'):
                 new_col_empty = np.nan
             elif ref_table[col_name].dtype == np.dtype('int'):
                 new_col_empty = -1
             elif ref_table[col_name].dtype == np.dtype('bool'):
                 new_col_empty = False
-            elif col_name=='motion_model_input':
-                new_col_empty = motion_model_name
-            elif col_name=='motion_model_used':
-                new_col_empty = 'Empty'
             else:
                 new_col_empty = np.nan
 

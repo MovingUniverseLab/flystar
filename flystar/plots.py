@@ -2236,9 +2236,9 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
 
     idx = np.where(fnd == Ndetect)[0]
     # Fitting position and velocity... so subtract 2 to get Ndof
-    n_params = np.nanmean(tab['n_params'][idx])
+    n_params = np.nanmean(tab['required_epochs'][idx])
     Ndof = Ndetect - n_params
-    if len(np.unique(tab['n_params'][idx]))>1:
+    if len(np.unique(tab['required_epochs'][idx]))>1:
         print("** Warning: using average Ndof for multiple motion models. **")
         print("** Consider using plot_chi2_reduced_dist. **")
         print(f"Ndof={Ndof:.2f}, Ndetect={Ndetect}, Nparams={n_params:.2f}")
@@ -2321,7 +2321,7 @@ def plot_chi2_reduced_dist(tab, Ndetect, xlim=8, n_bins=50, boot_err=False):
     fnd = np.array(fnd_list)
 
     idx = np.where(fnd == Ndetect)[0]
-    n_params = tab['n_params']
+    n_params = tab['required_epochs']
     Ndof = Ndetect - n_params
     print("Reduced chi2 for Ndetect="+str(Ndetect))
     chi2_bins = np.linspace(0, xlim, n_bins)
@@ -2405,7 +2405,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
 
     idx = np.where(fnd == Ndetect)[0]
     # Fitting position and velocity... so subtract n_params to get Ndof
-    n_params = np.nanmean(tab['n_params'][idx])
+    n_params = np.nanmean(tab['required_epochs'][idx])
     Ndof = Ndetect - n_params
     print(f"Ndof={Ndof}, Ndetect={Ndetect}, Nparams={n_params}")
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
@@ -2871,7 +2871,7 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         chi2_y = np.sum(sigY**2)
         chi2_m = np.sum(sigM**2)
 
-        dof = (len(tab['x'][ii])-tab['n_params'][ii]).astype(int)
+        dof = (len(tab['x'][ii])-tab['required_epochs'][ii]).astype(int)
         dofM = len(m) - 1
 
         chi2_red_x = chi2_x / dof

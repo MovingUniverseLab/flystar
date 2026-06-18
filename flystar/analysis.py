@@ -186,6 +186,10 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2,
         gaia_new['motion_model_input'] = 'Fixed'
         gaia_new['motion_model_used'] = 'Fixed'
         gaia_new['n_params'] = 1
+    elif default_motion_model=='Empty':
+        gaia_new['motion_model_input'] = 'Empty'
+        gaia_new['motion_model_used'] = 'Empty'
+        gaia_new['n_params'] = 0
     else:
         print("Invalid motion model",default_motion_model,"- none assigned")
 
