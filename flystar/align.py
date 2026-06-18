@@ -275,7 +275,7 @@ class MosaicSelfRef(object):
             motion_models.append(all_mm_map['Fixed'])
 
         # Sort by increasing n_params
-        motion_models = sorted(motion_models, key=lambda mm: mm.required_epochs)
+        motion_models = sorted(motion_models, key=lambda mm: mm.n_params)
         self.motion_models = motion_models
 
         # if motion_model_for_new_star is None:
@@ -1030,7 +1030,7 @@ class MosaicSelfRef(object):
             if 'motion_model_used' in self.ref_table.keys():
                 motion_model_class_names += self.ref_table['motion_model_used'][keep_orig].tolist()
                 vals_orig['motion_model_used'] = self.ref_table['motion_model_used'][keep_orig]
-                vals_orig['required_epochs'] = self.ref_table['required_epochs'][keep_orig]
+                vals_orig['n_params'] = self.ref_table['n_params'][keep_orig]
                 # vals_orig['n_fit'] = self.ref_table['n_fit'][keep_orig]
             motion_model_col_names = motion_model.motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
             for mm in motion_model_col_names:
@@ -1074,33 +1074,13 @@ class MosaicSelfRef(object):
         # if (keep_orig is not None) and (sum(keep_orig) > 0):
         # Determine motion_model_used for keep_orig stars
         # Filter possible motion models based on available columns
-        motion_model_used, required_epochs = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
-
-        # motion_models_possible = []
-        # for mm in self.motion_models:
-        #     required_columns = mm.fit_param_names + mm.fixed_param_names
-        #     if all(col in self.ref_table.colnames or (self.fixed_params_dict is not None and col in self.fixed_params_dict.keys()) for col in required_columns):
-        #         motion_models_possible.append((mm, required_columns))
-
-        # # Check if values are finite for required columns in possible motion models
-        # motion_model_used = []
-        # # for k in np.where(keep_orig)[0]:
-        # for k in range(len(self.ref_table)):
-        #     for mm, req in motion_models_possible[::-1]:
-        #         # if all(np.isfinite(self.ref_table[k][col]) for col in req if self.ref_table[col].dtype.kind in 'f'):
-        #         req_col_in_table = [col for col in req if col in self.ref_table.colnames]
-        #         req_col_in_dict = [col for col in req if (self.fixed_params_dict is not None) and (col in self.fixed_params_dict.keys())]
-        #         # If requested column in table/fixed_params dict is numeric, check if values are finite.
-        #         if all(np.isfinite(self.ref_table[col][k]) for col in req_col_in_table if np.issubdtype(self.ref_table[col].dtype, np.number)) \
-        #         and all(np.isfinite(self.fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(self.fixed_params_dict[col]).dtype, np.number)):
-        #             motion_model_used.append(mm.name)
-        #             break
+        motion_model_used, n_params = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
 
         # Assign the determined motion models
         # self.ref_table['motion_model_used'][keep_orig] = motion_model_used
         self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
-        # self.ref_table['n_fit'] = Column(required_epochs, name='n_fit', dtype=int)
-        self.ref_table['required_epochs'] = Column(required_epochs, name='required_epochs', dtype=int)
+        # self.ref_table['n_fit'] = Column(n_params, name='n_fit', dtype=int)
+        self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
         # Replace the originals if we are supposed to keep them fixed.
         if (keep_orig is not None) and (sum(keep_orig) > 0):
@@ -1216,10 +1196,10 @@ class MosaicSelfRef(object):
         # Calculate x, y, xe, ye
 
         if 'motion_model_used' not in self.ref_table.colnames:
-            motion_model_used, required_epochs = determine_motion_model(self.ref_table)
+            motion_model_used, n_params = determine_motion_model(self.ref_table)
             self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
-            # self.ref_table['n_fit'] = Column(required_epochs, name='n_fit', dtype=int)
-            self.ref_table['required_epochs'] = Column(required_epochs, name='required_epochs', dtype=int)
+            # self.ref_table['n_fit'] = Column(n_params, name='n_fit', dtype=int)
+            self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
         x, y, xe, ye = self.ref_table.infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)
         # else:
@@ -1420,7 +1400,7 @@ class MosaicSelfRef(object):
 
         all_mm_map = motion_model.motion_model_map()
         motion_model_list = [all_mm_map[mm_name] for mm_name in motion_model_list]
-        motion_boot_min_epochs = np.max([mm.required_epochs for mm in motion_model_list])
+        motion_boot_min_epochs = np.max([mm.n_params for mm in motion_model_list])
 
         ### IF MEMORY PROBLEMS HERE:
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
@@ -2258,7 +2238,7 @@ def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, re
 
     # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
     # Sort motion models inversely by mm.n_params
-    motion_models = sorted(motion_models, key=lambda mm: mm.required_epochs, reverse=True)
+    motion_models = sorted(motion_models, key=lambda mm: mm.n_params, reverse=True)
     for mm in motion_models:
         if mm.name == 'Empty':
             x = startable['x']
@@ -2313,8 +2293,8 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
     -------
     motion_model_used : list
         List of motion model used for each star
-    required_epochs : list
-        List of required epochs for each star
+    n_params : list
+        List of n parameters per direction for each star
     """
 
     if motion_models is None:
@@ -2336,7 +2316,7 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
 
     # Check if values are finite for required columns in possible motion models
     motion_model_used = []
-    required_epochs = []
+    n_params = []
 
     for k in range(len(startable)):
         for mm, req_col_in_table, req_col_in_dict in motion_models_possible[::-1]:
@@ -2344,9 +2324,9 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
             if all(np.isfinite(startable[col][k]) for col in req_col_in_table if np.issubdtype(startable[col].dtype, np.number)) \
             and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
                 motion_model_used.append(mm.name)
-                required_epochs.append(mm.required_epochs)
+                n_params.append(mm.n_params)
                 break
-    return motion_model_used, required_epochs
+    return motion_model_used, n_params
 
 
 def get_all_epochs(t):
@@ -2545,8 +2525,8 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
             
             if col_name in fixed_params_dict.keys():
                 new_col_empty = fixed_params_dict[col_name]
-            elif col_name=='required_epochs':
-                new_col_empty = mm.required_epochs
+            elif col_name=='n_params':
+                new_col_empty = mm.n_params
             elif col_name=='motion_model_input':
                 new_col_empty = motion_model_name
             elif col_name=='motion_model_used':

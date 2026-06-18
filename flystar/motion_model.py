@@ -10,10 +10,9 @@ class MotionModel(ABC):
 
     # Fit paramters: Shared fit parameters
     fit_param_names = []
-
+    n_fit_params = len(fit_param_names)
     # Number of fit parameters/required observations in each direction
-    n_params = len(fit_param_names)
-    required_epochs = int((n_params + 1) / 2)
+    n_params = int((n_fit_params + 1) / 2)
 
     # Fixed parameters: These are parameters that are required for the model, but are not
     # fit quantities. For example, RA and Dec in a parallax model.
@@ -42,9 +41,9 @@ class MotionModel(ABC):
         Parameters
         ----------
         fit_params: array-like
-            Fit parameters, shape (N_params,) or (N_stars, N_params)
+            Fit parameters, shape (N_fit_params,) or (n_stars, N_fit_params)
         fit_params_errs: array-like
-            Errors of fit parameters, shape (N_params,) or (N_stars, N_params)
+            Errors of fit parameters, shape (N_fit_params,) or (n_stars, N_fit_params)
         fixed_params_dict : dict
             Dictionary of fixed parameters
         """
@@ -83,8 +82,8 @@ class MotionModel(ABC):
     ):
         # Run a single fit (used both for overall fit + bootstrap iterations)
         if return_chi2:
-            return np.full(self.n_params, fill_value), np.full(self.n_params, np.inf), np.nan, np.nan
-        return np.full(self.n_params, fill_value), np.full(self.n_params, np.inf)
+            return np.full(self.n_fit_params, fill_value), np.full(self.n_fit_params, np.inf), np.nan, np.nan
+        return np.full(self.n_fit_params, fill_value), np.full(self.n_fit_params, np.inf)
 
     def calc_weights(self, xe, ye, weighting='var'):
         if weighting=='std':
@@ -174,18 +173,18 @@ class MotionModel(ABC):
         # Bootstrap errors
         n_obs = len(t)
 
-        if (bootstrap > 0) and (n_obs > self.required_epochs):
+        if (bootstrap > 0) and (n_obs > self.n_params):
             rng = np.random.default_rng(seed)
             edx = np.arange(n_obs, dtype=int)
             # Precompute All Bootstrap Draws at Once
             # Ensure there are enough unique points in each bootstrap sample
             bdx_unique = np.stack([
-                rng.choice(edx, size=self.required_epochs, replace=False)
+                rng.choice(edx, size=self.n_params, replace=False)
                 for _ in range(bootstrap)
             ])
             # Draw with replacement for the rest
             bdx_extra = np.stack([
-                rng.choice(edx, size=n_obs - self.required_epochs, replace=True)
+                rng.choice(edx, size=n_obs - self.n_params, replace=True)
                 for _ in range(bootstrap)
             ])
             bdx_all = np.hstack((bdx_unique, bdx_extra))
@@ -235,10 +234,10 @@ class MotionModel(ABC):
     #     chi2_y = residual_y.T @ W_mat_y @ residual_y
 
     #     if reduced:
-    #         if len(dt) == self.required_epochs:
+    #         if len(dt) == self.n_params:
     #             return np.inf, np.inf
     #         if not parallax:
-    #             degree_of_freedom = len(x) - self.required_epochs
+    #             degree_of_freedom = len(x) - self.n_params
     #         else:
     #             degree_of_freedom = 2*len(x) - len(self.fit_param_names)
     #         chi2_x, chi2_y = chi2_x / degree_of_freedom, chi2_y / degree_of_freedom
@@ -252,10 +251,10 @@ class MotionModel(ABC):
         chi2x = np.sum((x - x_pred)**2 / xe**2)
         chi2y = np.sum((y - y_pred)**2 / ye**2)
         if reduced:
-            if len(t) == self.required_epochs:
+            if len(t) == self.n_params:
                 return np.inf, np.inf
             if not parallax:
-                degree_of_freedom = len(x) - self.required_epochs
+                degree_of_freedom = len(x) - self.n_params
             else:
                 degree_of_freedom = 2*len(x) - len(self.fit_param_names)
             chi2x, chi2y = chi2x / degree_of_freedom, chi2y / degree_of_freedom
@@ -268,9 +267,9 @@ class Empty(MotionModel):
     required_fixed_param_names = []
     optional_fixed_params = {}
 
+    n_fit_params = len(fit_param_names)
     # Number of fit parameters/required observations in each direction
-    n_params = len(fit_param_names)
-    required_epochs = int((n_params + 1) / 2)
+    n_params = int((n_fit_params + 1) / 2)
 
     def __init__(self, **kwargs):
         """Empty motion model, returns nan for values and inf for uncertainties.
@@ -289,7 +288,7 @@ class Empty(MotionModel):
         t : float or array-like
             Time array, shape (N_times,)
         fit_params : array-like
-            Fit parameters, shape (N_params,) or (N_stars, N_params)
+            Fit parameters, shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
             Uncertainties for fit parameters, not applicable for Empty model, by default None
         fixed_params_dict : dict, optional
@@ -303,7 +302,7 @@ class Empty(MotionModel):
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         t = np.atleast_1d(t)
-        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
 
         N_stars = fit_params.shape[0]
         N_times = len(t)
@@ -370,8 +369,8 @@ class Empty(MotionModel):
         self.fixed_params_dict = fixed_params_dict
         if verbose:
             warnings.warn(f"Empty data cannot be fit. Setting parameters to {fill_value} and uncertainties to np.inf.", OptimizeWarning, stacklevel=2)
-        params = np.full(self.n_params, fill_value)
-        param_errors = np.full(self.n_params, np.inf)
+        params = np.full(self.n_fit_params, fill_value)
+        param_errors = np.full(self.n_fit_params, np.inf)
         if return_chi2:
             return params, param_errors, np.nan, np.nan
         else:
@@ -388,9 +387,9 @@ class Fixed(MotionModel):
     required_fixed_param_names = []
     optional_fixed_params = {}
 
+    n_fit_params = len(fit_param_names)
     # Number of fit parameters/required observations in each direction
-    n_params = len(fit_param_names)
-    required_epochs = int((n_params + 1) / 2)
+    n_params = int((n_fit_params + 1) / 2)
 
     def __init__(self, **kwargs):
         # Must call after setting parameters.
@@ -423,9 +422,9 @@ class Fixed(MotionModel):
         t : float or array-like
             Time array, shape (N_times,)
         fit_params : array-like
-            x0, y0 in shape (N_params,) or (N_stars, N_params)
+            x0, y0 in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
-            Uncertainties for x0, y0 in shape (N_params,) or (N_stars, N_params), by default None
+            Uncertainties for x0, y0 in shape (N_fit_params,) or (N_stars, N_fit_params), by default None
         fixed_params_dict : dict, optional
             Not applicable for Fixed, by default None
 
@@ -437,7 +436,7 @@ class Fixed(MotionModel):
         """
         self.fixed_params_dict = fixed_params_dict
         t = np.atleast_1d(t)
-        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         N_stars = fit_params.shape[0]
@@ -465,7 +464,7 @@ class Fixed(MotionModel):
         if fit_param_errs is None:
             return x, y
 
-        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_params)
+        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_fit_params)
         x0_err, y0_err = fit_param_errs.T
 
         # Return results in (N_stars, N_times) shape
@@ -494,15 +493,15 @@ class Fixed(MotionModel):
             warnings.warn("Fixed model has no non-scipy fitter option. Running with scipy.")
 
         n_obs = len(t)
-        degree_of_freedom = n_obs - self.required_epochs
+        degree_of_freedom = n_obs - self.n_params
         # Not enough data points to fit model
         if degree_of_freedom < 0:
             warnings.warn(
                 f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
                 OptimizeWarning, stacklevel=2
             )
-            params = np.full(self.n_params, fill_value)
-            param_errors = np.full(self.n_params, np.inf)
+            params = np.full(self.n_fit_params, fill_value)
+            param_errors = np.full(self.n_fit_params, np.inf)
             return params, param_errors, np.nan, np.nan
 
         # degree_of_freedom >= 0
@@ -552,9 +551,9 @@ class Linear(MotionModel):
     optional_fixed_params = {}
     fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
 
+    n_fit_params = len(fit_param_names)
     # Number of fit parameters/required observations in each direction
-    n_params = len(fit_param_names)
-    required_epochs = int((n_params + 1) / 2)
+    n_params = int((n_fit_params + 1) / 2)
 
     def __init__(self, **kwargs):
         # Must call after setting parameters.
@@ -589,9 +588,9 @@ class Linear(MotionModel):
         t : float or array-like
             Time(s) at which to evaluate the model
         fit_params : array-like
-            x0, vx, y0, vy in shape (N_params,) or (N_stars, N_params)
+            x0, vx, y0, vy in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
-            Uncertainties of fit parameters in shape (N_params,) or (N_stars, N_params), by default None
+            Uncertainties of fit parameters in shape (N_fit_params,) or (N_stars, N_fit_params), by default None
         fixed_params_dict : dict
             t0, shape (1,) or (N_stars,)
 
@@ -606,7 +605,7 @@ class Linear(MotionModel):
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         t = np.atleast_1d(t)
-        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
 
         N_stars = fit_params.shape[0]
         N_times = len(t)
@@ -633,7 +632,7 @@ class Linear(MotionModel):
         if fit_param_errs is None:
             return x, y
 
-        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_params)
+        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_fit_params)
         x0_err, vx_err, y0_err, vy_err = fit_param_errs.T   # Each shape (N_stars,)
         x_err = np.hypot(x0_err[:, np.newaxis], vx_err[:, np.newaxis] * dt)  # Shape (N_stars, N_times)
         y_err = np.hypot(y0_err[:, np.newaxis], vy_err[:, np.newaxis] * dt)  # Shape (N_stars, N_times)
@@ -669,15 +668,15 @@ class Linear(MotionModel):
         ye = np.atleast_1d(ye)
 
         n_obs = len(t)
-        degree_of_freedom = n_obs - self.required_epochs
+        degree_of_freedom = n_obs - self.n_params
         # Not enough data points to fit model
         if degree_of_freedom < 0:
             warnings.warn(
                 f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
                 OptimizeWarning, stacklevel=2
             )
-            params = np.full(self.n_params, fill_value)
-            param_errors = np.full(self.n_params, np.inf)
+            params = np.full(self.n_fit_params, fill_value)
+            param_errors = np.full(self.n_fit_params, np.inf)
             if return_chi2:
                 return params, param_errors, np.nan, np.nan
             else:
@@ -791,9 +790,9 @@ class Acceleration(MotionModel):
     optional_fixed_params = {}
     fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
 
+    n_fit_params = len(fit_param_names)
     # Number of required observations in each direction
-    n_params = len(fit_param_names)
-    required_epochs = int((n_params + 1) / 2)
+    n_params = int((n_fit_params + 1) / 2)
 
     def __init__(self):
         # Must call after setting parameters.
@@ -830,9 +829,9 @@ class Acceleration(MotionModel):
         t : float or array-like
             Time(s) at which to evaluate the model
         fit_params : array-like
-            x0, vx, ax, y0, vy, ay in shape (N_params,) or (N_stars, N_params)
+            x0, vx, ax, y0, vy, ay in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
-            Fit parameter uncertainties with shape (N_stars, N_params) or (N_params,), by default None
+            Fit parameter uncertainties with shape (N_stars, N_fit_params) or (N_fit_params,), by default None
         fixed_params_dict : dict
             t0, shape (1,) or (N_stars,)
 
@@ -847,7 +846,7 @@ class Acceleration(MotionModel):
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         t = np.atleast_1d(t)
-        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
 
         N_stars = fit_params.shape[0]
         N_times = len(t)
@@ -874,7 +873,7 @@ class Acceleration(MotionModel):
         if fit_param_errs is None:
             return x, y
 
-        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_params)
+        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_fit_params)
         x0_err, vx0_err, ax_err, y0_err, vy0_err, ay_err = fit_param_errs.T
         x_err = np.sqrt(x0_err[:, np.newaxis]**2 + (vx0_err[:, np.newaxis] * dt)**2 + (0.5 * ax_err[:, np.newaxis] * dt**2)**2)  # Shape (N_stars, N_times)
         y_err = np.sqrt(y0_err[:, np.newaxis]**2 + (vy0_err[:, np.newaxis] * dt)**2 + (0.5 * ay_err[:, np.newaxis] * dt**2)**2)  # Shape (N_stars, N_times)
@@ -916,15 +915,15 @@ class Acceleration(MotionModel):
                 warnings.warn("Acceleration model has no non-scipy fitter option. Running with scipy.")
 
         n_obs = len(t)
-        degree_of_freedom = n_obs - self.required_epochs
+        degree_of_freedom = n_obs - self.n_params
         # Not enough data points to fit model
         if degree_of_freedom < 0:
             warnings.warn(
                 f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
                 OptimizeWarning, stacklevel=2
             )
-            params = np.full(self.n_params, fill_value)
-            param_errors = np.full(self.n_params, np.inf)
+            params = np.full(self.n_fit_params, fill_value)
+            param_errors = np.full(self.n_fit_params, np.inf)
             if return_chi2:
                 return params, param_errors, np.nan, np.nan
             else:
@@ -971,9 +970,9 @@ class Parallax(MotionModel):
     fixed_param_names = required_fixed_param_names + list(optional_fixed_params.keys())
 
 
+    n_fit_params = len(fit_param_names)
     # Number of required observations in each direction
-    n_params = len(fit_param_names)
-    required_epochs = int((n_params + 1) / 2)
+    n_params = int((n_fit_params + 1) / 2)
 
     def __init__(self):
         super().__init__()
@@ -1066,7 +1065,7 @@ class Parallax(MotionModel):
         t : float or array-like
             Times at which to evaluate the model
         fit_params : array-like
-            x0, vx, y0, vy, pi in shape (N_params,) or (N_stars, N_params)
+            x0, vx, y0, vy, pi in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
             Uncertainties in fit parameters, by default None
         fixed_params : dict
@@ -1087,7 +1086,7 @@ class Parallax(MotionModel):
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         t = np.atleast_1d(t)
-        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_params)
+        fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
 
         N_stars = fit_params.shape[0]
         N_times = len(t)
@@ -1125,7 +1124,7 @@ class Parallax(MotionModel):
         if fit_param_errs is None:
             return x, y
 
-        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_params)
+        fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_fit_params)
         x0_err, vx_err, y0_err, vy_err, pi_err = fit_param_errs.T
         x_err = np.sqrt(x0_err[:, np.newaxis]**2 + (vx_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[:, 0, :])**2)  # Shape (N_stars, N_times)
         y_err = np.sqrt(y0_err[:, np.newaxis]**2 + (vy_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[:, 1, :])**2)  # Shape (N_stars, N_times)
@@ -1168,15 +1167,15 @@ class Parallax(MotionModel):
         obsLocation = fixed_params_dict['obsLocation']
 
         n_fit = len(t)
-        degree_of_freedom = n_fit - self.required_epochs
+        degree_of_freedom = n_fit - self.n_params
         # Not enough data points to fit model
         if degree_of_freedom < 0:
             warnings.warn(
                 f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
                 OptimizeWarning, stacklevel=2
             )
-            params = np.full(self.n_params, fill_value)
-            param_errors = np.full(self.n_params, np.inf)
+            params = np.full(self.n_fit_params, fill_value)
+            param_errors = np.full(self.n_fit_params, np.inf)
             if return_chi2:
                 return params, param_errors, np.nan, np.nan
             else:
@@ -1298,5 +1297,5 @@ def motion_model_map():
         [(mm.__name__, mm) for mm in MotionModel.__subclasses__()]
     )
     # Sort by required epochs
-    mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].required_epochs))
+    mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].n_params))
     return mm_map
