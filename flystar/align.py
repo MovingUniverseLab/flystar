@@ -1000,12 +1000,12 @@ class MosaicSelfRef(object):
 
         return
 
-    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0):
+    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0, seed=None):
         """        Average positions or fit velocities.
         Average magnitudes.
         Calculate bootstrap errors if desired.
 
-        Update the use_in_trans values as needed. TODO: ????
+        Update the use_in_trans values as needed. TODO: ????.
 
         Updates aggregate columns in self.ref_table in place.
 
@@ -1016,6 +1016,9 @@ class MosaicSelfRef(object):
             Boolean array indicating which stars to keep original values for, by default None
         n_boot : int, optional
             Number of bootstrap iterations, by default 0
+        seed : int, optional
+            Random seed for reproducible bootstrap results, by default None
+
         """
         # Keep track of the original reference values.
         # In certain cases, we will NOT update these.
@@ -1062,6 +1065,7 @@ class MosaicSelfRef(object):
                 absolute_sigma=self.absolute_sigma,
                 select_stars=fit_star_idxs,
                 bootstrap=n_boot,
+                seed=seed,
                 verbose=self.verbose
             )
             # Combine (transformed) magnitudes
@@ -1202,50 +1206,6 @@ class MosaicSelfRef(object):
             self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
         x, y, xe, ye = self.ref_table.infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)
-        # else:
-            # # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
-            # for mm in self.motion_models[::-1]:
-            #     required_columns = mm.fit_param_names + mm.fixed_param_names
-            #     if all([(param in self.ref_table.colnames) or (self.fixed_params_dict is not None and param in self.fixed_params_dict.keys()) for param in required_columns]):
-            #         # Check if the values are finite for non-string columns in the required columns for this motion model. If not, skip to the next motion model.
-
-            #         if any([param not in self.ref_table.colnames for param in required_columns]):
-            #             # If any required column is missing, skip to the next motion model.
-            #             continue
-
-            #         if not all([np.isfinite(self.ref_table[param]).all() for param in required_columns if self.ref_table[param].dtype.kind in 'if']):
-            #             # If any required column has non-finite values, skip to the next motion model.
-            #             continue
-
-            #         print(f"Inferring positions using motion model {mm.name}.")
-            #         # If we have error columns for all fit parameters, then use them in the model inference. Otherwise, just use the fit parameters without errors.
-            #         if all([f'{param}_err' in self.ref_table.colnames for param in mm.fit_param_names]) and all([np.isfinite(self.ref_table[f'{param}_err']).all() for param in mm.fit_param_names]):
-            #             x, y, xe, ye = mm().model(
-            #                 t=epoch,
-            #                 fit_params=np.array([self.ref_table[param] for param in mm.fit_param_names]).T,
-            #                 fit_param_errs=np.array([self.ref_table[f'{param}_err'] for param in mm.fit_param_names]).T,
-            #                 fixed_params_dict={param: self.ref_table[param] for param in mm.fixed_param_names}
-            #             )
-            #         else:
-            #             x, y = mm().model(
-            #                 t=epoch,
-            #                 fit_params=np.array([self.ref_table[param] for param in mm.fit_param_names]).T,
-            #                 fixed_params_dict={param: self.ref_table[param] for param in mm.fixed_param_names}
-            #             )
-            #             xe = None
-            #             ye = None
-            #         break
-
-            # # No velocities... just used average positions.
-            # x = self.ref_table['x0']
-            # y = self.ref_table['y0']
-
-            # if 'x0_err' in self.ref_table.colnames:
-            #     xe = self.ref_table['x0_err']
-            #     ye = self.ref_table['y0_err']
-            # else:
-            #     xe = None
-            #     ye = None
 
         m = self.ref_table['m0']
 
@@ -1292,7 +1252,7 @@ class MosaicSelfRef(object):
 
         return
 
-    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, update_errors=False, verbose=True):
+    def calc_bootstrap_errors(self, n_boot=100, seed=None, boot_epochs_min=-1, calc_vel_in_bootstrap=True, update_errors=False, verbose=True):
         """
         Function to calculate bootstrap errors for the transformations as well
         as the proper motions. For each iteration, this will:
@@ -1320,6 +1280,9 @@ class MosaicSelfRef(object):
             Number of bootstrap iterations when calculating transformations and the proper motion.
             PM bootstrap is only done for final proper motion
             calculation (e.g., not for each iteration of the starlist for matching)
+
+        seed: int, optional
+            Random seed for reproducible bootstrap results.
 
         boot_epochs_min: int or -1
             In order to be included in bootstrap analysis, non-reference stars must be detected in
@@ -1406,6 +1369,7 @@ class MosaicSelfRef(object):
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
         ### DECREASE PRECISION ON ARRAYS (32 bit instead of 64: dtype=np.float32)
         ### AT SOME POINT, NEED TO CONVERT BACK (LOOK UP HOW TO DO THIS CAREFULLY)
+        rng = np.random.default_rng(seed)
         for ii in tqdm(range(n_boot), desc='Bootstrap iterations', disable=not verbose):
             # Recalculate transformations using bootstrap sample of
             # reference stars. Use a loop for each epoch here, so we
@@ -1424,7 +1388,7 @@ class MosaicSelfRef(object):
                 # Extract bootstrap sample of matched reference stars for this epoch
                 #good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
                 good = np.where( (ref_table['used_in_trans'][:,jj] == True) & (~np.isnan(ref_table['x_orig'][:,jj])) )
-                samp_idx = np.random.choice(good[0], len(good[0]), replace=True)
+                samp_idx = rng.choice(good[0], len(good[0]), replace=True)
 
                 # Get reference star positions in particular epoch from ref_list.
                 t_epoch = t_arr[jj]
@@ -1526,9 +1490,9 @@ class MosaicSelfRef(object):
             # for each star, if desired. Draw a full-sample bootstrap over the epochs
             # for each star, and then run it through the startable fit_velocities machinery
             if calc_vel_in_bootstrap:
-                boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
+                boot_idx = rng.choice(np.arange(0, n_epochs, 1), size=n_epochs)
                 while len(np.unique(boot_idx)) < motion_boot_min_epochs:
-                    boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
+                    boot_idx = rng.choice(np.arange(0, n_epochs, 1), size=n_epochs)
                 t_boot = t_arr[boot_idx]
 
                 star_table = StarTable(name=ref_table['name'],

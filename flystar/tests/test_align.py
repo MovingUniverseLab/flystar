@@ -587,7 +587,7 @@ def test_bootstrap():
     assert 'vye_boot' not in match1.ref_table.keys()
 
     # Run bootstrap: no boot_epochs_min
-    match1.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min)
+    match1.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min, seed=42)
     # Make sure columns exist, and none of them are nan values
     assert np.sum(np.isnan(match1.ref_table['xe_boot'])) == 0
     assert np.sum(np.isnan(match1.ref_table['ye_boot'])) == 0
@@ -616,7 +616,7 @@ def test_bootstrap():
 
     # Now run_calc_bootstrap_error, with boot_epochs_min engaged
     boot_epochs_min2 = 2
-    match2.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min2)
+    match2.calc_bootstrap_errors(n_boot=n_boot, boot_epochs_min=boot_epochs_min2, seed=42)
 
     # Make sure boot_epochs_min cut worked as intended
     out = match2.ref_table
@@ -698,7 +698,7 @@ def test_calc_vel_in_bootstrap():
     # Run calc_bootstrap_error function with calc_vel_in_bootstrap=True.
     # Make sure bootstrap velocity errors are calculated and valid
     n_boot = 50
-    match_vel.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=True)
+    match_vel.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=True, seed=42)
 
     assert 'xe_boot' in match_vel.ref_table.keys()
     assert np.sum(np.isnan(match_vel.ref_table['xe_boot'])) == 0
@@ -706,7 +706,7 @@ def test_calc_vel_in_bootstrap():
     assert np.sum(np.isnan(match_vel.ref_table['vx_err_boot'])) == 0
 
     # Run without calc_vel_in_bootstrap, make sure velocities are NOT calculated
-    match.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=False)
+    match.calc_bootstrap_errors(n_boot=n_boot, calc_vel_in_bootstrap=False, seed=42)
 
     assert 'xe_boot' in match.ref_table.keys()
     assert np.sum(np.isnan(match.ref_table['xe_boot'])) == 0
@@ -758,7 +758,7 @@ def test_transform_xym():
                                   verbose=False)
 
     match1.fit()
-    match1.calc_bootstrap_errors(n_boot=n_boot)
+    match1.calc_bootstrap_errors(n_boot=n_boot, seed=42)
 
     # Make sure all transformations have mag_offset = 0
     trans_list = match1.trans_list
@@ -793,7 +793,7 @@ def test_transform_xym():
                                   verbose=False)
 
     match2.fit()
-    match2.calc_bootstrap_errors(n_boot=n_boot)
+    match2.calc_bootstrap_errors(n_boot=n_boot, seed=42)
 
 
     # Make sure all transformations have correct mag offset
@@ -1025,6 +1025,14 @@ def make_fake_starlists_poly1(seed=-1):
         xde = xpe
         yde = ype
         mde = lis['m0_err']
+
+        # fig, ax = plt.subplots()
+        # ax.scatter(x0, y0, s=2, label='Reference')
+        # ax.scatter(xd, yd, s=2, label='Starlist')
+        # ax.set_xlabel('X (pix)')
+        # ax.set_ylabel('Y (pix)')
+        # ax.legend()
+        # plt.show()
 
         # Save the new list as a starlist.
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],

@@ -553,10 +553,11 @@ class StarTable(Table):
             absolute_sigma=True,
             select_stars=None,
             bootstrap=0,
-            verbose=True,
+            seed=None,
             mask_value=None,
             mask_lists=None,
-            fill_value=np.nan
+            fill_value=np.nan,
+            verbose=True
     ):
         """Fit velocity for star table
 
@@ -589,15 +590,18 @@ class StarTable(Table):
             Indices of stars to fit, by default None (fit all stars)
         bootstrap : int, optional
             Number of bootstrap for uncertainty resampling, by default 0
-        verbose : bool, optional
-            Print verbose messages or not, by default True
+        seed : int, optional
+            Random seed for bootstrap resampling, by default None
         mask_value : float, optional
             Values to mask in data, by default None
         mask_lists : list of int, optional
             Indices of lists to mask/exclude from fitting, by default None
         fill_value : float, optional
             Fill value when there is not enough data points to fit, by default np.nan
+        verbose : bool, optional
+            Print verbose messages or not, by default True
 
+            
         Raises
         ------
         ValueError
@@ -611,14 +615,14 @@ class StarTable(Table):
         ####### Check Params ######
         ###########################
         if weighting not in ['var', 'std']:
-            raise ValueError(f"fit_motion_model: Weighting must either be 'var' or 'std', not {weighting}!")
+            raise ValueError(f"fit_motion_models: Weighting must either be 'var' or 'std', not {weighting}!")
 
         if ('t' not in self.colnames) and ('list_times' not in self.meta):
-            raise KeyError("fit_motion_model: Failed to access time values. No 't' column in table, no 'list_times' in meta.")
+            raise KeyError("fit_motion_models: Failed to access time values. No 't' column in table, no 'list_times' in meta.")
 
         # Check if we have the required columns
         if not all([_ in self.colnames for _ in ['x', 'y']]):
-            raise KeyError(f"fit_motion_model: Missing required columns in the table: {', '.join(['x', 'y'])}!")
+            raise KeyError(f"fit_motion_models: Missing required columns in the table: {', '.join(['x', 'y'])}!")
 
         # Make a copy of fixed_params_dict to avoid modifying the original one outside the function
         fixed_params_dict = copy.deepcopy(fixed_params_dict)
@@ -626,7 +630,7 @@ class StarTable(Table):
         # Check fixed_params_dict is a dict
         if fixed_params_dict is not None:
             if not isinstance(fixed_params_dict, dict):
-                raise ValueError("fit_motion_model: fixed_params_dict must be a dictionary!")
+                raise ValueError("fit_motion_models: fixed_params_dict must be a dictionary!")
 
         # Convert motion_models to MotionModel objects if they are strings:
         if motion_models is None:
@@ -651,7 +655,7 @@ class StarTable(Table):
         if 'motion_model_input' in self.colnames:
             input_mm_names = np.unique(self['motion_model_input'])
             assert all([name in all_mm_map.keys() for name in input_mm_names]), \
-                f"fit_motion_model: Unknown motion model name(s) in 'motion_model_input' column. Available motion models are: {', '.join(all_mm_map.keys())}."
+                f"fit_motion_models: Unknown motion model name(s) in 'motion_model_input' column. Available motion models are: {', '.join(all_mm_map.keys())}."
             for mm_name in input_mm_names:
                 if mm_name not in mm_names:
                     motion_models.append(all_mm_map[mm_name])
@@ -721,11 +725,9 @@ class StarTable(Table):
             t_data = copy.deepcopy(np.array(self.meta['list_times']))[list_indices]
             t_data = np.broadcast_to(t_data, x_data.shape)
 
+        fixed_params_dict = {} if fixed_params_dict is None else fixed_params_dict
         # Add default t0 if not provided in fixed_params_dict
-        if fixed_params_dict is None:
-            weights = 1/np.hypot(xe_data, ye_data) if (xe_data is not None) and (ye_data is not None) else None
-            fixed_params_dict = {'t0': np.average(t_data, axis=1, weights=weights)}
-        elif 't0' not in fixed_params_dict:
+        if 't0' not in fixed_params_dict:
             weights = 1/np.hypot(xe_data, ye_data) if (xe_data is not None) and (ye_data is not None) else None
             fixed_params_dict['t0'] = np.average(t_data, axis=1, weights=weights)
         else:
@@ -791,12 +793,6 @@ class StarTable(Table):
             # Assign motion models to stars
             self['motion_model_used'] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
 
-        # Add default obsLocation if not provided in fixed_params_dict
-        mm_used = np.unique(self['motion_model_used'].name)
-        if 'Parallax' in mm_used and 'obsLocation' not in fixed_params_dict:
-            fixed_params_dict['obsLocation'] = 'earth'
-
-
         ############################
         # Prepare Fixed Parameters #
         ############################
@@ -808,6 +804,7 @@ class StarTable(Table):
             # Check required fixed parameters
             for param in mm.required_fixed_param_names:
                 if param not in fixed_params_dict:
+                    # If not provided in fixed_params_dict, it must be in table columns
                     if param in self.colnames:
                         fixed_params_dict[param] = self[param].data
                     else:
@@ -818,13 +815,17 @@ class StarTable(Table):
             # Set to default value if not provided in fixed_params_dict or in self
             for param, value in mm.optional_fixed_params.items():
                 if param not in fixed_params_dict:
+                    # If param is not provided in fixed_params_dict
                     if param in self.colnames:
+                        # Set to column value if column exists
                         fixed_params_dict[param] = self[param].data
                     else:
+                        # Set to default value if neither in columns nor provided in fixed_params_dict
                         fixed_params_dict[param] = value
+                        self.meta[param] = value
 
         if raise_key_error:
-            raise KeyError(f"fit_motion_model: Missing required fixed parameter(s) for the motion models used: {', '.join(missing_params)}! Please provide them in fixed_params_dict or as columns in the table.")
+            raise KeyError(f"fit_motion_models: Missing required fixed parameter(s) for the motion models used: {', '.join(missing_params)}! Please provide them in fixed_params_dict or as columns in the table.")
 
 
         # Prepare fixed_params_dict for each star
@@ -847,7 +848,7 @@ class StarTable(Table):
         ############################
         # Fill table with all possible motion model parameter names as new columns.
         new_col_list = motion_model.motion_model_param_names(motion_model_used, with_errors=True, with_fixed=False)
-        new_col_list += ['chi2_x', 'chi2_y', 'required_epochs']
+        new_col_list += ['chi2_x', 'chi2_y', 'n_params']
 
         if 't0' not in new_col_list:
             new_col_list.append('t0')
@@ -956,9 +957,10 @@ class StarTable(Table):
                         weighting=weighting,
                         use_scipy=use_scipy,
                         absolute_sigma=absolute_sigma,
-                        bootstrap=bootstrap,
                         fill_value=fill_value,
                         return_chi2=True,
+                        bootstrap=bootstrap,
+                        seed=seed,
                         verbose=verbose
                     )
                     params_array[idx] = params
@@ -988,7 +990,7 @@ class StarTable(Table):
             Times at which to predict positions. Scalar, or (N_times,) array, or (N_stars, N_times) array.
         fixed_params_dict : None or dict, optional
             Dictionary of fixed parameters to use for prediction.
-            If not provided, will try to look for fixed parameters in the table columns.
+            If not provided, will try to look for fixed parameters in the meta data then in table columns.
             If fixed params are found in both the table and the fixed_params_dict, the values in the table will be used and the fixed_params_dict values will be ignored,
             by default None
         fill_value : float, optional
@@ -1000,7 +1002,7 @@ class StarTable(Table):
             Arrays of predicted x, y positions and their uncertainties xe, ye, with shape (N_stars, N_times) or (N_stars,) if N_times=1, or (N_times,) if N_stars=1, or scalar.
         """
         assert 'motion_model_used' in self.colnames, \
-            "infer_positions: 'motion_model_used' column not found in the table. Please run fit_motion_model() first."
+            "infer_positions: 'motion_model_used' column not found in the table. Please run fit_motion_models() first."
 
         N_stars = len(self)
         times = np.atleast_1d(times)
@@ -1014,11 +1016,12 @@ class StarTable(Table):
         # Calculate the dictionary of {motion_model: indices of stars with this motion model} for faster access during prediction
         unique_motion_models, unique_inv_indices = np.unique(self['motion_model_used'], return_inverse=True)
         indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
-
+        
+        mm_map = motion_model.motion_model_map()
         # Prepare fit_params, fixed_params, fit_param_errs for each star
         for unique_motion_model, unique_index in indices_by_motion_model.items():
             # Create motion model instance
-            motion_model_instance = motion_model.motion_model_map()[unique_motion_model]()
+            motion_model_instance = mm_map[unique_motion_model]()
             # Prepare parameters for prediction
             fit_params = np.array([
                 self[param_name][unique_index] for param_name in motion_model_instance.fit_param_names
@@ -1028,26 +1031,57 @@ class StarTable(Table):
                 self[param_name + '_err'][unique_index] for param_name in motion_model_instance.fit_param_names
             ]).T # shape (N_stars_this_model, N_params)
 
-            fixed_params = {}
-            for param_name in motion_model_instance.fixed_param_names:
-                col_name = copy.deepcopy(param_name)
-                # If column not in table, check if it's provided in fixed_params_dict. If not, raise error. If provided, use the value from fixed_params_dict for all stars.
-                if (col_name not in self.colnames) and (f'{col_name}_mm' not in self.colnames):
-                    if col_name in fixed_params_dict:
-                        fixed_params[param_name] = fixed_params_dict[col_name]
-                        continue
+            # Construct fixed_params: Look for fixed_params_dict -> table columns -> meta data -> default value
+            fixed_params = fixed_params_dict.copy() if fixed_params_dict is not None else {}
+            for param in motion_model_instance.required_fixed_param_names:
+                if param not in fixed_params:
+                    # If required fixed param not provided, find it in the table columns or meta data
+                    if param in self.colnames:
+                        fixed_params[param] = self[param][unique_index]
+                    elif param in self.meta:
+                        fixed_params[param] = self.meta[param]
                     else:
-                        raise KeyError(f"infer_positions: Fixed parameter '{param_name}' not found in table columns or fixed_params_dict. Please provide the value for this parameter in fixed_params_dict or add a column named '{param_name}' to the table.")
+                        raise KeyError(f"infer_positions: Required fixed parameter '{param}' not found for motion model '{unique_motion_model}'. Please provide it in fixed_params_dict, or add it as a column in the table, or add it to the meta data.")
+                else:
+                    fixed_params[param] = fixed_params_dict[param]
 
-                # If original table has column and fit_motion_model added the column with _mm suffix, use the _mm column for prediction.
-                if param_name + '_mm' in self.colnames:
-                    col_name = param_name + '_mm'
-                fixed_params[param_name] = self[col_name][unique_index]
+            for param, default_value in motion_model_instance.optional_fixed_params.items():
+                if param not in fixed_params:
+                    # If optional fixed param not provided, find it in the table columns or meta data, otherwise use default value
+                    if param in self.colnames:
+                        fixed_params[param] = self[param][unique_index]
+                    elif param in self.meta:
+                        fixed_params[param] = self.meta[param]
+                    else:
+                        fixed_params[param] = default_value
+                else:
+                    fixed_params[param] = fixed_params_dict[param]
 
-                if (param_name == 'obsLocation'):
-                    assert np.unique(fixed_params[param_name]).size == 1, \
+                # Special case for obsLocation: no vectorization implemented yet
+                if (param == 'obsLocation'):
+                    assert np.unique(fixed_params[param]).size == 1, \
                         "infer_positions: obsLocation fixed parameter has different values for different stars. Vectorized handling not implemented yet."
-                    fixed_params[param_name] = fixed_params[param_name][0]
+                    fixed_params[param] = fixed_params[param][0]
+
+            # for param_name in motion_model_instance.fixed_param_names:
+            #     col_name = copy.deepcopy(param_name)
+            #     # If column not in table, check if it's provided in fixed_params_dict. If not, raise error. If provided, use the value from fixed_params_dict for all stars.
+            #     if (col_name not in self.colnames) and (f'{col_name}_mm' not in self.colnames):
+            #         if col_name in fixed_params_dict:
+            #             fixed_params[param_name] = fixed_params_dict[col_name]
+            #             continue
+            #         else:
+            #             raise KeyError(f"infer_positions: Fixed parameter '{param_name}' not found in table columns or fixed_params_dict. Please provide the value for this parameter in fixed_params_dict or add a column named '{param_name}' to the table.")
+
+            #     # If original table has column and fit_motion_models added the column with _mm suffix, use the _mm column for prediction.
+            #     if param_name + '_mm' in self.colnames:
+            #         col_name = param_name + '_mm'
+            #     fixed_params[param_name] = self[col_name][unique_index]
+
+            #     if (param_name == 'obsLocation'):
+            #         assert np.unique(fixed_params[param_name]).size == 1, \
+            #             "infer_positions: obsLocation fixed parameter has different values for different stars. Vectorized handling not implemented yet."
+            #         fixed_params[param_name] = fixed_params[param_name][0]
 
             # Predict positions
             # shape = (N_stars_this_model, N_times) or (N_stars_this_model,) if N_times=1 or (N_times,) if N_stars_this_model=1 or scalar

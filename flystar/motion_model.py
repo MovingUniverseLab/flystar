@@ -104,8 +104,8 @@ class MotionModel(ABC):
         params_guess=None,
         return_chi2=False,
         bootstrap=0,
-        verbose=True,
-        seed=None
+        seed=None,
+        verbose=True
     ):
         """Fit stellar motion parameters
 
@@ -137,10 +137,11 @@ class MotionModel(ABC):
             Return chi^2 values along with parameters and uncertainties in params, param_errs, chi2_x, chi2_y, by default False
         bootstrap : int, optional
             Bootstrapping uncertainties, by default 0
-        verbose : bool, optional
-            Print warning messages, by default True
         seed : int, optional
             Seed for the random number generator, by default None
+        verbose : bool, optional
+            Print warning messages, by default True
+
         Returns
         -------
         params, param_errs(, chi2_x, chi2_y)

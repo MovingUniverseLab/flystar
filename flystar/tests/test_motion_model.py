@@ -131,8 +131,7 @@ def test_Linear():
         fit_param_errs=np.array([x0_err_batch, vx_err_batch, y0_err_batch, vy_err_batch]).T,
         fixed_params_dict={'t0': t0_batch}
     )
-    
-    
+
     np.testing.assert_allclose(x_t_batch, (x0_batch+(t_batch-t0_batch)*vx_batch), atol=1e-5)
     np.testing.assert_allclose(y_t_batch, (y0_batch+(t_batch-t0_batch)*vy_batch), atol=1e-5)
     np.testing.assert_allclose(x_err_t_batch, np.hypot(x0_err_batch, (t_batch-t0_batch)*vx_err_batch), atol=1e-5)
@@ -219,7 +218,7 @@ def test_Linear():
     x_sim = np.random.normal(x_true, x_true_err)
     y_sim = np.random.normal(y_true, y_true_err)
     # Run fit
-    params, param_errs = mod.fit(t, x_sim, y_sim, x_true_err, y_true_err, fixed_params_dict={'t0': true_params['t0']}, bootstrap=10)
+    params, param_errs = mod.fit(t, x_sim, y_sim, x_true_err, y_true_err, fixed_params_dict={'t0': true_params['t0']}, bootstrap=10, seed=42)
     # Confirm true value is within error bar of fit value
     assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
 
