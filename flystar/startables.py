@@ -869,7 +869,7 @@ class StarTable(Table):
                     rename_duplicate=True
                 )
 
-        # Add fixed parameter columns if they do not exist
+        # Add fixed parameter meta if scalar, column if array.
         fixed_param_names = []
         for mm in motion_model_used:
             for param in mm.fixed_param_names:
@@ -879,26 +879,31 @@ class StarTable(Table):
         if 't0' in fixed_param_names:
             fixed_param_names.remove('t0')
 
-        # Add fixed parameter columns
+
         for param in fixed_param_names:
-            coldata = np.array([fixed_params_stars[i][param] for i in range(N_stars)])
+            coldata = np.array([fps[param] for fps in fixed_params_stars])
+
             if param in self.colnames:
-                if is_string_dtype(self[param]):
-                    if np.array_equal(self[param], coldata):
-                        # Same data, skip
-                        continue
-                # If the column already exists, check if the data are the same
-                elif np.allclose(self[param], coldata, equal_nan=True):
-                    # Same data, skip
+                existing = self[param]
+
+                # Skip if identical
+                same = (
+                    np.array_equal(existing, coldata)
+                    if is_string_dtype(existing)
+                    else np.allclose(existing, coldata, equal_nan=True)
+                )
+
+                if same:
                     continue
-                else:
-                    # Different data, add with _mm suffix to avoid name conflict
-                    colname = param + '_mm'
+
+            # Different (or column does not yet exist)
+            if len(np.unique(coldata)) == 1:
+                self.meta[param] = coldata[0]
             else:
-                colname = param
-
-            self.add_column(Column(data=coldata, name=colname), rename_duplicate=True)
-
+                self.add_column(
+                    Column(data=coldata, name=f"{param}_mm"),
+                    rename_duplicate=True,
+                )
 
         # Add a column to keep track of the number of points used in a fit and number of bootstrap used.
         self.meta['n_bootstrap'] = bootstrap
@@ -1049,6 +1054,10 @@ class StarTable(Table):
                 if param not in fixed_params:
                     # If optional fixed param not provided, find it in the table columns or meta data, otherwise use default value
                     if param in self.colnames:
+                        if param == 'obsLocation':
+                            # Special case for obsLocation: no vectorization implemented yet, use the value from the first star
+                            assert np.unique(self[param][unique_index]).size == 1, \
+                                f"infer_positions: obsLocation fixed parameter has different values ({np.unique(self[param][unique_index])}) for different stars. Vectorized handling not implemented yet."
                         fixed_params[param] = self[param][unique_index]
                     elif param in self.meta:
                         fixed_params[param] = self.meta[param]
@@ -1056,12 +1065,6 @@ class StarTable(Table):
                         fixed_params[param] = default_value
                 else:
                     fixed_params[param] = fixed_params_dict[param]
-
-                # Special case for obsLocation: no vectorization implemented yet
-                if (param == 'obsLocation'):
-                    assert np.unique(fixed_params[param]).size == 1, \
-                        "infer_positions: obsLocation fixed parameter has different values for different stars. Vectorized handling not implemented yet."
-                    fixed_params[param] = fixed_params[param][0]
 
             # for param_name in motion_model_instance.fixed_param_names:
             #     col_name = copy.deepcopy(param_name)
