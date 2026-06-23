@@ -1200,7 +1200,7 @@ class MosaicSelfRef(object):
         # Calculate x, y, xe, ye
 
         if 'motion_model_used' not in self.ref_table.colnames:
-            motion_model_used, n_params = determine_motion_model(self.ref_table)
+            motion_model_used, n_params = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
             self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
             # self.ref_table['n_fit'] = Column(n_params, name='n_fit', dtype=int)
             self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
@@ -3448,6 +3448,8 @@ def trans_initial_guess(
     warnings.filterwarnings('ignore', category=AstropyUserWarning)
     if motion_models is None:
         motion_models = []
+
+    # Match by name
     if mode == 'name':
         # First trim the two lists down to only those that don't contain
         # the "ignore_contains" string.
@@ -3468,8 +3470,8 @@ def trans_initial_guess(
         m2m = ref_list['m'][idx_r][ndx_r]
         N = len(x1m)
 
-    else:
-        # Default is miracle match.
+    # Default is miracle match.
+    elif mode == 'miracle':
         if briteN is None:
             briteN = min(50, len(star_list))
         else:
@@ -3495,6 +3497,8 @@ def trans_initial_guess(
             polygon_starlist,
             buffer=buffer
         )
+    else:
+        raise ValueError(f'flystar.align.trans_initial_guess: Unknown mode: {mode}. Must be one of ["name", "miracle"].')
 
     if len(x1m) < n_req_match:
         fig, ax = plt.subplots()

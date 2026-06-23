@@ -41,7 +41,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     yin2 = np.array(yin2)
     min2 = np.array(min2)
 
-    if polygon1 is not None and polygon2 is not None:
+    if (polygon1 is not None) and (polygon2 is not None):
         import shapely
         points1 = shapely.points(xin1, yin1)
         points2 = shapely.points(xin2, yin2)

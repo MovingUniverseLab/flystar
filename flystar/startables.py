@@ -490,7 +490,7 @@ class StarTable(Table):
 
             # Calculate the weighted mean and uncertainty
             avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
-            std = np.ma.sqrt(1 / np.ma.sum(wgt_2d, axis=1))
+            std = np.ma.sqrt(1 / np.ma.sum(wgt_2d, axis=1)) # Error propagation for weighted mean
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'weighted'
@@ -498,7 +498,7 @@ class StarTable(Table):
             wgt_2d = None
             # Calculate the weighted mean and uncertainty
             avg = np.ma.mean(val_2d_clip, axis=1)
-            std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(list_indices)) # Standard error of the mean            
+            std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(list_indices)) # Standard error of the mean
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'not_weighted'
@@ -515,7 +515,7 @@ class StarTable(Table):
         col_name_std = col_name_in + '0_err'
 
         if ismag:
-            std = 2.5 / np.log(10) * std / avg
+            std = 2.5 / np.log(10) * std / avg  # Error propagation
             avg = -2.5 * np.ma.log10(avg)
 
         # Fill mask with nan or inf
