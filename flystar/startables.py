@@ -490,7 +490,9 @@ class StarTable(Table):
 
             # Calculate the weighted mean and uncertainty
             avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
-            std = np.ma.sqrt(1 / np.ma.sum(wgt_2d, axis=1)) # Error propagation for weighted mean
+            # std = np.ma.sqrt(1 / np.ma.sum(wgt_2d, axis=1)) # Error propagation for weighted mean
+            # Use standard deviation of the weighted residuals as the uncertainty
+            std = np.ma.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'weighted'
@@ -498,7 +500,9 @@ class StarTable(Table):
             wgt_2d = None
             # Calculate the weighted mean and uncertainty
             avg = np.ma.mean(val_2d_clip, axis=1)
-            std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(list_indices)) # Standard error of the mean
+            # std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(list_indices)) # Standard error of the mean
+            # Use standard deviation of the residuals as the uncertainty
+            std = np.ma.std(val_2d_clip, axis=1)
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'not_weighted'
@@ -557,6 +561,7 @@ class StarTable(Table):
             mask_value=None,
             mask_lists=None,
             fill_value=np.nan,
+            art_star=False,
             verbose=True
     ):
         """Fit velocity for star table
@@ -598,6 +603,8 @@ class StarTable(Table):
             Indices of lists to mask/exclude from fitting, by default None
         fill_value : float, optional
             Fill value when there is not enough data points to fit, by default np.nan
+        art_star : bool, optional
+            Artifical star table or observed star table. If artificial stars, Use the output coordinates for fitting motion models (x[..., 1], y[..., 1])
         verbose : bool, optional
             Print verbose messages or not, by default True
 
@@ -678,15 +685,26 @@ class StarTable(Table):
         ###########################
         # Prepare data for fitting
         N_stars = len(self)
-        N_times = self['x'].data.shape[1]
+        if art_star:
+            x = self['x'].data[..., 1]
+            y = self['y'].data[..., 1]
+        else:
+            x = self['x'].data
+            y = self['y'].data
+
+        xe = self['xe'].data if 'xe' in self.colnames else np.ones_like(x)
+        ye = self['ye'].data if 'ye' in self.colnames else np.ones_like(y)
+
+        N_times = x.shape[1]
         if mask_lists is not None:
             list_indices = np.array([i for i in range(N_times) if i not in mask_lists])
         else:
             list_indices = np.arange(N_times)
-        x_data = np.ma.masked_invalid(self['x'].data[:, list_indices], copy=True)
-        y_data = np.ma.masked_invalid(self['y'].data[:, list_indices], copy=True)
-        xe_data = np.ma.masked_invalid(self['xe'].data[:, list_indices], copy=True) if 'xe' in self.colnames else np.ones_like(x_data)
-        ye_data = np.ma.masked_invalid(self['ye'].data[:, list_indices], copy=True) if 'ye' in self.colnames else np.ones_like(y_data)
+
+        x_data = np.ma.masked_invalid(x[:, list_indices], copy=True)
+        y_data = np.ma.masked_invalid(y[:, list_indices], copy=True)
+        xe_data = np.ma.masked_invalid(xe[:, list_indices], copy=True)
+        ye_data = np.ma.masked_invalid(ye[:, list_indices], copy=True)
 
         # Mask out close to 0 values to avoid infinite weights
         if xe_data is not None:
