@@ -1000,7 +1000,7 @@ class Parallax(MotionModel):
         Returns
         -------
         pvec
-            Parallax vector of shape (N_stars, 2, N_times)
+            Parallax vector of shape (N_stars, 2, N_times), where 2 corresponds to (x, y) components.
         """
         if self.pvec_cached is not None:
             t_mjd = np.atleast_1d(t_mjd)
