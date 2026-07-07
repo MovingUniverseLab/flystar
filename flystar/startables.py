@@ -1223,6 +1223,9 @@ class StarTable(Table):
         self['vy'] += delta_vy
         self['y'] += delta_vy*(self['t']-self['t0'][:, np.newaxis])
         if delta_pi!=0.0:
+            fixed_params_dict = {} if fixed_params_dict is None else fixed_params_dict
+            if 'ra' not in fixed_params_dict or 'dec' not in fixed_params_dict:
+                raise KeyError("shift_reference_frame: 'ra' and 'dec' must be provided in fixed_params_dict for parallax shift.")
             from .motion_model import Parallax
             ra = fixed_params_dict['ra']
             dec = fixed_params_dict['dec']
@@ -1262,6 +1265,9 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed
     table['y'] += delta_vy*(table['t']-table['t0'][:, np.newaxis])
     if delta_pi!=0.0:
         from .motion_model import Parallax
+        fixed_params_dict = {} if fixed_params_dict is None else fixed_params_dict
+        if 'ra' not in fixed_params_dict or 'dec' not in fixed_params_dict:
+            raise KeyError("shift_reference_frame: 'ra' and 'dec' must be provided in fixed_params_dict for parallax shift.")
         ra = fixed_params_dict['ra']
         dec = fixed_params_dict['dec']
         pa = fixed_params_dict.get('pa', 0.0)
