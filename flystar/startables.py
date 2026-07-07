@@ -814,17 +814,21 @@ class StarTable(Table):
         ############################
         # Prepare Fixed Parameters #
         ############################
-        # If required fixed params in self but not provided in fixed_params_dict, add them to fixed_params_dict
+        # If required fixed params in self.meta or columns, but not provided in fixed_params_dict, add them to fixed_params_dict
         motion_model_used = [all_mm_map[name] for name in np.unique(self['motion_model_used'])]
         raise_key_error = False
         missing_params = []
         for mm in motion_model_used:
             # Check required fixed parameters
             for param in mm.required_fixed_param_names:
+                # Check in the order of fixed_params_dict -> self.meta -> self columns
                 if param not in fixed_params_dict:
                     # If not provided in fixed_params_dict, it must be in table columns
                     if param in self.colnames:
                         fixed_params_dict[param] = self[param].data
+                    elif param in self.meta:
+                        # Check if the parameter is in self.meta
+                        fixed_params_dict[param] = self.meta[param]
                     else:
                         raise_key_error = True
                         missing_params.append(f"'{param}'")
@@ -837,13 +841,16 @@ class StarTable(Table):
                     if param in self.colnames:
                         # Set to column value if column exists
                         fixed_params_dict[param] = self[param].data
+                    elif param in self.meta:
+                        # Check if the parameter is in self.meta
+                        fixed_params_dict[param] = self.meta[param]
                     else:
                         # Set to default value if neither in columns nor provided in fixed_params_dict
                         fixed_params_dict[param] = value
                         self.meta[param] = value
 
         if raise_key_error:
-            raise KeyError(f"fit_motion_models: Missing required fixed parameter(s) for the motion models used: {', '.join(missing_params)}! Please provide them in fixed_params_dict or as columns in the table.")
+            raise KeyError(f"fit_motion_models: Missing required fixed parameter(s) for the motion models used: {', '.join(missing_params)}! Please provide them in fixed_params_dict, or as columns in the table, or as table metadata.")
 
 
         # Prepare fixed_params_dict for each star
