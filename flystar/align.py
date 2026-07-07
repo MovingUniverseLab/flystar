@@ -46,7 +46,7 @@ class MosaicSelfRef(object):
             fixed_params_dict=None,
             vel_weights='var',
             use_scipy=True,
-            absolute_sigma=False,
+            absolute_sigma=True,
             # Advanced options
             iter_callback=None,
             save_path=None,
@@ -542,7 +542,15 @@ class MosaicSelfRef(object):
                 print("   **********")
 
             star_list = self.star_lists[ii]
+            # FIXME: why [0]?
             ref_list = self.get_ref_list_from_table(star_list['t'][0])
+            # if 't' in star_list.meta:
+            #     ref_list = self.get_ref_list_from_table(star_list.meta['t'])
+            # elif 't' in star_list.colnames:
+            #     ref_list = self.get_ref_list_from_table(star_list['t'])
+            # else:
+            #     raise KeyError(f"StarList at index {ii} does not have a 't' column or meta['t'] entry. Cannot determine reference list for matching.")
+
             trans = self.trans_list[ii]
 
             # Trim a COPY of the reference and star lists based on magnitude.
@@ -1663,7 +1671,7 @@ class MosaicToRef(MosaicSelfRef):
         fixed_params_dict=None,
         vel_weights='var',
         use_scipy=True,
-        absolute_sigma=False,
+        absolute_sigma=True,
         # Advanced options
         iter_callback=None,
         save_path=None,
