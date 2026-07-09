@@ -746,7 +746,7 @@ class StarTable(Table):
         fixed_params_dict = {} if fixed_params_dict is None else fixed_params_dict
         # Add default t0 if not provided in fixed_params_dict
         if 't0' not in fixed_params_dict:
-            weights = 1/np.hypot(xe_data, ye_data) if (xe_data is not None) and (ye_data is not None) else None
+            weights = 1. / np.hypot(xe_data, ye_data) if (xe_data is not None) and (ye_data is not None) else None
             fixed_params_dict['t0'] = np.average(t_data, axis=1, weights=weights)
         else:
             if np.ndim(fixed_params_dict['t0']) == 0:

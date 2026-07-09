@@ -402,6 +402,8 @@ class MosaicSelfRef(object):
         #    x_orig, y_orig, m_orig, (opt. errors) -- the transformed errors for the lists: 2D
         #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
         ##########
+        if 't0' in self.star_lists[self.ref_index].colnames: self.t0_provided = True
+        else: self.t0_provided = False
         self.ref_table = self.setup_ref_table_from_starlist(self.star_lists[self.ref_index])
         # Save the reference index to the meta data on the reference list.
         self.ref_table.meta['ref_list'] = self.ref_index
@@ -1053,7 +1055,7 @@ class MosaicSelfRef(object):
         else:
             fit_star_idxs = None
 
-        if ('motion_model_input' in self.ref_table.keys()) and np.all(self.ref_table['motion_model_input']=='Fixed'):
+        if np.all(self.ref_table['motion_model_input']=='Fixed'):
             # self.ref_table.fit_motion_models(
             #     motion_models=['Fixed'],
             #     weighting=self.vel_weighting,
@@ -1064,6 +1066,32 @@ class MosaicSelfRef(object):
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
+
+            # Update t0, adapted from startables.fit_motion_models
+            if not self.t0_provided:
+                print('t0 not provided, calculating t0 as weighted average of t')
+                if weighted_xy:
+                    xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True)
+                    ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True)
+                    xe_data.mask[np.isclose(xe_data, 0.)] = True
+                    ye_data.mask[np.isclose(ye_data, 0.)] = True
+                    fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
+                    xe_data[fill_with_one] = 1.
+                    ye_data[fill_with_one] = 1.
+                    if np.ndim(xe_data) == 1:
+                        xe_data = xe_data[:, np.newaxis]
+                    if np.ndim(ye_data) == 1:
+                        ye_data = ye_data[:, np.newaxis]
+
+                if 't' in self.ref_table.colnames:
+                    t_data = copy.deepcopy(self.ref_table['t'].data)
+                else:
+                    t_data = copy.deepcopy(np.array(self.ref_table.meta['list_times']))
+                    t_data = np.broadcast_to(t_data, xe_data.shape)
+
+                weights = 1. / np.hypot(xe_data, ye_data) if weighted_xy else None
+                self.ref_table['t0'] = np.average(t_data, axis=1, weights=weights)
+
         else:
             self.ref_table.fit_motion_models(
                 motion_models=self.motion_models,
@@ -1687,7 +1715,10 @@ class MosaicToRef(MosaicSelfRef):
         Required Parameters
         -------------------
         ref_list : StarList object
-            Can optionally have velocities. All starlists will be aligned to this one.
+            All starlists will be aligned to this one.
+            Must have columns (x, y, m, xe, ye, me) or (x0, y0, m0, x0_err, y0_err, m0_err).
+            May have t or t0 columns.
+            May have motion model parameters
 
         list_of_starlists : array of StarList objects
             An array or list of flystar.starlists.StarList objects (which are Astropy Tables).
@@ -2043,6 +2074,8 @@ class MosaicToRef(MosaicSelfRef):
         #    x_orig, y_orig, m_orig, (opt. errors) -- the transformed errors for the lists: 2D
         #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
         ##########
+        if 't0' in self.ref_list.colnames: self.t0_provided = True
+        else: self.t0_provided = False
         self.ref_table = self.setup_ref_table_from_starlist(self.ref_list)
 
         ##########
@@ -3125,10 +3158,6 @@ def transform_from_object(starlist, transform):
     # calculate the transformed position and velocity
     x_new, y_new, xe_new, ye_new = position_transform_from_object(x, y, xe, ye, transform)
 
-    if vel:
-        x0_new, y0_new, x0e_new, y0e_new = position_transform_from_object(x0, y0, x0e, y0e, transform)
-        vx_new, vy_new, vxe_new, vye_new = velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
-
     # update transformed coords to copy of astropy table
     starlist_f['x'] = x_new
     starlist_f['y'] = y_new
@@ -3136,6 +3165,8 @@ def transform_from_object(starlist, transform):
     starlist_f['ye'] = ye_new
 
     if vel:
+        x0_new, y0_new, x0e_new, y0e_new = position_transform_from_object(x0, y0, x0e, y0e, transform)
+        vx_new, vy_new, vxe_new, vye_new = velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
         starlist_f['x0'] = x0_new
         starlist_f['y0'] = y0_new
         starlist_f['x0_err'] = x0e_new
