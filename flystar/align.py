@@ -32,7 +32,7 @@ class MosaicSelfRef(object):
             trans_class=transforms.PolyTransform,
             trans_args=[{'order': 2}, {'order': 2}],
             trans_input=None,
-            trans_weighting=None,
+            trans_weights=None,
             init_order=1,
             init_guess_mode='miracle',
             briteN=None,
@@ -44,7 +44,7 @@ class MosaicSelfRef(object):
             motion_models=['Empty', 'Fixed'],
             # motion_model_for_new_star=None,
             fixed_params_dict=None,
-            vel_weighting='var',
+            vel_weights='var',
             use_scipy=True,
             absolute_sigma=True,
             # Advanced options
@@ -115,7 +115,7 @@ class MosaicSelfRef(object):
             def = None. If not None, then this should contain an array or list of transform
             objects that will be used as the initial guess in the alignment and matching.
 
-        trans_weighting : str
+        trans_weights : str
             Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
             to weight by the positional uncertainties (variances) in the individual starlists, or also with
             the uncertainties in the reference frame itself.  Note weighting only works when there
@@ -165,7 +165,7 @@ class MosaicSelfRef(object):
         fixed_params_dict : None or dict
             Dictionary of motion model fixed parameters, e.g., ra, dec, pa, obsLocation, t0, etc. See motion_model classes for details.
 
-        vel_weighting : str
+        vel_weights : str
             Either 'var' (def) or 'std', depending on whether you want to weight the motion model
             fits by the variance or standard deviation of the position data
 
@@ -231,8 +231,8 @@ class MosaicSelfRef(object):
         self.init_order = init_order
         self.mag_trans = mag_trans
         self.mag_lim = mag_lim
-        self.trans_weighting = trans_weighting
-        self.vel_weighting = vel_weighting
+        self.trans_weighting = trans_weights
+        self.vel_weighting = vel_weights
         self.trans_input = trans_input
         self.trans_class = trans_class
         self.calc_trans_inverse = calc_trans_inverse
@@ -372,7 +372,7 @@ class MosaicSelfRef(object):
             'trans_class': self.trans_class,
             'trans_args': self.trans_args,
             'trans_input': self.trans_input,
-            'trans_weighting': self.trans_weighting,
+            'trans_weights': self.trans_weighting,
             'init_order': self.init_order,
             'init_guess_mode': self.init_guess_mode,
             'calc_trans_inverse': self.calc_trans_inverse,
@@ -380,7 +380,7 @@ class MosaicSelfRef(object):
             'mag_lim': self.mag_lim,
             'motion_models': self.motion_models,
             'fixed_params_dict': self.fixed_params_dict,
-            'vel_weighting': self.vel_weighting,
+            'vel_weights': self.vel_weighting,
             'use_scipy': self.use_scipy,
             'absolute_sigma': self.absolute_sigma,
             'iter_callback': self.iter_callback,
@@ -1044,7 +1044,6 @@ class MosaicSelfRef(object):
                 motion_model_class_names += self.ref_table['motion_model_used'][keep_orig].tolist()
                 vals_orig['motion_model_used'] = self.ref_table['motion_model_used'][keep_orig]
                 vals_orig['n_params'] = self.ref_table['n_params'][keep_orig]
-                # vals_orig['n_fit'] = self.ref_table['n_fit'][keep_orig]
             motion_model_col_names = motion_model.motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
             for mm in motion_model_col_names:
                 if f'{mm}_mm' in self.ref_table.keys():
@@ -1117,9 +1116,7 @@ class MosaicSelfRef(object):
         motion_model_used, n_params = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
 
         # Assign the determined motion models
-        # self.ref_table['motion_model_used'][keep_orig] = motion_model_used
         self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
-        # self.ref_table['n_fit'] = Column(n_params, name='n_fit', dtype=int)
         self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
         # Replace the originals if we are supposed to keep them fixed.
@@ -1238,7 +1235,6 @@ class MosaicSelfRef(object):
         if 'motion_model_used' not in self.ref_table.colnames:
             motion_model_used, n_params = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
             self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
-            # self.ref_table['n_fit'] = Column(n_params, name='n_fit', dtype=int)
             self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
         x, y, xe, ye = self.ref_table.infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)
@@ -1688,7 +1684,7 @@ class MosaicToRef(MosaicSelfRef):
         trans_class=transforms.PolyTransform,
         trans_args=[{'order': 2}, {'order': 2}],
         trans_input=None,
-        trans_weighting=None,
+        trans_weights=None,
         init_order=1,
         init_guess_mode='miracle',
         briteN=None,
@@ -1701,7 +1697,7 @@ class MosaicToRef(MosaicSelfRef):
         motion_models=['Empty', 'Fixed'],
         # motion_model_for_new_star=None,
         fixed_params_dict=None,
-        vel_weighting='var',
+        vel_weights='var',
         use_scipy=True,
         absolute_sigma=True,
         # Advanced options
@@ -1795,7 +1791,7 @@ class MosaicToRef(MosaicSelfRef):
             def = None. If not None, then this should contain an array or list of transform
             objects that will be used as the initial guess in the alignment and matching.
 
-        trans_weighting : str
+        trans_weights : str
             Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
             to weight by the positional uncertainties (variances) in the individual starlists, or also with
             the uncertainties in the reference frame itself.  Note weighting only works when there
@@ -1850,7 +1846,7 @@ class MosaicToRef(MosaicSelfRef):
         fixed_params_dict : None or dict
             Dictionary of fixed parameters for motion models
 
-        vel_weighting : str
+        vel_weights : str
             Either 'var' (def) or 'std', depending on whether you want to weight the motion model
             fits by the variance or standard deviation of the position data
 
@@ -1915,7 +1911,7 @@ class MosaicToRef(MosaicSelfRef):
             trans_class=trans_class,
             trans_args=trans_args,
             trans_input=trans_input,
-            trans_weighting=trans_weighting,
+            trans_weights=trans_weights,
             init_order=init_order,
             init_guess_mode=init_guess_mode,
             briteN=briteN,
@@ -1927,7 +1923,7 @@ class MosaicToRef(MosaicSelfRef):
             motion_models=motion_models,
             # motion_model_for_new_star=motion_model_for_new_star,
             fixed_params_dict=fixed_params_dict,
-            vel_weighting=vel_weighting,
+            vel_weights=vel_weights,
             use_scipy=use_scipy,
             absolute_sigma=absolute_sigma,
             # Advanced options
@@ -2018,7 +2014,7 @@ class MosaicToRef(MosaicSelfRef):
             'trans_class': self.trans_class,
             'trans_args': self.trans_args,
             'trans_input': self.trans_input,
-            'trans_weighting': self.trans_weighting,
+            'trans_weights': self.trans_weighting,
             'init_order': self.init_order,
             'init_guess_mode': self.init_guess_mode,
             'calc_trans_inverse': self.calc_trans_inverse,
@@ -2027,7 +2023,7 @@ class MosaicToRef(MosaicSelfRef):
             'ref_mag_lim': self.ref_mag_lim,
             'motion_models': self.motion_models,
             'fixed_params_dict': self.fixed_params_dict,
-            'vel_weighting': self.vel_weighting,
+            'vel_weights': self.vel_weighting,
             'use_scipy': self.use_scipy,
             'absolute_sigma': self.absolute_sigma,
             'iter_callback': self.iter_callback,
@@ -2054,8 +2050,8 @@ class MosaicToRef(MosaicSelfRef):
         #         logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
         #         logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
         #         logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
-        #         logger(_log, '  trans_weighting = ' + str(self.trans_weighting), self.verbose)
-        #         logger(_log, '  vel_weighting = ' + str(self.vel_weighting), self.verbose)
+        #         logger(_log, '  trans_weights = ' + str(self.trans_weighting), self.verbose)
+        #         logger(_log, '  vel_weights = ' + str(self.vel_weighting), self.verbose)
         #         logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
         #         logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
         #         logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)

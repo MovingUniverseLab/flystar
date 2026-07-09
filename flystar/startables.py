@@ -814,17 +814,21 @@ class StarTable(Table):
         ############################
         # Prepare Fixed Parameters #
         ############################
-        # If required fixed params in self but not provided in fixed_params_dict, add them to fixed_params_dict
+        # If required fixed params in self.meta or columns, but not provided in fixed_params_dict, add them to fixed_params_dict
         motion_model_used = [all_mm_map[name] for name in np.unique(self['motion_model_used'])]
         raise_key_error = False
         missing_params = []
         for mm in motion_model_used:
             # Check required fixed parameters
             for param in mm.required_fixed_param_names:
+                # Check in the order of fixed_params_dict -> self.meta -> self columns
                 if param not in fixed_params_dict:
                     # If not provided in fixed_params_dict, it must be in table columns
                     if param in self.colnames:
                         fixed_params_dict[param] = self[param].data
+                    elif param in self.meta:
+                        # Check if the parameter is in self.meta
+                        fixed_params_dict[param] = self.meta[param]
                     else:
                         raise_key_error = True
                         missing_params.append(f"'{param}'")
@@ -837,13 +841,16 @@ class StarTable(Table):
                     if param in self.colnames:
                         # Set to column value if column exists
                         fixed_params_dict[param] = self[param].data
+                    elif param in self.meta:
+                        # Check if the parameter is in self.meta
+                        fixed_params_dict[param] = self.meta[param]
                     else:
                         # Set to default value if neither in columns nor provided in fixed_params_dict
                         fixed_params_dict[param] = value
                         self.meta[param] = value
 
         if raise_key_error:
-            raise KeyError(f"fit_motion_models: Missing required fixed parameter(s) for the motion models used: {', '.join(missing_params)}! Please provide them in fixed_params_dict or as columns in the table.")
+            raise KeyError(f"fit_motion_models: Missing required fixed parameter(s) for the motion models used: {', '.join(missing_params)}! Please provide them in fixed_params_dict, or as columns in the table, or as table metadata.")
 
 
         # Prepare fixed_params_dict for each star
@@ -1189,8 +1196,7 @@ class StarTable(Table):
 
 
 
-    def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
-                                motion_model_dict={}):
+    def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed_params_dict=None):
         """
         After completing an alignment, shift from your relative reference frame to
         the absolute frame using either Gaia or a Galactic model. This modified the
@@ -1205,8 +1211,9 @@ class StarTable(Table):
             velocity shift in y-direction (as/yr)
         delta_pi : float, optional
             parallax shift (as)
+        fixed_params_dict : None or dict, optional
+            Dictionary of fixed parameters to use for prediction: ra, dec, obsLocation, specifically in this case
         """
-        motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, self, None)
         if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
             print("No shifts input, reference frame unchanged.")
             print("Specify delta_vx, delta_vy, and/or delta_pi to perform a reference frame shift.")
@@ -1216,16 +1223,23 @@ class StarTable(Table):
         self['vy'] += delta_vy
         self['y'] += delta_vy*(self['t']-self['t0'][:, np.newaxis])
         if delta_pi!=0.0:
+            fixed_params_dict = {} if fixed_params_dict is None else fixed_params_dict
+            if 'ra' not in fixed_params_dict or 'dec' not in fixed_params_dict:
+                raise KeyError("shift_reference_frame: 'ra' and 'dec' must be provided in fixed_params_dict for parallax shift.")
+            from .motion_model import Parallax
+            ra = fixed_params_dict['ra']
+            dec = fixed_params_dict['dec']
+            pa = fixed_params_dict.get('pa', 0.0)
+            obsLocation = fixed_params_dict.get('obsLocation', 'earth')
             t_all = self['t'][np.where(~np.any(np.isnan(self['t']), axis=1))[0][0]]
             t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
-            pvec = motion_model_dict['Parallax'].get_parallax_vector(t_mjd)
+            pvec = Parallax().calc_parallax_vector(t_mjd, ra=ra, dec=dec, pa=pa, obsLocation=obsLocation)
             self['pi'] += delta_pi
-            self['x'] += delta_pi*pvec[0]
-            self['y'] += delta_pi*pvec[1]
+            self['x'] += delta_pi*pvec[:, 0, :] # Shape (N_stars, N_times)
+            self['y'] += delta_pi*pvec[:, 1, :] # Shape (N_stars, N_times)
         return
 
-def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
-                            motion_model_dict={}):
+def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed_params_dict=None):
     """
     After completing an alignment, shift from your relative reference frame to
     the absolute frame using either Gaia or a Galactic model. This modified the
@@ -1241,7 +1255,6 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
     delta_pi : float, optional
         parallax shift (as)
     """
-    motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, table, None)
     if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
         print("No shifts input, reference frame unchanged.")
         print("Specify delta_vx, delta_vy, and/or delta_pi to perform a reference frame shift.")
@@ -1251,10 +1264,18 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0,
     table['vy'] += delta_vy
     table['y'] += delta_vy*(table['t']-table['t0'][:, np.newaxis])
     if delta_pi!=0.0:
+        from .motion_model import Parallax
+        fixed_params_dict = {} if fixed_params_dict is None else fixed_params_dict
+        if 'ra' not in fixed_params_dict or 'dec' not in fixed_params_dict:
+            raise KeyError("shift_reference_frame: 'ra' and 'dec' must be provided in fixed_params_dict for parallax shift.")
+        ra = fixed_params_dict['ra']
+        dec = fixed_params_dict['dec']
+        pa = fixed_params_dict.get('pa', 0.0)
+        obsLocation = fixed_params_dict.get('obsLocation', 'earth')
         t_all = table['t'][np.where(~np.any(np.isnan(table['t']), axis=1))[0][0]]
         t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
-        pvec = motion_model_dict['Parallax'].get_parallax_vector(t_mjd)
+        pvec = Parallax().calc_parallax_vector(t_mjd, ra=ra, dec=dec, pa=pa, obsLocation=obsLocation)
         table['pi'] += delta_pi
-        table['x'] += delta_pi*pvec[0]
-        table['y'] += delta_pi*pvec[1]
+        table['x'] += delta_pi*pvec[:, 0, :] # Shape (N_stars, N_times)
+        table['y'] += delta_pi*pvec[:, 1, :] # Shape (N_stars, N_times)
     return table
