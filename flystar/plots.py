@@ -3897,7 +3897,7 @@ class PrintSelected(object):
         return
 
 
-def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=0.7, symbol='circle', label='starlist', fig=None, figsize=(700, 700), show=True):
+def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=0.7, symbol='circle', label=None, xlabel='x', ylabel='y', fig=None, figsize=(700, 700), show=None):
     """Plot stars with plotly in interactive html format
 
     Parameters
@@ -3919,13 +3919,17 @@ def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=
     symbol : str, optional
         Marker symbol, by default 'circle'
     label : str, optional
-        Label for the star list, by default 'starlist'
+        Label for the star list, by default None
+    xlabel : str, optional
+        Label for the x-axis, by default 'x'
+    ylabel : str, optional
+        Label for the y-axis, by default 'y'
     fig : plotly.graph_objects.Figure object, optional
         Figure if the stars are to be added to an exisiting plot, by default None
     figsize : tuple, optional
         Figure size, by default (700, 700)
     show : bool, optional
-        Show figure or not, by default True
+        Show figure or not. By default: True if fig is None, False if fig is not None, by default None
 
     Returns
     -------
@@ -3942,6 +3946,10 @@ def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=
         color = f'rgba({color[0]*255}, {color[1]*255}, {color[2]*255}, {color[3]:.2f})'
 
     customdata = []
+    
+    if label is not None:
+        hover_template = f'{label}<br>' + hover_template
+
     if star_name is not None:
         hover_template = 'name: %{customdata[0]}<br>' + hover_template
         customdata.append(star_name)
@@ -3972,12 +3980,14 @@ def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=
     
     if fig is None:
         fig = go.Figure(data=[fig_data])
+        show = True if show is None else show
     else:
         fig.add_trace(fig_data)
+        show = False if show is None else show
     
     fig.update_layout(
-        xaxis_title='x',
-        yaxis_title='y',
+        xaxis_title=xlabel,
+        yaxis_title=ylabel,
         xaxis=dict(scaleanchor='y', scaleratio=1),  # Ensure equal aspect ratio
         width=figsize[0],
         height=figsize[1]
