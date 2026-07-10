@@ -692,8 +692,9 @@ class StarTable(Table):
             x = self['x'].data
             y = self['y'].data
 
-        xe = self['xe'].data if 'xe' in self.colnames else np.ones_like(x)
-        ye = self['ye'].data if 'ye' in self.colnames else np.ones_like(y)
+        xe = self['xe'].data if 'xe' in self.colnames else None
+        ye = self['ye'].data if 'ye' in self.colnames else None
+        with_xe_ye = (xe is not None) and (ye is not None)
 
         N_times = x.shape[1]
         if mask_lists is not None:
@@ -703,18 +704,17 @@ class StarTable(Table):
 
         x_data = np.ma.masked_invalid(x[:, list_indices], copy=True)
         y_data = np.ma.masked_invalid(y[:, list_indices], copy=True)
-        xe_data = np.ma.masked_invalid(xe[:, list_indices], copy=True)
-        ye_data = np.ma.masked_invalid(ye[:, list_indices], copy=True)
+        xe_data = np.ma.masked_invalid(xe[:, list_indices], copy=True) if with_xe_ye else None
+        ye_data = np.ma.masked_invalid(ye[:, list_indices], copy=True) if with_xe_ye else None
 
         # Mask out close to 0 values to avoid infinite weights
-        if xe_data is not None:
+        if with_xe_ye:
             xe_data.mask[np.isclose(xe_data, 0)] = True
-        if ye_data is not None:
             ye_data.mask[np.isclose(ye_data, 0)] = True
 
         # If all of xe and ye is masked for a star, effectively no uncertainties provided, fill with 1.
         # Note that this automatically turn the mask to False for these stars
-        if (xe_data is not None) and (ye_data is not None):
+        if with_xe_ye:
             fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
             xe_data[fill_with_one] = 1.
             ye_data[fill_with_one] = 1.
@@ -724,16 +724,11 @@ class StarTable(Table):
             x_data = x_data[:, np.newaxis]
         if np.ndim(y_data) == 1:
             y_data = y_data[:, np.newaxis]
-        if np.ndim(xe_data) == 1:
-            xe_data = xe_data[:, np.newaxis]
-        if np.ndim(ye_data) == 1:
-            ye_data = ye_data[:, np.newaxis]
-
-        # if mask_lists is not None:
-        #     x_data.mask[:, mask_lists] = True
-        #     y_data.mask[:, mask_lists] = True
-        #     xe_data.mask[:, mask_lists] = True
-        #     ye_data.mask[:, mask_lists] = True
+        if with_xe_ye:
+            if np.ndim(xe_data) == 1:
+                xe_data = xe_data[:, np.newaxis]
+            if np.ndim(ye_data) == 1:
+                ye_data = ye_data[:, np.newaxis]
 
         # t_data: 2d array with shape (N_stars, N_epochs)
         # t0: 1d array with shape (N_stars,)
@@ -746,7 +741,7 @@ class StarTable(Table):
         fixed_params_dict = {} if fixed_params_dict is None else fixed_params_dict
         # Add default t0 if not provided in fixed_params_dict
         if 't0' not in fixed_params_dict:
-            weights = 1. / np.hypot(xe_data, ye_data) if (xe_data is not None) and (ye_data is not None) else None
+            weights = 1. / np.hypot(xe_data, ye_data) if with_xe_ye else None
             fixed_params_dict['t0'] = np.average(t_data, axis=1, weights=weights)
         else:
             if np.ndim(fixed_params_dict['t0']) == 0:
@@ -758,26 +753,25 @@ class StarTable(Table):
         if mask_value:
             x_data = np.ma.masked_values(x_data, mask_value)
             y_data = np.ma.masked_values(y_data, mask_value)
-            if xe_data is not None:
+            if with_xe_ye:
                 xe_data = np.ma.masked_values(xe_data, mask_value)
-            if ye_data is not None:
                 ye_data = np.ma.masked_values(ye_data, mask_value)
 
 
         # Calculate mask array
-        xy_mask = ~ (x_data.mask | y_data.mask)
-        if (xe_data is not None) and (ye_data is not None):
-            xy_mask = xy_mask & (~ (xe_data.mask | ye_data.mask))
+        valid_xy = ~ (x_data.mask | y_data.mask)
+        if with_xe_ye:
+            valid_xy &= ~ (xe_data.mask | ye_data.mask)
 
         # Calculate n_fit: unmasked x y values
         # This will be used to determine which motion model to use for each star. 
         # Note that we don't require unique times here
         # as scipy.curve_fit and Linear algebra can fit non-unique times.
-        # self['n_fit'] = np.sum(xy_mask, axis=1)
+        # self['n_fit'] = np.sum(valid_xy, axis=1)
 
         # Calculate n_fit: unique times & unmasked x y values
         self['n_fit'] = np.array([
-            len(set(t_data[i][xy_mask[i]]))
+            len(set(t_data[i][valid_xy[i]]))
             for i in range(N_stars)
         ])
 
@@ -949,7 +943,7 @@ class StarTable(Table):
             indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
 
         # Unmasked indices for each star:
-        unmasked_idx = [np.flatnonzero(xy_mask[i]) for i in range(N_stars)]
+        unmasked_idx = [np.flatnonzero(valid_xy[i]) for i in range(N_stars)]
 
         # For each motion model
         for unique_motion_model, unique_index in indices_by_motion_model.items():
@@ -969,8 +963,8 @@ class StarTable(Table):
             t_stars = [np.array(t_data[i][unmasked_idx[i]]) for i in unique_index]
             x_stars = [np.array(x_data[i][unmasked_idx[i]]) for i in unique_index]
             y_stars = [np.array(y_data[i][unmasked_idx[i]]) for i in unique_index]
-            xe_stars = [np.array(xe_data[i][unmasked_idx[i]]) for i in unique_index] if xe_data is not None else [None]*n_stars_this_model
-            ye_stars = [np.array(ye_data[i][unmasked_idx[i]]) for i in unique_index] if ye_data is not None else [None]*n_stars_this_model
+            xe_stars = [np.array(xe_data[i][unmasked_idx[i]]) for i in unique_index] if with_xe_ye else [np.ones_like(x_star) for x_star in x_stars]
+            ye_stars = [np.array(ye_data[i][unmasked_idx[i]]) for i in unique_index] if with_xe_ye else [np.ones_like(y_star) for y_star in y_stars]
 
             # For each star
             # Expensive for loop! Prepare everything beforehand to speed up.
