@@ -506,6 +506,54 @@ class MosaicSelfRef(object):
         self.ref_table['chi2_x'] = chi2_x
         self.ref_table['chi2_y'] = chi2_y
 
+        # Update t0 and n_fit when no fitting is run because all motion_model_input==Fixed
+        if ('t0' not in self.ref_table.colnames) or ('n_fit' not in self.ref_table.colnames):
+            x_data = np.ma.masked_invalid(self.ref_table['x'].data, copy=True)
+            y_data = np.ma.masked_invalid(self.ref_table['y'].data, copy=True)
+            xe = self.ref_table['xe'] if 'xe' in self.ref_table.colnames else None
+            ye = self.ref_table['ye'] if 'ye' in self.ref_table.colnames else None
+            weighted_xy = (xe is not None) and (ye is not None)
+            xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True) if weighted_xy else None
+            ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True) if weighted_xy else None
+            if (xe_data is not None) and (ye_data is not None):
+                xe_data.mask[np.isclose(xe_data, 0.)] = True
+                ye_data.mask[np.isclose(ye_data, 0.)] = True
+                fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
+                xe_data[fill_with_one] = 1.
+                ye_data[fill_with_one] = 1.
+            
+            if np.ndim(x_data) == 1:
+                x_data = x_data[:, np.newaxis]
+            if np.ndim(y_data) == 1:
+                y_data = y_data[:, np.newaxis]
+            if weighted_xy:
+                if np.ndim(xe_data) == 1:
+                    xe_data = xe_data[:, np.newaxis]
+                if np.ndim(ye_data) == 1:
+                    ye_data = ye_data[:, np.newaxis]
+
+            if 't' in self.ref_table.colnames:
+                t_data = copy.deepcopy(self.ref_table['t'].data)
+            else:
+                t_data = copy.deepcopy(np.array(self.ref_table.meta['list_times']))
+                t_data = np.broadcast_to(t_data, xe_data.shape)
+
+            # Update t0, adapted from startables.fit_motion_models
+            if 't0' not in self.ref_table.colnames:
+                weights = 1. / np.hypot(xe_data, ye_data) if weighted_xy else None
+                self.ref_table['t0'] = np.average(t_data, axis=1, weights=weights)
+
+            # Update n_fit: unique epochs with valid data
+            if 'n_fit' not in self.ref_table.colnames:
+                xy_mask = ~ (x_data.mask | y_data.mask)
+                if weighted_xy:
+                    xy_mask &= ~ (xe_data.mask | ye_data.mask)
+
+                self.ref_table['n_fit'] = np.array([
+                    len(set(t_data[i][xy_mask[i]]))
+                    for i in range(len(self.ref_table))
+                ])
+
         if self.save_path is not None:
             filename = f'{self.prefix_name}.pkl'
             with open(os.path.join(self.save_path, filename), 'wb') as file:
@@ -1065,31 +1113,6 @@ class MosaicSelfRef(object):
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
-
-            # Update t0, adapted from startables.fit_motion_models
-            if not self.t0_provided:
-                print('t0 not provided, calculating t0 as weighted average of t')
-                if weighted_xy:
-                    xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True)
-                    ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True)
-                    xe_data.mask[np.isclose(xe_data, 0.)] = True
-                    ye_data.mask[np.isclose(ye_data, 0.)] = True
-                    fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
-                    xe_data[fill_with_one] = 1.
-                    ye_data[fill_with_one] = 1.
-                    if np.ndim(xe_data) == 1:
-                        xe_data = xe_data[:, np.newaxis]
-                    if np.ndim(ye_data) == 1:
-                        ye_data = ye_data[:, np.newaxis]
-
-                if 't' in self.ref_table.colnames:
-                    t_data = copy.deepcopy(self.ref_table['t'].data)
-                else:
-                    t_data = copy.deepcopy(np.array(self.ref_table.meta['list_times']))
-                    t_data = np.broadcast_to(t_data, xe_data.shape)
-
-                weights = 1. / np.hypot(xe_data, ye_data) if weighted_xy else None
-                self.ref_table['t0'] = np.average(t_data, axis=1, weights=weights)
 
         else:
             self.ref_table.fit_motion_models(
@@ -2170,6 +2193,54 @@ class MosaicToRef(MosaicSelfRef):
         chi2_y[~np.isfinite(chi2_y_2d).any(axis=1)] = np.nan
         self.ref_table['chi2_x'] = chi2_x
         self.ref_table['chi2_y'] = chi2_y
+
+        # Update t0 and n_fit when no fitting is run because all motion_model_input==Fixed
+        if ('t0' not in self.ref_table.colnames) or ('n_fit' not in self.ref_table.colnames):
+            x_data = np.ma.masked_invalid(self.ref_table['x'].data, copy=True)
+            y_data = np.ma.masked_invalid(self.ref_table['y'].data, copy=True)
+            xe = self.ref_table['xe'] if 'xe' in self.ref_table.colnames else None
+            ye = self.ref_table['ye'] if 'ye' in self.ref_table.colnames else None
+            weighted_xy = (xe is not None) and (ye is not None)
+            xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True) if weighted_xy else None
+            ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True) if weighted_xy else None
+            if (xe_data is not None) and (ye_data is not None):
+                xe_data.mask[np.isclose(xe_data, 0.)] = True
+                ye_data.mask[np.isclose(ye_data, 0.)] = True
+                fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
+                xe_data[fill_with_one] = 1.
+                ye_data[fill_with_one] = 1.
+            
+            if np.ndim(x_data) == 1:
+                x_data = x_data[:, np.newaxis]
+            if np.ndim(y_data) == 1:
+                y_data = y_data[:, np.newaxis]
+            if weighted_xy:
+                if np.ndim(xe_data) == 1:
+                    xe_data = xe_data[:, np.newaxis]
+                if np.ndim(ye_data) == 1:
+                    ye_data = ye_data[:, np.newaxis]
+
+            if 't' in self.ref_table.colnames:
+                t_data = copy.deepcopy(self.ref_table['t'].data)
+            else:
+                t_data = copy.deepcopy(np.array(self.ref_table.meta['list_times']))
+                t_data = np.broadcast_to(t_data, xe_data.shape)
+
+            # Update t0, adapted from startables.fit_motion_models
+            if 't0' not in self.ref_table.colnames:
+                weights = 1. / np.hypot(xe_data, ye_data) if weighted_xy else None
+                self.ref_table['t0'] = np.average(t_data, axis=1, weights=weights)
+
+            # Update n_fit: unique epochs with valid data
+            if 'n_fit' not in self.ref_table.colnames:
+                xy_mask = ~ (x_data.mask | y_data.mask)
+                if weighted_xy:
+                    xy_mask &= ~ (xe_data.mask | ye_data.mask)
+
+                self.ref_table['n_fit'] = np.array([
+                    len(set(t_data[i][xy_mask[i]]))
+                    for i in range(len(self.ref_table))
+                ])
 
         if self.save_path is not None:
             filename = f'{self.prefix_name}.pkl'
