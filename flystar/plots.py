@@ -3946,13 +3946,13 @@ def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=
         color = f'rgba({color[0]*255}, {color[1]*255}, {color[2]*255}, {color[3]:.2f})'
 
     customdata = []
-    
-    if label is not None:
-        hover_template = f'{label}<br>' + hover_template
 
     if star_name is not None:
         hover_template = 'name: %{customdata[0]}<br>' + hover_template
         customdata.append(star_name)
+
+    if label is not None:
+        hover_template = f'{label}<br>' + hover_template
 
     if m is not None:
         m = np.asarray(m)

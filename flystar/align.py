@@ -151,9 +151,9 @@ class MosaicSelfRef(object):
 
         mag_lim : array
             If different from None, it indicates the minimum and maximum magnitude
-            on the catalogs for finding the transformations. Note, if you want specify the mag_lim
-            separately for each list and each iteration, you need to pass in a 2D array that
-            has shape (N_lists, 2).
+            on the starlists for finding the transformations BEFORE mag trans.
+            Note, if you want specify the mag_lim separately for each list and each iteration,
+            you need to pass in a 2D array that has shape (N_lists, N_iters).
 
         motion_models : list of MotionModel or str, optional
             Motion models or their names to use for new or unassigned stars
@@ -1575,7 +1575,7 @@ class MosaicSelfRef(object):
                     weighting=self.vel_weighting,
                     use_scipy=self.use_scipy,
                     absolute_sigma=self.absolute_sigma,
-                    verbose=self.verbose
+                    verbose=False
                 )
 
                 # Save proper motion fit results to output arrays
@@ -1851,9 +1851,9 @@ class MosaicToRef(MosaicSelfRef):
 
         mag_lim : array
             If different from None, it indicates the minimum and maximum magnitude
-            on the catalogs for finding the transformations. Note, if you want specify the mag_lim
-            separately for each list and each iteration, you need to pass in a 2D array that
-            has shape (N_lists, N_iters).
+            on the starlists for finding the transformations BEFORE mag trans.
+            Note, if you want specify the mag_lim separately for each list and each iteration,
+            you need to pass in a 2D array that has shape (N_lists, N_iters).
 
         ref_mag_lim : array
             If different from None, it indicates the minimum and maximum magnitude
