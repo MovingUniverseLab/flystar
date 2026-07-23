@@ -9,27 +9,32 @@ Reference/API
 
 .. automodapi:: flystar
 
-align
------
+.. Alignment Tools
+.. ---------------
 .. automodapi:: flystar.align
-   :no-heading:
+   :allowed-package-names: flystar
+.. :no-heading:
 
-starlists
----------
+.. Starlists Tools
+.. ---------------
 .. automodapi:: flystar.starlists
-   :no-heading:
+   :allowed-package-names: flystar
+.. :no-heading:
 
-transforms
-----------
+.. Transforms Tools
+.. ----------------
 .. automodapi:: flystar.transforms
-   :no-heading:
+   :allowed-package-names: flystar
+.. :no-heading:
 
-analysis
---------
+.. Analysis Tools
+.. --------------
 .. automodapi:: flystar.analysis
-   :no-heading:
+   :allowed-package-names: flystar
+.. :no-heading:
 
-plots
------
+.. Ploting Tools
+.. -------------
 .. automodapi:: flystar.plots
-   :no-heading:
+   :allowed-package-names: flystar
+.. :no-heading:
