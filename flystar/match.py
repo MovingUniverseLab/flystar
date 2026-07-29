@@ -292,11 +292,12 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     For two stars to be matched, they must be within a specified radius (dr_tol) and
     delta-magnitude (dm_tol). For stars with more than 1 neighbor (within the tolerances),
     if one is found that is the best match in both brightness and positional offsets
-    (closest in both), then the match is made. Otherwise,
-    their is a conflict and no match is returned for the star.
+    (closest in both), then the match is made. 
+    Otherwise, their is a conflict and no match is returned for the star.
 
 
     Parameters
+    ----------
     x1 : array-like
         X coordinate in the first catalog
     y1 : array-like
@@ -333,6 +334,11 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     dm : float array
         Delta-mag between the matches. (m1 - m2)
 
+    Raises
+    ------
+    ValueError
+        If the input arrays do not have the same shape or if they do not contain any finite values.
+        Or when no match is found between the two catalogs.
     """
 
     x1 = np.array(x1, copy=False)
@@ -342,10 +348,15 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     y2 = np.array(y2, copy=False)
     m2 = np.array(m2, copy=False)
 
-    if x1.shape != y1.shape:
-        raise ValueError('x1 and y1 do not match!')
-    if x2.shape != y2.shape:
-        raise ValueError('x2 and y2 do not match!')
+    if not np.isfinite(x1).any(): raise ValueError('x1 does not contain any finite values!')
+    if not np.isfinite(y1).any(): raise ValueError('y1 does not contain any finite values!')
+    if not np.isfinite(m1).any(): raise ValueError('m1 does not contain any finite values!')
+    if not np.isfinite(x2).any(): raise ValueError('x2 does not contain any finite values!')
+    if not np.isfinite(y2).any(): raise ValueError('y2 does not contain any finite values!')
+    if not np.isfinite(m2).any(): raise ValueError('m2 does not contain any finite values!')
+
+    assert x1.shape == y1.shape, 'x1 and y1 do not match!'
+    assert x2.shape == y2.shape, 'x2 and y2 do not match!'
 
     # Setup coords1 pairs and coords 2 pairs
     # this is equivalent to, but faster than just doing np.array([x1, y1])
@@ -403,18 +414,16 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
         else:
             i2_tmp = np.array([i2_match[mm] for mm in i1_nn])
 
-            # Repeat star list 1 positions and magnitudes
-            # for nn times (tile then transpose)
-            x1_nn = np.tile(x1[i1_nn], (nn, 1)).T
-            y1_nn = np.tile(y1[i1_nn], (nn, 1)).T
-            m1_nn = np.tile(m1[i1_nn], (nn, 1)).T
+            x1_nn = x1[i1_nn]
+            y1_nn = y1[i1_nn]
+            m1_nn = m1[i1_nn]
 
             # Get out star list 2 positions and magnitudes
             x2_nn = x2[i2_tmp]
             y2_nn = y2[i2_tmp]
             m2_nn = m2[i2_tmp]
-            dr = np.hypot(x1_nn - x2_nn, y1_nn - y2_nn)
-            dm = np.abs(m1_nn - m2_nn)
+            dr = np.hypot(x2_nn - x1_nn[:, np.newaxis], y2_nn - y1_nn[:, np.newaxis])
+            dm = np.abs(m2_nn - m1_nn[:, np.newaxis])
 
             if dm_tol is not None:
                 # Don't even consider stars that exceed our
@@ -462,23 +471,16 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
         # Index into the idxs1, idxs2 array of this duplicate.
         dups = np.where(idxs2 == duplicates[dd])[0]
 
-        # Assume the duplicates are confused first... see if we
-        # can resolve the confusion below.
-        keep[dups] = False
-
-        dm_dups = m1[idxs1[dups]] - m2[idxs2[dups]]
-        dr_dups = np.hypot(x1[idxs1[dups]] - x2[idxs2[dups]], y1[idxs1[dups]] - y2[idxs2[dups]])
-
-        dm_min = np.abs(dm_dups).argmin()
-        dr_min = np.abs(dr_dups).argmin()
+        dm_min = np.abs(dm[dups]).argmin()
+        dr_min = np.abs(dr[dups]).argmin()
 
         # If there is a clearly preferred match (closest in distance and brightness), then
-        # keep it and dump the other duplicates.
+        # keep it and dump the other duplicates. Otherwise, drop the match as confused.
         if dm_min == dr_min:
-            keep[dups[dm_min]] = True
-        else:
             if verbose > 3:
                 print('    confused, dropping star at',x2[idxs2[dups]][0],y2[idxs2[dups]][0])
+        else:
+            keep[dups[dm_min]] = False
 
 
     # Clean up the duplicates
@@ -666,14 +668,6 @@ def generic_match(sl1, sl2, init_mode='triangle',
     for i_loop in range(len(order_dr)):
 
         #  Transform and match the catalog to the reference frame
-#        sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
-#                                                     dr_tol=order_dr[i_loop][1],
-#                                                     verbose=verbose)
-        import matplotlib.pyplot as plt
-        plt.clf()
-        plt.plot(sl1_match['x'], sl1_match['y'], 'x', ms=10)
-        plt.plot(sl2_match['x'], sl2_match['y'], 'o')
-
         sl2_idx, sl1_idx = align.transform_and_match(sl2_match, sl1_match, transf,
                                                      dr_tol=order_dr[1],
                                                      verbose=verbose)
