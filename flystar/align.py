@@ -152,8 +152,8 @@ class MosaicSelfRef(object):
         mag_lim : array
             If different from None, it indicates the minimum and maximum magnitude
             on the starlists for finding the transformations BEFORE mag trans.
-            Note, if you want specify the mag_lim separately for each list and each iteration,
-            you need to pass in a 2D array that has shape (N_lists, N_iters).
+            Note, if you want specify the mag_lim separately for each list,
+            you need to pass in a 2D array that has shape (N_lists, 2).
 
         motion_models : list of MotionModel or str, optional
             Motion models or their names to use for new or unassigned stars
@@ -220,11 +220,15 @@ class MosaicSelfRef(object):
         plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
         plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
         """
+        self.iters = len(dr_tol)
+        if dm_tol is not None:
+            assert self.iters == len(dm_tol), f'dr_tol (len={self.iters}) and dm_tol (len={len(dm_tol)}) must all have the same length!'
+        if outlier_tol is not None:
+            assert self.iters == len(outlier_tol), f'dr_tol (len={self.iters}) and outlier_tol (len={len(outlier_tol)}) must all have the same length!'
 
         self.star_lists = list_of_starlists
         self.starlist_vertices = starlist_vertices
         self.ref_index = ref_index
-        self.iters = iters
         self.dr_tol = dr_tol
         self.dm_tol = dm_tol
         self.trans_args = trans_args
@@ -300,7 +304,6 @@ class MosaicSelfRef(object):
         # Error checking for parameters.
         ##########
         self.fix_iterable_conditions()  # fix dr_tol, dm_tol, outlier_tol, mag_lim to be iterable.
-        check_iter_tolerances(self.iters, self.dr_tol, self.dm_tol, self.outlier_tol)
         check_trans_input(self.star_lists, self.trans_input, self.mag_trans)
 
         ##########
@@ -444,7 +447,7 @@ class MosaicSelfRef(object):
                 print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
-            if self.iter_callback != None:
+            if self.iter_callback is not None:
                 self.iter_callback(self.ref_table, nn)
 
 
@@ -482,7 +485,7 @@ class MosaicSelfRef(object):
             print(f'  *** Getting rid of {len(idx):d} out of {len(self.ref_table):d} junk sources')
         self.ref_table.remove_rows(idx)
 
-        if self.iter_callback != None:
+        if self.iter_callback is not None:
             self.iter_callback(self.ref_table, nn)
 
         # Add times into ref_table meta data
@@ -497,8 +500,13 @@ class MosaicSelfRef(object):
             x_inferred = x_inferred[:, np.newaxis]
         if y_inferred.ndim == 1:
             y_inferred = y_inferred[:, np.newaxis]
-        chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
-        chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
+        if weighted_xy:
+            chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
+            chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        else:
+            chi2_x_2d = (self.ref_table['x'] - x_inferred)**2
+            chi2_y_2d = (self.ref_table['y'] - y_inferred)**2
         chi2_x = np.nansum(chi2_x_2d, axis=1)
         chi2_y = np.nansum(chi2_y_2d, axis=1)
         chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
@@ -510,11 +518,15 @@ class MosaicSelfRef(object):
         if ('t0' not in self.ref_table.colnames) or ('n_fit' not in self.ref_table.colnames):
             x_data = np.ma.masked_invalid(self.ref_table['x'].data, copy=True)
             y_data = np.ma.masked_invalid(self.ref_table['y'].data, copy=True)
-            xe = self.ref_table['xe'] if 'xe' in self.ref_table.colnames else None
-            ye = self.ref_table['ye'] if 'ye' in self.ref_table.colnames else None
-            weighted_xy = (xe is not None) and (ye is not None)
-            xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True) if weighted_xy else None
-            ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True) if weighted_xy else None
+            if weighted_xy:
+                xe = self.ref_table['xe']
+                ye = self.ref_table['ye']
+                xe_data = np.ma.masked_invalid(xe.data, copy=True)
+                ye_data = np.ma.masked_invalid(ye.data, copy=True)
+            else:
+                xe_data = None
+                ye_data = None
+
             if (xe_data is not None) and (ye_data is not None):
                 xe_data.mask[np.isclose(xe_data, 0.)] = True
                 ye_data.mask[np.isclose(ye_data, 0.)] = True
@@ -578,28 +590,26 @@ class MosaicSelfRef(object):
             import shapely
         for ii in range(len(self.star_lists)):
             if self.verbose > 0:
-                msg  = '   Matching catalog {0} / {1} with {2:d} stars'
-                msg2 = '      {0:8s} < {1:0.3f}'
-                print(" ")
-                print("   **********")
+                print()
+                print("    **********")
                 if nn is not None:
-                    print(f"   Iteration {nn+1} / {self.iters}")
-                print(msg.format((ii + 1), len(self.star_lists), len(self.star_lists[ii])))
-                print(msg2.format('dr', dr_tol))
-                print(msg2.format('|dm|', dm_tol))
-                print('      outlier tol: ', outlier_tol)
-                print('          mag_lim: ', self.mag_lim[ii])
-                print("   **********")
+                    print(f"    Iteration {nn+1} / {self.iters}")
+                print(f'    Matching catalog {ii + 1} / {len(self.star_lists)} with {len(self.star_lists[ii]):d} stars')
+                print(f'     dr  < {dr_tol}')
+                print(f'    |dm| < {dm_tol}')
+                print(f'    outlier tol: {outlier_tol}')
+                print(f'    mag_lim: {self.mag_lim[ii]}')
+                print("    **********")
 
             star_list = self.star_lists[ii]
-            # FIXME: why [0]?
-            ref_list = self.get_ref_list_from_table(star_list['t'][0])
-            # if 't' in star_list.meta:
-            #     ref_list = self.get_ref_list_from_table(star_list.meta['t'])
-            # elif 't' in star_list.colnames:
-            #     ref_list = self.get_ref_list_from_table(star_list['t'])
-            # else:
-            #     raise KeyError(f"StarList at index {ii} does not have a 't' column or meta['t'] entry. Cannot determine reference list for matching.")
+
+            if 't' in star_list.meta:
+                ref_list = self.get_ref_list_from_table(star_list.meta['t'])
+            elif 't' in star_list.colnames:
+                assert np.unique(star_list['t']).size == 1, f"StarList at index {ii} has multiple unique times in the 't' column. Cannot determine reference list for matching."
+                ref_list = self.get_ref_list_from_table(star_list['t'][0])
+            else:
+                raise KeyError(f"StarList at index {ii} does not have a 't' column or meta['t'] entry. Cannot determine reference list for matching.")
 
             trans = self.trans_list[ii]
 
@@ -609,7 +619,9 @@ class MosaicSelfRef(object):
             #       star_list_T is trimmed and transformed
             self.apply_mag_lim_via_use_in_trans(ref_list, ref_mag_lim)
             star_list_orig_trim = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, untransformed copy
-            star_list_T = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, will be transformed copy
+            star_list_T = copy.deepcopy(star_list_orig_trim)  # trimmed, will be transformed copy
+
+            assert len(star_list_orig_trim) > 0, f"No stars remain after applying mag_lim={self.mag_lim[ii]} to star_list at index {ii}. Please check your mag_lim."
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans is None:
@@ -639,15 +651,91 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xy(trans)
 
             # Match stars between the transformed, trimmed lists.
-            idx1, idx2, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                             ref_list['x'], ref_list['y'], ref_list['m'],
-                                             dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
+            if 'use_in_trans' in ref_list.colnames:
+                # Only use stars specified by "use_in_trans" column.
+                use_in_trans = ref_list['use_in_trans']
+                idx1, idx2, dr, dm = match.match(
+                    star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                    ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
+                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose
+                )
+                # Restore idx2 to the full reference list indices
+                idx2 = np.where(use_in_trans)[0][idx2]
+
+            else:
+                idx1, idx2, dr, dm = match.match(
+                    star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                    ref_list['x'], ref_list['y'], ref_list['m'],
+                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose
+                )
+
             if self.verbose > 1:
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
 
+            # # Plot matched stars
+            # unmatched_starlist = np.array([True if i not in idx1 else False for i in range(len(star_list_T))])
+            # unmatched_ref = np.array([True if i not in idx2 else False for i in range(len(ref_list))])
+            # use_in_trans = ref_list[idx2]['use_in_trans']
+            
+            # fig = go.Figure()
+            # plotly_stars(
+            #     x=star_list_T['x'][unmatched_starlist],
+            #     y=star_list_T['y'][unmatched_starlist],
+            #     m=star_list_T['m'][unmatched_starlist],
+            #     star_name=star_list_T['name'][unmatched_starlist],
+            #     label='Unmatched Star List',
+            #     color='C9',
+            #     fig=fig
+            # )
+            # plotly_stars(
+            #     x=star_list_T['x'][idx1],
+            #     y=star_list_T['y'][idx1],
+            #     m=star_list_T['m'][idx1],
+            #     label='Matched Star List',
+            #     color='C0',
+            #     fig=fig
+            # )
+            # plotly_stars(
+            #     x=ref_list['x'][idx2][~use_in_trans],
+            #     y=ref_list['y'][idx2][~use_in_trans],
+            #     m=ref_list['m'][idx2][~use_in_trans],
+            #     label='Matched ref (use_in_trans=False)',
+            #     color='C4',
+            #     fig=fig
+            # )
+            # plotly_stars(
+            #     x=ref_list['x'][unmatched_ref & ref_list['use_in_trans']],
+            #     y=ref_list['y'][unmatched_ref & ref_list['use_in_trans']],
+            #     m=ref_list['m'][unmatched_ref & ref_list['use_in_trans']],
+            #     star_name=ref_list['name'][unmatched_ref & ref_list['use_in_trans']],
+            #     label='Unmatched ref (use_in_trans=True)',
+            #     symbol='star-open',
+            #     marker_size=5,
+            #     color='C3',
+            #     fig=fig
+            # )
+            # plotly_stars(
+            #     x=ref_list['x'][idx2][use_in_trans],
+            #     y=ref_list['y'][idx2][use_in_trans],
+            #     m=ref_list['m'][idx2][use_in_trans],
+            #     label='Matched ref (use_in_trans=True)',
+            #     symbol='star',
+            #     marker_size=5,
+            #     color='C3',
+            #     fig=fig
+            # )
+            # fig.update_layout(
+            #     title=f'Matched Stars - Catalog {ii + 1}',
+            #     xaxis_title='X',
+            #     yaxis_title='Y'
+            # )
+            # fig.write_html(os.path.join(self.save_path, f'matched_stars_{ii + 1}.html'))
+            # fig.show()
+
+
             # Outlier rejection
-            if outlier_tol != None:
+            if outlier_tol is not None:
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2], outlier_tol, verbose=self.verbose)
                 if self.verbose > 1:
                     print( '  Rejected ', len(idx1) - sum(keepers), ' outliers.' )
@@ -655,15 +743,17 @@ class MosaicSelfRef(object):
                 idx1 = idx1[keepers]
                 idx2 = idx2[keepers]
 
-            # Only use stars specified by "use_in_trans" column.
-            if 'use_in_trans' in ref_list.colnames:
-                keepers = ref_list[idx2]['use_in_trans']
+            # # Only use stars specified by "use_in_trans" column.
+            # if 'use_in_trans' in ref_list.colnames:
+            #     keepers = ref_list[idx2]['use_in_trans']
+            #     if sum(keepers) == 0:
+            #         raise ValueError(f"No stars are marked as 'use_in_trans' in the reference list for starlist index {ii}. Cannot derive transformation.")
 
-                if self.verbose > 1:
-                    print( '  Rejected ', len(idx1) - sum(keepers), ' with use_in_trans=False.' )
+            #     if self.verbose > 1:
+            #         print( f'  Rejected {len(idx1) - sum(keepers)} stars out of {len(idx1)} with use_in_trans=False.' )
 
-                idx1 = idx1[keepers]
-                idx2 = idx2[keepers]
+            #     idx1 = idx1[keepers]
+            #     idx2 = idx2[keepers]
 
             # Determine weights in the fit.
             weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
@@ -671,11 +761,13 @@ class MosaicSelfRef(object):
             # Derive the best-fit transformation parameters.
             if self.verbose > 1:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
-            trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
-                                                      ref_list['x'][idx2], ref_list['y'][idx2],
-                                                      **trans_args,
-                                                      m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
-                                                      weights=weight, mag_trans=self.mag_trans)
+            trans = self.trans_class.derive_transform(
+                star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
+                ref_list['x'][idx2], ref_list['y'][idx2],
+                **trans_args,
+                m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
+                weights=weight, mag_trans=self.mag_trans
+            )
 
             # Save the final transformation.
             self.trans_list[ii] = trans
@@ -684,12 +776,15 @@ class MosaicSelfRef(object):
             # NOTE: We will not recalculate weights here
             if self.calc_trans_inverse:
                 if self.verbose > 1:
-                    print('Doing inverse')
-                trans_inv = self.trans_class.derive_transform(ref_list['x'][idx2], ref_list['y'][idx2],
-                                                              star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
-                                                              trans_args['order'], m=ref_list['m'][idx2],
-                                                              mref=star_list_orig_trim['m'][idx1], weights=weight,
-                                                              mag_trans=self.mag_trans)
+                    print('Calculating inverse transformation...')
+
+                trans_inv = self.trans_class.derive_transform(
+                    ref_list['x'][idx2], ref_list['y'][idx2],
+                    star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
+                    trans_args['order'], m=ref_list['m'][idx2],
+                    mref=star_list_orig_trim['m'][idx1], weights=weight,
+                    mag_trans=self.mag_trans
+                )
                 self.trans_list_inverse[ii] = trans_inv
 
             # Apply the XY transformation to a new copy of the starlist and
@@ -724,9 +819,11 @@ class MosaicSelfRef(object):
                                      dm=(star_t['m'] - star_r['m']),
                                      xo=star_s['x'], yo=star_s['y'], mo=star_s['m']))
 
-            idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                                   ref_list['x'], ref_list['y'], ref_list['m'],
-                                                   dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
+            idx_lis, idx_ref, dr, dm = match.match(
+                star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                ref_list['x'], ref_list['y'], ref_list['m'],
+                dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose
+            )
 
             if self.verbose > 1:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
@@ -735,7 +832,7 @@ class MosaicSelfRef(object):
             ## Make plot, if desired
             if self.save_path:
                 plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                    save_path=os.path.join(self.save_path, f"Transformed_Positions_{ii}_{star_list_T['t'][0]}.png"),
+                                    save_path=os.path.join(self.save_path, 'plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{star_list_T['t'][0]}.png"),
                                     show_plot=False)
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
@@ -743,11 +840,11 @@ class MosaicSelfRef(object):
             ### Update the "average" values to be used as the reference frame for the next list.
             keep_ref_orig = (self.update_ref_orig==False) or (self.update_ref_orig=='atend') or (self.update_ref_orig=='periter' and ii<(len(self.star_lists) - 1))
             if keep_ref_orig and ii < (len(self.star_lists) - 1):
-                keep_orig = self.ref_table['ref_orig'] | np.isnan(self.ref_table['x'][:,ii])
+                keep_orig = self.ref_table['ref_orig'] | (~np.isfinite(self.ref_table['x'][:,ii]))
             elif keep_ref_orig:
                 keep_orig = self.ref_table['ref_orig']
             elif ii < (len(self.star_lists) - 1):
-                keep_orig = np.isnan(self.ref_table['x'][:,ii])
+                keep_orig = ~np.isfinite(self.ref_table['x'][:,ii])
             else:
                 keep_orig=None
             self.update_ref_table_aggregates(keep_orig=keep_orig)
@@ -759,7 +856,7 @@ class MosaicSelfRef(object):
             # Print out some metrics
             if self.verbose > 0:
                 msg1 = '    {0:2s} (mean and std) for {1:10s}: {2:8.5f} +/- {3:8.5f}'
-                print('  Residuals: ')
+                print('    Residuals: ')
                 print(msg1.format('dr', 'all stars', dr.mean(), dr.std()))
                 print(msg1.format('dm', 'all stars', dm.mean(), dm.std()))
 
@@ -775,6 +872,13 @@ class MosaicSelfRef(object):
                 print('    Used {0:d} trans ref stars.'.format(len(used)))
                 print('    Dropped {0:d} matches after transform.'.format(len(used) - len(used_good)))
             gc.collect()  # clean up memory after each iteration
+            
+            # Save ref_table after each iteration
+            # print(f"Saving self after iteration {ii=}")
+            # if self.save_path:
+            #     with open(os.path.join(self.save_path, f"{self.prefix_name}_iter.pkl"), 'wb') as file:
+            #         pickle.dump(self, file)
+                
         return
 
     def setup_trans_info(self):
@@ -791,7 +895,7 @@ class MosaicSelfRef(object):
         iters = self.iters
 
         trans_list = [None for ii in range(N_lists)]
-        if trans_input != None:
+        if trans_input is not None:
             trans_list = [trans_input[ii] for ii in range(N_lists)]
 
         # Keep a list of trans_args, one for each starlist. If only
@@ -933,7 +1037,7 @@ class MosaicSelfRef(object):
 
         This should really only be applied to reference star lists.
         """
-        if ((ref_mag_lim is not None) and (ref_mag_lim[0] is not None)):
+        if ref_mag_lim is not None:
             # Support 'm0' (primary) or 'm' column name.
             if 'm0' in ref_list.colnames:
                 mcol = 'm0'
@@ -1164,7 +1268,7 @@ class MosaicSelfRef(object):
             var_xlis = 0.0
             var_ylis = 0.0
 
-        if self.trans_weighting != None:
+        if self.trans_weighting is not None:
             if self.trans_weighting == 'both,var':
                 weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
             if self.trans_weighting == 'both,std':
@@ -1297,7 +1401,7 @@ class MosaicSelfRef(object):
         """
         # All 2D columns should be reset.
         for col_name in self.ref_table.colnames:
-            if (exclude != None) and (col_name in exclude):
+            if (exclude is not None) and (col_name in exclude):
                 continue
 
             if len(self.ref_table[col_name].data.shape) == 2:      # Find the 2D columns
@@ -1481,7 +1585,7 @@ class MosaicSelfRef(object):
 
                 # Calculate weights based on weights keyword. If weights desired, will need to
                 # make starlist objects for this
-                if self.trans_weighting != None:
+                if self.trans_weighting is not None:
                     # In order for weights calculation to work, we need to apply a transformation
                     # to the star_list_T so it is in the same units as ref_boot. So, we'll apply
                     # the final transformation for the epoch to get close enough for the
@@ -1852,8 +1956,8 @@ class MosaicToRef(MosaicSelfRef):
         mag_lim : array
             If different from None, it indicates the minimum and maximum magnitude
             on the starlists for finding the transformations BEFORE mag trans.
-            Note, if you want specify the mag_lim separately for each list and each iteration,
-            you need to pass in a 2D array that has shape (N_lists, N_iters).
+            Note, if you want specify the mag_lim separately for each list,
+            you need to pass in a 2D array that has shape (N_lists, 2).
 
         ref_mag_lim : array
             If different from None, it indicates the minimum and maximum magnitude
@@ -1926,7 +2030,6 @@ class MosaicToRef(MosaicSelfRef):
             list_of_starlists,
             # Alignment parameters
             ref_index=-1,
-            iters=iters,
             dr_tol=dr_tol,
             dm_tol=dm_tol,
             outlier_tol=outlier_tol,
@@ -2061,6 +2164,9 @@ class MosaicToRef(MosaicSelfRef):
                 for key, value in input_dict.items():
                     file.write(f'{key}:\t{value}\n')
 
+        if self.ref_mag_lim is not None:
+            self.ref_mag_lim[0] = self.ref_mag_lim[0] if self.ref_mag_lim[0] is not None else -np.inf
+            self.ref_mag_lim[1] = self.ref_mag_lim[1] if self.ref_mag_lim[1] is not None else np.inf
 
         # if self.save_path is not None:
         #     with open(f'{os.path.dirname(self.save_path)}/MosaicToRef_input_params.log', 'w',) as _log:
@@ -2129,10 +2235,10 @@ class MosaicToRef(MosaicSelfRef):
             ### Drop all stars that have 0 detections.
             idx = np.where((self.ref_table['n_detect'] == 0))[0] # & (self.ref_table['ref_orig'] == False))[0]
             if self.verbose > 0:
-                print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+                print('    *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
-            if self.iter_callback != None:
+            if self.iter_callback is not None:
                 self.iter_callback(self.ref_table, nn)
 
         ##########
@@ -2161,17 +2267,17 @@ class MosaicToRef(MosaicSelfRef):
         ##########
         # Find where stars are detected.
         if self.verbose > 0:
-            print('   Preparing the reference table...')
+            print('    Preparing the reference table...')
 
         self.ref_table.detections()
 
         ### Drop all stars that have 0 detections.
         idx = np.where((self.ref_table['n_detect'] == 0))[0] # & (self.ref_table['ref_orig'] == False))[0]
         if self.verbose:
-            print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+            print('    *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
 
-        if self.iter_callback != None:
+        if self.iter_callback is not None:
             self.iter_callback(self.ref_table, nn)
 
         # Add times into ref_table meta data
@@ -2665,8 +2771,7 @@ def calc_mag_avg_all_stars(d):
 
 
 
-def initial_align(table1, table2, briteN=100,
-                      transformModel=transforms.PolyTransform, order=1, req_match=5):
+def initial_align(table1, table2, briteN=100, transformModel=transforms.PolyTransform, order=1):
     """
     Calculates an initial (unweighted) transformation from table1 starlist into
     table2 starlist (i.e., table2 is the reference starlist). Matching is done using
@@ -2716,9 +2821,6 @@ def initial_align(table1, table2, briteN=100,
 
     -order: int
          Order of the transformation. Not relevant for 4 parameter or spline fit
-
-    -req_match: int
-         Number of required matches of the input catalog to the total reference
 
     Output:
     ------
@@ -2958,13 +3060,13 @@ def find_transform_new(table1_mat, table2_mat,
     y2 = table2_mat['y']
 
     # Get the uncertainties (if needed) and calculate the weights.
-    if weights != None:
+    if weights is not None:
         x1e = table1_mat['xe']
         y1e = table1_mat['ye']
         x2e = table2_mat['xe']
         y2e = table2_mat['ye']
 
-        if transInit != None:
+        if transInit is not None:
             table1T_mat = table1_mat.copy()
             table1T_mat = transform_from_object(table1T_mat, transInit)
 
@@ -3498,26 +3600,16 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
     return vx_new, vy_new, vxe_new, vye_new
 
 
-
-
-def check_iter_tolerances(iters, dr_tol, dm_tol, outlier_tol):
-    # iteration tolerances must match the number of iterations requested.
-    assert iters == len(dr_tol)
-    assert iters == len(dm_tol)
-    assert iters == len(outlier_tol)
-
-    return
-
 def check_trans_input(list_of_starlists, trans_input, mag_trans):
     # Check trans_input
     # If we are transforming magnitudes and their are input transformations,
     # then they need to have a mag_offset on them.
-    if trans_input != None:
-        assert len(trans_input) == len(list_of_starlists)
+    if trans_input is not None:
+        assert len(trans_input) == len(list_of_starlists), f'trans_input (len={len(trans_input)}) must have the same length as list_of_starlists (len={len(list_of_starlists)})!'
 
         if mag_trans:
             for ii in range(len(trans_input)):
-                if trans_input[ii] != None:
+                if trans_input[ii] is not None:
                     try:
                         trans_input[ii].mag_offset
                     except NameError:
@@ -3648,12 +3740,9 @@ def trans_initial_guess(
 def update_old_and_new_names(ref_table, list_index, idx_ref_new):
     # Make new ref_list names for the new stars.
     new_names = []
-    new_name_len_max = 0
 
-    for ss in idx_ref_new:
-        new_name = f"{list_index:3d}_{str(ref_table['name_in_list'][ss, list_index]):s}"
-        new_names.append(new_name)
-        new_name_len_max = max(new_name_len_max, len(new_name))
+    new_names = [f"{list_index:3d}_{name}" for name in ref_table['name_in_list'][idx_ref_new, list_index]]
+    new_name_len_max = np.max([len(new_name) for new_name in new_names])
 
     old_names = ref_table['name']
     old_name_len = [len(old_name) for old_name in old_names]
@@ -3758,7 +3847,7 @@ def setup_trans_info(trans_input, trans_args, N_lists, iters):
     iters : int
     """
     trans_list = [None for ii in range(N_lists)]
-    if trans_input != None:
+    if trans_input is not None:
         trans_list = [trans_input[ii] for ii in range(N_lists)]
 
     # Keep a list of trans_args, one for each starlist. If only
@@ -3816,7 +3905,7 @@ def get_weighting_scheme(weights, ref_list, star_list):
         var_xlis = 0.0
         var_ylis = 0.0
 
-    if weights != None:
+    if weights is not None:
         if weights == 'both,var':
             weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
         if weights == 'both,std':
