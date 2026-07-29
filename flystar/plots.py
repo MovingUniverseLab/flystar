@@ -1,20 +1,18 @@
-import pdb
+import os
 import math
 import astropy
 import matplotlib
 import numpy as np
-import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib import cm
+from matplotlib.ticker import FormatStrFormatter
 from scipy.stats import chi2
 from scipy.stats import norm
 from scipy.optimize import curve_fit
-from astropy.io import ascii
 from astropy import units as u
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
-from . import motion_model, startables
 
 ####################################################
 # Code for making diagnostic plots for astrometry
@@ -62,7 +60,7 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None,
         If true, show the plot. Default is True
 
     """
-    plt.figure(figsize=(10,10))
+    plt.figure(figsize=(6, 6))
     plt.clf()
     plt.plot(ref['x'], ref['y'], 'g+', ms=5, label='Reference')
     plt.plot(starlist['x'], starlist['y'], 'rx', ms=5, label='starlist')
@@ -72,7 +70,7 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None,
                 linestyle='None', label='Matched starlist')
     plt.xlabel('X position (Reference Coords)')
     plt.ylabel('Y position (Reference Coords)')
-    plt.legend(numpoints=1)
+    plt.legend(numpoints=1, loc='lower right')
     plt.title('Label.dat Positions After Transformation')
     if xlim != None:
         plt.axis([xlim[0], xlim[1], ylim[0], ylim[1]])
@@ -80,6 +78,9 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None,
         plt.axis('equal')
 
     if save_path:
+        if not os.path.exists(os.path.dirname(save_path)):
+            os.makedirs(os.path.dirname(save_path))
+        plt.tight_layout()
         plt.savefig(save_path, dpi=300)
     if show_plot:
         plt.show()
@@ -126,7 +127,7 @@ def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, xlim=None, fi
 
         bins = np.arange(min_range, max_range+bin_width, bin_width)
 
-    plt.figure(figsize=(10,10))
+    plt.figure(figsize=(6, 6))
     plt.clf()
     plt.hist(diff_x, histtype='step', bins=bins, color='blue', label='X')
     plt.hist(diff_y, histtype='step', bins=bins, color='red', label='Y')
@@ -136,6 +137,7 @@ def pos_diff_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, xlim=None, fi
     if xlim != None:
         plt.xlim([xlim[0], xlim[1]])
     plt.legend()
+    plt.tight_layout()
     if fileName != None:
         plt.savefig(root + fileName[3:8] + 'Positions_hist_' + '.png', dpi=300)
     else:
@@ -254,7 +256,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
 
         bins = np.arange(min_range, max_range+bin_width, bin_width)
 
-    plt.figure(figsize=(10,10))
+    plt.figure(figsize=(6, 6))
     plt.clf()
     n_x, bins_x, p = plt.hist(ratio_x, histtype='step', bins=bins, color='blue',
                              label='X', density=True, linewidth=2)
@@ -293,6 +295,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     if xlim != None:
         plt.xlim([xlim[0], xlim[1]])
     plt.legend()
+    plt.tight_layout()
     if fileName != None:
         plt.savefig(root + fileName[3:8] + 'Positions_err_ratio_hist_' + '.png', dpi=300)
     else:
@@ -325,12 +328,13 @@ def mag_diff_hist(ref_mat, starlist_mat, bins=25, fileName=None, root='./'):
     bad2 = np.where(bad == True)
     diff_m = np.delete(diff_m, bad2)
 
-    plt.figure(figsize=(10,10))
+    plt.figure(figsize=(6, 6))
     plt.clf()
     plt.hist(diff_m, bins=bins)
     plt.xlabel('Reference Mag - TransStarlist Mag')
     plt.ylabel('N stars')
     plt.title('Magnitude Difference for matched stars')
+    plt.tight_layout()
     if fileName != None:
         plt.savefig(root + fileName[3:8] + 'Magnitude_hist_' + '.png', dpi=300)
     else:
@@ -417,7 +421,7 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
 
     s = len(xpos)
 
-    plt.figure(figsize=(10,10))
+    plt.figure(figsize=(6, 6))
     plt.clf()
     q = plt.quiver(xpos, ypos, diff_x, diff_y, scale=qscale)
     fmt = '{0} ref units'.format(keyLength)
@@ -432,19 +436,22 @@ def pos_diff_quiver(ref_mat, starlist_mat, qscale=10, keyLength=0.2, xlim=None, 
         plt.axis([xlim[0], ylim[1], ylim[0], ylim[1]])
     if sigma:
         if fileName != None:
-            plt.title('(Reference - Transformed Starlist positions) / sigma')
-            plt.savefig(root + fileName[3:8] + 'Positions_quiver_sigma_' + '.png', dpi=300)
+            title = '(Reference - Transformed Starlist positions) / sigma'
+            save_path = root + fileName[3:8] + 'Positions_quiver_sigma.png'
         else:
-            plt.title('(Reference - Transformed Starlist positions) / sigma')
-            plt.savefig(root + 'Positions_quiver_sigma.png', dpi=300)
+            title = '(Reference - Transformed Starlist positions) / sigma'
+            save_path = root + 'Positions_quiver_sigma.png'
     else:
         if fileName != None:
-            plt.title('Reference - Transformed Starlist positions')
-            plt.savefig(root + fileName[3:8] + 'Positions_quiver_' + '.png', dpi=300)
+            title = 'Reference - Transformed Starlist positions'
+            save_path = root + fileName[3:8] + 'Positions_quiver.png'
         else:
-            plt.title('Reference - Transformed Starlist positions')
-            plt.savefig(root + 'Positions_quiver.png', dpi=300)
+            title = 'Reference - Transformed Starlist positions'
+            save_path = root + 'Positions_quiver.png'
 
+    plt.title(title)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
     plt.close()
     return
 
@@ -478,7 +485,7 @@ def vpd(ref, starlist_trans, vxlim, vylim):
     trans_vx = starlist_trans['vx']
     trans_vy = starlist_trans['vy']
 
-    plt.figure(figsize=(10,10))
+    plt.figure(figsize=(6, 6))
     plt.clf()
     plt.plot(trans_vx, trans_vy, 'k.', ms=8, label='Transformed', alpha=0.4)
     plt.plot(ref_vx, ref_vy, 'r.', ms=8, label='Reference', alpha=0.4)
@@ -488,7 +495,9 @@ def vpd(ref, starlist_trans, vxlim, vylim):
         plt.axis([vxlim[0], vylim[1], vylim[0], vylim[1]])
     plt.title('Reference and Transformed Proper Motions')
     plt.legend()
+    plt.tight_layout()
     plt.savefig('Transformed_velocities.png', dpi=300)
+    plt.close()
 
     return
 
@@ -544,7 +553,7 @@ def vel_diff_err_hist(ref_mat, starlist_mat, nbins=25, bin_width=None, vxlim=Non
     sigma = 1
     x = np.arange(-6, 6, 0.1)
 
-    plt.figure(figsize=(20,10))
+    plt.figure(figsize=(12, 6))
     plt.subplot(121)
     plt.subplots_adjust(left=0.1)
     plt.hist(ratio_vx, bins=xbins, histtype='step', color='black', density=True,
@@ -612,7 +621,7 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
         yerr = np.hypot(ref_mat['vy_err'], starlist_trans_mat['vy_err'])
 
     # Plotting
-    plt.figure(figsize=(10,10))
+    plt.figure(figsize=(6, 6))
     plt.clf()
     plt.errorbar(diff_x, diff_y, xerr=xerr, yerr=yerr, fmt='k.', ms=8, alpha=0.5)
     if pscale != None:
@@ -622,13 +631,15 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
         plt.xlabel('Reference_vx - Transformed_vx (reference coords)')
         plt.ylabel('Reference_vy - Transformed_vy (reference coords)')
     plt.title('Proper Motion Residuals')
+    plt.tight_layout()
     plt.savefig('resid_vpd.png', dpi=300)
+    plt.close()
 
     return
 
 
 def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
-             poly='polyfit_d/fit', points='points_d/', radial=False, NcolMax=3, figsize=(15,15)):
+             poly='polyfit_d/fit', points='points_d/', radial=False, NcolMax=3, figsize=(6, 6)):
 
     print( 'Creating residuals plots for star(s):' )
     print( starNames )
@@ -771,7 +782,6 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
         maxErr = np.array([xerr, yerr]).max()
         resTicRng = [-1.1*maxErr, 1.1*maxErr]
 
-        from matplotlib.ticker import FormatStrFormatter
         fmtX = FormatStrFormatter('%5i')
         fmtY = FormatStrFormatter('%6.2f')
         fontsize1 = 10
@@ -914,7 +924,6 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
             maxErr = np.array([rerr, terr]).max()
             resTicRng = [-3*maxErr, 3*maxErr]
 
-            from matplotlib.ticker import FormatStrFormatter
             fmtX = FormatStrFormatter('%5i')
             fmtY = FormatStrFormatter('%6.2f')
 
@@ -1005,7 +1014,7 @@ def plotStar(starNames, rootDir='./', align='align/align_d_rms_1000_abs_t',
 ##################################################
 
 def plot_pm(tab):
-    plt.figure(figsize=(6,6))
+    plt.figure(figsize=(6, 6))
     plt.clf()
     plt.subplots_adjust(top=0.85)
     q = plt.quiver(tab['x0'].data, tab['y0'].data,
@@ -1031,7 +1040,7 @@ def plot_gaia(gaia):
 
     pmra = gaia['pmra']
     pmdec = gaia['pmdec']
-    plt.figure(figsize=(6,6))
+    plt.figure(figsize=(6, 6))
     plt.clf()
     plt.subplots_adjust(top=0.85)
     q = plt.quiver(d_ra_tan.data, d_de_tan.data,
@@ -1045,8 +1054,6 @@ def plot_gaia(gaia):
     fmt = r'[$\alpha$, $\delta$] = [{0:8.3f}$^\circ$, {1:8.3f}$^\circ$]'
     plt.title(fmt.format(ra_tan_mean, de_tan_mean))
     plt.gca().invert_xaxis()
-
-
     return
 
 def plot_pm_error(tab, save_path=None):
@@ -1430,8 +1437,7 @@ def plot_mag_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx,
     xgood = np.cos(np.radians(agood)) * rgood
     xref = np.cos(np.radians(aref)) * rref
 
-    fig, ax = plt.subplots(7, 1, figsize=(6,18), sharex=True, num=103)
-#    plt.clf()
+    fig, ax = plt.subplots(7, 1, figsize=(6, 18), sharex=True, num=103)
     plt.subplots_adjust(hspace=0.01)
     ax[0].scatter(mgood, agood, color='black', alpha=0.3, s=2)
     ax[0].scatter(mref, aref, color='red', alpha=0.3, s=2)
@@ -1481,8 +1487,10 @@ def plot_mag_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx,
     ax[6].axhline(y=0)
 
     ax[0].set_title(title)
+    plt.tight_layout()
     plt.show()
     plt.pause(1)
+    return
 
 
 def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title, da=0, xorig=None, yorig=None, cte_fit=None, mlim=15):
@@ -1527,7 +1535,7 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
     xgood = np.cos(np.radians(agood)) * rgood
     xref = np.cos(np.radians(aref)) * rref
 
-    fig, ax = plt.subplots(7, 1, figsize=(6,18), sharex=True, num=103)
+    fig, ax = plt.subplots(7, 1, figsize=(6, 18), sharex=True, num=103)
 #    plt.clf()
     plt.subplots_adjust(hspace=0.01)
     ax[0].scatter(yorig[good_idx], agood, color='black', alpha=0.3, s=2)
@@ -1580,6 +1588,7 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
     ax[6].axhline(y=0)
 
     ax[0].set_title(title)
+    plt.tight_layout()
     plt.show()
     plt.pause(1)
 
@@ -1617,7 +1626,7 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
         aref_new = angle_from_xy(xref, yref_new) % 360
         rref_new = np.hypot(xref, yref_new)
 
-        fig, ax = plt.subplots(4, 2, figsize=(12,12), sharex=True, sharey='row', num=105)
+        fig, ax = plt.subplots(4, 2, figsize=(12, 12), sharex=True, sharey='row', num=105)
         plt.subplots_adjust(hspace=0.01, wspace=0.01)
         ax[0,0].scatter(mgood, ygood, color='black', alpha=0.3, s=2)
         ax[0,0].scatter(mref, yref, color='red', alpha=0.3, s=2)
@@ -1669,6 +1678,9 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
         ax[3,1].scatter(mgood, agood_new, color='black', alpha=0.3, s=2)
         ax[3,1].scatter(mref, aref_new, color='red', alpha=0.3, s=2)
         ax[3,1].set_xlabel('mag')
+
+        plt.tight_layout()
+        plt.show()
 
     if cte_fit=='power_line':
         idx1 = np.where((mgood > 15) & (mgood < 18.5))[0]
@@ -1734,7 +1746,7 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
         aref_new2 = angle_from_xy(xref2, yref_new2) % 360
         rref_new2 = np.hypot(xref2, yref_new2)
 
-        fig, ax = plt.subplots(4, 2, figsize=(12,12), sharex=True, sharey='row', num=105)
+        fig, ax = plt.subplots(4, 2, figsize=(12, 12), sharex=True, sharey='row', num=105)
         plt.subplots_adjust(hspace=0.01, wspace=0.01)
         ax[0,0].scatter(mgood, ygood, color='black', alpha=0.3, s=2)
         ax[0,0].scatter(mref, yref, color='red', alpha=0.3, s=2)
@@ -1996,7 +2008,7 @@ def plot_quiver_residuals_magcolor(x_t, y_t, x_ref, y_ref, mag, good_idx, ref_id
     plt.tight_layout()
     plt.show()
 
-    fig, ax = plt.subplots(1, 1, figsize=(6,6))
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
     q = ax.quiver(x_ref[good_idx][ref_idx], y_ref[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
                color=cm(norm(mag[good_idx][ref_idx])), scale=quiv_scale, angles='xy', alpha=0.8)
     ax.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
@@ -2160,13 +2172,13 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     agood = agood % 360
     aref = aref % 360
 
-    plt.figure(figsize=(14,6))
-    plt.clf()
-    ax1 = plt.subplot(1, 2, 1)
-    ax2 = plt.subplot(1, 2, 2)
-    plt.subplots_adjust(wspace=0.3)
+    # plt.figure(figsize=(12,6))
+    # plt.clf()
+    # ax1 = plt.subplot(1, 2, 1)
+    # ax2 = plt.subplot(1, 2, 2)
+    # plt.subplots_adjust(wspace=0.3)
 
-    plt.clf()
+    # plt.clf()
     fig, ax = plt.subplots(1, 2, figsize=(12,6), sharey=True)
 #    plt.clf()
     plt.subplots_adjust(wspace=0.01)
@@ -2183,6 +2195,7 @@ def plot_quiver_residuals_orig_angle_xy(x_t, y_t, x_ref, y_ref, good_idx, ref_id
     if plotlim is not None:
         plt.xlim(-1 * plotlim, plotlim)
         plt.ylim(-1 * plotlim, plotlim)
+    plt.tight_layout()
     plt.show()
     plt.pause(1)
 
@@ -2247,7 +2260,7 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
 
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(6, 4))
     plt.clf()
     plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
     plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
@@ -2256,6 +2269,8 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(round(Ndof,2)))
     plt.xlim(0, xlim)
     plt.legend()
+    plt.tight_layout()
+    plt.show()
 
     chi2red_x = x / Ndof
     chi2red_y = y / Ndof
@@ -2326,7 +2341,7 @@ def plot_chi2_reduced_dist(tab, Ndetect, xlim=8, n_bins=50, boot_err=False):
     print("Reduced chi2 for Ndetect="+str(Ndetect))
     chi2_bins = np.linspace(0, xlim, n_bins)
 
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(6, 4))
     plt.clf()
     plt.hist(x[idx]/Ndof[idx], bins=chi2_bins, histtype='step', label='X', density=True)
     plt.hist(y[idx]/Ndof[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
@@ -2335,6 +2350,8 @@ def plot_chi2_reduced_dist(tab, Ndetect, xlim=8, n_bins=50, boot_err=False):
     plt.title('Reduced chi2, $N_{epoch} = $' + str(Ndetect))
     plt.xlim(0, xlim)
     plt.legend()
+    plt.tight_layout()
+    plt.show()
 
     chi2red_x = x / Ndof
     chi2red_y = y / Ndof
@@ -2413,7 +2430,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
     print(x[idx])
     #pdb.set_trace()
 
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(6, 4))
     plt.clf()
     plt.hist(x[idx], bins=chi2_bins, histtype='stepfilled', label='RA', density=True, color='skyblue', alpha=0.8, edgecolor='k')
     plt.hist(y[idx], bins=chi2_bins, histtype='stepfilled', label='DEC', density=True, color='orange', alpha=0.8, edgecolor='k')
@@ -2424,10 +2441,10 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
     plt.xlim(0, xlim)
     plt.ylabel(r'PDF', fontsize=28)
     plt.legend(fontsize=20)
-
     plt.tick_params(labelsize=20, direction='in', right=True, top=True)
-
+    plt.tight_layout()
     plt.savefig(str(filter)+'_chi2_dist.png', dpi=300)
+    plt.close()
 
     chi2red_x = x / Ndof
     chi2red_y = y / Ndof
@@ -2702,7 +2719,7 @@ def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30, boot_err=False):
     chi2_maxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
 
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(6, 4))
     plt.clf()
     plt.hist(chi2_m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6,
@@ -2710,6 +2727,8 @@ def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30, boot_err=False):
     plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.legend()
+    plt.tight_layout()
+    plt.show()
 
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
     fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
@@ -2751,7 +2770,7 @@ def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, fil
     chi2_maxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
 
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(6, 4))
     plt.clf()
     plt.hist(chi2_m[idx], bins=np.arange(xlim*10), label='mag', histtype='stepfilled', density=True, color='green', alpha=0.7, edgecolor='k')
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6,
@@ -2761,10 +2780,10 @@ def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, fil
     plt.xlabel(r'$\chi^{2}$', fontsize=28)
     plt.ylabel(r'PDF', fontsize=28)
     plt.legend(fontsize=20)
-
     plt.tick_params(labelsize=20, direction='in', right=True, top=True)
-
+    plt.tight_layout()
     plt.savefig(str(filter)+'_chi2_dist_mag.png', dpi=300)
+    plt.close()
 
     print('Mean reduced chi^2: (Ndetect = {0:d} of {1:d})'.format(len(idx), len(tab)))
     fmt = '   {0:s} = {1:.1f} for N_detect and {2:.1f} for all'
@@ -2919,7 +2938,6 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
         resTicRng = [-1.1*maxErr, 1.1*maxErr]
         resTicRngM = [-1.1*maxErrM, 1.1*maxErrM]
 
-        from matplotlib.ticker import FormatStrFormatter
         fmtX = FormatStrFormatter('%5i')
         fmtY = FormatStrFormatter('%6.3f')
         fmtM = FormatStrFormatter('%5.2f')
@@ -3346,7 +3364,6 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
                 resTicRng = [-1.1*maxErr, 1.1*maxErr]
             resTicRngM = [-1.1*maxErrM, 1.1*maxErrM]
 
-            from matplotlib.ticker import FormatStrFormatter
             fmtX = FormatStrFormatter('%5i')
             fmtY = FormatStrFormatter('%6.3f')
             fmtM = FormatStrFormatter('%5.2f')
@@ -3636,13 +3653,15 @@ def plot_errors_vs_r_m(star_tab, vmax_perr=0.75, vmax_pmerr=0.75):
     plt.scatter(star_tab['m0'], r, c=p_err, s=8, vmin=0, vmax=vmax_perr)
     plt.colorbar(label='Pos Err (mas)')
     plt.xlabel('Mag')
-    plt.ylabel('Radius (")')
+    plt.ylabel('Radius (")')    
 
     plt.subplot(1, 2, 2)
     plt.scatter(star_tab['m0'], r, c=pm_err, s=8, vmin=0, vmax=vmax_pmerr)
     plt.colorbar(label='PM Err (mas/yr)')
     plt.xlabel('Mag')
     plt.ylabel('Radius (")')
+    plt.tight_layout()
+    plt.show()
 
     return
 

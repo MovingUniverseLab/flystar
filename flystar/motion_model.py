@@ -254,10 +254,10 @@ class MotionModel(ABC):
         if reduced:
             if len(t) == self.n_params:
                 return np.inf, np.inf
-            if not parallax:
-                degree_of_freedom = len(x) - self.n_params
-            else:
+            if parallax:
                 degree_of_freedom = 2*len(x) - len(self.fit_param_names)
+            else:
+                degree_of_freedom = len(x) - self.n_params
             chi2x, chi2y = chi2x / degree_of_freedom, chi2y / degree_of_freedom
         return chi2x, chi2y
 
