@@ -490,9 +490,10 @@ class StarTable(Table):
 
             # Calculate the weighted mean and uncertainty
             avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
-            # std = np.ma.sqrt(1 / np.ma.sum(wgt_2d, axis=1)) # Error propagation for weighted mean
+            std = np.ma.sqrt(1 / np.ma.sum(wgt_2d, axis=1)) # Error propagation for weighted mean
+
             # Use standard deviation of the weighted residuals as the uncertainty
-            std = np.ma.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
+            # std = np.ma.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'weighted'
@@ -500,19 +501,18 @@ class StarTable(Table):
             wgt_2d = None
             # Calculate the weighted mean and uncertainty
             avg = np.ma.mean(val_2d_clip, axis=1)
-            # std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(list_indices)) # Standard error of the mean
+            std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(list_indices)) # Standard error of the mean
             # Use standard deviation of the residuals as the uncertainty
-            std = np.ma.std(val_2d_clip, axis=1)
+            # std = np.ma.std(val_2d_clip, axis=1)
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'not_weighted'
 
-        # FIXME: What does this part do?
-        # To Do: bring the previous uncertainties of stars that are detected
-        # in only one input frame.
-        if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
-            mask_for_singles = ((np.isfinite(val_2d_clip)).sum(axis=1)==1)
-            std[mask_for_singles]=np.nanmean(err_2d[mask_for_singles], axis=1)
+        std = np.ma.masked_values(std, 0.)  # Mask out any zero uncertainties (i.e., 1 or less valid points)
+        # # Mask out stars with only 1 valid measurement (i.e., std = 0).
+        # if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
+        #     mask_for_singles = ((np.isfinite(val_2d_clip)).sum(axis=1)==1)
+        #     std[mask_for_singles]=np.nanmean(err_2d[mask_for_singles], axis=1)
 
         # Save off our new AVG and STD into new columns with shape (N_stars).
         col_name_avg = col_name_in + '0'
