@@ -9,6 +9,7 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from multiprocessing import Pool
 from . import match, transforms, plots, motion_model
 from .starlists import StarList
 from .startables import StarTable
@@ -340,7 +341,7 @@ class MosaicSelfRef(object):
         return
 
 
-    def fit(self):
+    def fit(self, processes=1, chunksize=None):
         """
         Using the current parameter settings, match and transform all the lists
         to a reference position. Note in the first pass, the reference position
@@ -360,6 +361,12 @@ class MosaicSelfRef(object):
         m0e
         additional motion_model columns
 
+        Parameters
+        ----------
+        processes : int, optional
+            Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
+        chunksize : int, optional
+            Chunk size for multiprocessing, by default None (auto)
         """
         # Setup save_path:
         if self.save_path:
@@ -435,9 +442,16 @@ class MosaicSelfRef(object):
 
             # ALL the action is in here. Match and transform the stack of starlists.
             # This updates trans objects and the ref_table.
-            self.match_and_transform(self.mag_lim[self.ref_index],
-                                     self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
-                                     self.trans_args[nn], nn)
+            self.match_and_transform(
+                self.mag_lim[self.ref_index],
+                self.dr_tol[nn],
+                self.dm_tol[nn],
+                self.outlier_tol[nn],
+                self.trans_args[nn],
+                nn,
+                processes=processes,
+                chunksize=chunksize
+            )
 
             # Clean up the reference table
             # Find where stars are detected.
@@ -468,7 +482,7 @@ class MosaicSelfRef(object):
 
         self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
         # Hard-coded not to keep ref values for MosaicSelfRef
-        self.update_ref_table_aggregates()
+        self.update_ref_table_aggregates(processes=processes, chunksize=chunksize)
 
         ##########
         # Clean up output table.
@@ -583,7 +597,7 @@ class MosaicSelfRef(object):
             print('===================================')
         return
 
-    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None):
+    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None, processes=1, chunksize=None):
         """
         Given some reference list of positions, loop through all the starlists
         transform and match them.
@@ -606,10 +620,10 @@ class MosaicSelfRef(object):
             star_list = self.star_lists[ii]
 
             if 't' in star_list.meta:
-                ref_list = self.get_ref_list_from_table(star_list.meta['t'])
+                ref_list = self.get_ref_list_from_table(star_list.meta['t'], processes=processes, chunksize=chunksize)
             elif 't' in star_list.colnames:
                 assert np.unique(star_list['t']).size == 1, f"StarList at index {ii} has multiple unique times in the 't' column. Cannot determine reference list for matching."
-                ref_list = self.get_ref_list_from_table(star_list['t'][0])
+                ref_list = self.get_ref_list_from_table(star_list['t'][0], processes=processes, chunksize=chunksize)
             else:
                 raise KeyError(f"StarList at index {ii} does not have a 't' column or meta['t'] entry. Cannot determine reference list for matching.")
 
@@ -849,7 +863,7 @@ class MosaicSelfRef(object):
                 keep_orig = ~np.isfinite(self.ref_table['x'][:,ii])
             else:
                 keep_orig=None
-            self.update_ref_table_aggregates(keep_orig=keep_orig)
+            self.update_ref_table_aggregates(keep_orig=keep_orig, processes=processes, chunksize=chunksize)
 
             # Update ref list polygon
             if self.starlist_vertices is not None:
@@ -1162,7 +1176,7 @@ class MosaicSelfRef(object):
 
         return
 
-    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0, seed=None):
+    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0, seed=None, processes=1, chunksize=None):
         """        Average positions or fit velocities.
         Average magnitudes.
         Calculate bootstrap errors if desired.
@@ -1228,6 +1242,8 @@ class MosaicSelfRef(object):
                 select_stars=fit_star_idxs,
                 bootstrap=n_boot,
                 seed=seed,
+                processes=processes,
+                chunksize=chunksize,
                 verbose=self.verbose
             )
             # Combine (transformed) magnitudes
@@ -1240,7 +1256,7 @@ class MosaicSelfRef(object):
         # if (keep_orig is not None) and (sum(keep_orig) > 0):
         # Determine motion_model_used for keep_orig stars
         # Filter possible motion models based on available columns
-        motion_model_used, n_params = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
+        motion_model_used, n_params = determine_motion_models(self.ref_table, self.motion_models, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
 
         # Assign the determined motion models
         self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
@@ -1340,7 +1356,7 @@ class MosaicSelfRef(object):
 
         return
 
-    def get_ref_list_from_table(self, epoch):
+    def get_ref_list_from_table(self, epoch, processes=1, chunksize=None):
         """
         Convert the averaged quantites in self.ref_table into a StarList object
         appropriate for the specified epoch.
@@ -1360,7 +1376,7 @@ class MosaicSelfRef(object):
         # Calculate x, y, xe, ye
 
         if 'motion_model_used' not in self.ref_table.colnames:
-            motion_model_used, n_params = determine_motion_model(self.ref_table, self.motion_models, self.fixed_params_dict)
+            motion_model_used, n_params = determine_motion_models(self.ref_table, self.motion_models, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
             self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
             self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
@@ -1411,7 +1427,7 @@ class MosaicSelfRef(object):
 
         return
 
-    def calc_bootstrap_errors(self, n_boot=100, seed=None, boot_epochs_min=-1, calc_vel_in_bootstrap=True, update_errors=False, verbose=True):
+    def calc_bootstrap_errors(self, n_boot=100, seed=None, boot_epochs_min=-1, calc_vel_in_bootstrap=True, update_errors=False, processes=1, chunksize=None, verbose=True):
         """
         Function to calculate bootstrap errors for the transformations as well
         as the proper motions. For each iteration, this will:
@@ -1432,33 +1448,39 @@ class MosaicSelfRef(object):
 
         Parameters:
         ----------
-        mosaic_object: MosaicToRef object
+        mosaic_object : MosaicToRef object
             MosaicToRef object after the complete match_and_transform process
 
-       n_boot: int, must be greater than 0
+        n_boot : int, optional
             Number of bootstrap iterations when calculating transformations and the proper motion.
-            PM bootstrap is only done for final proper motion
-            calculation (e.g., not for each iteration of the starlist for matching)
+            PM bootstrap is only done for final proper motion calculation
+            (e.g., not for each iteration of the starlist for matching), by default 100
 
-        seed: int, optional
+        seed : int, optional
             Random seed for reproducible bootstrap results.
 
-        boot_epochs_min: int or -1
+        boot_epochs_min : int, optional
             In order to be included in bootstrap analysis, non-reference stars must be detected in
             at least boot_epochs_min epochs. If boot_epochs_min = -1, then all stars will
             be included in the analysis, regardless of the number of epochs detected.
-            For stars that fail boot_epochs_min criteria, np.nan is used
+            For stars that fail boot_epochs_min criteria, np.nan is used, by default -1
 
-        calc_vel_in_bootstrap: boolean
+        calc_vel_in_bootstrap : boolean, optional
            If true, do bootstrap sample w/ replacement over the epochs and calculate
            stellar proper motions, as well as the bootstrap over reference stars
            to calculate positional alignment errors. If false, only
-           calculate position alignment errors.
+           calculate position alignment errors, by default True
 
-        update_errors: boolean
+        update_errors : boolean
             If True, save the starlist errors as xe_list, bootstrap errors as xe_boot, and their quad sum as xe (and likewise for ye and me). If False (default), leave the starlist errors in place as xe and bootstrap errors as xe_boot.
 
-        verbose: boolean
+        processes : int, optional
+            Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
+
+        chunksize : int, optional
+            Chunk size for multiprocessing, by default None (auto)
+
+        verbose : boolean, optional
             Print verbose information or not, by default True
 
         Output:
@@ -1551,7 +1573,7 @@ class MosaicSelfRef(object):
 
                 # Get reference star positions in particular epoch from ref_list.
                 t_epoch = t_arr[jj]
-                ref_orig = self.get_ref_list_from_table(t_epoch)[idx_good]
+                ref_orig = self.get_ref_list_from_table(t_epoch, processes=processes, chunksize=chunksize)[idx_good]
 
                 ## Get idx of reference stars in bootstrap sample in the ref_orig.
                 ## Then, use these to build reference starlist for the alignment
@@ -1679,6 +1701,8 @@ class MosaicSelfRef(object):
                     weighting=self.vel_weighting,
                     use_scipy=self.use_scipy,
                     absolute_sigma=self.absolute_sigma,
+                    processes=processes,
+                    chunksize=chunksize,
                     verbose=False
                 )
 
@@ -2101,7 +2125,7 @@ class MosaicToRef(MosaicSelfRef):
         return
 
 
-    def fit(self):
+    def fit(self, processes=1, chunksize=None):
         """
         Using the current parameter settings, match and transform all the lists
         to a reference position. Note in the first pass, the reference position
@@ -2121,6 +2145,12 @@ class MosaicToRef(MosaicSelfRef):
         m0e
         addl. motion_model parameters
 
+        Parameters
+        ----------
+        processes : int, optional
+            Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
+        chunksize : int, optional
+            Chunk size for multiprocessing, by default None (auto)
         """
         # Create a log file of the parameters used in the fit.
         # Setup save_path:
@@ -2224,9 +2254,16 @@ class MosaicToRef(MosaicSelfRef):
 
             # ALL the action is in here. Match and transform the stack of starlists.
             # This updates trans objects and the ref_table.
-            self.match_and_transform(self.ref_mag_lim,
-                                     self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
-                                     self.trans_args[nn], nn)
+            self.match_and_transform(
+                self.ref_mag_lim,
+                self.dr_tol[nn], 
+                self.dm_tol[nn], 
+                self.outlier_tol[nn],
+                self.trans_args[nn], 
+                nn, 
+                processes=processes, 
+                chunksize=chunksize
+            )
 
             # Clean up the reference table
             # Find where stars are detected.
@@ -2259,7 +2296,7 @@ class MosaicToRef(MosaicSelfRef):
             keep_orig=None
         else:
             keep_orig = self.ref_table['ref_orig']
-        self.update_ref_table_aggregates(keep_orig=keep_orig)
+        self.update_ref_table_aggregates(keep_orig=keep_orig, processes=processes, chunksize=chunksize)
 
         ##########
         # Clean up output table.
@@ -2454,7 +2491,17 @@ def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, re
     #     y = startable['y']
     # return x, y
 
-def determine_motion_model(startable, motion_models=None, fixed_params_dict=None):
+def determine_motion_model(motion_models_possible, k, fixed_params_dict):
+    """Helper function for multiprocessing determine_motion_models for each star
+    """
+    for mm, req_col_in_table, req_cols, req_col_in_dict in motion_models_possible[::-1]:
+        # If required column in table/fixed_params dict is numeric, check if all values are finite.
+        # If so, use mm as motion model and stop further searching
+        if all(np.isfinite(req_cols[col][k]) for col in req_col_in_table if np.issubdtype(req_cols[col].dtype, np.number)) \
+        and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
+            return mm.name, mm.n_params
+
+def determine_motion_models(startable, motion_models=None, fixed_params_dict=None, processes=1, chunksize=None, verbose=True):
     """Determine motion model used in star table based on the finite model parameter columns
 
     Parameters
@@ -2466,6 +2513,8 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
         If None, all available motion models will be considered, by default None
     fixed_params_dict : dict, optional
         Dictionary of fixed parameters, by default None
+    verbose : bool, optional
+        Show progress bar or not
 
     Returns
     -------
@@ -2489,21 +2538,40 @@ def determine_motion_model(startable, motion_models=None, fixed_params_dict=None
         required_columns = mm.fit_param_names + mm.fixed_param_names
         req_col_in_table = [col for col in required_columns if (col in startable.colnames)]
         req_col_in_dict = [col for col in required_columns if (col in fixed_params_dict.keys())]
+        req_cols = startable[req_col_in_table]
         if all((col in startable.colnames) or (col in fixed_params_dict.keys()) for col in required_columns):
-            motion_models_possible.append((mm, req_col_in_table, req_col_in_dict))
+            motion_models_possible.append((mm, req_col_in_table, req_cols, req_col_in_dict))
 
-    # Check if values are finite for required columns in possible motion models
-    motion_model_used = []
-    n_params = []
+    if processes == 1:
+        motion_model_used = []
+        n_params = []
+        for k in tqdm(range(len(startable)), desc='Determining motion models', disable=not verbose):
+            for mm, req_col_in_table, req_cols, req_col_in_dict in motion_models_possible[::-1]:
+                # If required column in table/fixed_params dict is numeric, check if all values are finite.
+                # If so, use mm as motion model and stop further searching
+                if all(np.isfinite(req_cols[col][k]) for col in req_col_in_table if np.issubdtype(req_cols[col].dtype, np.number)) \
+                and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
+                    motion_model_used.append(mm.name)
+                    n_params.append(mm.n_params)
+                    break
+    else:
+        arguments = [(
+            motion_models_possible, k, fixed_params_dict
+        ) for k in range(len(startable))]
 
-    for k in range(len(startable)):
-        for mm, req_col_in_table, req_col_in_dict in motion_models_possible[::-1]:
-            # If requested column in table/fixed_params dict is numeric, check if values are finite.
-            if all(np.isfinite(startable[col][k]) for col in req_col_in_table if np.issubdtype(startable[col].dtype, np.number)) \
-            and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
-                motion_model_used.append(mm.name)
-                n_params.append(mm.n_params)
-                break
+        with Pool(processes) as pool:
+            results = list(pool.starmap(
+                determine_motion_model,
+                tqdm(
+                    arguments,
+                    desc=f'Determining motion models with {processes} processes',
+                    disable=not verbose
+                ),
+                chunksize=chunksize
+            ))
+            motion_model_used = [result[0] for result in results]
+            n_params = [result[1] for result in results]
+        
     return motion_model_used, n_params
 
 

@@ -926,6 +926,7 @@ class StarTable(Table):
 
             # Different (or column does not yet exist)
             if len(np.unique(coldata)) == 1:
+                # If param is the same for all stars, save it as meta
                 self.meta[param] = coldata[0]
             else:
                 self.add_column(
@@ -1002,7 +1003,7 @@ class StarTable(Table):
                             fit_motion_model,
                             tqdm(
                                 arguments,
-                                desc=f"Fitting motion model {unique_motion_model}",
+                                desc=f"Fitting motion model {unique_motion_model} with {processes} processes",
                                 disable=not verbose
                             ), 
                             chunksize=chunksize
@@ -1073,7 +1074,7 @@ class StarTable(Table):
             Arrays of predicted x, y positions and their uncertainties xe, ye, with shape (N_stars, N_times) or (N_stars,) if N_times=1, or (N_times,) if N_stars=1, or scalar.
         """
         assert 'motion_model_used' in self.colnames, \
-            "infer_positions: 'motion_model_used' column not found in the table. Please run fit_motion_models() first."
+            "infer_positions: 'motion_model_used' column not found in the table. Please run fit_motion_models first."
 
         N_stars = len(self)
         times = np.atleast_1d(times)
