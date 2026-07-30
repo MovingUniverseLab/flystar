@@ -437,6 +437,66 @@ def test_fit_motion_model_2epoch():
     return
 
 
+def test_multiprocessing():
+    rng = np.random.default_rng(42)
+    N = 10000
+    x = rng.random((N, 5))
+    y = rng.random((N, 5))
+    m = rng.random((N, 5))
+    xe = rng.random((N, 5))
+    ye = rng.random((N, 5))
+    t = np.arange(5) + 2026
+    fixed_params_dict = [None for _ in range(N)]
+    weighting = 'var'
+    fill_value = np.nan
+    verbose = True
+
+    st1 = StarTable(
+        name=np.arange(N),
+        x=x,
+        y=y,
+        m=m,
+        xe=xe,
+        ye=ye
+    )
+    st1.meta['list_times'] = t
+
+    st2 = StarTable(
+        name=np.arange(N),
+        x=x,
+        y=y,
+        m=m,
+        xe=xe,
+        ye=ye
+    )
+    st2.meta['list_times'] = t
+
+    st1.fit_motion_models(
+        motion_models=['Linear'],
+        weighting=weighting,
+        use_scipy=True,
+        absolute_sigma=True,
+        bootstrap=0,
+        fill_value=fill_value,
+        verbose=verbose
+    )
+
+    st2.fit_motion_models(
+        motion_models=['Linear'],
+        weighting=weighting,
+        use_scipy=True,
+        absolute_sigma=True,
+        bootstrap=0,
+        fill_value=fill_value,
+        processes=10,
+        verbose=verbose
+    )
+
+    for key in ['x0', 'x0_err', 'y0', 'y0_err', 'vx', 'vx_err', 'vy', 'vy_err', 'chi2_x', 'chi2_y', 'n_params', 't0']:
+        np.testing.assert_array_equal(st1[key], st2[key], err_msg=f"Mismatch in {key} between single and multi-processing runs.")
+    return
+
+
 def make_star_table():
     # User input
     cat_file = f'{test_data_path}/test_catalog.fits'
@@ -557,7 +617,3 @@ def make_tiny_star_table():
                           xe=xe_in, ye=ye_in, me=me_in)
 
     return startable
-
-
-if __name__ == "__main__":
-    test_fit_motion_models()

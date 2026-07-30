@@ -147,8 +147,16 @@ class MotionModel(ABC):
         params, param_errs(, chi2_x, chi2_y)
             Parameters, uncertainties, and chi squares if return_chi2 is True. The corresponding parameter names are in self.fit_param_names.
         """
-        assert np.ndim(t) == np.ndim(x) == np.ndim(y) == np.ndim(xe) == np.ndim(ye) == 1, "Input arrays must be 1D! Motion model can only fit individual stars"
-        assert len(t) == len(x) == len(y) == len(xe) == len(ye), "Input arrays must have the same length!"
+        assert np.ndim(t) == 1, f"Input time array must be 1D! Got shape {np.shape(t)}"
+        assert np.ndim(x) == 1, f"Input x array must be 1D! Got shape {np.shape(x)}"
+        assert np.ndim(y) == 1, f"Input y array must be 1D! Got shape {np.shape(y)}"
+        assert np.ndim(xe) == 1, f"Input xe array must be 1D! Got shape {np.shape(xe)}"
+        assert np.ndim(ye) == 1, f"Input ye array must be 1D! Got shape {np.shape(ye)}"
+
+        assert len(t) == len(x), f'Input x must have the same length as t! Got len(t)={len(t)}, len(x)={len(x)}'
+        assert len(t) == len(y), f'Input y must have the same length as t! Got len(t)={len(t)}, len(y)={len(y)}'
+        assert len(t) == len(xe), f'Input xe must have the same length as t! Got len(t)={len(t)}, len(xe)={len(xe)}'
+        assert len(t) == len(ye), f'Input ye must have the same length as t! Got len(t)={len(t)}, len(ye)={len(ye)}'
 
         if not verbose:
             warnings.filterwarnings("ignore", category=OptimizeWarning)

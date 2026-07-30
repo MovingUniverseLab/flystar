@@ -1,19 +1,22 @@
-from astropy.table import Table, Column, MaskedColumn, hstack
-from astropy.stats import sigma_clip
-from astropy.time import Time
-from scipy.optimize import curve_fit
-from tqdm import tqdm
-import numpy as np
-import warnings
-import collections
 import pdb
 import time
 import copy
-from flystar import motion_model
+import warnings
+import collections
+import numpy as np
 import pandas as pd
-from flystar.motion_model import Empty, Fixed, Linear
+
+from tqdm import tqdm
+from multiprocessing import Pool
+from astropy.time import Time
+from astropy.stats import sigma_clip
+from astropy.table import Table, Column, MaskedColumn, hstack
+from scipy.optimize import curve_fit
 from pandas.api.types import is_string_dtype
 from collections.abc import Iterable
+from . import motion_model
+from .motion_model import Empty, Fixed, Linear
+
 class StarTable(Table):
     def __init__(self, *args, ref_list=0, **kwargs):
         """
@@ -562,6 +565,8 @@ class StarTable(Table):
             mask_lists=None,
             fill_value=np.nan,
             art_star=False,
+            processes=1,
+            chunksize=None,
             verbose=True
     ):
         """Fit velocity for star table
@@ -605,6 +610,10 @@ class StarTable(Table):
             Fill value when there is not enough data points to fit, by default np.nan
         art_star : bool, optional
             Artifical star table or observed star table. If artificial stars, Use the output coordinates for fitting motion models (x[..., 1], y[..., 1])
+        processes : int, optional
+            Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
+        chunksize : int, optional
+            Chunk size for multiprocessing, by default None (auto)
         verbose : bool, optional
             Print verbose messages or not, by default True
 
@@ -967,30 +976,68 @@ class StarTable(Table):
             ye_stars = [np.array(ye_data[i][unmasked_idx[i]]) for i in unique_index] if with_xe_ye else [np.ones_like(y_star) for y_star in y_stars]
 
             # For each star
-            # Expensive for loop! Prepare everything beforehand to speed up.
             if len(unique_index) > 0:
-                for idx, i_star in enumerate(tqdm(unique_index, disable=not verbose, desc=f"Fitting motion model {unique_motion_model}")):
-                    # Fit the star
-                    params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
-                        t=t_stars[idx],
-                        x=x_stars[idx],
-                        y=y_stars[idx],
-                        xe=xe_stars[idx],
-                        ye=ye_stars[idx],
-                        fixed_params_dict=fixed_params_stars[i_star],
-                        weighting=weighting,
-                        use_scipy=use_scipy,
-                        absolute_sigma=absolute_sigma,
-                        fill_value=fill_value,
-                        return_chi2=True,
-                        bootstrap=bootstrap,
-                        seed=seed,
-                        verbose=verbose
-                    )
-                    params_array[idx] = params
-                    param_errs_array[idx] = param_errs
-                    chi2_x_array[idx] = chi2_x
-                    chi2_y_array[idx] = chi2_y
+                if processes > 1:
+                    # Use multiprocessing to fit stars in parallel
+                    arguments = [(
+                        motion_model_instance,
+                        t_stars[idx],
+                        x_stars[idx],
+                        y_stars[idx],
+                        xe_stars[idx],
+                        ye_stars[idx],
+                        fixed_params_stars[i_star],
+                        weighting,
+                        use_scipy,
+                        absolute_sigma,
+                        fill_value,
+                        True,
+                        bootstrap,
+                        seed,
+                        verbose
+                    ) for idx, i_star in enumerate(unique_index)]
+
+                    with Pool(processes) as pool:
+                        results = list(pool.starmap(
+                            fit_motion_model,
+                            tqdm(
+                                arguments,
+                                desc=f"Fitting motion model {unique_motion_model}",
+                                disable=not verbose
+                            ), 
+                            chunksize=chunksize
+                        ))
+
+                    for idx, (params, param_errs, chi2_x, chi2_y) in enumerate(results):
+                        params_array[idx] = params
+                        param_errs_array[idx] = param_errs
+                        chi2_x_array[idx] = chi2_x
+                        chi2_y_array[idx] = chi2_y
+
+                else:
+                    # Expensive for loop! Prepare everything beforehand to speed up.
+                    for idx, i_star in enumerate(tqdm(unique_index, disable=not verbose, desc=f"Fitting motion model {unique_motion_model}")):
+                        # Fit the star
+                        params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
+                            t=t_stars[idx],
+                            x=x_stars[idx],
+                            y=y_stars[idx],
+                            xe=xe_stars[idx],
+                            ye=ye_stars[idx],
+                            fixed_params_dict=fixed_params_stars[i_star],
+                            weighting=weighting,
+                            use_scipy=use_scipy,
+                            absolute_sigma=absolute_sigma,
+                            fill_value=fill_value,
+                            return_chi2=True,
+                            bootstrap=bootstrap,
+                            seed=seed,
+                            verbose=verbose
+                        )
+                        params_array[idx] = params
+                        param_errs_array[idx] = param_errs
+                        chi2_x_array[idx] = chi2_x
+                        chi2_y_array[idx] = chi2_y
 
             # Store results back to the table
             for j, param_name in enumerate(param_names):
@@ -1273,3 +1320,35 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed
         table['x'] += delta_pi*pvec[:, 0, :] # Shape (N_stars, N_times)
         table['y'] += delta_pi*pvec[:, 1, :] # Shape (N_stars, N_times)
     return table
+
+
+# Helper function to fit motion model for each star for multiprocessing
+def fit_motion_model(
+    motion_model_instance,
+    t, x, y, xe, ye, 
+    fixed_params_dict, 
+    weighting,
+    use_scipy,
+    absolute_sigma,
+    fill_value,
+    return_chi2,
+    bootstrap,
+    seed,
+    verbose
+):
+    return motion_model_instance.fit(
+            t=t,
+            x=x,
+            y=y,
+            xe=xe,
+            ye=ye,
+            fixed_params_dict=fixed_params_dict,
+            weighting=weighting,
+            use_scipy=use_scipy,
+            absolute_sigma=absolute_sigma,
+            fill_value=fill_value,
+            return_chi2=return_chi2,
+            bootstrap=bootstrap,
+            seed=seed,
+            verbose=verbose
+        )
