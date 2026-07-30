@@ -43,11 +43,11 @@ class MosaicSelfRef(object):
             mag_lim=None,
             # Motion model parameters
             motion_models=['Empty', 'Fixed'],
-            # motion_model_for_new_star=None,
             fixed_params_dict=None,
             vel_weights='var',
             use_scipy=True,
             absolute_sigma=True,
+            scipy_method=None,
             # Advanced options
             iter_callback=None,
             save_path=None,
@@ -178,6 +178,9 @@ class MosaicSelfRef(object):
             If True, the velocity fit will use absolute errors in the data. If False, relative
             errors will be used, by default False.
 
+        scipy_method : str, optional
+            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
+
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state.
@@ -245,6 +248,7 @@ class MosaicSelfRef(object):
         self.calc_trans_inverse = calc_trans_inverse
         self.use_scipy = use_scipy
         self.absolute_sigma = absolute_sigma
+        self.scipy_method = scipy_method
         self.fixed_params_dict = fixed_params_dict
         self.init_guess_mode = init_guess_mode
         self.briteN = briteN
@@ -1239,6 +1243,7 @@ class MosaicSelfRef(object):
                 weighting=self.vel_weighting,
                 use_scipy=self.use_scipy,
                 absolute_sigma=self.absolute_sigma,
+                method=self.scipy_method,
                 select_stars=fit_star_idxs,
                 bootstrap=n_boot,
                 seed=seed,
@@ -1701,6 +1706,7 @@ class MosaicSelfRef(object):
                     weighting=self.vel_weighting,
                     use_scipy=self.use_scipy,
                     absolute_sigma=self.absolute_sigma,
+                    method=self.scipy_method,
                     processes=processes,
                     chunksize=chunksize,
                     verbose=False
@@ -1846,11 +1852,11 @@ class MosaicToRef(MosaicSelfRef):
         ref_mag_lim=None,
         # Motion model parameters
         motion_models=['Empty', 'Fixed'],
-        # motion_model_for_new_star=None,
         fixed_params_dict=None,
         vel_weights='var',
         use_scipy=True,
         absolute_sigma=True,
+        scipy_method=None,
         # Advanced options
         iter_callback=None,
         save_path=None,
@@ -2006,6 +2012,9 @@ class MosaicToRef(MosaicSelfRef):
 
         absolute_sigma : bool, optional
             If True, the velocity fit will use absolute errors in the data. If False, relative errors will be used, by default False.
+
+        scipy_method : str, optional
+            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
 
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)

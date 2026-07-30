@@ -558,6 +558,7 @@ class StarTable(Table):
             weighting='var',
             use_scipy=True,
             absolute_sigma=True,
+            method=None,
             select_stars=None,
             bootstrap=0,
             seed=None,
@@ -596,10 +597,12 @@ class StarTable(Table):
             Use scipy.optimize.curve_fit or algebraic solution (for Linear model only), by default False
         absolute_sigma : bool, optional
             Use absolute sigma or not, see scipy curve_fit for details, by default True
+        method : str, optional
+            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
         select_stars : list of int, optional
             Indices of stars to fit, by default None (fit all stars)
         bootstrap : int, optional
-            Number of bootstrap for uncertainty resampling, by default 0
+            Number of bootstrap samples for uncertainty resampling, by default 0
         seed : int, optional
             Random seed for bootstrap resampling, by default None
         mask_value : float, optional
@@ -1029,6 +1032,7 @@ class StarTable(Table):
                             weighting=weighting,
                             use_scipy=use_scipy,
                             absolute_sigma=absolute_sigma,
+                            method=method,
                             fill_value=fill_value,
                             return_chi2=True,
                             bootstrap=bootstrap,

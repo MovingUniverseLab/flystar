@@ -78,6 +78,7 @@ class MotionModel(ABC):
         params_guess=None,
         fill_value=np.nan,
         return_chi2=False,
+        method=None,
         verbose=True
     ):
         # Run a single fit (used both for overall fit + bootstrap iterations)
@@ -105,6 +106,7 @@ class MotionModel(ABC):
         return_chi2=False,
         bootstrap=0,
         seed=None,
+        method=None,
         verbose=True
     ):
         """Fit stellar motion parameters
@@ -139,6 +141,8 @@ class MotionModel(ABC):
             Bootstrapping uncertainties, by default 0
         seed : int, optional
             Seed for the random number generator, by default None
+        method : str, optional
+            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
         verbose : bool, optional
             Print warning messages, by default True
 
@@ -210,6 +214,7 @@ class MotionModel(ABC):
                     params_guess=params,
                     fill_value=fill_value,
                     return_chi2=False,
+                    method=method,
                     verbose=verbose
                 )
                 bb_params.append(params_bdx)
@@ -337,6 +342,7 @@ class Empty(MotionModel):
         params_guess=None,
         fill_value=np.nan,
         return_chi2=False,
+        method=None,
         verbose=True
     ):
         """Fit stellar motion parameters
@@ -367,6 +373,8 @@ class Empty(MotionModel):
             Initial guess for parameters, by default None
         return_chi2 : bool, optional
             Whether to return chi-squared value, by default False
+        method : str, optional
+            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
         verbose : bool, optional
             Whether to print verbose output, by default True
 
@@ -496,6 +504,7 @@ class Fixed(MotionModel):
         params_guess=None,
         fill_value=np.nan,
         return_chi2=False,
+        method=None,
         verbose=True
     ):
         if verbose and (not use_scipy):
@@ -661,6 +670,7 @@ class Linear(MotionModel):
         params_guess=None,
         fill_value=np.nan,
         return_chi2=False,
+        method=None,
         verbose=True
     ):
         if fixed_params_dict is None:
@@ -698,8 +708,8 @@ class Linear(MotionModel):
             params_guess = [x.mean(), 0., y.mean(), 0.]
 
         if use_scipy:
-            x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:2]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, full_output=True)
-            y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[2:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, full_output=True)
+            x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:2]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, full_output=True, method=method)
+            y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[2:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, full_output=True, method=method)
             x0, vx = x_opt
             y0, vy = y_opt
             x0e, vxe = np.sqrt(x_cov.diagonal())
@@ -904,6 +914,7 @@ class Acceleration(MotionModel):
         params_guess=None,
         fill_value=np.nan,
         return_chi2=False,
+        method=None,
         verbose=True
     ):
         if fixed_params_dict is None:
@@ -947,8 +958,8 @@ class Acceleration(MotionModel):
             t_span = t[idx_last] - t[idx_first]
             params_guess = [x.mean(), (x[idx_last] - x[idx_first]) / t_span, 0., y.mean(), (y[idx_last] - y[idx_first]) / t_span, 0.]
 
-        x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, full_output=True)
-        y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, full_output=True)
+        x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, full_output=True, method=method)
+        y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, full_output=True, method=method)
         x0, vx0, ax = x_opt
         y0, vy0, ay = y_opt
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
@@ -1154,6 +1165,7 @@ class Parallax(MotionModel):
         params_guess=None,
         fill_value=np.nan,
         return_chi2=False,
+        method=None,
         verbose=True
     ):
         if not use_scipy:
@@ -1219,7 +1231,7 @@ class Parallax(MotionModel):
         popt, pcov, infodict, mesg, ier = curve_fit(
             self._model_fit, t - t0, np.hstack([x, y]),
             p0=params_guess, sigma=np.hstack([sigma_x, sigma_y]),
-            absolute_sigma=absolute_sigma, full_output=True
+            absolute_sigma=absolute_sigma, full_output=True, method=method
         )
         x0, vx, y0, vy, pi = popt
         x0_err, vx_err, y0_err, vy_err, pi_err = np.sqrt(pcov.diagonal())
