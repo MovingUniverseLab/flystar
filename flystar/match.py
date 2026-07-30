@@ -459,8 +459,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     idxs1 = idxs1[idxs1 >= 0]
     idxs2 = idxs2[idxs2 >= 0]
 
-    dr = np.hypot(x1[idxs1] - x2[idxs2], y1[idxs1] - y2[idxs2])
-    dm = m1[idxs1] - m2[idxs2]
+    dr = np.hypot(x2[idxs2] - x1[idxs1], y2[idxs2] - y1[idxs1])
+    dm = np.abs(m2[idxs2] - m1[idxs1])
 
     # Deal with duplicates
     duplicates = [item for item, count in list(Counter(idxs2).items()) if count > 1]
@@ -471,17 +471,17 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
         # Index into the idxs1, idxs2 array of this duplicate.
         dups = np.where(idxs2 == duplicates[dd])[0]
 
-        dm_min = np.abs(dm[dups]).argmin()
-        dr_min = np.abs(dr[dups]).argmin()
+        # Assume the duplicates are confused first... see if we can resolve the confusion below.
+        keep[dups] = False
+        best_dm = np.abs(m2[idxs2[dups]] - m1[idxs1[dups]]).argmin()
+        best_dr = np.hypot(x2[idxs2[dups]] - x1[idxs1[dups]], y2[idxs2[dups]] - y1[idxs1[dups]]).argmin()
 
         # If there is a clearly preferred match (closest in distance and brightness), then
         # keep it and dump the other duplicates. Otherwise, drop the match as confused.
-        if dm_min == dr_min:
-            if verbose > 3:
-                print('    confused, dropping star at',x2[idxs2[dups]][0],y2[idxs2[dups]][0])
-        else:
-            keep[dups[dm_min]] = False
-
+        if best_dm == best_dr:
+            keep[dups[best_dm]] = True
+        elif verbose > 3:
+            print('    confused, dropping star at',x2[idxs2[dups]][0],y2[idxs2[dups]][0])
 
     # Clean up the duplicates
     idxs1 = idxs1[keep]

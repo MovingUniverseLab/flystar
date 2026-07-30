@@ -220,6 +220,8 @@ class MosaicSelfRef(object):
         plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
         plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
         """
+        dr_tol = np.atleast_1d(dr_tol)
+        dm_tol = np.atleast_1d(dm_tol)
         self.iters = len(dr_tol)
         if dm_tol is not None:
             assert self.iters == len(dm_tol), f'dr_tol (len={self.iters}) and dm_tol (len={len(dm_tol)}) must all have the same length!'
@@ -330,7 +332,7 @@ class MosaicSelfRef(object):
         assert len(self.outlier_tol) == self.iters, f'len(outlier_tol)={len(self.outlier_tol)} != iters={self.iters}'
 
         if self.mag_lim is None:
-            self.mag_lim = np.repeat([[None, None]], len(self.star_lists), axis=0)
+            self.mag_lim = np.repeat([None], len(self.star_lists), axis=0)
         elif (len(self.mag_lim) == 2) and (np.ndim(self.mag_lim) == 1):
             self.mag_lim = np.repeat([self.mag_lim], len(self.star_lists), axis=0)
         assert len(self.mag_lim) == len(self.star_lists)
@@ -947,9 +949,7 @@ class MosaicSelfRef(object):
         # of the old columns and will only include x, y, m, xe, ye, me.
         # The columns we have already created will hold transformed values.
         trans_col_names = ['x', 'y', 'm', 'xe', 'ye', 'me', 'w']
-        for tt in range(len(trans_col_names)):
-            old_name = trans_col_names[tt]
-
+        for old_name in trans_col_names:
             if old_name in ref_table.colnames:
                 new_col = ref_table[old_name].copy()
                 new_col.name = old_name + '_orig'
