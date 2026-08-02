@@ -2954,7 +2954,11 @@ def trans_initial_guess(ref_list, star_list, trans_args, motion_model_dict, mode
         trans.mag_offset = 0
         
     if verbose > 1:
-        print('init guess: ', trans.px.parameters, trans.py.parameters)
+        # print('init guess: ', trans.px.parameters, trans.py.parameters)
+        print('Initial guess:')
+        print(f'{trans.px.parameters=}')
+        print(f'{trans.py.parameters=}')
+        print(f'{trans.mag_offset=}')
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
         
