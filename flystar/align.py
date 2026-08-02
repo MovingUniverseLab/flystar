@@ -506,11 +506,11 @@ class MosaicSelfRef(object):
                                      dy=(star_t['y'] - star_r['y']) * 1e3,
                                      dm=(star_t['m'] - star_r['m']),
                                      xo=star_s['x'], yo=star_s['y'], mo=star_s['m']))
-                    
+
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-            
+
             if self.verbose > 1:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
@@ -858,7 +858,7 @@ class MosaicSelfRef(object):
             fit_star_idxs = [idx for idx in range(len(self.ref_table)) if idx not in keep_orig]
         else:
             fit_star_idxs = None
-        #pdb.set_trace()
+
         # Figure out whether motion fits are necessary
         all_fixed = np.all(self.ref_table['motion_model_input']=='Fixed')
         if all_fixed:
@@ -1240,7 +1240,6 @@ class MosaicSelfRef(object):
                                                                    m=starlist_boot['m'], mref=ref_boot['m'],
                                                                    weights=weight, mag_trans=self.mag_trans)
                 #print(jj)
-                #pdb.set_trace()
 
                 # Apply transformation to *all* orig positions in this epoch. Need to make a new
                 # FLYSTAR starlist object with the original positions for this. We don't
@@ -1378,7 +1377,6 @@ class MosaicSelfRef(object):
                 
                 col[idx_good] = data_dict[ff]
                 self.ref_table.add_column(col)
-        #pdb.set_trace()
         
         print('===============================')
         print('Done with bootstrap')
