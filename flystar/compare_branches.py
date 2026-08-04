@@ -1,8 +1,8 @@
 import pickle
 import flystar
 import matplotlib.pyplot as plt
-from flystar import align, transforms, motion_model
-from flystar.plots import plot_stars
+import align, transforms, motion_model
+from plots import plot_stars
 
 branch = 'mm_rework'  # 'mm_compare' or 'mm_rework'
 

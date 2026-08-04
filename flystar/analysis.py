@@ -1,10 +1,6 @@
 import numpy as np
 import pylab as plt
-from flystar import starlists
-from flystar import startables
-from flystar import align
-from flystar import match
-from flystar import transforms
+from . import starlists, startables, align, match, transforms
 from astropy import table
 from astropy.table import Table, Column
 from astropy.coordinates import SkyCoord

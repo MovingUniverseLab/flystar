@@ -1,10 +1,10 @@
 import numpy as np
-from flystar import match
-from flystar import transforms
-from flystar import plots
-from flystar.starlists import StarList
-from flystar.startables import StarTable
-from flystar import motion_model
+from . import match
+from . import transforms
+from . import plots
+from .starlists import StarList
+from .startables import StarTable
+from . import motion_model
 from astropy.table import Table, Column, vstack
 import datetime
 import copy
@@ -419,7 +419,7 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xym(trans) # trimmed, transformed
             else:
                 star_list_T.transform_xy(trans) 
-
+            pdb.set_trace()
             # Match stars between the transformed, trimmed lists.
             idx1, idx2, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                              ref_list['x'], ref_list['y'], ref_list['m'],

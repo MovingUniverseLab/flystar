@@ -9,7 +9,7 @@ import collections
 import pdb
 import time
 import copy
-from flystar import motion_model
+from . import motion_model
 import pandas as pd
 
 class StarTable(Table):

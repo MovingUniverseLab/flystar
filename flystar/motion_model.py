@@ -1,7 +1,7 @@
 import numpy as np
 from abc import ABC
 import pdb
-from flystar import parallax
+from . import parallax
 from astropy.time import Time
 from scipy.optimize import curve_fit
 import warnings
