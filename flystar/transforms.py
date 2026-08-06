@@ -6,7 +6,7 @@ from astropy.table import Table
 import collections
 import re
 import pdb
-from . import motion_model
+from flystar import motion_model
 
 class Transform2D(object):
     '''

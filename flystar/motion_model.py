@@ -1,7 +1,7 @@
 import numpy as np
 from abc import ABC
 import pdb
-from . import parallax
+from flystar import parallax
 from astropy.time import Time
 from scipy.optimize import curve_fit
 import warnings
@@ -83,18 +83,7 @@ class MotionModel(ABC):
         else:
             warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
             return 1./xe**2, 1./ye**2
-            
-    def scale_errors(self, errs, weighting='var'):
-        """
-        Rescale the fit result errors as needed, according to the weighting scheme used.
-        """
-        if weighting=='std':
-            return np.array(errs)**2
-        elif weighting=='var':
-            return errs
-        else:
-            warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
-            return errs
+
 
     def fit_motion_model(self, t, x, y, xe, ye, t0, bootstrap=0, weighting='var',
                             use_scipy=True, absolute_sigma=True):
@@ -240,6 +229,8 @@ class Linear(MotionModel):
     def run_fit(self, t, x, y, xe, ye, t0, weighting='var', params_guess=None,
                             use_scipy=True, absolute_sigma=True):
         dt = t-t0
+        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
+        x_wt, y_wt = 1. / sigma_x**2, 1. / sigma_y**2
         if params_guess is None:
             params_guess = [x.mean(),0.0,y.mean(),0.0]
 
@@ -269,14 +260,13 @@ class Linear(MotionModel):
             if use_scipy:
                 def linear(t, c0, c1):
                     return c0 + c1*t
-                sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
                 x_opt, x_cov = curve_fit(linear, dt, x, p0=np.array(params_guess[:2]), sigma=sigma_x, absolute_sigma=absolute_sigma)
                 y_opt, y_cov = curve_fit(linear, dt, y, p0=np.array(params_guess[2:]), sigma=sigma_y, absolute_sigma=absolute_sigma)
                 x0, vx = x_opt
                 y0, vy = y_opt
                 x0e, vxe = np.sqrt(x_cov.diagonal())
                 y0e, vye = np.sqrt(y_cov.diagonal())
-                x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
+
             else:
                 # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution scheme
                 x = np.array(x)
@@ -300,7 +290,6 @@ class Linear(MotionModel):
                 y0, vy = popt_y[1], popt_y[0]
                 x0e, vxe = perr_x[1], perr_x[0]
                 y0e, vye = perr_y[1], perr_y[0]
-                x0e, vxe, y0e, vye = self.scale_errors([x0e, vxe, y0e, vye], weighting=weighting)
         
         params = [x0, vx, y0, vy]
         param_errors = [x0e, vxe, y0e, vye]
@@ -370,7 +359,6 @@ class Acceleration(MotionModel):
         
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
         y0e, vy0e, aye = np.sqrt(y_cov.diagonal())
-        x0e, vx0e, axe, y0e, vy0e, aye = self.scale_errors([x0e, vx0e, axe, y0e, vy0e, aye], weighting=weighting)
 
         params = [x0, vx0, ax, y0, vy0, ay]
         param_errors = [x0e, vx0e, axe, y0e, vy0e, aye]
@@ -480,7 +468,7 @@ class Parallax(MotionModel):
         res = curve_fit(fit_func, t, np.hstack([x,y]),
                         p0=params_guess, sigma=sigma, absolute_sigma=absolute_sigma)
         x0,vx,y0,vy,pi = res[0]
-        x0_err,vx_err,y0_err,vy_err,pi_err = self.scale_errors(np.sqrt(np.diag(res[1])), weighting=weighting)
+        x0_err,vx_err,y0_err,vy_err,pi_err = np.sqrt(res[1].diagonal())
 
         params = [x0, vx, y0, vy, pi]
         param_errors = [x0_err, vx_err, y0_err, vy_err, pi_err]
