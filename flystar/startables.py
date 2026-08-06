@@ -493,7 +493,7 @@ class StarTable(Table):
 
             # Calculate the weighted mean and uncertainty
             avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
-            std = np.ma.sqrt(1 / np.ma.sum(wgt_2d, axis=1)) # Error propagation for weighted mean
+            std = np.ma.sqrt(1. / np.ma.sum(wgt_2d, axis=1)) # Error propagation for weighted mean
 
             # Use standard deviation of the weighted residuals as the uncertainty
             # std = np.ma.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
@@ -512,10 +512,6 @@ class StarTable(Table):
                 self.meta[col_name_in + '0'] = 'not_weighted'
 
         std = np.ma.masked_values(std, 0.)  # Mask out any zero uncertainties (i.e., 1 or less valid points)
-        # # Mask out stars with only 1 valid measurement (i.e., std = 0).
-        # if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
-        #     mask_for_singles = ((np.isfinite(val_2d_clip)).sum(axis=1)==1)
-        #     std[mask_for_singles]=np.nanmean(err_2d[mask_for_singles], axis=1)
 
         # Save off our new AVG and STD into new columns with shape (N_stars).
         col_name_avg = col_name_in + '0'
@@ -525,6 +521,7 @@ class StarTable(Table):
             std = 2.5 / np.log(10) * std / avg  # Error propagation
             avg = -2.5 * np.ma.log10(avg)
 
+        # FIXME: why change?
         # Fill mask with nan or inf
         avg = avg.filled(np.nan)
         std = std.filled(np.inf)
@@ -1086,8 +1083,17 @@ class StarTable(Table):
 
         x_pred = np.full((N_stars, N_times), fill_value, dtype=float)
         y_pred = np.full((N_stars, N_times), fill_value, dtype=float)
-        xe_pred = np.full((N_stars, N_times), np.inf, dtype=float)
-        ye_pred = np.full((N_stars, N_times), np.inf, dtype=float)
+
+        # Only calculate xe ye if columns exist in table, otherwise fill with np.inf
+        if 'x0_err' in self.colnames and 'y0_err' in self.colnames:
+            # 'x0_err' and 'y0_err' are the common uncertainty params for all motion models
+            with_xe_ye = True
+            xe_pred = np.full((N_stars, N_times), np.inf, dtype=float)
+            ye_pred = np.full((N_stars, N_times), np.inf, dtype=float)
+        else:
+            with_xe_ye = False
+            xe_pred = np.full((N_stars, N_times), np.inf, dtype=float)
+            ye_pred = np.full((N_stars, N_times), np.inf, dtype=float)
 
         # Calculate the dictionary of {motion_model: indices of stars with this motion model} for faster access during prediction
         unique_motion_models, unique_inv_indices = np.unique(self['motion_model_used'], return_inverse=True)
@@ -1105,7 +1111,7 @@ class StarTable(Table):
 
             fit_param_errs = np.array([
                 self[param_name + '_err'][unique_index] for param_name in motion_model_instance.fit_param_names
-            ]).T # shape (N_stars_this_model, N_params)
+            ]).T if with_xe_ye else None # shape (N_stars_this_model, N_params)
 
             # Construct fixed_params: Look for fixed_params_dict -> table columns -> meta data -> default value
             fixed_params = fixed_params_dict.copy() if fixed_params_dict is not None else {}
@@ -1137,55 +1143,49 @@ class StarTable(Table):
                 else:
                     fixed_params[param] = fixed_params_dict[param]
 
-            # for param_name in motion_model_instance.fixed_param_names:
-            #     col_name = copy.deepcopy(param_name)
-            #     # If column not in table, check if it's provided in fixed_params_dict. If not, raise error. If provided, use the value from fixed_params_dict for all stars.
-            #     if (col_name not in self.colnames) and (f'{col_name}_mm' not in self.colnames):
-            #         if col_name in fixed_params_dict:
-            #             fixed_params[param_name] = fixed_params_dict[col_name]
-            #             continue
-            #         else:
-            #             raise KeyError(f"infer_positions: Fixed parameter '{param_name}' not found in table columns or fixed_params_dict. Please provide the value for this parameter in fixed_params_dict or add a column named '{param_name}' to the table.")
-
-            #     # If original table has column and fit_motion_models added the column with _mm suffix, use the _mm column for prediction.
-            #     if param_name + '_mm' in self.colnames:
-            #         col_name = param_name + '_mm'
-            #     fixed_params[param_name] = self[col_name][unique_index]
-
-            #     if (param_name == 'obsLocation'):
-            #         assert np.unique(fixed_params[param_name]).size == 1, \
-            #             "infer_positions: obsLocation fixed parameter has different values for different stars. Vectorized handling not implemented yet."
-            #         fixed_params[param_name] = fixed_params[param_name][0]
 
             # Predict positions
             # shape = (N_stars_this_model, N_times) or (N_stars_this_model,) if N_times=1 or (N_times,) if N_stars_this_model=1 or scalar
-            x, y, xe, ye = motion_model_instance.model(
-                times, fit_params, fit_param_errs, fixed_params
-            )
+            if with_xe_ye:
+                x, y, xe, ye = motion_model_instance.model(
+                    times, fit_params, fit_param_errs, fixed_params
+                )
+            else:
+                x, y = motion_model_instance.model(
+                    times, fit_params, fixed_params=fixed_params
+                )
+
             if N_stars==1 and N_times > 1:
                 # Reshape (N_times,) to (1, N_times)
                 x = x[np.newaxis, :]
                 y = y[np.newaxis, :]
-                xe = xe[np.newaxis, :]
-                ye = ye[np.newaxis, :]
+                if with_xe_ye:
+                    xe = xe[np.newaxis, :]
+                    ye = ye[np.newaxis, :]
             elif N_times==1 and N_stars > 1:
                 # Reshape (N_stars,) to (N_stars, 1)
                 x = x[:, np.newaxis]
                 y = y[:, np.newaxis]
-                xe = xe[:, np.newaxis]
-                ye = ye[:, np.newaxis]
+                if with_xe_ye:
+                    xe = xe[:, np.newaxis]
+                    ye = ye[:, np.newaxis]
 
             x_pred[unique_index] = x
             y_pred[unique_index] = y
-            xe_pred[unique_index] = xe
-            ye_pred[unique_index] = ye
+            if with_xe_ye:
+                xe_pred[unique_index] = xe
+                ye_pred[unique_index] = ye
 
         if N_stars==1 or N_times==1:
             # Reshape back to 1D array or scalar
             x_pred = x_pred.flatten()
             y_pred = y_pred.flatten()
-            xe_pred = xe_pred.flatten()
-            ye_pred = ye_pred.flatten()
+            if with_xe_ye:
+                xe_pred = xe_pred.flatten()
+                ye_pred = ye_pred.flatten()
+
+        xe_pred = xe_pred if with_xe_ye else np.full_like(x_pred, np.inf)
+        ye_pred = ye_pred if with_xe_ye else np.full_like(y_pred, np.inf)
         return x_pred, y_pred, xe_pred, ye_pred
 
 

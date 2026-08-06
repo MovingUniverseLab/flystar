@@ -763,18 +763,6 @@ class MosaicSelfRef(object):
                 idx1 = idx1[keepers]
                 idx2 = idx2[keepers]
 
-            # # Only use stars specified by "use_in_trans" column.
-            # if 'use_in_trans' in ref_list.colnames:
-            #     keepers = ref_list[idx2]['use_in_trans']
-            #     if sum(keepers) == 0:
-            #         raise ValueError(f"No stars are marked as 'use_in_trans' in the reference list for starlist index {ii}. Cannot derive transformation.")
-
-            #     if self.verbose > 1:
-            #         print( f'  Rejected {len(idx1) - sum(keepers)} stars out of {len(idx1)} with use_in_trans=False.' )
-
-            #     idx1 = idx1[keepers]
-            #     idx2 = idx2[keepers]
-
             # Determine weights in the fit.
             weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
 
@@ -878,21 +866,21 @@ class MosaicSelfRef(object):
                 msg1 = '    {0:2s} (mean and std) for {1:10s}: {2:8.5f} +/- {3:8.5f}'
                 print('    Residuals: ')
                 print(msg1.format('dr', 'all stars', dr.mean(), dr.std()))
-                print(msg1.format('dm', 'all stars', dm.mean(), dm.std()))
+                print(msg1.format('dm', 'all stars', dm.mean(), dm.std()))  # ref_list - ref_table
 
                 # Calculate the residuals just for those used in the transformation
                 used = np.where(self.ref_table['used_in_trans'][:, ii] == True)[0]
                 used_good = used[ np.where(np.isin(used, idx_ref) == True)[0] ]
 
-                dr_u = np.hypot(self.ref_table['x'][used_good, ii] - ref_list['x'][used_good],
-                                self.ref_table['y'][used_good, ii] - ref_list['y'][used_good])
-                dm_u = np.abs(self.ref_table['m'][used_good, ii] - ref_list['m'][used_good])
+                dr_u = np.hypot(ref_list['x'][used_good] - self.ref_table['x'][used_good, ii],
+                                ref_list['y'][used_good] - self.ref_table['y'][used_good, ii])
+                dm_u = ref_list['m'][used_good] - self.ref_table['m'][used_good, ii]
                 print(msg1.format('dr', 'trans stars', dr_u.mean(), dr_u.std()))
                 print(msg1.format('dm', 'trans stars', dm_u.mean(), dm_u.std()))
                 print('    Used {0:d} trans ref stars.'.format(len(used)))
                 print('    Dropped {0:d} matches after transform.'.format(len(used) - len(used_good)))
             gc.collect()  # clean up memory after each iteration
-            
+
             # Save ref_table after each iteration
             # print(f"Saving self after iteration {ii=}")
             # if self.save_path:

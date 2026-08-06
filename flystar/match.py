@@ -460,7 +460,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     idxs2 = idxs2[idxs2 >= 0]
 
     dr = np.hypot(x2[idxs2] - x1[idxs1], y2[idxs2] - y1[idxs1])
-    dm = np.abs(m2[idxs2] - m1[idxs1])
+    dm = m2[idxs2] - m1[idxs1]
 
     # Deal with duplicates
     duplicates = [item for item, count in list(Counter(idxs2).items()) if count > 1]
