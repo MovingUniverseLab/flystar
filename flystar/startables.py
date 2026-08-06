@@ -1,21 +1,14 @@
-import pdb
-import time
 import copy
 import warnings
-import collections
 import numpy as np
-import pandas as pd
-
 from tqdm import tqdm
 from multiprocessing import Pool
 from astropy.time import Time
 from astropy.stats import sigma_clip
-from astropy.table import Table, Column, MaskedColumn, hstack
-from scipy.optimize import curve_fit
+from astropy.table import Table, Column
 from pandas.api.types import is_string_dtype
 from collections.abc import Iterable
-from . import motion_model
-from .motion_model import Empty, Fixed, Linear
+from flystar import motion_model
 
 class StarTable(Table):
     def __init__(self, *args, ref_list=0, **kwargs):
@@ -652,7 +645,7 @@ class StarTable(Table):
         if motion_models is None:
             # Setting the default to None to avoid mutable default argument issue
             # See https://stackoverflow.com/questions/15189245/assigning-class-variable-as-default-value-to-class-method-argument
-            motion_models = [Empty, Fixed, Linear]
+            motion_models = [motion_model.Empty, motion_model.Fixed, motion_model.Linear]
         all_mm_map = motion_model.motion_model_map()
         if all(isinstance(mm, str) for mm in motion_models):
             mm_names = motion_models
@@ -662,9 +655,9 @@ class StarTable(Table):
 
         # Always add Empty and Fixed in motion models
         if 'Fixed' not in mm_names:
-            motion_models.insert(0, Fixed)
+            motion_models.insert(0, motion_model.Fixed)
         if 'Empty' not in mm_names:
-            motion_models.insert(0, Empty)
+            motion_models.insert(0, motion_model.Empty)
         mm_names = [mm.name for mm in motion_models]
 
         # Construct motion models if motion_model_input column exists

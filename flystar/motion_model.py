@@ -1,9 +1,9 @@
+import warnings
 import numpy as np
 from abc import ABC
 from flystar import parallax
 from astropy.time import Time
 from scipy.optimize import curve_fit, OptimizeWarning
-import warnings
 
 class MotionModel(ABC):
     name = "MotionModel"

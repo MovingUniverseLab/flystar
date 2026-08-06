@@ -1,11 +1,6 @@
-from flystar import match
-from flystar import align
-from flystar import starlists
-from flystar import plots
-from flystar import transforms
-from astropy.table import Table
-import numpy as np
 import pdb
+import numpy as np
+from flystar import align, starlists, plots, transforms
 
 
 def align_template(labelFile, reference, transModel=transforms.PolyTransform, order=1, N_loop=2,
@@ -101,7 +96,7 @@ def align_template(labelFile, reference, transModel=transforms.PolyTransform, or
         if restrict:
             label_match = label[idx_label]
             starlist_match = starlist[idx_starlist]
-            idx_label, idx_starlist = stalists.restrict_by_use(label_match, starlist_match,
+            idx_label, idx_starlist = starlists.restrict_by_use(label_match, starlist_match,
                                                                 idx_label, idx_starlist)
 
         # use the matched stars to calculate new transformation
