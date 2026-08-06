@@ -1,12 +1,24 @@
+import os
+import sys
+from pathlib import Path
+
+# 1. Calculate the absolute path to the parent directory
+parent_dir = str(Path(__file__).resolve().parent)
+
+# 2. Temporarily inject it into Python's search path
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+
+import os
 import pickle
-import flystar
 import matplotlib.pyplot as plt
 import align, transforms, motion_model
 from plots import plot_stars
 
 branch = 'mm_rework'  # 'mm_compare' or 'mm_rework'
 
-test_data_path = f'{flystar.__path__[0]}/tests/test_data'
+test_data_path = f'{os.path.expanduser("~")}/Software/flystar/flystar/tests/test_data'
 
 with open(f'{test_data_path}/my_gaia.pkl', 'rb') as f:
     my_gaia = pickle.load(f)
@@ -16,11 +28,11 @@ ra_deg, dec_deg = 18.0, -30.0
 my_gaia.remove_column('motion_model_used')
 # my_gaia['motion_model_input'] = 'Fixed'
 if branch == 'mm_compare':
-    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=3,
-                        dr_tol=[0.2, 0.1, 0.08], dm_tol=[5,5,5],
-                        outlier_tol=[None, None, 3], mag_lim=[6, 20],
+    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
+                        dr_tol=[0.2], dm_tol=[5],
+                        outlier_tol=[None], mag_lim=[6, 20],
                         trans_class=transforms.PolyTransform,
-                        trans_args=[{'order': 1}, {'order': 1}, {'order': 1}], 
+                        trans_args=[{'order': 1}], 
                         motion_models=['Fixed', 'Parallax'],
                         fixed_params_dict = {'ra':ra_deg, 'dec':dec_deg, 'pa':0.0, 'obsLocation':'earth'},
                         use_ref_new=True,
@@ -29,11 +41,11 @@ if branch == 'mm_compare':
                         trans_weights='both,std',
                         init_guess_mode='name', verbose=3)
 elif branch == 'mm_rework':
-    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=3,
-                        dr_tol=[0.2, 0.1, 0.08], dm_tol=[5,5,5],
-                        outlier_tol=[None, None, 3], mag_lim=[6, 20],
+    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
+                        dr_tol=[0.2], dm_tol=[5],
+                        outlier_tol=[None], mag_lim=[6, 20],
                         trans_class=transforms.PolyTransform,
-                        trans_args=[{'order': 1}, {'order': 1}, {'order': 1}], 
+                        trans_args=[{'order': 1}], 
                         default_motion_model='Parallax',
                         motion_model_dict = {'Parallax': motion_model.Parallax(RA=ra_deg, Dec=dec_deg, PA=0.0, obsLocation='earth')},
                         use_ref_new=True,

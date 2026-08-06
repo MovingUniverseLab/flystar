@@ -420,10 +420,24 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(trans) 
 
-            # Match stars between the transformed, trimmed lists.
-            idx1, idx2, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                             ref_list['x'], ref_list['y'], ref_list['m'],
-                                             dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
+            if 'use_in_trans' in ref_list.colnames:
+                # Only use stars specified by "use_in_trans" column.
+                use_in_trans = ref_list['use_in_trans']
+                # Match stars between the transformed, trimmed lists.
+                idx1, idx2, dr, dm = match.match(
+                    star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                    ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
+                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose
+                )
+                # Restore idx2 to the full reference list indices
+                idx2 = np.where(use_in_trans)[0][idx2]
+            else:
+                idx1, idx2, dr, dm = match.match(
+                    star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                    ref_list['x'], ref_list['y'], ref_list['m'],
+                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose
+                )
+
             if self.verbose > 1:
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
@@ -434,16 +448,6 @@ class MosaicSelfRef(object):
                                                           outlier_tol)
                 if self.verbose > 1:
                     print( '  Rejected ', len(idx1) - len(keepers), ' outliers.' )
-                    
-                idx1 = idx1[keepers]
-                idx2 = idx2[keepers]
-
-            # Only use stars specified by "use_in_trans" column.
-            if 'use_in_trans' in ref_list.colnames:
-                keepers = np.where(ref_list[idx2]['use_in_trans'] == True)[0]
-                
-                if self.verbose > 1:
-                    print( '  Rejected ', len(idx1) - len(keepers), ' with use_in_trans=False.' )
                     
                 idx1 = idx1[keepers]
                 idx2 = idx2[keepers]

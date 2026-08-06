@@ -464,13 +464,14 @@ class StarTable(Table):
                     val_2d.mask[:, mask_lists] = True
                 
                 use_lists = np.array([i for i in np.arange(self[col_name_in].data.shape[1]) if i not in mask_lists])
-        else:
-            # Use all indices
-            use_lists = np.arange(self[col_name_in].data.shape[1])
 
             # Throw a warning if mask_lists is not a list
             if not isinstance(mask_lists, list):
-                raise RuntimeError('mask_lists needs to be a list.')
+                raise RuntimeError(f'mask_lists needs to be a list., not {type(mask_lists)}')
+
+        else:
+            # Use all indices
+            use_lists = np.arange(self[col_name_in].data.shape[1])
 
         # Decide if we are going to have weights (before we
         # do the expensive sigma clipping routine). Note that
