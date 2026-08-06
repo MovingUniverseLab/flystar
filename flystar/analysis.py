@@ -42,7 +42,7 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
     search_radius *= u.arcsec
 
     Gaia.ROW_LIMIT = 50000
-    gaia_job = Gaia.cone_search_async(target_coords, search_radius, table_name = table_name + '.gaia_source')
+    gaia_job = Gaia.cone_search_async(target_coords, radius=search_radius, table_name=table_name + '.gaia_source')
     gaia = gaia_job.get_results()
 
     #Change new 'SOURCE_ID' column header back to lowercase 'source_id' so all subsequent functions still work:

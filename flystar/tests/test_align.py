@@ -1,21 +1,16 @@
-from flystar import align
-from flystar import starlists
-from flystar import startables
-from flystar import transforms
-from flystar import analysis
-from flystar import motion_model
-from astropy.table import Table
 import numpy as np
 import pylab as plt
-import pdb
-import datetime
-import pytest
+import flystar
+from astropy.table import Table
+from flystar import align, starlists, transforms, analysis, motion_model
+
+test_data_path = f'{flystar.__path__[0]}/tests/test_data'
 
 def test_MosaicSelfRef():
     """
     Cross-match and align 4 starlists using the OO version of mosaic lists.
     """
-    list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
+    list_files = [f'{test_data_path}/{f}' for f in ['A.lis', 'B.lis', 'C.lis', 'D.lis']]
     lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
 
     ##########
@@ -91,7 +86,7 @@ def test_MosaicSelfRef_vel_tconst():
     The 4 lists are all taken at the same time (so 0 velocities should result).
     
     """
-    list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
+    list_files = [f'{test_data_path}/{f}' for f in ['A.lis', 'B.lis', 'C.lis', 'D.lis']]
     lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
 
     ##########
@@ -149,7 +144,7 @@ def test_MosaicSelfRef_vel():
     Cross-match and align 4 starlists using the OO version of mosaic lists.
     
     """
-    list_files = ['A.lis', 'B.lis', 'C.lis', 'D.lis']
+    list_files = [f'{test_data_path}/{f}' for f in ['A.lis', 'B.lis', 'C.lis', 'D.lis']]
     lists = [starlists.StarList.from_lis_file(lf) for lf in list_files]
 
     # Modify the times so that we get velocities out.
@@ -215,15 +210,8 @@ def test_MosaicSelfRef_vel():
 def test_MosaicToRef():
     make_fake_starlists_poly1(seed=42)
     
-    ref_file = 'random_ref.fits'
-    list_files = ['random_0.fits',
-                  'random_1.fits',
-                  'random_2.fits',
-                  'random_3.fits',
-                  'random_4.fits',
-                  'random_5.fits',
-                  'random_6.fits',
-                  'random_7.fits']
+    ref_file = f'{test_data_path}/random_ref.fits'
+    list_files = [f'{test_data_path}/random_{i}.fits' for i in range(8)]
 
     ref_list = Table.read(ref_file)
 
@@ -272,15 +260,8 @@ def test_MosaicToRef():
 def test_MosaicToRef_p0_vel():
     make_fake_starlists_poly0_vel(seed=42)
     
-    ref_file = 'random_vel_ref.fits'
-    list_files = ['random_vel_p0_0.fits',
-                  'random_vel_p0_1.fits',
-                  'random_vel_p0_2.fits',
-                  'random_vel_p0_3.fits']
-                  #'random_vel_4.fits',
-                  #'random_vel_5.fits',
-                  #'random_vel_6.fits',
-                  #'random_vel_7.fits']
+    ref_file = f'{test_data_path}/random_vel_ref.fits'
+    list_files = [f'{test_data_path}/random_vel_p0_{i}.fits' for i in range(4)]
 
     ref_list = Table.read(ref_file)
 
@@ -338,15 +319,8 @@ def test_MosaicToRef_p0_vel():
 def test_MosaicToRef_vel():
     make_fake_starlists_poly1_vel(seed=42)
     
-    ref_file = 'random_vel_ref.fits'
-    list_files = ['random_vel_0.fits',
-                  'random_vel_1.fits',
-                  'random_vel_2.fits',
-                  'random_vel_3.fits']
-                  #'random_vel_4.fits',
-                  #'random_vel_5.fits',
-                  #'random_vel_6.fits',
-                  #'random_vel_7.fits']
+    ref_file = f'{test_data_path}/random_vel_ref.fits'
+    list_files = [f'{test_data_path}/random_vel_{i}.fits' for i in range(4)]
 
     ref_list = Table.read(ref_file)
 
@@ -404,15 +378,8 @@ def test_MosaicToRef_vel():
 def test_MosaicToRef_acc():
     make_fake_starlists_poly1_acc(seed=42)
     
-    ref_file = 'random_acc_ref.fits'
-    list_files = ['random_acc_0.fits',
-                  'random_acc_1.fits',
-                  'random_acc_2.fits',
-                  'random_acc_3.fits',
-                  'random_acc_4.fits',
-                  'random_acc_5.fits',
-                  'random_acc_6.fits',
-                  'random_acc_7.fits']
+    ref_file = f'{test_data_path}/random_acc_ref.fits'
+    list_files = [f'{test_data_path}/random_acc_{i}.fits' for i in range(8)]
 
     ref_list = Table.read(ref_file)
 
@@ -500,7 +467,7 @@ def make_fake_starlists_shifts():
 
     # Save original positions as reference (1st) list.
     fmt = '{0:10s}  {1:5.2f} 2015.0 {2:9.4f}  {3:9.4f} 0 0 0 0\n'
-    _out = open('random_0.lis', 'w')
+    _out = open(f'{test_data_path}/random_0.lis', 'w')
     for ii in range(N_stars):
         _out.write(fmt.format(name[ii], m[ii], x[ii], y[ii]))
     _out.close()
@@ -525,7 +492,7 @@ def make_fake_starlists_shifts():
 
         mnew = m + np.random.randn(N_stars) * 0.05
 
-        _out = open('random_shift_{0:d}.lis'.format(ss+1), 'w')
+        _out = open(f'{test_data_path}/random_shift_{ss+1}.lis', 'w')
         for ii in range(N_stars):
             _out.write(fmt.format(name[ii], mnew[ii], xnew[ii], ynew[ii]))
         _out.close()
@@ -563,7 +530,7 @@ def make_fake_starlists_poly1(seed=-1):
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_ref.fits', overwrite=True)
+    lis.write(f'{test_data_path}/random_ref.fits', overwrite=True)
 
     ##########
     # Shifts
@@ -614,7 +581,7 @@ def make_fake_starlists_poly1(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write(f'{test_data_path}/random_{ss}.fits', overwrite=True)
 
     return (xy_trans,mag_trans)
 
@@ -656,7 +623,7 @@ def make_fake_starlists_poly0_vel(seed=-1):
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_vel_ref.fits', overwrite=True)
+    lis.write(f'{test_data_path}/random_vel_ref.fits', overwrite=True)
     
     ##########
     # Propogate to new times and distort.
@@ -707,7 +674,7 @@ def make_fake_starlists_poly0_vel(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_vel_p0_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write(f'{test_data_path}/random_vel_p0_{ss}.fits', overwrite=True)
 
     return (xy_trans, mag_trans)
 
@@ -750,7 +717,7 @@ def make_fake_starlists_poly1_vel(seed=-1):
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_vel_ref.fits', overwrite=True)
+    lis.write(f'{test_data_path}/random_vel_ref.fits', overwrite=True)
     
     ##########
     # Propogate to new times and distort.
@@ -801,7 +768,7 @@ def make_fake_starlists_poly1_vel(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_vel_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write(f'{test_data_path}/random_vel_{ss}.fits', overwrite=True)
 
     return (xy_trans, mag_trans)
 
@@ -856,7 +823,7 @@ def make_fake_starlists_poly1_acc(seed=-1):
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_acc_ref.fits', overwrite=True)
+    lis.write(f'{test_data_path}/random_acc_ref.fits', overwrite=True)
     
     ##########
     # Propogate to new times and distort.
@@ -907,7 +874,7 @@ def make_fake_starlists_poly1_acc(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_acc_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write(f'{test_data_path}/random_acc_{ss}.fits', overwrite=True)
 
     return (xy_trans, mag_trans)
     
@@ -959,7 +926,7 @@ def make_fake_starlists_poly1_par(seed=-1):
 
     # Save original positions as reference (1st) list
     # in a StarList format (with velocities).
-    lis.write('random_par_ref.fits', overwrite=True)
+    lis.write(f'{test_data_path}/random_par_ref.fits', overwrite=True)
     
     ##########
     # Propogate to new times and distort.
@@ -1019,7 +986,7 @@ def make_fake_starlists_poly1_par(seed=-1):
         new_lis = starlists.StarList([lis['name'], md, mde, xd, xde, yd, yde, t],
                                      names=('name', 'm', 'me', 'x', 'xe', 'y', 'ye', 't'))
 
-        new_lis.write('random_par_{0:d}.fits'.format(ss), overwrite=True)
+        new_lis.write(f'{test_data_path}/random_par_{ss}.fits', overwrite=True)
 
     return (xy_trans, mag_trans)
 
@@ -1036,15 +1003,15 @@ def test_MosaicToRef_hst_me():
     dec = '-34:27:05.01'
     
     # Load up a Gaia catalog (queried around the RA/Dec above)
-    my_gaia = Table.read('mb10364_data/my_gaia.fits')
+    my_gaia = Table.read(f'{test_data_path}/my_gaia.fits')
     my_gaia['me'] = 0.01
     
     # Gather the list of starlists. For first pass, don't modify the starlists.
     # Loop through the observations and read them in, in prep for alignment with Gaia
     epochs = [2011.83, 2012.73, 2013.81]
-    starlist_names = ['mb10364_data/2011_10_31_F606W_MATCHUP_XYMEEE_final.calib',
-                      'mb10364_data/2012_09_25_F606W_MATCHUP_XYMEEE_final.calib',
-                      'mb10364_data/2013_10_24_F606W_MATCHUP_XYMEEE_final.calib']
+    starlist_names = [f'{test_data_path}/mb10364_data/2011_10_31_F606W_MATCHUP_XYMEEE_final.calib',
+                      f'{test_data_path}/mb10364_data/2012_09_25_F606W_MATCHUP_XYMEEE_final.calib',
+                      f'{test_data_path}/mb10364_data/2013_10_24_F606W_MATCHUP_XYMEEE_final.calib']
         
     list_of_starlists = []
     
@@ -1090,9 +1057,9 @@ def test_bootstrap():
     etc.)
     """
     # Read in starlists for MosaicToRef
-    ref = Table.read('ref_vel.lis', format='ascii')
-    list1 = Table.read('E.lis', format='ascii')
-    list2 = Table.read('F.lis', format='ascii')
+    ref = Table.read(f'{test_data_path}/ref_vel.lis', format='ascii')
+    list1 = Table.read(f'{test_data_path}/E.lis', format='ascii')
+    list2 = Table.read(f'{test_data_path}/F.lis', format='ascii')
 
     list1 = starlists.StarList.from_table(list1)
     list2 = starlists.StarList.from_table(list2)
@@ -1202,10 +1169,10 @@ def test_calc_vel_in_bootstrap():
     import copy
     
     # Define match parameters
-    ref = Table.read('ref_vel.lis', format='ascii')
+    ref = Table.read(f'{test_data_path}/ref_vel.lis', format='ascii')
 
-    list1 = Table.read('E.lis', format='ascii')
-    list2 = Table.read('F.lis', format='ascii')
+    list1 = Table.read(f'{test_data_path}/E.lis', format='ascii')
+    list2 = Table.read(f'{test_data_path}/F.lis', format='ascii')
 
     list1 = starlists.StarList.from_table(list1)
     list2 = starlists.StarList.from_table(list2)
@@ -1271,9 +1238,9 @@ def test_transform_xym():
     otherwise
     """
     #---Align 1: self.mag_Trans = False---#
-    ref = Table.read('ref_vel.lis', format='ascii')
-    list1 = Table.read('E.lis', format='ascii')
-    list2 = Table.read('F.lis', format='ascii')
+    ref = Table.read(f'{test_data_path}/ref_vel.lis', format='ascii')
+    list1 = Table.read(f'{test_data_path}/E.lis', format='ascii')
+    list2 = Table.read(f'{test_data_path}/F.lis', format='ascii')
 
     list1 = starlists.StarList.from_table(list1)
     list2 = starlists.StarList.from_table(list2)
@@ -1369,7 +1336,7 @@ def test_MosaicToRef_mag_bug():
     """
     make_fake_starlists_poly1_vel()
 
-    ref_list = starlists.StarList.read('random_vel_0.fits')
+    ref_list = starlists.StarList.read(f'{test_data_path}/random_vel_0.fits')
     lists = [ref_list]
 
     msc = align.MosaicToRef(ref_list, lists, 
@@ -1432,7 +1399,7 @@ def test_masked_cols():
     list_of_starlists = []
 
     for ee in range(len(epochs)):
-        lis_file = 'mag' + epochs[ee] + '_ob150029_kp_rms_named.lis'
+        lis_file = f'{test_data_path}/mag{epochs[ee]}_ob150029_kp_rms_named.lis'
         lis = starlists.StarList.from_lis_file(lis_file)
     
         list_of_starlists.append(lis)
