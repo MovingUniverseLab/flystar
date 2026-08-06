@@ -463,6 +463,11 @@ class StarTable(Table):
                 if all(isinstance(item, int) for item in mask_lists):
                     val_2d.mask[:, mask_lists] = True
                 
+                use_lists = np.array([i for i in np.arange(self[col_name_in].data.shape[1]) if i not in mask_lists])
+        else:
+            # Use all indices
+            use_lists = np.arange(self[col_name_in].data.shape[1])
+
             # Throw a warning if mask_lists is not a list
             if not isinstance(mask_lists, list):
                 raise RuntimeError('mask_lists needs to be a list.')
@@ -500,15 +505,18 @@ class StarTable(Table):
         # the N_lists direction (axis=1).
         if wgt_2d is not None:
             avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
-            std = np.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
+            # std = np.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
+            std = np.ma.sqrt(1. / np.ma.sum(wgt_2d, axis=1)) # Error propagation
         else:
             avg = np.ma.mean(val_2d_clip, axis=1)
-            std = np.ma.std(val_2d_clip, axis=1)
+            # std = np.ma.std(val_2d_clip, axis=1)
+            std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(use_lists)) # Error propagation
         # To Do: bring the previous uncertainties of stars that are detected
         # in only one input frame.
-        if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
-            mask_for_singles = ((~np.isnan(val_2d_clip)).sum(axis=1)==1)
-            std[mask_for_singles]=np.nanmean(err_2d[mask_for_singles], axis=1)
+        # This can be removed now as error propagation won't result in std=0 anymore.
+        # if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
+        #     mask_for_singles = ((~np.isnan(val_2d_clip)).sum(axis=1)==1)
+        #     std[mask_for_singles]=np.nanmean(err_2d[mask_for_singles], axis=1)
 
         # Save off our new AVG and STD into new columns with shape (N_stars).
         col_name_avg = col_name_in + '0'
@@ -607,9 +615,12 @@ class StarTable(Table):
         # Define output arrays for the best-fit parameters.
         for col in new_col_list:
             # Clean/remove up old arrays.
-            if col in self.colnames: self.remove_column(col)
-            # Add column #TODO: is this good for filling???
-            self.add_column(Column(data = np.full(N_stars, np.nan, dtype=float), name = col))
+            # if col in self.colnames: self.remove_column(col)
+            # # Add column #TODO: is this good for filling???
+            # self.add_column(Column(data = np.full(N_stars, np.nan, dtype=float), name=col))
+            # Keep existing values
+            if col not in self.colnames:
+                self.add_column(Column(data = np.full(N_stars, np.nan, dtype=float), name=col))
 
         # Add a column to keep track of the number of points used in a fit.
         self['n_fit'] = 0

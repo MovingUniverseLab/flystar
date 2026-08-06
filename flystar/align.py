@@ -28,7 +28,7 @@ class MosaicSelfRef(object):
                  default_motion_model='Fixed',
                  motion_model_dict = {},
                  use_scipy=True, 
-                 absolute_sigma=False, 
+                 absolute_sigma=True, 
                  save_path=None, 
                  verbose=True):
         """
@@ -419,7 +419,7 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xym(trans) # trimmed, transformed
             else:
                 star_list_T.transform_xy(trans) 
-            pdb.set_trace()
+
             # Match stars between the transformed, trimmed lists.
             idx1, idx2, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                              ref_list['x'], ref_list['y'], ref_list['m'],
@@ -1414,7 +1414,7 @@ class MosaicToRef(MosaicSelfRef):
                  default_motion_model='Fixed',
                  motion_model_dict={},
                  use_scipy=True,
-                 absolute_sigma=False,
+                 absolute_sigma=True,
                  save_path=None,
                  verbose=True):
 
