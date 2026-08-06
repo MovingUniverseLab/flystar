@@ -1,20 +1,8 @@
 import os
-import sys
-from pathlib import Path
-
-# 1. Calculate the absolute path to the parent directory
-parent_dir = str(Path(__file__).resolve().parent)
-
-# 2. Temporarily inject it into Python's search path
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
-
-import os
 import pickle
 import matplotlib.pyplot as plt
-import align, transforms, motion_model
-from plots import plot_stars
+from flystar import align, transforms, motion_model
+from flystar.plots import plot_stars
 
 branch = 'mm_rework'  # 'mm_compare' or 'mm_rework'
 
