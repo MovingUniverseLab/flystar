@@ -550,6 +550,7 @@ class StarTable(Table):
             absolute_sigma=True,
             method=None,
             select_stars=None,
+            keep_existing=True,
             bootstrap=0,
             seed=None,
             mask_value=None,
@@ -591,6 +592,8 @@ class StarTable(Table):
             Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
         select_stars : list of int, optional
             Indices of stars to fit, by default None (fit all stars)
+        keep_existing : bool, optional
+            Keep existing motion model results in the table, or set them to fill_value and Inf for stars not in select_stars, by default True
         bootstrap : int, optional
             Number of bootstrap samples for uncertainty resampling, by default 0
         seed : int, optional
@@ -878,7 +881,11 @@ class StarTable(Table):
         for col in new_col_list:
             if col in self.colnames:
                 # Keep old data if the column already exists
-                continue
+                if keep_existing:
+                    continue
+                else:
+                    self.remove_column(col)
+
             if col.endswith('_err'):
                 self.add_column(
                     Column(data=np.full(N_stars, np.inf, dtype=float), name=col),
