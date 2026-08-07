@@ -851,8 +851,12 @@ class MosaicSelfRef(object):
 
             ## Make plot, if desired
             if self.save_path:
+                if 't' in star_list_T.meta:
+                    plot_path = os.path.join(self.save_path, 'transformation_plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{star_list_T.meta['t']}.png")
+                elif 't' in star_list_T.colnames:
+                    plot_path = os.path.join(self.save_path, 'transformation_plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{star_list_T['t'][0]}.png")
                 plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                    save_path=os.path.join(self.save_path, 'plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{star_list_T['t'][0]}.png"),
+                                    save_path=plot_path,
                                     show_plot=False)
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
@@ -3701,6 +3705,7 @@ def trans_initial_guess(
     star_list,
     trans_args,
     mode='miracle',
+    indices=None,
     order=1,
     briteN=None,
     n_req_match=3,
@@ -3772,6 +3777,16 @@ def trans_initial_guess(
             polygon_starlist,
             buffer=buffer
         )
+    elif mode == 'indices':
+        idx_r, idx_s = indices
+        x1m = star_list['x'][idx_s]
+        y1m = star_list['y'][idx_s]
+        m1m = star_list['m'][idx_s]
+        x2m = ref_list['x'][idx_r]
+        y2m = ref_list['y'][idx_r]
+        m2m = ref_list['m'][idx_r]
+        N = len(indices)
+
     else:
         raise ValueError(f'flystar.align.trans_initial_guess: Unknown mode: {mode}. Must be one of ["name", "miracle"].')
 

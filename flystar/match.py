@@ -348,12 +348,9 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     y2 = np.array(y2, copy=False)
     m2 = np.array(m2, copy=False)
 
-    if not np.isfinite(x1).any(): raise ValueError('x1 does not contain any finite values!')
-    if not np.isfinite(y1).any(): raise ValueError('y1 does not contain any finite values!')
-    if not np.isfinite(m1).any(): raise ValueError('m1 does not contain any finite values!')
-    if not np.isfinite(x2).any(): raise ValueError('x2 does not contain any finite values!')
-    if not np.isfinite(y2).any(): raise ValueError('y2 does not contain any finite values!')
-    if not np.isfinite(m2).any(): raise ValueError('m2 does not contain any finite values!')
+    for val, name in zip([x1, y1, m1, x2, y2, m2], ['x1', 'y1', 'm1', 'x2', 'y2', 'm2']):
+        if not np.isfinite(val).any():
+            raise ValueError(f'{name} does not contain any finite values!')
 
     assert x1.shape == y1.shape, 'x1 and y1 do not match!'
     assert x2.shape == y2.shape, 'x2 and y2 do not match!'
