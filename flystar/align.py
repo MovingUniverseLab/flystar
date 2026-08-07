@@ -669,23 +669,15 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xy(trans)
 
             # Match stars between the transformed, trimmed lists.
-            if 'use_in_trans' in ref_list.colnames:
-                # Only use stars specified by "use_in_trans" column.
-                use_in_trans = ref_list['use_in_trans']
-                idx1, idx2, dr, dm = match.match(
-                    star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                    ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
-                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose
-                )
-                # Restore idx2 to the full reference list indices
-                idx2 = np.where(use_in_trans)[0][idx2]
-
-            else:
-                idx1, idx2, dr, dm = match.match(
-                    star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                    ref_list['x'], ref_list['y'], ref_list['m'],
-                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose
-                )
+            # Only use stars specified by "use_in_trans" column.
+            use_in_trans = ref_list['use_in_trans']
+            idx1, idx2, dr, dm = match.match(
+                star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
+                dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose
+            )
+            # Restore idx2 to the full reference list indices
+            idx2 = np.where(use_in_trans)[0][idx2]
 
             if self.verbose > 1:
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
@@ -774,6 +766,8 @@ class MosaicSelfRef(object):
                 m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                 weights=weight, mag_trans=self.mag_trans
             )
+            if np.isnan(trans.px.parameters).any() or np.isnan(trans.py.parameters).any():
+                raise ValueError(f"Derived transformation contains NaN parameters! Check your input data and tolerances.")
 
             # Save the final transformation.
             self.trans_list[ii] = trans
