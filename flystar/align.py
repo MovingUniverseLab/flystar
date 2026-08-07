@@ -754,7 +754,7 @@ class MosaicSelfRef(object):
                 idx2 = idx2[keepers]
 
             # Determine weights in the fit.
-            weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])            
+            weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
 
             # Derive the best-fit transformation parameters.
             if self.verbose > 1:
@@ -842,7 +842,7 @@ class MosaicSelfRef(object):
                 star_list_T.transform_xym(self.trans_list[ii])
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
-                
+
             if self.verbose > 7:
                 hdr = '{nr:20s} {n:s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
                 hdr += '{dx:7s} {dy:7s} {dm:6s} {xo:9s} {yo:9s} {mo:6s}'
@@ -913,7 +913,7 @@ class MosaicSelfRef(object):
                 print(msg1.format('dm', 'all stars', dm.mean(), dm.std()))  # ref_list - ref_table
 
                 # Calculate the residuals just for those used in the transformation
-                used = self.ref_table['used_in_trans'][:, ii])
+                used = np.where(self.ref_table['used_in_trans'][:, ii])[0]
                 used_good = used[np.isin(used, idx_ref)]
 
                 dr_u = np.hypot(ref_list['x'][used_good] - self.ref_table['x'][used_good, ii],
@@ -1547,7 +1547,7 @@ class MosaicSelfRef(object):
             ref_table = ref_table[idx_good]
             t0_arr = t0_arr[idx_good]
         else:
-            idx_good = np.arange(0, len(ref_table), 1)
+            idx_good = np.ones(len(ref_table), dtype=bool)
 
         # Initialize sums for output
         x_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
@@ -1601,8 +1601,8 @@ class MosaicSelfRef(object):
 
             for jj in range(n_epochs):
                 # Extract bootstrap sample of matched reference stars for this epoch
-                good = (ref_table['used_in_trans'][:,jj] == True) & (~np.isnan(ref_table['x_orig'][:,jj]))
-                samp_idx = rng.choice(good, sum(good), replace=True)
+                good = np.where(ref_table['used_in_trans'][:,jj] == True) & (~np.isnan(ref_table['x_orig'][:,jj]))[0]
+                samp_idx = rng.choice(good, len(good), replace=True)
 
                 # Get reference star positions in particular epoch from ref_list.
                 t_epoch = t_arr[jj]
