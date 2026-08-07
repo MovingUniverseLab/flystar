@@ -551,7 +551,7 @@ class MosaicSelfRef(object):
                 fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
                 xe_data[fill_with_one] = 1.
                 ye_data[fill_with_one] = 1.
-            
+
             if np.ndim(x_data) == 1:
                 x_data = x_data[:, np.newaxis]
             if np.ndim(y_data) == 1:
@@ -657,7 +657,7 @@ class MosaicSelfRef(object):
                     buffer=dr_tol,
                     motion_models=self.motion_models,
                     fixed_params_dict=self.fixed_params_dict,
-                    mag_trans=self.mag_trans,                    
+                    mag_trans=self.mag_trans,
                     verbose=self.verbose
                 )
                 if np.isnan(trans.px.parameters).any() or np.isnan(trans.py.parameters).any():
@@ -687,7 +687,7 @@ class MosaicSelfRef(object):
             # unmatched_starlist = np.array([True if i not in idx1 else False for i in range(len(star_list_T))])
             # unmatched_ref = np.array([True if i not in idx2 else False for i in range(len(ref_list))])
             # use_in_trans = ref_list[idx2]['use_in_trans']
-            
+
             # fig = go.Figure()
             # plotly_stars(
             #     x=star_list_T['x'][unmatched_starlist],
@@ -781,7 +781,7 @@ class MosaicSelfRef(object):
                 idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
                                                    dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-                
+
                 # Let's look at just the ref stars used in the transformation, which are idx1 and idx2
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
                                                           outlier_tol)
@@ -800,7 +800,7 @@ class MosaicSelfRef(object):
                         for jj in outlier_names:
                             print('{0}'.format(jj))
                         print('=========================')
-                    
+
                     # Update set of ref stars (indices are idx1, idx2 here, to be compatible downstream)
                     idx1 = idx1[keepers]
                     idx2 = idx2[keepers]
@@ -811,7 +811,7 @@ class MosaicSelfRef(object):
                     # Redo transformation
                     if self.verbose > 1:
                         print( 'Recalculating trans after outlier reject. Using ', len(idx1), ' stars in transformation.' )
-                    trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
+                    trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
                                                       **trans_args,
                                                       m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
@@ -852,7 +852,7 @@ class MosaicSelfRef(object):
                                      ml='m_lis_T', mr='m_ref',
                                      dx='dx_mpix', dy='dy_mpix', dm='dm',
                                      xo='x_orig', yo='y_orig', mo='m_orig'))
-                
+
                 fmt = '{nr:20s} {n:s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
                 fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
                 for foo in range(len(idx1)):
@@ -930,7 +930,7 @@ class MosaicSelfRef(object):
             # if self.save_path:
             #     with open(os.path.join(self.save_path, f"{self.prefix_name}_iter.pkl"), 'wb') as file:
             #         pickle.dump(self, file)
-                
+
         return
 
     def setup_trans_info(self):
@@ -2293,12 +2293,12 @@ class MosaicToRef(MosaicSelfRef):
             # This updates trans objects and the ref_table.
             self.match_and_transform(
                 self.ref_mag_lim,
-                self.dr_tol[nn], 
-                self.dm_tol[nn], 
+                self.dr_tol[nn],
+                self.dm_tol[nn],
                 self.outlier_tol[nn],
-                self.trans_args[nn], 
-                nn, 
-                processes=processes, 
+                self.trans_args[nn],
+                nn,
+                processes=processes,
                 chunksize=chunksize
             )
 
@@ -2322,7 +2322,7 @@ class MosaicToRef(MosaicSelfRef):
         #        First reset the reference table 2D values.
         ##########
         self.reset_ref_values(exclude=['used_in_trans'])
-        
+
         if self.verbose > 0:
             print("**********")
             print("Final Matching")
@@ -2389,7 +2389,7 @@ class MosaicToRef(MosaicSelfRef):
                 fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
                 xe_data[fill_with_one] = 1.
                 ye_data[fill_with_one] = 1.
-            
+
             if np.ndim(x_data) == 1:
                 x_data = x_data[:, np.newaxis]
             if np.ndim(y_data) == 1:
@@ -2608,7 +2608,7 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
             ))
             motion_model_used = [result[0] for result in results]
             n_params = [result[1] for result in results]
-        
+
     return motion_model_used, n_params
 
 
@@ -2805,7 +2805,7 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
 
         for col_name in ref_table.colnames:
             new_col_name = col_name
-            
+
             if col_name in fixed_params_dict.keys():
                 new_col_empty = fixed_params_dict[col_name]
             elif col_name=='n_params':
@@ -2830,7 +2830,7 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
 
             new_col_data = Column(
                 data=np.tile(new_col_empty, new_col_shape),
-                name=col_name, 
+                name=col_name,
                 dtype=ref_table[col_name].dtype
             )
 
