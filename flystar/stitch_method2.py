@@ -1,7 +1,7 @@
-from flystar import starlists,plots,match,align,analysis, transforms
 import numpy as np
-from astropy.table import vstack, Table
 import pandas as pd
+from astropy.table import Table
+from flystar import starlists, match, align, transforms
 
 def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2, N_loop=2,
           dr_tol=1.0, briteN=None, weights='both'):

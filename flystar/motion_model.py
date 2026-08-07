@@ -1,9 +1,9 @@
+import warnings
 import numpy as np
 from abc import ABC
 from flystar import parallax
 from astropy.time import Time
 from scipy.optimize import curve_fit, OptimizeWarning
-import warnings
 
 class MotionModel(ABC):
     name = "MotionModel"
@@ -86,14 +86,14 @@ class MotionModel(ABC):
             return np.full(self.n_fit_params, fill_value), np.full(self.n_fit_params, np.inf), np.nan, np.nan
         return np.full(self.n_fit_params, fill_value), np.full(self.n_fit_params, np.inf)
 
-    def calc_weights(self, xe, ye, weighting='var'):
+    def calc_sigma(self, xe, ye, weighting='var'):
         if weighting=='std':
-            return 1./xe, 1./ye
+            return np.sqrt(np.abs(xe)), np.sqrt(np.abs(ye))
         elif weighting=='var':
-            return 1./xe**2, 1./ye**2
+            return np.abs(xe), np.abs(ye)
         else:
             warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
-            return 1./xe**2, 1./ye**2
+            return np.abs(xe), np.abs(ye)
 
     def fit(
         self, t, x, y, xe, ye,
@@ -151,16 +151,10 @@ class MotionModel(ABC):
         params, param_errs(, chi2_x, chi2_y)
             Parameters, uncertainties, and chi squares if return_chi2 is True. The corresponding parameter names are in self.fit_param_names.
         """
-        assert np.ndim(t) == 1, f"Input time array must be 1D! Got shape {np.shape(t)}"
-        assert np.ndim(x) == 1, f"Input x array must be 1D! Got shape {np.shape(x)}"
-        assert np.ndim(y) == 1, f"Input y array must be 1D! Got shape {np.shape(y)}"
-        assert np.ndim(xe) == 1, f"Input xe array must be 1D! Got shape {np.shape(xe)}"
-        assert np.ndim(ye) == 1, f"Input ye array must be 1D! Got shape {np.shape(ye)}"
-
-        assert len(t) == len(x), f'Input x must have the same length as t! Got len(t)={len(t)}, len(x)={len(x)}'
-        assert len(t) == len(y), f'Input y must have the same length as t! Got len(t)={len(t)}, len(y)={len(y)}'
-        assert len(t) == len(xe), f'Input xe must have the same length as t! Got len(t)={len(t)}, len(xe)={len(xe)}'
-        assert len(t) == len(ye), f'Input ye must have the same length as t! Got len(t)={len(t)}, len(ye)={len(ye)}'
+        for variable, name in zip([t, x, y, xe, ye], ['t', 'x', 'y', 'xe', 'ye']):
+            assert np.ndim(variable) == 1, f"Input {name} array must be 1D! Got shape {np.shape(variable)}"
+            if name != 't':
+                assert len(t) == len(variable), f'Input {name} must have the same length as t! Got len(t)={len(t)}, len({name})={len(variable)}'
 
         if not verbose:
             warnings.filterwarnings("ignore", category=OptimizeWarning)
@@ -524,13 +518,14 @@ class Fixed(MotionModel):
 
         # degree_of_freedom >= 0
         # Calculate weighted average position
-        x_wt, y_wt = self.calc_weights(xe, ye, weighting=weighting)
-        x_wt_norm = x_wt / np.sum(x_wt)
-        y_wt_norm = y_wt / np.sum(y_wt)
+        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
+        x_wt, y_wt = 1. / sigma_x**2, 1. / sigma_y**2
         x0 = np.average(x, weights=x_wt)
-        x0e = (np.sum(x_wt_norm**2 * xe**2))**0.5  # Error propagation
+        # x0e = (np.sum(x_wt_norm**2 * xe**2))**0.5  # Error propagation
+        x0e = 1. / np.sum(x_wt)**0.5  # Error propagation
         y0 = np.average(y, weights=y_wt)
-        y0e = (np.sum(y_wt_norm**2 * ye**2))**0.5  # Error propagation
+        # y0e = (np.sum(y_wt_norm**2 * ye**2))**0.5  # Error propagation
+        y0e = 1. / np.sum(y_wt)**0.5  # Error propagation
 
         params = np.array([x0, y0])
         param_errors = np.array([x0e, y0e])
@@ -703,13 +698,15 @@ class Linear(MotionModel):
 
         # degree_of_freedom >= 0
         dt = t - t0
-        x_wt, y_wt = self.calc_weights(xe, ye, weighting=weighting)
+        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
+        x_wt, y_wt = 1. / sigma_x**2, 1. / sigma_y**2
+
         if params_guess is None:
             params_guess = [x.mean(), 0., y.mean(), 0.]
 
         if use_scipy:
-            x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:2]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, full_output=True, method=method)
-            y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[2:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, full_output=True, method=method)
+            x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:2]), sigma=sigma_x, absolute_sigma=absolute_sigma, full_output=True, method=method)
+            y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[2:]), sigma=sigma_y, absolute_sigma=absolute_sigma, full_output=True, method=method)
             x0, vx = x_opt
             y0, vy = y_opt
             x0e, vxe = np.sqrt(x_cov.diagonal())
@@ -951,15 +948,15 @@ class Acceleration(MotionModel):
 
         # degree_of_freedom >= 0
         dt = t - t0
-        x_wt, y_wt = self.calc_weights(xe,ye, weighting=weighting)
+        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
         if params_guess is None:
             # Initial guess for velocity:
             idx_first, idx_last = np.argmin(t), np.argmax(t)
             t_span = t[idx_last] - t[idx_first]
             params_guess = [x.mean(), (x[idx_last] - x[idx_first]) / t_span, 0., y.mean(), (y[idx_last] - y[idx_first]) / t_span, 0.]
 
-        x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=1/x_wt**0.5, absolute_sigma=absolute_sigma, full_output=True, method=method)
-        y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=1/y_wt**0.5, absolute_sigma=absolute_sigma, full_output=True, method=method)
+        x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=sigma_x, absolute_sigma=absolute_sigma, full_output=True, method=method)
+        y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=sigma_y, absolute_sigma=absolute_sigma, full_output=True, method=method)
         x0, vx0, ax = x_opt
         y0, vy0, ay = y_opt
         x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
@@ -1205,7 +1202,6 @@ class Parallax(MotionModel):
         # degree_of_freedom >= 0
         t_mjd = Time(t, format='decimalyear', scale='utc').mjd
         self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (2, N_times)
-        x_wt, y_wt = self.calc_weights(xe, ye, weighting=weighting)
 
         # Initial guesses, x0,y0 as x,y averages;
         #     vx,vy as average velocity if first and last points are perfectly measured;
@@ -1219,15 +1215,7 @@ class Parallax(MotionModel):
                 0.1
             ])
 
-        # Convert weights to 1-sigma uncertainties for curve_fit.
-        # calc_weights returns w = 1/sigma^2 for 'var' and w = 1/sigma for 'std'.
-        if weighting == 'std':
-            sigma_x = 1.0 / x_wt
-            sigma_y = 1.0 / y_wt
-        else:
-            sigma_x = 1.0 / np.sqrt(x_wt)
-            sigma_y = 1.0 / np.sqrt(y_wt)
-
+        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
         popt, pcov, infodict, mesg, ier = curve_fit(
             self._model_fit, t - t0, np.hstack([x, y]),
             p0=params_guess, sigma=np.hstack([sigma_x, sigma_y]),

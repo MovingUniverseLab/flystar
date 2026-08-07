@@ -1,5 +1,5 @@
 import numpy as np
-from . import transforms, match, align, starlists, plots
+from flystar import transforms, match, align, starlists, plots
 
 
 def align_example(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,

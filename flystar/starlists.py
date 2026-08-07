@@ -1,8 +1,7 @@
-import numpy as np
-from astropy.table import Table, Column, MaskedColumn
-import astropy.table
 import warnings
-import pdb
+import numpy as np
+import astropy.table
+from astropy.table import Table, Column, MaskedColumn
 
 try:
     set

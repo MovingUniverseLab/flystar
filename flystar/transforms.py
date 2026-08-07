@@ -1,13 +1,13 @@
-from astropy.modeling import models, fitting
-import numpy as np
-from scipy.interpolate import LSQBivariateSpline as spline
-from scipy import stats
-from astropy.table import Table
-import collections
 import re
 import copy
 import datetime
-from . import motion_model
+import numpy as np
+import collections
+from flystar import motion_model
+from astropy.table import Table
+from astropy.modeling import models, fitting
+from scipy import stats
+from scipy.interpolate import LSQBivariateSpline as spline
 
 class Transform2D(object):
     '''

@@ -1,19 +1,15 @@
 # Parallax calculation module for motion models involving parallax
 # Adapted from BAGLE's parallax.py
 
-import math
-
+import os
 import numpy as np
 from joblib import Memory
-import os
+from astropy.time import Time
 from astropy import units, units as u
 from astropy.coordinates import SkyCoord, get_body_barycentric, get_body_barycentric_posvel, solar_system_ephemeris, \
     CartesianRepresentation
-from astropy.time import Time
 
-# Use the JPL ephemerides.
-solar_system_ephemeris.set('jpl')
-
+# FIXME: Do we still need this?
 # Setup a parallax cache
 try:
     cache_dir = os.environ['PARALLAX_CACHE_DIR']
@@ -110,7 +106,7 @@ def get_observer_barycentric(body, times, min_ephem_step=1, velocity=False):
         Minimum time step to query JPL in days. Must not be <1 and must
         be in integer days.
 
-    veloctiy : bool
+    velocity : bool
         If true, return both position and velocity vectors over time.
 
     Return
@@ -119,6 +115,8 @@ def get_observer_barycentric(body, times, min_ephem_step=1, velocity=False):
         The xyz coordinates in the plane of the Solar System at the
         input times.
     """
+    # Use the JPL ephemerides.
+    solar_system_ephemeris.set('jpl')
 
     if body in solar_system_ephemeris.bodies:
         if velocity:
