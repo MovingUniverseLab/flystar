@@ -1601,7 +1601,7 @@ class MosaicSelfRef(object):
 
             for jj in range(n_epochs):
                 # Extract bootstrap sample of matched reference stars for this epoch
-                good = np.where(ref_table['used_in_trans'][:,jj] == True) & (~np.isnan(ref_table['x_orig'][:,jj]))[0]
+                good = np.where((ref_table['used_in_trans'][:,jj] == True) & (~np.isnan(ref_table['x_orig'][:,jj])))[0]
                 samp_idx = rng.choice(good, len(good), replace=True)
 
                 # Get reference star positions in particular epoch from ref_list.

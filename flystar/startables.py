@@ -613,7 +613,7 @@ class StarTable(Table):
         verbose : bool, optional
             Print verbose messages or not, by default True
 
-            
+
         Raises
         ------
         ValueError
@@ -769,7 +769,7 @@ class StarTable(Table):
             valid_xy &= ~ (xe_data.mask | ye_data.mask)
 
         # Calculate n_fit: unmasked x y values
-        # This will be used to determine which motion model to use for each star. 
+        # This will be used to determine which motion model to use for each star.
         # Note that we don't require unique times here
         # as scipy.curve_fit and Linear algebra can fit non-unique times.
         # self['n_fit'] = np.sum(valid_xy, axis=1)
@@ -1005,7 +1005,7 @@ class StarTable(Table):
                                 arguments,
                                 desc=f"Fitting motion model {unique_motion_model} with {processes} processes",
                                 disable=not verbose
-                            ), 
+                            ),
                             chunksize=chunksize
                         ))
 
@@ -1098,7 +1098,7 @@ class StarTable(Table):
         # Calculate the dictionary of {motion_model: indices of stars with this motion model} for faster access during prediction
         unique_motion_models, unique_inv_indices = np.unique(self['motion_model_used'], return_inverse=True)
         indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
-        
+
         mm_map = motion_model.motion_model_map()
         # Prepare fit_params, fixed_params, fit_param_errs for each star
         for unique_motion_model, unique_index in indices_by_motion_model.items():
@@ -1330,8 +1330,8 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed
 # Helper function to fit motion model for each star for multiprocessing
 def fit_motion_model(
     motion_model_instance,
-    t, x, y, xe, ye, 
-    fixed_params_dict, 
+    t, x, y, xe, ye,
+    fixed_params_dict,
     weighting,
     use_scipy,
     absolute_sigma,

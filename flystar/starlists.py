@@ -512,8 +512,7 @@ class StarList(Table):
         else:
             # If we have errors, we need them in both dimensions.
             if ('xe' in kwargs) ^ ('ye' in kwargs):
-                raise TypeError("The StarList class requires both 'xe' and" +
-                                " 'ye' arguments")
+                raise TypeError("The StarList class requires both 'xe' and 'ye' arguments")
 
             # Figure out the shape
             n_stars = kwargs['x'].shape[0]
@@ -523,9 +522,7 @@ class StarList(Table):
             kwargs['name'] = np.asarray(kwargs['name'])
             if (not isinstance(kwargs['name'], np.ndarray)) or (
                 len(kwargs['name']) != n_stars):
-                err_msg = "The '{0:s}' argument has to be a numpy array "
-                err_msg += "with length = {1:d}"
-                raise TypeError(err_msg.format('name', n_stars))
+                raise TypeError(f"The 'name' argument has to be a numpy array with length {n_stars}, but has type {type(kwargs['name'])} and length {len(kwargs['name'])}")
 
             # Check all the arrays.
             arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'corr')
@@ -535,12 +532,10 @@ class StarList(Table):
             for arg_test in arg_tab:
                 if arg_test in kwargs:
                     if not isinstance(kwargs[arg_test], np.ndarray):
-                        err_msg = "The '{0:s}' argument has to be a numpy array"
-                        raise TypeError(err_msg.format(arg_test))
+                        raise TypeError(f"The '{arg_test:s}' argument has to be a numpy array")
 
                     if kwargs[arg_test].shape != (n_stars,):
-                        err_msg = "The '{0:s}' argument has to have shape = ({1:d},), but has shape = {2}"
-                        raise TypeError(err_msg.format(arg_test, n_stars, kwargs[arg_test].shape))
+                        raise TypeError(f"The '{arg_test:s}' argument has to have shape ({n_stars:d},), but has shape {kwargs[arg_test].shape}")
 
             # We have to have special handling of meta-data
             meta_tab = ('list_time', 'list_name')
@@ -552,9 +547,7 @@ class StarList(Table):
                 if meta_test in kwargs:
 
                     if not isinstance(kwargs[meta_test], meta_type_test):
-                        err_msg = "The '{0:s}' argument has to be a {1:s}."
-                        raise TypeError(
-                            err_msg.format(meta_test, str(meta_type_test)))
+                        raise TypeError(f"The '{meta_test:s}' argument has to be a {meta_type_test:s}, but has type {type(kwargs[meta_test])}")
 
             #####
             # Create the starlist

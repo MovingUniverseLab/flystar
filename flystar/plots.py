@@ -3734,7 +3734,7 @@ def plot_errors_vs_r_m(star_tab, vmax_perr=0.75, vmax_pmerr=0.75):
     plt.scatter(star_tab['m0'], r, c=p_err, s=8, vmin=0, vmax=vmax_perr)
     plt.colorbar(label='Pos Err (mas)')
     plt.xlabel('Mag')
-    plt.ylabel('Radius (")')    
+    plt.ylabel('Radius (")')
 
     plt.subplot(1, 2, 2)
     plt.scatter(star_tab['m0'], r, c=pm_err, s=8, vmin=0, vmax=vmax_pmerr)
@@ -4040,7 +4040,7 @@ def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=
     x = np.asarray(x)
     y = np.asarray(y)
     hover_template = 'x: %{x:.3f}<br>y: %{y:.3f}'
-        
+
     if isinstance(color, str) and color.startswith('C') and color[1:].isdigit():
         color = mcolors.to_rgba(color, alpha=alpha)
         color = f'rgba({color[0]*255}, {color[1]*255}, {color[2]*255}, {color[3]:.2f})'
@@ -4077,14 +4077,14 @@ def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=
         hovertemplate=hover_template,
         name=label
     )
-    
+
     if fig is None:
         fig = go.Figure(data=[fig_data])
         show = True if show is None else show
     else:
         fig.add_trace(fig_data)
         show = False if show is None else show
-    
+
     fig.update_layout(
         xaxis_title=xlabel,
         yaxis_title=ylabel,

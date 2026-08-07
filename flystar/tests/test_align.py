@@ -157,7 +157,7 @@ def test_MosaicSelfRef_vel():
     # Test instantiation and basic fitting.
     ##########
     msc = align.MosaicSelfRef(lists, ref_index=0, iters=3,
-                              dr_tol=[5, 3, 3], dm_tol=[1, 1, 0.5], outlier_tol=None, briteN=30, 
+                              dr_tol=[5, 3, 3], dm_tol=[1, 1, 0.5], outlier_tol=None, briteN=30,
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2}, motion_models=['Empty', 'Fixed', 'Linear'],
                               verbose=False)
@@ -525,7 +525,7 @@ def test_MosaicToRef_hst_me():
         update_ref_orig=False,
         mag_trans=False,
         trans_weights='both,std',
-        init_guess_mode='miracle', 
+        init_guess_mode='miracle',
         # save_path=f'{test_data_path}/mb10364_data/test_MosaicToRef_hst_me.pkl',
         verbose=False
     )
@@ -869,8 +869,8 @@ def test_masked_cols():
     }
 
     # Get gaia catalog stars. Note that this produces a masked column table
-    search_rad = 10.0   # arcsec
-    gaia = analysis.query_gaia(ra, dec, search_radius=search_rad)
+    search_radius = 10.0   # arcsec
+    gaia = analysis.query_gaia(ra, dec, search_radius=search_radius)
     my_gaia = analysis.prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=targets_dict)
 
     assert isinstance(my_gaia, Table)
@@ -1459,11 +1459,11 @@ if __name__ == '__main__':
                         dr_tol=[0.2, 0.1, 0.08], dm_tol=[5,5,5],
                         outlier_tol=[None, None, 3], mag_lim=[6, 20],
                         trans_class=transforms.PolyTransform,
-                        trans_args=[{'order': 1}, {'order': 1}, {'order': 1}], 
+                        trans_args=[{'order': 1}, {'order': 1}, {'order': 1}],
                         motion_models=['Linear','Parallax'],
                         fixed_params_dict = {'ra':ra_deg, 'dec':dec_deg, 'pa':0.0, 'obsLocation':'earth'},
                         use_ref_new=True,
-                        update_ref_orig=False, 
+                        update_ref_orig=False,
                         mag_trans=True,
                         trans_weights='both,std',
                         init_guess_mode='name', verbose=3)

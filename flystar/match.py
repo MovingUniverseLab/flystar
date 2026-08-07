@@ -4,13 +4,13 @@ from collections import Counter
 from scipy.spatial import KDTree as KDT
 
 
-def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite, 
+def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
                          polygon1=None, polygon2=None, buffer=0, Nbins_vmax=200, Nbins_angle=360,verbose=False):
     """
     Take two input starlists and select the <Nbrite> brightest stars from
     each. Then perform a triangle matching algorithm along the lines of
     Groth 1986.
-    
+
     For every possible triangle (combination of 3 stars) in a starlist,
     compute the ratio of two sides and the angle between those sides.
     These quantities are invariant under scale and rotation transformations.
@@ -90,7 +90,7 @@ def miracle_match_briteN(xin1, yin1, min1, xin2, yin2, min2, Nbrite,
     #     in_overlap2 = (xin2 >= x_overlap[0]) & (xin2 <= x_overlap[1]) & (yin2 >= y_overlap[0]) & (yin2 <= y_overlap[1])
     #     if sum(in_overlap1) < Nbrite or sum(in_overlap2) < Nbrite:
     #         raise ValueError(
-    #             'Not enough stars in the overlapping region to find matches!\n' + 
+    #             'Not enough stars in the overlapping region to find matches!\n' +
     #             f'Stars in overlap for list 1: {sum(in_overlap1)}\n' +
     #             f'Stars in overlap for list 2: {sum(in_overlap2)}\n'
     #         )
@@ -288,7 +288,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     For two stars to be matched, they must be within a specified radius (dr_tol) and
     delta-magnitude (dm_tol). For stars with more than 1 neighbor (within the tolerances),
     if one is found that is the best match in both brightness and positional offsets
-    (closest in both), then the match is made. 
+    (closest in both), then the match is made.
     Otherwise, their is a conflict and no match is returned for the star.
 
 
