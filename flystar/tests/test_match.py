@@ -1,4 +1,4 @@
-from flystar import match, starlists, transforms
+from flystar import align, match, starlists, transforms
 import numpy as np
 import pdb
 from astropy.table import Table
@@ -173,14 +173,9 @@ def test_generic_match():
     starlist1 = starlists.StarList.from_table(list1)
     starlist2 = starlists.StarList.from_table(list2)
 
-    out = match.generic_match(starlist1, starlist2, init_mode='triangle',
+    out = align.generic_match(starlist1, starlist2, init_mode='triangle',
                               model=transforms.PolyTransform, order_dr=(1, 1.0),
                               dr_final=1.0,
                               xy_match=(None, None, None, None, None, None, None, None),
                               m_match=(None, None, None, None), sigma_match=None,
                               n_bright=8, verbose=True)
-
-if __name__ == '__main__':
-    # test_match_duplicates()
-    # test_miracle_match_briteN()
-    test_generic_match()
