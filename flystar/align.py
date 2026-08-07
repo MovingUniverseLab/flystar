@@ -838,7 +838,7 @@ class MosaicSelfRef(object):
             ## Make plot, if desired
             if self.save_path:
                 plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                    save_path=os.path.join(self.save_path, 'plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{star_list_T['t'][0]}.png"),
+                                    save_path=os.path.join(self.save_path, 'transformation_plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{star_list_T['t'][0]}.png"),
                                     show_plot=False)
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
