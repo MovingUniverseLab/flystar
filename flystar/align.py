@@ -204,10 +204,10 @@ class MosaicSelfRef(object):
         self.verbose = verbose
 
         # For backwards compatibility.
-        if self.verbose is True:
-            self.verbose = 9
-        if self.verbose is False:
-            self.verbose = 0
+        # if self.verbose is True:
+        #     self.verbose = 9
+        # if self.verbose is False:
+        #     self.verbose = 0
             
         self.N_lists = len(self.star_lists)
 

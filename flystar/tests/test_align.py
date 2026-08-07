@@ -19,7 +19,7 @@ def test_MosaicSelfRef():
     msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
                               dr_tol=[3, 3], dm_tol=[1, 1],
                               trans_class=transforms.PolyTransform,
-                              verbose=False,
+                              verbose=2,
                               trans_args={'order': 2})
 
     msc.fit()
@@ -168,7 +168,7 @@ def test_MosaicSelfRef_vel():
                               dr_tol=[5, 3, 3], dm_tol=[1, 1, 0.5], outlier_tol=None,
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2}, default_motion_model='Linear',
-                              verbose=False)
+                              verbose=2)
 
     msc.fit()
     
@@ -1418,3 +1418,6 @@ def test_masked_cols():
     msc.fit()
 
     return
+
+if __name__ == "__main__":
+    test_MosaicSelfRef_vel()
