@@ -503,23 +503,23 @@ class StarList(Table):
                 found_all_required = False
 
         if not found_all_required:
-            if not ('copy' in kwargs) | ('names' in kwargs.keys()) | \
-                ('masked' in kwargs.keys()): # If it's not making a copy of the
-                # StarList or replacing columns or selecting from slices
+            if not any(key in kwargs for key in ['copy', 'names', 'masked']): 
+                # If it's not making a copy of the StarList or replacing columns or selecting from slices
                 err_msg = "The StarList class requires a arguments" + str(arg_req)
                 warnings.warn(err_msg, UserWarning)
-            Table.__init__(self, *args, **kwargs)
+            super().__init__(*args, **kwargs)
         else:
             # If we have errors, we need them in both dimensions.
             if ('xe' in kwargs) ^ ('ye' in kwargs):
                 raise TypeError("The StarList class requires both 'xe' and 'ye' arguments")
 
             # Figure out the shape
+            kwargs['x'] = np.array(kwargs['x'])
             n_stars = kwargs['x'].shape[0]
 
             # Check if the type and size of the arguments are correct.
             # Name checking: type and shape
-            kwargs['name'] = np.asarray(kwargs['name'])
+            kwargs['name'] = np.array(kwargs['name'])
             if (not isinstance(kwargs['name'], np.ndarray)) or (
                 len(kwargs['name']) != n_stars):
                 raise TypeError(f"The 'name' argument has to be a numpy array with length {n_stars}, but has type {type(kwargs['name'])} and length {len(kwargs['name'])}")
@@ -531,28 +531,21 @@ class StarList(Table):
 
             for arg_test in arg_tab:
                 if arg_test in kwargs:
-                    if not isinstance(kwargs[arg_test], np.ndarray):
-                        raise TypeError(f"The '{arg_test:s}' argument has to be a numpy array")
-
+                    kwargs[arg_test] = np.array(kwargs[arg_test])
                     if kwargs[arg_test].shape != (n_stars,):
-                        raise TypeError(f"The '{arg_test:s}' argument has to have shape ({n_stars:d},), but has shape {kwargs[arg_test].shape}")
+                        raise ValueError(f"The '{arg_test:s}' argument has to match the shape of x ({n_stars:d},), but has shape {kwargs[arg_test].shape}")
 
             # We have to have special handling of meta-data
             meta_tab = ('list_time', 'list_name')
             meta_type = ((float, int), str)
-            for mm in range(len(meta_tab)):
-                meta_test = meta_tab[mm]
-                meta_type_test = meta_type[mm]
-
-                if meta_test in kwargs:
-
-                    if not isinstance(kwargs[meta_test], meta_type_test):
-                        raise TypeError(f"The '{meta_test:s}' argument has to be a {meta_type_test:s}, but has type {type(kwargs[meta_test])}")
+            for mtab, mtype in zip(meta_tab, meta_type):
+                if (mtab in kwargs) and (not isinstance(kwargs[mtab], mtype)):
+                    raise TypeError(f"The '{mtab:s}' argument has to be a {mtype:s}, but has type {type(kwargs[mtab])}")
 
             #####
             # Create the starlist
             #####
-            Table.__init__(self,
+            super().__init__(
                            (kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
                            names=('name', 'x', 'y', 'm'))
             self.meta = {'n_stars': n_stars}
@@ -565,8 +558,7 @@ class StarList(Table):
                 if arg in ['name', 'x', 'y', 'm']:
                     continue
                 if arg in kwargs:
-                    # 2022-08-25: Need to explicitly add MaskedColumn if
-                    # data is masked
+                    # 2022-08-25: Need to explicitly add MaskedColumn if data is masked
                     if isinstance(kwargs[arg], MaskedColumn):
                         self.add_column(MaskedColumn(data=kwargs[arg], name=arg))
                     else:
@@ -823,5 +815,4 @@ def write_starlist(list, outfile):
     list.rename_column(new_name_hdr, 'name')
 
     return outfile
-
 

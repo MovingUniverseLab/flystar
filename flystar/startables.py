@@ -123,24 +123,19 @@ class StarTable(Table):
             # We have to have special handling of meta-data (i.e. info that has
             # dimensions of n_lists).
             meta_tab = ('list_times', 'list_names')
-            meta_tab = ('list_times', 'list_names')
             meta_type = ((float, int), str)
-            for mm in range(len(meta_tab)):
-                meta_test = meta_tab[mm]
-                meta_type_test = meta_type[mm]
+            for mtab, mtype in zip(meta_tab, meta_type):
+                if mtab in kwargs:
+                    kwargs[mtab] = list(kwargs[mtab])  # Convert to list, as astropy.Table doesn't like numpy arrays in meta-data.
+                    if len(kwargs[mtab]) != n_lists:
+                        raise ValueError(f"The '{mtab}' argument has to have length = {n_lists}")
+                    if not all(isinstance(tt, mtype) for tt in kwargs[mtab]):
+                        raise TypeError(f"The '{mtab}' argument has to be a list of {str(mtype)}.")
 
-                if meta_test in kwargs:
-                    if len(kwargs[meta_test]) != n_lists:
-                        err_msg = f"The '{meta_test}' argument has to have length = {n_lists}"
-                        raise ValueError(err_msg)
-
-                    if not all(isinstance(tt, meta_type_test) for tt in kwargs[meta_test]):
-                        err_msg = f"The '{meta_test}' argument has to be a list of {str(meta_type_test)}."
-                        raise TypeError(err_msg)
             #####
             # Create the startable
             #####
-            Table.__init__(self, (kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
+            super().__init__((kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
                            names=('name', 'x', 'y', 'm'))
             self['name'] = self['name'].astype('U20')
             self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
@@ -218,6 +213,17 @@ class StarTable(Table):
                 else:                               # Add junk data it if wasn't input
                     self._set_invalid_list_values(col_name, -1)
 
+        # Special case for list_times: Update 't' column in startable
+        if ('list_time' in starlist.meta):
+            if 't' not in self.colnames:
+                self.add_column(Column(data=np.full((len(self), 1), starlist.meta['list_time']), name='t'))
+            else:
+                old_data = self['t'].data
+                old_type = self['t'].info.dtype
+                new_data = np.empty((old_data.shape[0], old_data.shape[1] + 1), dtype=old_type)
+                new_data[:, :-1] = old_data
+                self['t'] = new_data
+                self['t'][:, -1] = starlist.meta['list_time']
 
         ##########
         # Update the table meta-data. Remember that entries are lists not numpy arrays.
@@ -234,13 +240,13 @@ class StarTable(Table):
             # Meta table entries with a size that matches the n_lists size are the ones
             # that need a new value. We have to add something... whatever was passed in or None
             if isinstance(self.meta[tab_key], Iterable) and (len(self.meta[tab_key]) == self.meta['n_lists']) and (not isinstance(self.meta[tab_key], str)):
-
                 # If we find the key in the starlists' meta argument, then add the new values.
                 # Otherwise, add "None".
+                self.meta[tab_key] = list(self.meta[tab_key])  # Convert to list, as astropy.Table doesn't like numpy arrays in meta-data.
                 idx = lis_meta_keys_plural.index(tab_key) if tab_key in lis_meta_keys_plural else None
                 if idx is not None:
                     lis_key = lis_meta_keys[idx]
-                    self.meta[tab_key] = np.append(self.meta[tab_key], [starlist.meta[lis_key]])
+                    self.meta[tab_key].append(starlist.meta[lis_key])
                 else:
                     self._append_invalid_meta_values(tab_key)
 
@@ -293,10 +299,11 @@ class StarTable(Table):
             if isinstance(self.meta[key], Iterable) and (len(self.meta[key]) == self.meta['n_lists']) and (not isinstance(self.meta[key], str)):
                 # If we find the key is the passed in meta argument, then add the new values.
                 # Otherwise, add "None".
+                self.meta[key] = list(self.meta[key])  # Convert to list, as astropy.Table doesn't like numpy arrays in meta-data.
                 if 'meta' in kwargs:
                     new_meta_keys = kwargs['meta'].keys()
                     if key in new_meta_keys:
-                        self.meta[key] = np.append(self.meta[key], [kwargs['meta'][key]])
+                        self.meta[key].append(kwargs['meta'][key])
                     else:
                         self._append_invalid_meta_values(key)
                 else:
@@ -341,13 +348,13 @@ class StarTable(Table):
         add an invalid value depending on the type.
         """
         if issubclass(type(self.meta[key][0]), np.integer):
-            self.meta[key] = np.append(self.meta[key], [-1])
+            self.meta[key].append(-1)
         elif issubclass(type(self.meta[key][0]), np.floating):
-            self.meta[key] = np.append(self.meta[key], [np.nan])
+            self.meta[key].append(np.nan)
         elif issubclass(type(self.meta[key][0]), str):
-            self.meta[key] = np.append(self.meta[key], [''])
+            self.meta[key].append('')
         else:
-            self.meta[key] = np.append(self.meta[key], [None])
+            self.meta[key].append(None)
 
         # Print a warning message:
         err_msg = "StarTable.add_starlist(): Missing meta keyword: {0:s}".format(key)
