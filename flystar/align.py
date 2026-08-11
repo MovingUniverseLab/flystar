@@ -23,13 +23,13 @@ class MosaicSelfRef(object):
             starlist_vertices=None,
             # Alignment parameters
             ref_index=0,
-            iters=2,
-            dr_tol=[1, 1],
-            dm_tol=[2, 1],
+            iters=1,
+            dr_tol=[1.],
+            dm_tol=[1.],
             outlier_tol=None,
             # Transformation parameters
             trans_class=transforms.PolyTransform,
-            trans_args=[{'order': 2}, {'order': 2}],
+            trans_args=[{'order': 1}],
             trans_input=None,
             trans_weights=None,
             init_order=1,
@@ -261,10 +261,16 @@ class MosaicSelfRef(object):
         else:
             self.reflist_polygon = None
 
-        # Check x and y are 1d
         for ii in range(len(self.star_lists)):
+            # Check x and y are 1d
             if self.star_lists[ii]['x'].ndim != 1 or self.star_lists[ii]['y'].ndim != 1:
                 raise ValueError(f"StarList at index {ii} has x and y that are not 1D. x.ndim={self.star_lists[ii]['x'].ndim}, y.ndim={self.star_lists[ii]['y'].ndim}. Please flatten these columns to be 1D.")
+            # Add list_time to meta if not present
+            if 'list_time' not in self.star_lists[ii].meta:
+                assert 't' in self.star_lists[ii].colnames, f"StarList at index {ii} does not have 'list_time' in meta and does not have 't' column. Please add one of these."
+                unique_t = np.unique(self.star_lists[ii]['t'])
+                assert unique_t.size == 1, f"The time values of starlist at index {ii} are not unique."
+                self.star_lists[ii].meta['list_time'] = unique_t[0]
 
         if outlier_tol is None:
             self.outlier_tol = [None] * self.iters
@@ -435,8 +441,7 @@ class MosaicSelfRef(object):
                 self.reset_ref_values()
 
             if self.verbose > 0:
-                print(" ")
-                print("**********")
+                print("\n**********")
                 print("**********")
                 print('Starting iter {0:d} with ref_table shape:'.format(nn), self.ref_table['x'].shape)
                 print("**********")
@@ -454,7 +459,6 @@ class MosaicSelfRef(object):
                 processes=processes,
                 chunksize=chunksize
             )
-
             # Clean up the reference table
             # Find where stars are detected.
             self.ref_table.detections()
@@ -507,9 +511,8 @@ class MosaicSelfRef(object):
             self.iter_callback(self.ref_table, nn)
 
         # Add times into ref_table meta data
-        # complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in self.ref_table['t'].T])
-        all_epochs = get_all_epochs(self.ref_table)
-        self.ref_table.meta['list_times'] = list(all_epochs)
+        all_epochs = [s.meta['list_time'] for s in self.star_lists]
+        self.ref_table.meta['list_times'] = all_epochs
 
         # Update chi2 values in ref table, as motion_model_used may have changed
         x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
@@ -537,20 +540,16 @@ class MosaicSelfRef(object):
             x_data = np.ma.masked_invalid(self.ref_table['x'].data, copy=True)
             y_data = np.ma.masked_invalid(self.ref_table['y'].data, copy=True)
             if weighted_xy:
-                xe = self.ref_table['xe']
-                ye = self.ref_table['ye']
-                xe_data = np.ma.masked_invalid(xe.data, copy=True)
-                ye_data = np.ma.masked_invalid(ye.data, copy=True)
-            else:
-                xe_data = None
-                ye_data = None
-
-            if (xe_data is not None) and (ye_data is not None):
+                xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True)
+                ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True)
                 xe_data.mask[np.isclose(xe_data, 0.)] = True
                 ye_data.mask[np.isclose(ye_data, 0.)] = True
                 fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
                 xe_data[fill_with_one] = 1.
                 ye_data[fill_with_one] = 1.
+            else:
+                xe_data = None
+                ye_data = None
 
             if np.ndim(x_data) == 1:
                 x_data = x_data[:, np.newaxis]
@@ -565,7 +564,7 @@ class MosaicSelfRef(object):
             if 't' in self.ref_table.colnames:
                 t_data = copy.deepcopy(self.ref_table['t'].data)
             else:
-                t_data = copy.deepcopy(np.array(self.ref_table.meta['list_times']))
+                t_data = np.array(self.ref_table.meta['list_times'])
                 t_data = np.broadcast_to(t_data, xe_data.shape)
 
             # Update t0, adapted from startables.fit_motion_models
@@ -621,13 +620,8 @@ class MosaicSelfRef(object):
 
             star_list = self.star_lists[ii]
 
-            if 't' in star_list.meta:
-                ref_list = self.get_ref_list_from_table(star_list.meta['t'], processes=processes, chunksize=chunksize)
-            elif 't' in star_list.colnames:
-                assert np.unique(star_list['t']).size == 1, f"StarList at index {ii} has multiple unique times in the 't' column. Cannot determine reference list for matching."
-                ref_list = self.get_ref_list_from_table(star_list['t'][0], processes=processes, chunksize=chunksize)
-            else:
-                raise KeyError(f"StarList at index {ii} does not have a 't' column or meta['t'] entry. Cannot determine reference list for matching.")
+            list_epoch = star_list.meta['list_time']
+            ref_list = self.get_ref_list_from_table(list_epoch, processes=processes, chunksize=chunksize)
 
             trans = self.trans_list[ii]
 
@@ -637,7 +631,7 @@ class MosaicSelfRef(object):
             #       star_list_T is trimmed and transformed
             self.apply_mag_lim_via_use_in_trans(ref_list, ref_mag_lim)
             star_list_orig_trim = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, untransformed copy
-            star_list_T = copy.deepcopy(star_list_orig_trim)  # trimmed, will be transformed copy
+            star_list_T = StarList(star_list_orig_trim, copy=True)  # trimmed, will be transformed copy
 
             assert len(star_list_orig_trim) > 0, f"No stars remain after applying mag_lim={self.mag_lim[ii]} to star_list at index {ii}. Please check your mag_lim."
 
@@ -679,70 +673,20 @@ class MosaicSelfRef(object):
             # Restore idx2 to the full reference list indices
             idx2 = np.where(use_in_trans)[0][idx2]
 
+            if len(idx1) == 0 or len(idx2) == 0:
+                fig, ax = plt.subplots()
+                ax.scatter(star_list_T['x'], star_list_T['y'], s=1, c='C0', alpha=0.5, label='Transformed Star List')
+                ax.scatter(ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], s=1, c='C3', alpha=0.5, label='Reference List (use_in_trans=True)')
+                ax.set_xlabel('X')
+                ax.set_ylabel('Y')
+                ax.set_title(f'Matching Results for Catalog {ii + 1}')
+                ax.legend()
+                plt.show()
+                raise ValueError(f"align.match_and_transform: No matches found between star_list at index {ii} and the reference list. Check your dr_tol={dr_tol} and dm_tol={dm_tol} values.")
+
             if self.verbose > 1:
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
-
-            # # Plot matched stars
-            # unmatched_starlist = np.array([True if i not in idx1 else False for i in range(len(star_list_T))])
-            # unmatched_ref = np.array([True if i not in idx2 else False for i in range(len(ref_list))])
-            # use_in_trans = ref_list[idx2]['use_in_trans']
-
-            # fig = go.Figure()
-            # plotly_stars(
-            #     x=star_list_T['x'][unmatched_starlist],
-            #     y=star_list_T['y'][unmatched_starlist],
-            #     m=star_list_T['m'][unmatched_starlist],
-            #     star_name=star_list_T['name'][unmatched_starlist],
-            #     label='Unmatched Star List',
-            #     color='C9',
-            #     fig=fig
-            # )
-            # plotly_stars(
-            #     x=star_list_T['x'][idx1],
-            #     y=star_list_T['y'][idx1],
-            #     m=star_list_T['m'][idx1],
-            #     label='Matched Star List',
-            #     color='C0',
-            #     fig=fig
-            # )
-            # plotly_stars(
-            #     x=ref_list['x'][idx2][~use_in_trans],
-            #     y=ref_list['y'][idx2][~use_in_trans],
-            #     m=ref_list['m'][idx2][~use_in_trans],
-            #     label='Matched ref (use_in_trans=False)',
-            #     color='C4',
-            #     fig=fig
-            # )
-            # plotly_stars(
-            #     x=ref_list['x'][unmatched_ref & ref_list['use_in_trans']],
-            #     y=ref_list['y'][unmatched_ref & ref_list['use_in_trans']],
-            #     m=ref_list['m'][unmatched_ref & ref_list['use_in_trans']],
-            #     star_name=ref_list['name'][unmatched_ref & ref_list['use_in_trans']],
-            #     label='Unmatched ref (use_in_trans=True)',
-            #     symbol='star-open',
-            #     marker_size=5,
-            #     color='C3',
-            #     fig=fig
-            # )
-            # plotly_stars(
-            #     x=ref_list['x'][idx2][use_in_trans],
-            #     y=ref_list['y'][idx2][use_in_trans],
-            #     m=ref_list['m'][idx2][use_in_trans],
-            #     label='Matched ref (use_in_trans=True)',
-            #     symbol='star',
-            #     marker_size=5,
-            #     color='C3',
-            #     fig=fig
-            # )
-            # fig.update_layout(
-            #     title=f'Matched Stars - Catalog {ii + 1}',
-            #     xaxis_title='X',
-            #     yaxis_title='Y'
-            # )
-            # fig.write_html(os.path.join(self.save_path, f'matched_stars_{ii + 1}.html'))
-            # fig.show()
-
 
             # Outlier rejection
             if outlier_tol is not None:
@@ -766,13 +710,11 @@ class MosaicSelfRef(object):
                 m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                 weights=weight, mag_trans=self.mag_trans
             )
-            if np.isnan(trans.px.parameters).any() or np.isnan(trans.py.parameters).any():
-                raise ValueError(f"Derived transformation contains NaN parameters! Check your input data and tolerances.")
 
             # Outlier rejection: ref stars in final transformation, if desired
             if outlier_tol != None:
                 # Apply transformation to starlist, run match between starlist and ref_list
-                star_list_T = copy.deepcopy(star_list)
+                star_list_T = StarList(star_list, copy=True)
                 if self.mag_trans:
                     star_list_T.transform_xym(trans)
                 else:
@@ -837,7 +779,7 @@ class MosaicSelfRef(object):
 
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
-            star_list_T = copy.deepcopy(star_list)
+            star_list_T = StarList(star_list, copy=True)
             if self.mag_trans:
                 star_list_T.transform_xym(self.trans_list[ii])
             else:
@@ -879,13 +821,9 @@ class MosaicSelfRef(object):
 
             ## Make plot, if desired
             if self.save_path:
-                if 't' in star_list_T.meta:
-                    plot_path = os.path.join(self.save_path, 'transformation_plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{star_list_T.meta['t']}.png")
-                elif 't' in star_list_T.colnames:
-                    plot_path = os.path.join(self.save_path, 'transformation_plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{star_list_T['t'][0]}.png")
-                plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                    save_path=plot_path,
-                                    show_plot=False)
+                plot_path = os.path.join(self.save_path, 'transformation_plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{list_epoch}.png")
+                plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis], save_path=plot_path, show_plot=False)
+
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
 
@@ -989,7 +927,7 @@ class MosaicSelfRef(object):
             if col_name in motion_model_col_names:
                 col_arrays[new_col_name] = star_list[col_name].data
             else:
-                new_col_data = star_list[col_name].data[:, None]
+                new_col_data = star_list[col_name].data[:, np.newaxis]
                 col_arrays[new_col_name] = new_col_data
 
         # Use the columns from the ref list to make the ref_table.
@@ -1069,15 +1007,10 @@ class MosaicSelfRef(object):
 
         if 'motion_model_input' not in ref_table.colnames:
             ref_table.add_column(np.repeat(self.motion_models[-1].name, len(ref_table)), name='motion_model_input')
-        # FIXME: Why do we need to set motion_model_used here before fitting?
-        # if 'motion_model_used' not in ref_table.colnames:
-        #     # Order self.motion_models by decreasing n_params
-        #     sorted_mms = sorted(self.motion_models, key=lambda mm: mm.n_params, reverse=True)
-        #     # Save the most complex motion model that can infer the positions with the existing columns.
-        #     for mm in sorted_mms:
-        #         if all([_ in ref_table.colnames for _ in mm.fit_param_names]) and all([_ in ref_table.colnames for _ in mm.fixed_param_names]):
-        #             ref_table.add_column(np.repeat(mm.name, len(ref_table)), name='motion_model_used')
-        #             break
+
+        # Add time column if it doesn't exist
+        if 't' not in ref_table.colnames:
+            ref_table.add_column(np.full((len(ref_table), 1), np.nan), name='t')
 
         return ref_table
 
@@ -1173,10 +1106,10 @@ class MosaicSelfRef(object):
         ### Update the reference table for matched stars.
         #   Add the matched stars to the reference table.
         #   For every epoch except the reference, we need to add a starlist.
+
         if ((self.ref_table['x'].shape[1] != len(self.star_lists)) and
             (ii != self.ref_index) and
             (ii >= self.ref_table['x'].shape[1])):
-
             self.ref_table.add_starlist()
 
         copy_over_values(self.ref_table, star_list, star_list_T, ii, idx_ref, idx_lis)
@@ -1372,13 +1305,13 @@ class MosaicSelfRef(object):
         for ii in range(self.N_lists):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
-            star_list_T = copy.deepcopy(self.star_lists[ii])
+            star_list_T = StarList(self.star_lists[ii], copy=True)
             if self.mag_trans:
                 star_list_T.transform_xym(self.trans_list[ii])
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
 
-            xref, yref = infer_positions(star_list_T['t'][0], self.ref_table, self.motion_models, self.fixed_params_dict)
+            xref, yref = infer_positions(star_list_T.meta['list_time'], self.ref_table, self.motion_models, self.fixed_params_dict)
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -1535,9 +1468,9 @@ class MosaicSelfRef(object):
         # First, assert than n_boot > 0
         assert n_boot > 0, f'{n_boot=} is not possive!'
 
-        ref_table = copy.deepcopy(self.ref_table)
+        ref_table = StarTable(self.ref_table, copy=True)
         n_epochs = len(ref_table['x'][0])
-        t_arr = get_all_epochs(ref_table)
+        t_arr = np.array(ref_table.meta['list_times'])
         t0_arr = ref_table['t0']
 
         # Identify reference stars. If desired, trim ref_table to only stars to only
@@ -1645,7 +1578,7 @@ class MosaicSelfRef(object):
                     # to the star_list_T so it is in the same units as ref_boot. So, we'll apply
                     # the final transformation for the epoch to get close enough for the
                     # purposes of the bootstrap calculation
-                    starlist_boot_T = copy.deepcopy(starlist_boot)
+                    starlist_boot_T = StarList(starlist_boot, copy=True)
                     if self.mag_trans:
                         starlist_boot_T.transform_xym(self.trans_list[jj])
                     else:
@@ -1673,7 +1606,7 @@ class MosaicSelfRef(object):
                                                xe=ref_table['xe_orig'][:,jj],
                                                ye=ref_table['ye_orig'][:,jj],
                                                me=ref_table['me_orig'][:,jj])
-                starlist_T = copy.deepcopy(starlist)
+                starlist_T = StarList(starlist, copy=True)
                 if self.mag_trans:
                     starlist_T.transform_xym(trans)
                 else:
@@ -1858,16 +1791,16 @@ class MosaicToRef(MosaicSelfRef):
         reflist_vertex=None,
         starlist_vertices=None,
         # Alignment parameters
-        iters=2,
-        dr_tol=[1, 1],
-        dm_tol=[2, 1],
+        iters=1,
+        dr_tol=[1.],
+        dm_tol=[1.],
         outlier_tol=None,
         # Reference behavior (MosiacToRef specific)
         use_ref_new=False,
         update_ref_orig=False,
         # Transformation parameters
         trans_class=transforms.PolyTransform,
-        trans_args=[{'order': 2}, {'order': 2}],
+        trans_args=[{'order': 1}],
         trans_input=None,
         trans_weights=None,
         init_order=1,
@@ -2113,6 +2046,7 @@ class MosaicToRef(MosaicSelfRef):
             vel_weights=vel_weights,
             use_scipy=use_scipy,
             absolute_sigma=absolute_sigma,
+            scipy_method=scipy_method,
             # Advanced options
             iter_callback=iter_callback,
             save_path=save_path,
@@ -2121,7 +2055,7 @@ class MosaicToRef(MosaicSelfRef):
         )
 
         self.starlist_vertices = starlist_vertices
-        self.ref_list = copy.deepcopy(ref_list)
+        self.ref_list = StarList(ref_list, copy=True)
         self.ref_mag_lim = ref_mag_lim
         self.update_ref_orig = update_ref_orig
         self.use_ref_new = use_ref_new
@@ -2355,7 +2289,7 @@ class MosaicToRef(MosaicSelfRef):
             self.iter_callback(self.ref_table, nn)
 
         # Add times into ref_table meta data
-        all_epochs = get_all_epochs(self.ref_table)
+        all_epochs = [s.meta['list_time'] for s in self.star_lists]
         self.ref_table.meta['list_times'] = all_epochs
 
         # Update chi2 values in ref table, as motion_model_used may have changed
@@ -2365,8 +2299,13 @@ class MosaicToRef(MosaicSelfRef):
             x_inferred = x_inferred[:, np.newaxis]
         if y_inferred.ndim == 1:
             y_inferred = y_inferred[:, np.newaxis]
-        chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
-        chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
+        if weighted_xy:
+            chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
+            chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        else:
+            chi2_x_2d = (self.ref_table['x'] - x_inferred)**2
+            chi2_y_2d = (self.ref_table['y'] - y_inferred)**2
         chi2_x = np.nansum(chi2_x_2d, axis=1)
         chi2_y = np.nansum(chi2_y_2d, axis=1)
         chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
@@ -2378,17 +2317,17 @@ class MosaicToRef(MosaicSelfRef):
         if ('t0' not in self.ref_table.colnames) or ('n_fit' not in self.ref_table.colnames):
             x_data = np.ma.masked_invalid(self.ref_table['x'].data, copy=True)
             y_data = np.ma.masked_invalid(self.ref_table['y'].data, copy=True)
-            xe = self.ref_table['xe'] if 'xe' in self.ref_table.colnames else None
-            ye = self.ref_table['ye'] if 'ye' in self.ref_table.colnames else None
-            weighted_xy = (xe is not None) and (ye is not None)
-            xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True) if weighted_xy else None
-            ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True) if weighted_xy else None
-            if (xe_data is not None) and (ye_data is not None):
+            if weighted_xy:
+                xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True)
+                ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True)
                 xe_data.mask[np.isclose(xe_data, 0.)] = True
                 ye_data.mask[np.isclose(ye_data, 0.)] = True
                 fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
                 xe_data[fill_with_one] = 1.
                 ye_data[fill_with_one] = 1.
+            else:
+                xe_data = None
+                ye_data = None
 
             if np.ndim(x_data) == 1:
                 x_data = x_data[:, np.newaxis]
@@ -2401,9 +2340,9 @@ class MosaicToRef(MosaicSelfRef):
                     ye_data = ye_data[:, np.newaxis]
 
             if 't' in self.ref_table.colnames:
-                t_data = copy.deepcopy(self.ref_table['t'].data)
+                t_data = self.ref_table['t'].data
             else:
-                t_data = copy.deepcopy(np.array(self.ref_table.meta['list_times']))
+                t_data = np.array(self.ref_table.meta['list_times'])
                 t_data = np.broadcast_to(t_data, xe_data.shape)
 
             # Update t0, adapted from startables.fit_motion_models
@@ -2728,16 +2667,26 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
     idx_lis : list or array
         The indices into the star_list or star_list_T where values are copied from.
     """
+    idx_lis = np.array(idx_lis)
     for col_name in ref_table.colnames:
         if col_name in star_list_T.colnames:
             if col_name == 'name':
-                ref_table['name_in_list'][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]
+                ref_table['name_in_list'][idx_ref, idx_epoch] = star_list_T[col_name][idx_lis]
             else:
-                ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]
+                ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][idx_lis]
 
             orig_col_name = col_name + '_orig'
             if orig_col_name in ref_table.colnames:
-                ref_table[orig_col_name][idx_ref, idx_epoch] = star_list[col_name][list(idx_lis)]
+                ref_table[orig_col_name][idx_ref, idx_epoch] = star_list[col_name][idx_lis]
+
+    # Special case for list_time
+    if 't' not in star_list.colnames:
+        ref_table['t'][idx_ref, idx_epoch] = star_list.meta['list_time']
+    # Add list_times in meta
+    if 'list_times' not in ref_table.meta:
+        ref_table.meta['list_times'] = [star_list.meta['list_time']]
+    else:
+        ref_table.meta['list_times'].append(star_list.meta['list_time'])
 
     return
 
@@ -3387,7 +3336,7 @@ def transform_from_object(starlist, transform):
     """
     # Make a copy of starlist. This is what we will eventually modify with
     # the transformed coordinates
-    starlist_f = copy.deepcopy(starlist)
+    starlist_f = StarList(starlist, copy=True)
     keys = list(starlist.keys())
 
     # Check to see if velocities or motion_model are present in starlist.
@@ -3783,7 +3732,14 @@ def trans_initial_guess(
 
         # If there are velocities in the reference list, use them.
         # We assume velocities are in the same units as the positions.
-        xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models, fixed_params_dict=fixed_params_dict)
+        if 't' in ref_list.colnames:
+            epoch = star_list['t'][0]
+        elif 'list_time' in star_list.meta:
+            epoch = star_list.meta['list_time']
+        else:
+            raise ValueError('star_list must have either a "t" column or a "list_time" meta key to use miracle matching.')
+
+        xref, yref = infer_positions(epoch, ref_list, motion_models, fixed_params_dict=fixed_params_dict)
         if 'm' in ref_list.colnames:
             mref = ref_list['m']
         else:
@@ -3900,7 +3856,7 @@ def copy_and_rename_for_ref(star_list):
         old_cols += ['w']
         new_cols += ['w']
 
-    ref_list = copy.deepcopy(star_list)
+    ref_list = StarList(star_list, copy=True)
 
     for ii in range(len(old_cols)):
         ref_list.rename_column(old_cols[ii], new_cols[ii])
@@ -3985,7 +3941,7 @@ def apply_mag_lim(star_list, mag_lim):
         no magnitude cut is applied.
 
     """
-    star_list_T = copy.deepcopy(star_list)
+    star_list_T = StarList(star_list, copy=True)
 
     if (mag_lim is not None):
         # Support 'm0' (primary) or 'm' column name.
@@ -4125,8 +4081,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
     if init_mode == 'triangle': #  Blind triangles method
 
         #  Prepare the reduced starlists for matching
-        sl1_cut = copy.deepcopy(sl1)
-        sl2_cut = copy.deepcopy(sl2)
+        sl1_cut = StarList(sl1, copy=True)
+        sl2_cut = StarList(sl2, copy=True)
         sl1_cut.restrict_by_value(x_min=xy_match[0], x_max=xy_match[1],
                                   y_min=xy_match[2], y_max=xy_match[3])
         sl2_cut.restrict_by_value(x_min=xy_match[4], x_max=xy_match[5],
@@ -4151,8 +4107,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
         raise TypeError("Unrecognized initial matching method")
 
     # Restrict the matching catalogs
-    sl1_match = copy.deepcopy(sl1)
-    sl2_match = copy.deepcopy(sl2)
+    sl1_match = StarList(sl1, copy=True)
+    sl2_match = StarList(sl2, copy=True)
     sl1_match.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
     sl2_match.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
 
