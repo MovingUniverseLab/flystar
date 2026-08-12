@@ -793,6 +793,67 @@ class StarList(Table):
         return
 
 
+
+def write_region(x, y, save_path, frame='image', colors='magenta', shape='circle', shape_properties={'radius': 10}):
+    """
+    Write a DS9 region file with the given x, y coordinates.
+
+    Parameters:
+    ----------
+    x: 1D numpy.array
+        X coordinates of the stars to write to the region file.
+    y: 1D numpy.array
+        Y coordinates of the stars to write to the region file.
+    frame: str
+        Frame of reference for the coordinates. Default is 'image'. Other options include 'fk5', 'icrs', 'galactic', 'wcs', etc.
+        See https://ds9.si.edu/doc/ref/region.html for more details.
+    save_path: str
+        Path to the file where the region file will be saved.
+    colors: str or list of str
+        Color(s) of the regions. If a single string is given, all regions will be that color.
+        If a list of strings is given, it must have the same length as x and y.
+    shape: str
+        Shape of the regions. Default is 'circle'. Other options include 'box', 'ellipse', etc.
+    shape_properties: dict
+        Dictionary of properties for the shape. For example, for circles, you can specify {'radius': 10}.
+        For boxes, you can specify {'width': 20, 'height': 10}.
+
+    Output:
+    ------
+    A DS9 region file will be created at the specified save_path.
+    """
+    if isinstance(colors, str):
+        colors = [colors] * len(x)
+
+    if shape == 'circle':
+        radius = shape_properties.get('radius', 1)
+        write_format = f'circle {{x}} {{y}} {radius} # color={{color}}\n'
+    elif shape == 'box':
+        width = shape_properties.get('width', 3)
+        height = shape_properties.get('height', 3)
+        angle = shape_properties.get('angle', 0)
+        write_format = f'box {{x}} {{y}} {width} {height} {angle} # color={{color}}\n'
+    elif shape == 'ellipse':
+        semimajor = shape_properties.get('semi-major', 6)
+        semiminor = shape_properties.get('semi-minor', 3)
+        angle = shape_properties.get('angle', 0)
+        write_format = f'ellipse {{x}} {{y}} {semimajor} {semiminor} {angle} # color={{color}}\n'
+    elif shape == 'point':
+        point = shape_properties.get('point', 'circle')
+        size = shape_properties.get('size', 3)
+        write_format = f'point {{x}} {{y}} # point={point} {size} color={{color}}\n'
+    else:
+        raise ValueError(f"Unsupported shape: {shape}")
+
+    with open(save_path, 'w') as f:
+        f.write('# Region file format: DS9 version 4.1\n')
+        f.write('global color=green dashlist=8 3 width=1 font="helvetica 10 normal" select=1 highlite=1 dash=0 fixed=0 edit=1 move=1 delete=1 include=1 source=1\n')
+        f.write(f'{frame}\n')
+        for i in range(len(x)):
+            f.write(write_format.format(x=x[i], y=y[i], color=colors[i]))
+
+    return
+
 def write_starlist(list, outfile):
 
     formats = {'name': '%-13s',

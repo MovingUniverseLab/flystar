@@ -223,9 +223,9 @@ class MosaicSelfRef(object):
         plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
         """
         dr_tol = np.atleast_1d(dr_tol)
-        dm_tol = np.atleast_1d(dm_tol)
         self.iters = len(dr_tol)
         if dm_tol is not None:
+            dm_tol = np.atleast_1d(dm_tol)
             assert self.iters == len(dm_tol), f'dr_tol (len={self.iters}) and dm_tol (len={len(dm_tol)}) must all have the same length!'
         if outlier_tol is not None:
             assert self.iters == len(outlier_tol), f'dr_tol (len={self.iters}) and outlier_tol (len={len(outlier_tol)}) must all have the same length!'
@@ -238,7 +238,7 @@ class MosaicSelfRef(object):
         self.trans_args = trans_args
         self.init_order = init_order
         self.mag_trans = mag_trans
-        self.mag_lim = mag_lim
+        self.mag_lim = np.array(mag_lim)
         self.trans_weighting = trans_weights
         self.vel_weighting = vel_weights
         self.trans_input = trans_input
@@ -340,12 +340,19 @@ class MosaicSelfRef(object):
             self.outlier_tol = np.repeat(self.outlier_tol, self.iters)
         assert len(self.outlier_tol) == self.iters, f'len(outlier_tol)={len(self.outlier_tol)} != iters={self.iters}'
 
+        # Format self.mag_lim to be (N_iters, N_lists, 2) array. If only a single mag_lim is passed in, replicate for all lists.
         if self.mag_lim is None:
-            self.mag_lim = np.repeat([None], len(self.star_lists), axis=0)
-        elif (len(self.mag_lim) == 2) and (np.ndim(self.mag_lim) == 1):
-            self.mag_lim = np.repeat([self.mag_lim], len(self.star_lists), axis=0)
-        assert len(self.mag_lim) == len(self.star_lists)
-
+            self.mag_lim = np.array([[[None] * len(self.star_lists)] * self.iters])
+        elif (np.ndim(self.mag_lim) == 1) and (len(self.mag_lim) == 2):
+            # 2-element array, replicate for all lists and iterations
+            self.mag_lim = np.array([[[self.mag_lim] * len(self.star_lists)] * self.iters])
+        elif (np.ndim(self.mag_lim) == 2) and (len(self.mag_lim) == len(self.star_lists)) and (self.mag_lim.shape[1] == 2):
+            # (N_lists, 2) array, replicate for all iterations
+            self.mag_lim = np.array([self.mag_lim] * self.iters)
+        elif np.ndim(self.mag_lim) == 3:
+            assert np.shape(self.mag_lim) == (self.iters, len(self.star_lists), 2), f"mag_lim must have shape (iters, N_lists, 2) = ({self.iters}, {len(self.star_lists)}, 2), but has shape {np.shape(self.mag_lim)}"
+        else:
+            raise ValueError(f"mag_lim must be None, a 2-element array, a (N_lists, 2) array, or a (N_iters, N_lists, 2) array. Got shape {np.shape(self.mag_lim)}")
         return
 
 
@@ -450,7 +457,7 @@ class MosaicSelfRef(object):
             # ALL the action is in here. Match and transform the stack of starlists.
             # This updates trans objects and the ref_table.
             self.match_and_transform(
-                self.mag_lim[self.ref_index],
+                self.mag_lim[nn][self.ref_index],
                 self.dr_tol[nn],
                 self.dm_tol[nn],
                 self.outlier_tol[nn],
@@ -615,7 +622,7 @@ class MosaicSelfRef(object):
                 print(f'     dr  < {dr_tol}')
                 print(f'    |dm| < {dm_tol}')
                 print(f'    outlier tol: {outlier_tol}')
-                print(f'    mag_lim: {self.mag_lim[ii]}')
+                print(f'    mag_lim: {self.mag_lim[nn][ii]}')
                 print("    **********")
 
             star_list = self.star_lists[ii]
@@ -630,10 +637,10 @@ class MosaicSelfRef(object):
             #       star_list_orig_trim is actually trimmed but not yet transformed.
             #       star_list_T is trimmed and transformed
             self.apply_mag_lim_via_use_in_trans(ref_list, ref_mag_lim)
-            star_list_orig_trim = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, untransformed copy
+            star_list_orig_trim = apply_mag_lim(star_list, self.mag_lim[nn][ii])  # trimmed, untransformed copy
             star_list_T = StarList(star_list_orig_trim, copy=True)  # trimmed, will be transformed copy
 
-            assert len(star_list_orig_trim) > 0, f"No stars remain after applying mag_lim={self.mag_lim[ii]} to star_list at index {ii}. Please check your mag_lim."
+            assert len(star_list_orig_trim) > 0, f"No stars remain after applying mag_lim={self.mag_lim[nn][ii]} to star_list at index {ii}. Please check your mag_lim."
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans is None:

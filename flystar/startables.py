@@ -74,7 +74,6 @@ class StarTable(Table):
 
         # Check if the required arguments are present
         arg_req = ('name', 'x', 'y', 'm')
-
         found_all_required = all(arg in kwargs for arg in arg_req)
 
         if not found_all_required:
@@ -90,6 +89,15 @@ class StarTable(Table):
             if ('xe' in kwargs) ^ ('ye' in kwargs):
                 raise TypeError("The StarTable class requires both 'xe' and" +
                                 " 'ye' arguments")
+            kwargs['name'] = np.array(kwargs['name'])
+            kwargs['x'] = np.array(kwargs['x'])
+            kwargs['y'] = np.array(kwargs['y'])
+            kwargs['m'] = np.array(kwargs['m'])
+            if ('xe' in kwargs) and ('ye' in kwargs):
+                kwargs['xe'] = np.array(kwargs['xe'])
+                kwargs['ye'] = np.array(kwargs['ye'])
+            if 'me' in kwargs:
+                kwargs['me'] = np.array(kwargs['me'])
 
             # Figure out the shape
             n_stars = kwargs['x'].shape[0]
@@ -97,9 +105,8 @@ class StarTable(Table):
 
             # Check if the type and size of the arguments are correct.
             # Name checking: type and shape
-            if (not isinstance(kwargs['name'], np.ndarray)) or (len(kwargs['name']) != n_stars):
-                err_msg = f"The 'name' argument has to be a numpy array, not {type(kwargs['name'])};"
-                err_msg += f"Its length should be {n_stars}, not {len(kwargs['name'])}."
+            if len(kwargs['name']) != n_stars:
+                err_msg += f"The 'name' argument length should be {n_stars}, but got {len(kwargs['name'])}."
                 raise TypeError(err_msg)
 
             # Check all the 2D arrays.
@@ -112,7 +119,7 @@ class StarTable(Table):
                         raise TypeError(err_msg)
 
                     if kwargs[arg_test].shape != (n_stars, n_lists):
-                        err_msg = f"The '{arg_test}' argument has to have shape = ({n_stars}, {n_lists})"
+                        err_msg = f"The '{arg_test}' argument has to have shape = ({n_stars}, {n_lists}), but got {kwargs[arg_test].shape}"
                         raise TypeError(err_msg)
 
             # Check that the reference list is specified.
@@ -656,6 +663,11 @@ class StarTable(Table):
             # Setting the default to None to avoid mutable default argument issue
             # See https://stackoverflow.com/questions/15189245/assigning-class-variable-as-default-value-to-class-method-argument
             motion_models = [motion_model.Empty, motion_model.Fixed, motion_model.Linear]
+        elif isinstance(motion_models, (motion_model.MotionModel, str)):
+            motion_models = [motion_models]
+        elif not isinstance(motion_models, list):
+            raise ValueError("fit_motion_models: motion_models must be a list of MotionModel objects or strings!")
+        
         all_mm_map = motion_model.motion_model_map()
         if all(isinstance(mm, str) for mm in motion_models):
             mm_names = motion_models
@@ -861,7 +873,6 @@ class StarTable(Table):
 
         # Prepare fixed_params_dict for each star
         # This avoids checking types and slicing inside the fitting loop
-        fixed_params_stars = [{} for _ in range(N_stars)]
         # Identify array parameters (length N_stars) and scalar parameters
         array_params = {k: v for k, v in fixed_params_dict.items() if np.ndim(v) > 0 and len(v) == N_stars}
         scalar_params = {k: v for k, v in fixed_params_dict.items() if k not in array_params}
