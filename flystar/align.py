@@ -598,6 +598,7 @@ class MosaicSelfRef(object):
             filename = f'{self.prefix_name}_ref_table.pkl'
             with open(os.path.join(self.save_path, filename), 'wb') as file:
                 pickle.dump(self.ref_table, file)
+            self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.fits'), overwrite=True)
 
         if self.verbose > 0:
             print('===================================')
