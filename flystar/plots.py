@@ -1,4 +1,4 @@
-from flystar import analysis, motion_model, startables
+from flystar import motion_model
 import pylab as py
 import pylab as plt
 import numpy as np
@@ -16,6 +16,89 @@ from astropy.table import Table
 from astropy.io import ascii
 from astropy.coordinates import SkyCoord
 from astropy import units as u
+
+
+# Moved here from analysis
+def calc_chi2(ref_mat, starlist_mat, transform, errs='both'):
+    """
+    calculate the chi2 and reduced chi2 of the position 
+    between two matched starlists.
+    Input:
+    ref_mat: astropy table
+        Reference starlist only containing matched stars that were used in the
+        transformation. Standard column headers are assumed.
+        
+    starlist_mat: astropy table
+        Transformed starlist only containing the matched stars used in
+        the transformation. Standard column headers are assumed.
+
+    transform: transformation object
+        Transformation object of final transform. Used in chi-square
+        determination
+
+    errs: string; 'both', 'reference', or 'starlist'
+        If both, add starlist errors in quadrature with reference errors.
+
+        If reference, only consider reference errors. This should be used if the starlist
+        does not have valid errors
+
+        If starlist, only consider starlist errors. This should be used if the reference
+        does not have valid errors
+
+    Output:
+    chi_sq: float
+        chi2 = sum (diff_x**2 / xerr**2 + diff_y**2 /yerr**2)
+    chi_sq_red: float
+        reduced chi2 = chi2/ degree of freedom
+    deg_freedom: int
+        degree of freedom
+
+    """
+    diff_x = ref_mat['x'] - starlist_mat['x']
+    diff_y = ref_mat['y'] - starlist_mat['y']
+
+    # Set errors as per user input
+    if errs == 'both':
+        xerr = np.hypot(ref_mat['xe'], starlist_mat['xe'])
+        yerr = np.hypot(ref_mat['ye'], starlist_mat['ye'])
+    elif errs == 'reference':
+        xerr = ref_mat['xe']
+        yerr = ref_mat['ye']
+    elif errs == 'starlist':
+        xerr = starlist_mat['xe']
+        yerr = starlist_mat['ye']
+          
+
+    # For both X and Y, calculate chi-square. Combine arrays to get combined
+    # chi-square
+    chi_sq_x = diff_x**2. / xerr**2.
+    chi_sq_y = diff_y**2. / yerr**2.
+
+    chi_sq = np.append(chi_sq_x, chi_sq_y)
+    
+    # Calculate degrees of freedom in transformation
+    num_mod_params = calc_nparam(transform)
+    deg_freedom = len(chi_sq) - num_mod_params
+    
+    # Calculate reduced chi-square
+    chi_sq = np.sum(chi_sq)
+    chi_sq_red = chi_sq / deg_freedom
+
+    return chi_sq, chi_sq_red, deg_freedom
+
+
+def calc_nparam(transformation):
+    """
+    calculate the degree of freedom for a transformation
+    """
+    # Read transformation: Extract X, Y coefficients from transform
+    if transformation.__class__.__name__ == 'four_paramNW':
+        nparam = 4
+    elif transformation.__class__.__name__ == 'PolyTransform':
+        order = transformation.order
+        nparam = (order+1) * (order+2) 
+    return nparam
+
 
 ####################################################
 # Code for making diagnostic plots for astrometry
@@ -226,15 +309,15 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     chi_sq_red = np.sum(chi_sq) / deg_freedom
     """
     # Chi-square analysis for all stars, including outliers
-    chi_sq, chi_sq_red, deg_freedom = analysis.calc_chi2(ref_mat, starlist_mat,
+    chi_sq, chi_sq_red, deg_freedom = calc_chi2(ref_mat, starlist_mat,
                                                         transform, errs=errs)
     # Chi-square analysis for only non-outlier stars
-    chi_sq_good, chi_sq_red_good, deg_freedom_good = analysis.calc_chi2(ref_mat[good],
+    chi_sq_good, chi_sq_red_good, deg_freedom_good = calc_chi2(ref_mat[good],
                                                                    starlist_mat[good],
                                                                    transform,
                                                                    errs=errs)
     
-    num_mod_params = analysis.calc_nparam(transform)
+    num_mod_params = calc_nparam(transform)
 
     #-------------------------------------------#
     # Plotting
@@ -262,7 +345,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     py.plot(x, norm.pdf(x,mean,sigma), 'g-', linewidth=2)
     
     # Annotate reduced chi-sqared values in plot: with outliers
-    xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
+    xstr = r'$\chi^2_r$ = {0}'.format(np.round(chi_sq_red, decimals=3))
     py.annotate(xstr, xy=(0.3, 0.77), xycoords='figure fraction', color='black')
     txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(diff_x), num_mod_params,
                                                  deg_freedom)
@@ -273,7 +356,7 @@ def pos_diff_err_hist(ref_mat, starlist_mat, transform, nbins=25, bin_width=None
     py.annotate(xstr3, xy=(0.25, 0.80), xycoords='figure fraction', color='black')
     
     # Annotate reduced chi-sqared values in plot: without outliers
-    xstr = '$\chi^2_r$ = {0}'.format(np.round(chi_sq_red_good, decimals=3))
+    xstr = r'$\chi^2_r$ = {0}'.format(np.round(chi_sq_red_good, decimals=3))
     py.annotate(xstr, xy=(0.7, 0.8), xycoords='figure fraction', color='black')
     txt = r'$\nu$ = 2*{0} - {1} = {2}'.format(len(good[0]), num_mod_params,
                                                  deg_freedom_good)
@@ -2226,8 +2309,8 @@ def plot_chi2_dist(tab, Ndetect, motion_model_dict={}, xlim=40, n_bins=50, boot_
     plt.hist(x[idx], bins=chi2_bins, histtype='step', label='X', density=True)
     plt.hist(y[idx], bins=chi2_bins, histtype='step', label='Y', density=True)
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
-             label='$\chi^2$ ' + str(round(Ndof,2)) + ' dof')
-    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(round(Ndof,2)))
+             label=r'$\chi^2$ ' + str(round(Ndof,2)) + ' dof')
+    plt.title(r'$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(round(Ndof,2)))
     plt.xlim(0, xlim)
     plt.legend()
 
@@ -2390,8 +2473,8 @@ def plot_chi2_dist_per_filter(tab, Ndetect, motion_model_dict={}, xlim=40, n_bin
     plt.hist(x[idx], bins=chi2_bins, histtype='stepfilled', label='RA', density=True, color='skyblue', alpha=0.8, edgecolor='k')
     plt.hist(y[idx], bins=chi2_bins, histtype='stepfilled', label='DEC', density=True, color='orange', alpha=0.8, edgecolor='k')
     plt.plot(chi2_xaxis, chi2.pdf(chi2_xaxis, Ndof), 'r-', alpha=0.6,
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
-    #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
+    #plt.title(r'$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.title(str(filter)+' (N = '+str(len(chi2_x_list))+')', fontsize=22)
     plt.xlim(0, xlim)
     plt.ylabel(r'PDF', fontsize=28)
@@ -2677,8 +2760,8 @@ def plot_chi2_dist_mag(tab, Ndetect, xlim=40, n_bins=30, boot_err=False):
     plt.clf()
     plt.hist(chi2_m[idx], bins=np.arange(xlim*10), histtype='step', density=True)
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
-    plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
+    plt.title(r'$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.legend()
 
@@ -2726,8 +2809,8 @@ def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, fil
     plt.clf()
     plt.hist(chi2_m[idx], bins=np.arange(xlim*10), label='mag', histtype='stepfilled', density=True, color='green', alpha=0.7, edgecolor='k')
     plt.plot(chi2_maxis, chi2.pdf(chi2_maxis, Ndof), 'r-', alpha=0.6, 
-             label='$\chi^2$ ' + str(Ndof) + ' dof')
-    #plt.title('$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
+             label=r'$\chi^2$ ' + str(Ndof) + ' dof')
+    #plt.title(r'$N_{epoch} = $' + str(Ndetect) + ', $N_{dof} = $' + str(Ndof))
     plt.xlim(0, xlim)
     plt.xlabel(r'$\chi^{2}$', fontsize=28)
     plt.ylabel(r'PDF', fontsize=28)
