@@ -481,10 +481,8 @@ class StarTable(Table):
         else:
             val_2d_clip = val_2d
 
-        # Decide if we are going to have weights (before we
-        # do the expensive sigma clipping routine). Note that
-        # if we have only 1 column to average, then we can't do weighting.
-        if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
+        # Decide if we are going to have weights (before we do the expensive sigma clipping routine). 
+        if weights_col in self.colnames:
             err_2d = np.ma.masked_invalid(self[weights_col].data[:, list_indices])
 
             if ismag:
@@ -512,9 +510,8 @@ class StarTable(Table):
             wgt_2d = None
             # Calculate the weighted mean and uncertainty
             avg = np.ma.mean(val_2d_clip, axis=1)
-            std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(list_indices)) # Standard error of the mean
             # Use standard deviation of the residuals as the uncertainty
-            # std = np.ma.std(val_2d_clip, axis=1)
+            std = np.ma.std(val_2d_clip, axis=1)
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'not_weighted'

@@ -1212,6 +1212,14 @@ class MosaicSelfRef(object):
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
             self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
+            # Set t0
+            if weighted_xy:
+                t = np.ma.masked_invalid(self.ref_table['t'])   # Shape (N_stars, N_epochs)
+                ast_err = np.ma.masked_invalid(np.hypot(self.ref_table['xe'], self.ref_table['ye']))    # Shape (N_stars, N_epochs)
+                t0 = np.ma.average(t, axis=1, weights=1/ast_err**2).filled(np.nan)  # Shape (N_stars,)
+            else:
+                t0 = np.nanmean(self.ref_table['t'], axis=1)  # Shape (N_stars,)
+            self.ref_table['t0'] = t0
 
         else:
             self.ref_table.fit_motion_models(
