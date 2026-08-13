@@ -476,7 +476,7 @@ class StarTable(Table):
         # Decide if we are going to have weights (before we
         # do the expensive sigma clipping routine). Note that
         # if we have only 1 column to average, then we can't do weighting. 
-        if (weights_col and weights_col in self.colnames) and (val_2d.shape[1] > 1):
+        if weights_col and weights_col in self.colnames:
             err_2d = self[weights_col].data
     
             if ismag:
@@ -510,8 +510,8 @@ class StarTable(Table):
             std = np.ma.sqrt(1. / np.ma.sum(wgt_2d, axis=1)) # Error propagation
         else:
             avg = np.ma.mean(val_2d_clip, axis=1)
-            # std = np.ma.std(val_2d_clip, axis=1)
-            std = np.ma.std(val_2d_clip, axis=1) / np.sqrt(len(use_lists)) # Error propagation
+            std = np.ma.std(val_2d_clip, axis=1)
+
         # To Do: bring the previous uncertainties of stars that are detected
         # in only one input frame.
         # This can be removed now as error propagation won't result in std=0 anymore.
