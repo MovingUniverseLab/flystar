@@ -282,7 +282,7 @@ class StarTable(Table):
         # If there is no input data for a particular column, then fill it with
         # zeros and mask it.
         for col_name in self.colnames:
-            if (len(self[col_name].data.shape) == 2) and (col_name not in ['detect', 'n_detect']):      # Find the 2D columns
+            if (np.ndim(self[col_name].data) == 2) and (col_name not in ['detect', 'n_detect']):      # Find the 2D columns
                 # Make a new 2D array with +1 extra column. Copy over the old data.
                 # This is much faster than hstack or concatenate according to:
                 # https://stackoverflow.com/questions/8486294/how-to-add-an-extra-column-to-an-numpy-array
@@ -519,7 +519,7 @@ class StarTable(Table):
             if meta_add:
                 self.meta[col_name_in + '0'] = 'not_weighted'
 
-        std = np.ma.masked_values(std, 0.)  # Mask out any zero uncertainties (i.e., 1 or less valid points)
+        std = np.ma.masked_where(std == 0., std)  # Mask out zero uncertainties
 
         # Save off our new AVG and STD into new columns with shape (N_stars).
         col_name_avg = col_name_in + '0'

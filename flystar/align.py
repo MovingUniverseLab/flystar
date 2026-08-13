@@ -2651,7 +2651,7 @@ def setup_ref_table_from_starlist(star_list, motion_models):
     # at later times. Preserve content only in the columns: name, x0, y0, m0 (and 0e).
     # Note that these are all the 1D columns.
     for col_name in ref_table.colnames:
-        if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
+        if np.ndim(ref_table[col_name].data) == 2:      # Find the 2D columns
             ref_table._set_invalid_list_values(col_name, -1)
 
     return ref_table
@@ -2710,7 +2710,7 @@ def reset_ref_values(ref_table):
     """
     # All 2D columns should be reset.
     for col_name in ref_table.colnames:
-        if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
+        if np.ndim(ref_table[col_name].data) == 2:      # Find the 2D columns
             # Loop through epochs for this array.
             for cc in range(ref_table[col_name].shape[1]):
                 ref_table._set_invalid_list_values(col_name, cc)
@@ -2775,6 +2775,8 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
                 new_col_empty = motion_model_name
             elif col_name=='motion_model_used':
                 new_col_empty = 'Empty'
+            elif col_name in ['xe', 'ye', 'me'] or col_name.endswith('_err'):
+                new_col_empty = np.inf
             elif ref_table[col_name].dtype == np.dtype('float'):
                 new_col_empty = np.nan
             elif ref_table[col_name].dtype == np.dtype('int'):
@@ -2784,7 +2786,7 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
             else:
                 new_col_empty = np.nan
 
-            if len(ref_table[col_name].shape) == 1:
+            if np.ndim(ref_table[col_name].data) == 1:
                 new_col_shape = N_newstars
             else:
                 new_col_shape = [N_newstars, ref_table[col_name].shape[1]]
