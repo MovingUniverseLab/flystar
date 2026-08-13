@@ -238,7 +238,7 @@ class MosaicSelfRef(object):
         self.trans_args = trans_args
         self.init_order = init_order
         self.mag_trans = mag_trans
-        self.mag_lim = np.array(mag_lim)
+        self.mag_lim = mag_lim
         self.trans_weighting = trans_weights
         self.vel_weighting = vel_weights
         self.trans_input = trans_input
@@ -342,10 +342,10 @@ class MosaicSelfRef(object):
 
         # Format self.mag_lim to be (N_iters, N_lists, 2) array. If only a single mag_lim is passed in, replicate for all lists.
         if self.mag_lim is None:
-            self.mag_lim = np.array([[[None] * len(self.star_lists)] * self.iters])
+            self.mag_lim = np.array([[None] * len(self.star_lists)] * self.iters)
         elif (np.ndim(self.mag_lim) == 1) and (len(self.mag_lim) == 2):
             # 2-element array, replicate for all lists and iterations
-            self.mag_lim = np.array([[[self.mag_lim] * len(self.star_lists)] * self.iters])
+            self.mag_lim = np.array([[self.mag_lim] * len(self.star_lists)] * self.iters)
         elif (np.ndim(self.mag_lim) == 2) and (len(self.mag_lim) == len(self.star_lists)) and (self.mag_lim.shape[1] == 2):
             # (N_lists, 2) array, replicate for all iterations
             self.mag_lim = np.array([self.mag_lim] * self.iters)
@@ -353,6 +353,7 @@ class MosaicSelfRef(object):
             assert np.shape(self.mag_lim) == (self.iters, len(self.star_lists), 2), f"mag_lim must have shape (iters, N_lists, 2) = ({self.iters}, {len(self.star_lists)}, 2), but has shape {np.shape(self.mag_lim)}"
         else:
             raise ValueError(f"mag_lim must be None, a 2-element array, a (N_lists, 2) array, or a (N_iters, N_lists, 2) array. Got shape {np.shape(self.mag_lim)}")
+        
         return
 
 
@@ -1011,7 +1012,10 @@ class MosaicSelfRef(object):
         # Note that these are all the 1D columsn.
         for col_name in ref_table.colnames:
             if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
-                ref_table._set_invalid_list_values(col_name, -1)
+                if col_name in ['xe', 'ye', 'me']:
+                    ref_table[col_name][:, -1] = np.inf
+                else:
+                    ref_table._set_invalid_list_values(col_name, -1)
 
         if 'motion_model_input' not in ref_table.colnames:
             ref_table.add_column(np.repeat(self.motion_models[-1].name, len(ref_table)), name='motion_model_input')
