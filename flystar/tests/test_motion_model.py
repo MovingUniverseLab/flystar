@@ -396,3 +396,34 @@ def test_Parallax_PA():
     )
     np.testing.assert_allclose(dat_pa0[0], -dat_pa90[1], atol=1e-10)
     np.testing.assert_allclose(dat_pa0[1], dat_pa90[0], atol=1e-10)
+
+
+def test_motion_model_param_names_dedup():
+    """
+    motion_model_param_names() used to re-expand fit_param_names/fixed_param_names
+    once per input entry even when the same motion model repeated thousands of
+    times (e.g. align.py passing one entry per star). It now dedups the input
+    first. Check a heavily-duplicated input still gives the same result as the
+    plain unique input.
+    """
+    repeated_names = ['Fixed', 'Linear'] * 5000
+    got = motion_model.motion_model_param_names(repeated_names, with_errors=True, with_fixed=True)
+    want = motion_model.motion_model_param_names(['Fixed', 'Linear'], with_errors=True, with_fixed=True)
+    assert got == want
+
+    # Order of first appearance should still control the output order.
+    reordered = ['Linear', 'Fixed'] * 3000
+    got_reordered = motion_model.motion_model_param_names(reordered, with_errors=True, with_fixed=True)
+    want_reordered = motion_model.motion_model_param_names(['Linear', 'Fixed'], with_errors=True, with_fixed=True)
+    assert got_reordered == want_reordered
+    assert got_reordered != got  # different first-seen order -> different param order
+
+    # Mixing model classes with their string names should still be correct.
+    mixed = [motion_model.Fixed, 'Fixed', motion_model.Linear, 'Linear'] * 100
+    got_mixed = motion_model.motion_model_param_names(mixed, with_errors=True, with_fixed=True)
+    assert got_mixed == want
+
+    # with_errors=False / with_fixed=False should still behave as before.
+    got_no_extras = motion_model.motion_model_param_names(repeated_names, with_errors=False, with_fixed=False)
+    want_no_extras = motion_model.motion_model_param_names(['Fixed', 'Linear'], with_errors=False, with_fixed=False)
+    assert got_no_extras == want_no_extras

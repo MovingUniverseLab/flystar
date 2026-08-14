@@ -8,7 +8,6 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from multiprocessing import Pool
 from flystar import match, transforms, plots, motion_model
 from flystar.starlists import StarList
 from flystar.startables import StarTable
@@ -1179,7 +1178,7 @@ class MosaicSelfRef(object):
         """
         # Keep track of the original reference values.
         # In certain cases, we will NOT update these.
-        if (keep_orig is not None) and (sum(keep_orig) > 0):
+        if (keep_orig is not None) and (np.count_nonzero(keep_orig) > 0):
             vals_orig = {}
             vals_orig['m0'] = self.ref_table['m0'][keep_orig]
             vals_orig['m0_err'] = self.ref_table['m0_err'][keep_orig]
@@ -1253,7 +1252,7 @@ class MosaicSelfRef(object):
         self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
         # Replace the originals if we are supposed to keep them fixed.
-        if (keep_orig is not None) and (sum(keep_orig) > 0):
+        if (keep_orig is not None) and (np.count_nonzero(keep_orig) > 0):
             for val in vals_orig.keys():
                 self.ref_table[val][keep_orig] = vals_orig[val]
 
@@ -2487,16 +2486,6 @@ def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, re
     #     y = startable['y']
     # return x, y
 
-def determine_motion_model(motion_models_possible, k, fixed_params_dict):
-    """Helper function for multiprocessing determine_motion_models for each star
-    """
-    for mm, req_col_in_table, req_cols, req_col_in_dict in motion_models_possible[::-1]:
-        # If required column in table/fixed_params dict is numeric, check if all values are finite.
-        # If so, use mm as motion model and stop further searching
-        if all(np.isfinite(req_cols[col][k]) for col in req_col_in_table if np.issubdtype(req_cols[col].dtype, np.number)) \
-        and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
-            return mm.name, mm.n_params
-
 def determine_motion_models(startable, motion_models=None, fixed_params_dict=None, processes=1, chunksize=None, verbose=True):
     """Determine motion model used in star table based on the finite model parameter columns
 
@@ -2538,35 +2527,47 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
         if all((col in startable.colnames) or (col in fixed_params_dict.keys()) for col in required_columns):
             motion_models_possible.append((mm, req_col_in_table, req_cols, req_col_in_dict))
 
-    if processes == 1:
-        motion_model_used = []
-        n_params = []
-        for k in tqdm(range(len(startable)), desc='Determining motion models', disable=not verbose):
-            for mm, req_col_in_table, req_cols, req_col_in_dict in motion_models_possible[::-1]:
-                # If required column in table/fixed_params dict is numeric, check if all values are finite.
-                # If so, use mm as motion model and stop further searching
-                if all(np.isfinite(req_cols[col][k]) for col in req_col_in_table if np.issubdtype(req_cols[col].dtype, np.number)) \
-                and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
-                    motion_model_used.append(mm.name)
-                    n_params.append(mm.n_params)
-                    break
-    else:
-        arguments = [(
-            motion_models_possible, k, fixed_params_dict
-        ) for k in range(len(startable))]
+    # Vectorized replacement for the old per-star Python loop (which called
+    # np.isfinite/np.issubdtype once per star per required column -- millions
+    # of times for large mosaics). For each candidate motion model, checked in
+    # the same priority order as before (last-declared model first), compute a
+    # whole-table boolean mask of which stars have all of that model's required
+    # *numeric* columns finite, then assign that model to every not-yet-assigned
+    # star the mask covers. Whether the fixed_params_dict entries are finite
+    # doesn't depend on the star, so it's checked once per model instead of once
+    # per star. This makes the `processes`/`chunksize` arguments unnecessary for
+    # this function; they are kept in the signature for backward compatibility.
+    n_stars = len(startable)
+    motion_model_used = np.empty(n_stars, dtype=object)
+    n_params = np.empty(n_stars, dtype=int)
+    assigned = np.zeros(n_stars, dtype=bool)
 
-        with Pool(processes) as pool:
-            results = list(pool.starmap(
-                determine_motion_model,
-                tqdm(
-                    arguments,
-                    desc=f'Determining motion models with {processes} processes',
-                    disable=not verbose
-                ),
-                chunksize=chunksize
-            ))
-            motion_model_used = [result[0] for result in results]
-            n_params = [result[1] for result in results]
+    for mm, req_col_in_table, req_cols, req_col_in_dict in tqdm(
+        motion_models_possible[::-1], desc='Determining motion models', disable=not verbose
+    ):
+        fixed_ok = all(
+            np.isfinite(fixed_params_dict[col])
+            for col in req_col_in_dict
+            if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)
+        )
+        if not fixed_ok:
+            continue
+
+        satisfies = np.ones(n_stars, dtype=bool)
+        for col in req_col_in_table:
+            col_data = req_cols[col]
+            if np.issubdtype(col_data.dtype, np.number):
+                satisfies &= np.isfinite(col_data)
+
+        newly_assigned = satisfies & ~assigned
+        motion_model_used[newly_assigned] = mm.name
+        n_params[newly_assigned] = mm.n_params
+        assigned |= newly_assigned
+
+    # Stars that matched no motion model are dropped, matching the old
+    # behavior of simply never appending an entry for them.
+    motion_model_used = motion_model_used[assigned].tolist()
+    n_params = n_params[assigned].tolist()
 
     return motion_model_used, n_params
 
@@ -3839,8 +3840,10 @@ def update_old_and_new_names(ref_table, list_index, idx_ref_new):
     new_name_len_max = np.max([len(new_name) for new_name in new_names])
 
     old_names = ref_table['name']
-    old_name_len = [len(old_name) for old_name in old_names]
-    old_name_len_max = np.max(old_name_len)
+    # old_names is a fixed-width numpy unicode array, so its dtype already
+    # encodes the longest string it can hold without truncation -- no need to
+    # loop over every element (up to millions of rows) to find the max length.
+    old_name_len_max = old_names.dtype.itemsize // np.dtype('U1').itemsize
 
     if new_name_len_max > old_name_len_max:
         all_names = old_names.astype('U{0:d}'.format(new_name_len_max))

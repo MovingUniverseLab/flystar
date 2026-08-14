@@ -1447,6 +1447,128 @@ def make_fake_starlists_poly1_par(seed=-1):
 
     return (xy_trans, mag_trans)
 
+
+def _bruteforce_determine_motion_models(startable, motion_models, fixed_params_dict, verbose=False):
+    """
+    Reference implementation of align.determine_motion_models(), kept here only
+    as ground truth for test_determine_motion_models_vectorized: a plain,
+    unambiguous per-star Python loop (the same algorithm the vectorized version
+    in align.py replaced, for performance, with whole-column numpy ops).
+    """
+    if all(isinstance(mm, str) for mm in motion_models):
+        mm_map = motion_model.motion_model_map()
+        motion_models = [mm_map[mm] for mm in motion_models]
+
+    motion_models_possible = []
+    for mm in motion_models:
+        required_columns = mm.fit_param_names + mm.fixed_param_names
+        req_col_in_table = [col for col in required_columns if (col in startable.colnames)]
+        req_col_in_dict = [col for col in required_columns if (col in fixed_params_dict.keys())]
+        req_cols = startable[req_col_in_table]
+        if all((col in startable.colnames) or (col in fixed_params_dict.keys()) for col in required_columns):
+            motion_models_possible.append((mm, req_col_in_table, req_cols, req_col_in_dict))
+
+    motion_model_used = []
+    n_params = []
+    for k in range(len(startable)):
+        for mm, req_col_in_table, req_cols, req_col_in_dict in motion_models_possible[::-1]:
+            if all(np.isfinite(req_cols[col][k]) for col in req_col_in_table if np.issubdtype(req_cols[col].dtype, np.number)) \
+            and all(np.isfinite(fixed_params_dict[col]) for col in req_col_in_dict if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)):
+                motion_model_used.append(mm.name)
+                n_params.append(mm.n_params)
+                break
+
+    return motion_model_used, n_params
+
+
+def test_determine_motion_models_vectorized():
+    """
+    align.determine_motion_models() was rewritten to use whole-column numpy
+    operations instead of a Python loop over every star (a major bottleneck
+    for large mosaics). Check the vectorized version against a brute-force
+    per-star reference on a table that exercises: an always-finite fallback
+    model (Empty), a model needing table columns to be finite (Fixed), and a
+    model needing both table columns and a fixed_params_dict entry to be
+    finite (Linear, gated on 't0').
+    """
+    rng = np.random.default_rng(42)
+    n_stars = 200
+
+    x0 = rng.uniform(-10, 10, n_stars)
+    y0 = rng.uniform(-10, 10, n_stars)
+    vx = rng.uniform(-1, 1, n_stars)
+    vy = rng.uniform(-1, 1, n_stars)
+
+    # Sprinkle in some non-finite values so all three models get exercised.
+    x0[::7] = np.nan          # these rows can only ever be 'Empty'
+    vx[::5] = np.inf          # these rows (minus the ones above) can only be 'Fixed'
+    vy[1::11] = np.nan
+
+    table = Table({'x0': x0, 'y0': y0, 'vx': vx, 'vy': vy})
+
+    for fixed_params_dict in [{'t0': 2020.0}, {'t0': np.inf}, {}]:
+        motion_models = ['Empty', 'Fixed', 'Linear']
+
+        got_used, got_n = align.determine_motion_models(
+            table, motion_models=motion_models, fixed_params_dict=dict(fixed_params_dict), verbose=False
+        )
+        want_used, want_n = _bruteforce_determine_motion_models(
+            table, motion_models=motion_models, fixed_params_dict=dict(fixed_params_dict), verbose=False
+        )
+
+        assert got_used == want_used
+        assert got_n == want_n
+        # Sanity check: with fixed_params_dict containing a finite t0, at least
+        # some stars should have resolved to each of the three models.
+        if fixed_params_dict.get('t0') == 2020.0:
+            assert set(got_used) == {'Empty', 'Fixed', 'Linear'}
+
+
+def test_update_old_and_new_names():
+    """
+    align.update_old_and_new_names() used to find the max existing name length
+    by looping over every row in the reference table. It now reads the length
+    straight off the fixed-width numpy dtype. Check both the "no widening
+    needed" and "widening needed" branches against the original per-row logic.
+    """
+    n_old = 50
+    old_names = np.array([f'{i:03d}_star' for i in range(n_old)])  # 8 chars each
+    name_in_list = np.array([f'star_{i}' for i in range(n_old)]).reshape(-1, 1)  # 6-7 chars
+
+    ref_table = Table({'name': old_names, 'name_in_list': name_in_list})
+    idx_ref_new = np.array([5, 12, 30])
+    list_index = 0
+
+    def _bruteforce_update_old_and_new_names(ref_table, list_index, idx_ref_new):
+        new_names = [f"{list_index:3d}_{name}" for name in ref_table['name_in_list'][idx_ref_new, list_index]]
+        new_name_len_max = np.max([len(new_name) for new_name in new_names])
+        old_names = ref_table['name']
+        old_name_len = [len(old_name) for old_name in old_names]
+        old_name_len_max = np.max(old_name_len)
+        if new_name_len_max > old_name_len_max:
+            all_names = old_names.astype('U{0:d}'.format(new_name_len_max))
+        else:
+            all_names = old_names
+        all_names[idx_ref_new] = new_names
+        return all_names
+
+    # Case 1: new names are no longer than existing ones -- no widening needed.
+    got = align.update_old_and_new_names(ref_table.copy(), list_index, idx_ref_new)
+    want = _bruteforce_update_old_and_new_names(ref_table.copy(), list_index, idx_ref_new)
+    assert list(got) == list(want)
+
+    # Case 2: new names are longer than any existing name -- dtype must widen.
+    # Widen name_in_list's dtype explicitly first -- assigning a longer string
+    # into a narrower fixed-width numpy array would silently truncate it.
+    ref_table2 = ref_table.copy()
+    wide_name_in_list = ref_table2['name_in_list'].astype('U40')
+    wide_name_in_list[idx_ref_new[0], 0] = 'a_much_much_longer_star_name'
+    ref_table2.replace_column('name_in_list', wide_name_in_list)
+    got2 = align.update_old_and_new_names(ref_table2.copy(), list_index, idx_ref_new)
+    want2 = _bruteforce_update_old_and_new_names(ref_table2.copy(), list_index, idx_ref_new)
+    assert list(got2) == list(want2)
+
+
 if __name__ == '__main__':
     import pickle
     with open(f'{test_data_path}/my_gaia.pkl', 'rb') as f:

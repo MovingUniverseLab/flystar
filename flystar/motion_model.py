@@ -1260,6 +1260,22 @@ def motion_model_param_names(motion_models, with_errors=True, with_fixed=True):
             list_of_parameters.append(name)
 
     motion_models = np.atleast_1d(motion_models)
+
+    # Callers (e.g. align.update_ref_table_aggregates) may pass one entry per
+    # star -- mostly repeats of the same handful of motion model names/classes.
+    # Re-expanding fit_param_names/fixed_param_names for every repeat is pure
+    # waste, since list_add() is a no-op for names already seen. Dedup up front
+    # (preserving first-occurrence order, which is what determines the order of
+    # list_of_parameters below) so each distinct motion model is expanded once.
+    seen = set()
+    unique_motion_models = []
+    for mm in motion_models:
+        key = mm if isinstance(mm, str) else id(mm)
+        if key not in seen:
+            seen.add(key)
+            unique_motion_models.append(mm)
+    motion_models = unique_motion_models
+
     mm_map = motion_model_map()
     for mm in motion_models:
         if isinstance(mm, str):
