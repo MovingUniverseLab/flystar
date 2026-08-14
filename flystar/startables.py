@@ -489,23 +489,38 @@ class StarTable(Table):
             col_data = self[col_name_in].data[select_stars]
         else:
             col_data = self[col_name_in].data
-        val_2d = np.ma.masked_invalid(col_data[:, list_indices])
+        val_2d = np.array(col_data[:, list_indices], dtype=float)
 
         if ismag:
             # Convert to flux.
             val_2d = 10**(-0.4 * val_2d)
-        # Make a mask of invalid (NaN) values and a user-specified invalid value.
 
+        # `valid` tracks, elementwise, whether a value is usable at all --
+        # this replaces numpy.ma's masking, but as a plain boolean array so
+        # the arithmetic below can use ordinary (fast) numpy ops instead of
+        # numpy.ma's much slower generic dispatch for every operator.
+        valid = np.isfinite(val_2d)
+
+        # Mask a user-specified invalid value too.
         if mask_val:
-            val_2d = np.ma.masked_values(val_2d, mask_val)
+            valid &= ~np.isclose(val_2d, mask_val, rtol=1e-05, atol=1e-08)
 
-        # Figure out which ones are outliers. Returns a masked array.
+        # Figure out which ones are outliers. sigma_clip already treats NaN
+        # (and, via the mask below, our own invalid entries) as excluded, and
+        # returns a masked array -- pull its mask into `valid` and its data
+        # into a plain array immediately, rather than keep operating on the
+        # masked array itself for every subsequent step.
         if sigma:
-            # with warnings.catch_warnings():
-            #     warnings.filterwarnings('ignore', category=RuntimeWarning)
-            val_2d_clip = sigma_clip(val_2d, sigma=sigma, maxiters=5, axis=1)
+            # Pass a masked (not NaN-filled) array in: sigma_clip treats an
+            # explicit mask as "already known invalid" silently, whereas raw
+            # NaNs trigger an "invalid values...automatically clipped"
+            # warning that the original implementation never produced.
+            val_2d_for_clip = np.ma.masked_array(val_2d, mask=~valid, copy=False)
+            clipped = sigma_clip(val_2d_for_clip, sigma=sigma, maxiters=5, axis=1)
+            valid &= ~np.ma.getmaskarray(clipped)
+            val_2d_clip = np.where(valid, clipped.data, 0.0)
         else:
-            val_2d_clip = val_2d
+            val_2d_clip = np.where(valid, val_2d, 0.0)
 
         # Decide if we are going to have weights (before we do the expensive sigma clipping routine).
         if weights_col in self.colnames:
@@ -513,23 +528,30 @@ class StarTable(Table):
                 weights_data = self[weights_col].data[select_stars]
             else:
                 weights_data = self[weights_col].data
-            err_2d = np.ma.masked_invalid(weights_data[:, list_indices])
+            err_2d = np.array(weights_data[:, list_indices], dtype=float)
 
             if ismag:
                 # Convert to flux error
                 err_2d = 0.4 * np.log(10) * val_2d * err_2d
 
-            # Unify masks
-            unified_mask = val_2d_clip.mask | err_2d.mask
-            val_2d_clip.mask = unified_mask
-            err_2d.mask = unified_mask
+            # A value only contributes if both it (post-clipping) and its
+            # error are finite -- this is the "unify masks" step.
+            valid_w = valid & np.isfinite(err_2d)
 
             # Inverse variance weights minimize the propagated uncertainty
-            wgt_2d = np.ma.masked_invalid(1. / err_2d**2)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                wgt_2d = np.where(valid_w, 1. / err_2d**2, 0.0)
+            wgt_2d[~np.isfinite(wgt_2d)] = 0.0
 
             # Calculate the weighted mean and uncertainty
-            avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
-            std = np.ma.sqrt(1. / np.ma.sum(wgt_2d, axis=1)) # Error propagation for weighted mean
+            wgt_sum = wgt_2d.sum(axis=1)
+            has_data = wgt_sum > 0
+
+            with np.errstate(divide='ignore', invalid='ignore'):
+                avg = (val_2d_clip * wgt_2d).sum(axis=1) / wgt_sum
+                # Equivalent of avg = np.average(val_2d_clip, weights=wgt_2d, axis=1)
+                std = np.sqrt(1. / wgt_sum)  # Error propagation for weighted mean
+            avg[~has_data] = np.nan
 
             # Use standard deviation of the weighted residuals as the uncertainty
             # std = np.ma.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
@@ -537,27 +559,31 @@ class StarTable(Table):
             if meta_add:
                 self.meta[col_name_in + '0'] = 'weighted'
         else:
-            wgt_2d = None
-            # Calculate the weighted mean and uncertainty
-            avg = np.ma.mean(val_2d_clip, axis=1)
+            # Calculate the (unweighted) mean and uncertainty
+            n_valid = valid.sum(axis=1)
+            has_data = n_valid > 0
+            with np.errstate(divide='ignore', invalid='ignore'):
+                avg = val_2d_clip.sum(axis=1) / n_valid
+            avg[~has_data] = np.nan
             # Use standard deviation of the residuals as the uncertainty
-            std = np.ma.std(val_2d_clip, axis=1)
+            deviations = np.where(valid, val_2d_clip - avg[:, np.newaxis], 0.0)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                std = np.sqrt((deviations**2).sum(axis=1) / n_valid)
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'not_weighted'
 
-        std = np.ma.masked_where(std == 0., std)  # Mask out zero uncertainties
+        std_invalid = (~has_data) | (std == 0.)  # Mask out zero uncertainties
 
         # Save off our new AVG and STD into columns with shape (N_stars)
         # (col_name_avg/col_name_std were resolved at the top of this function).
         if ismag:
-            std = 2.5 / np.log(10) * std / avg  # Error propagation
-            avg = -2.5 * np.ma.log10(avg)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                std = 2.5 / np.log(10) * std / avg  # Error propagation
+                avg = -2.5 * np.log10(avg)
 
-        # FIXME: why change?
-        # Fill mask with nan or inf
-        avg = avg.filled(np.nan)
-        std = std.filled(np.inf)
+        # Fill invalid entries with nan (avg) or inf (std)
+        std[std_invalid] = np.inf
 
         if select_stars is not None:
             # Columns must already exist -- only the selected rows are updated,

@@ -72,8 +72,8 @@ def test_StarTable_init2():
     Also double check that we can add a second list to it using add_starlist and
     we can get_starlist() as well.
     """
-    list_file1 = 'test_data/A.lis'
-    list_file2 = 'test_data/B.lis'
+    list_file1 = f'{test_data_path}/A.lis'
+    list_file2 = f'{test_data_path}/B.lis'
     list1 = StarList.from_lis_file(list_file1)
     list2 = StarList.from_lis_file(list_file2)
 
@@ -99,20 +99,25 @@ def test_combine_lists():
     x_avg_0 = t['x'][0, :].mean()
     t.combine_lists('x', mask_val=-100000)
     assert t['x0'][0] == x_avg_0
-    assert t['x0'][-1] == pytest.approx(2108.855, 0.001)
+    np.testing.assert_allclose(t['x0'][-1], 2108.855, rtol=1e-3)
 
     # Test 3: Trying calling the same thing a second time and make sure the
     # answers don't change and we didn't break anything.
     t.combine_lists('x', mask_val=-100000)
     assert t['x0'][0] == x_avg_0
-    assert t['x0'][-1] == pytest.approx(2108.855, 0.001)
+    np.testing.assert_allclose(t['x0'][-1], 2108.855, rtol=1e-3)
 
     # Test 4: weighted average of x.
     x_wgt_0 = 1.0 / t['xe'][0, :]**2
     x_avg_0 = np.average(t['x'][0, :], weights=x_wgt_0)
     t.combine_lists('x', mask_val=-100000, weights_col='xe')
-    assert t['x0'][0] == x_avg_0
-    
+    # A weighted-mean reduction over a 2D array's axis=1 (as combine_lists
+    # does internally) doesn't reproduce a 1D np.average() call bit-for-bit
+    # -- that's a numpy summation-order quirk (also true of the original
+    # numpy.ma-based implementation for a plain np.average, just not for
+    # np.ma.average specifically), not a precision issue worth chasing.
+    np.testing.assert_allclose(t['x0'][0], x_avg_0)
+
     x_wgt_last = 1.0 / t['xe'][-1, :]**2
     x_avg_last = np.average(t['x'][-1, [2,7]], weights=x_wgt_last[[2,7]])
     assert t['x0'][-1] == pytest.approx(x_avg_last)
@@ -226,6 +231,128 @@ def test_combine_lists_select_stars():
     np.testing.assert_array_equal(t2['x0'], x0_snapshot)
 
     return
+
+
+def _bruteforce_combine_lists(startable, col_name_in, weights_col=None, mask_val=None,
+                               mask_lists=None, ismag=False, sigma=3):
+    """
+    Reference implementation of StarTable.combine_lists(), kept here only as
+    ground truth for test_combine_lists_vectorized: the original numpy.ma
+    -based implementation that the vectorized (plain-numpy) version replaced,
+    for performance (numpy.ma carries heavy per-operation overhead compared
+    to explicit boolean-mask arithmetic on plain arrays).
+    """
+    from astropy.stats import sigma_clip as _sigma_clip
+
+    if mask_lists is not None:
+        mask_lists = np.atleast_1d(mask_lists)
+        list_indices = np.array([i for i in np.arange(startable[col_name_in].data.shape[1]) if i not in mask_lists])
+    else:
+        list_indices = np.arange(startable[col_name_in].data.shape[1])
+
+    val_2d = np.ma.masked_invalid(startable[col_name_in].data[:, list_indices])
+
+    if ismag:
+        val_2d = 10**(-0.4 * val_2d)
+
+    if mask_val:
+        val_2d = np.ma.masked_values(val_2d, mask_val)
+
+    if sigma:
+        val_2d_clip = _sigma_clip(val_2d, sigma=sigma, maxiters=5, axis=1)
+    else:
+        val_2d_clip = val_2d
+
+    if weights_col in startable.colnames:
+        err_2d = np.ma.masked_invalid(startable[weights_col].data[:, list_indices])
+        if ismag:
+            err_2d = 0.4 * np.log(10) * val_2d * err_2d
+        unified_mask = val_2d_clip.mask | err_2d.mask
+        val_2d_clip.mask = unified_mask
+        err_2d.mask = unified_mask
+        wgt_2d = np.ma.masked_invalid(1. / err_2d**2)
+        avg = np.ma.average(val_2d_clip, weights=wgt_2d, axis=1)
+        std = np.ma.sqrt(1. / np.ma.sum(wgt_2d, axis=1))
+    else:
+        avg = np.ma.mean(val_2d_clip, axis=1)
+        std = np.ma.std(val_2d_clip, axis=1)
+
+    std = np.ma.masked_where(std == 0., std)
+
+    if ismag:
+        std = 2.5 / np.log(10) * std / avg
+        avg = -2.5 * np.ma.log10(avg)
+
+    avg = avg.filled(np.nan)
+    std = std.filled(np.inf)
+    return avg, std
+
+
+def test_combine_lists_vectorized():
+    """
+    StarTable.combine_lists() was rewritten to use plain numpy arithmetic
+    with explicit boolean masks instead of numpy.ma (which carries heavy
+    per-operation overhead -- mask bookkeeping and generic dispatch on every
+    arithmetic op -- and was a measurable chunk of align.py's runtime for
+    large mosaics). Check the vectorized version against the original
+    numpy.ma-based reference across a battery of randomized tables that
+    exercise: weighted/unweighted, magnitude conversion, mask_lists,
+    mask_val, sigma clipping, all-invalid rows, and rows with exactly one
+    valid epoch.
+    """
+    rng = np.random.default_rng(7)
+
+    for trial in range(20):
+        n_stars = 60
+        n_epochs = 5
+
+        x = rng.normal(100, 5, size=(n_stars, n_epochs))
+        xe = rng.uniform(0.001, 0.05, size=(n_stars, n_epochs))
+
+        # Sprinkle in missing epochs (NaN), a sentinel mask value, and some
+        # gross outliers for sigma clipping to catch.
+        x[rng.random((n_stars, n_epochs)) < 0.25] = np.nan
+        xe[np.isnan(x)] = np.nan
+        sentinel_mask = rng.random((n_stars, n_epochs)) < 0.05
+        x[sentinel_mask] = -100000
+        outlier_mask = rng.random((n_stars, n_epochs)) < 0.05
+        x[outlier_mask] += rng.choice([-1, 1], size=outlier_mask.sum()) * rng.uniform(50, 200, size=outlier_mask.sum())
+
+        # A few rows with zero, or exactly one, valid epoch -- edge cases for
+        # "no data" and "std of a single point."
+        x[0, :] = np.nan
+        xe[0, :] = np.nan
+        x[1, 1:] = np.nan
+        xe[1, 1:] = np.nan
+
+        t_weighted = Table({'x': x.copy(), 'xe': xe.copy()})
+        t_unweighted = Table({'x': x.copy()})
+
+        for use_weights, ismag, mask_lists, sigma in [
+            (True, False, None, 3),
+            (False, False, None, 3),
+            (True, True, None, 3),
+            (True, False, [2], 3),
+            (True, False, None, None),
+        ]:
+            t = t_weighted if use_weights else t_unweighted
+            kwargs = dict(mask_val=-100000, mask_lists=mask_lists, ismag=ismag, sigma=sigma)
+            if use_weights:
+                kwargs['weights_col'] = 'xe'
+
+            want_avg, want_std = _bruteforce_combine_lists(t, 'x', **kwargs)
+
+            t_copy = Table({k: t[k].copy() for k in t.colnames})
+            t_copy.__class__ = StarTable  # combine_lists is a StarTable method
+            t_copy.combine_lists('x', **kwargs)
+            got_avg = np.asarray(t_copy['x0'])
+            got_std = np.asarray(t_copy['x0_err'])
+
+            np.testing.assert_allclose(got_avg, want_avg, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                        err_msg=f"trial={trial} use_weights={use_weights} ismag={ismag} mask_lists={mask_lists} sigma={sigma}: avg mismatch")
+            np.testing.assert_allclose(got_std, want_std, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                        err_msg=f"trial={trial} use_weights={use_weights} ismag={ismag} mask_lists={mask_lists} sigma={sigma}: std mismatch")
+
 
 def test_add_starlist():
     """
@@ -689,3 +816,7 @@ def make_tiny_star_table():
                           xe=xe_in, ye=ye_in, me=me_in)
 
     return startable
+
+
+if __name__ == "__main__":
+    test_combine_lists()
