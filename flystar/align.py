@@ -542,8 +542,20 @@ class MosaicSelfRef(object):
         self.ref_table['chi2_x'] = chi2_x
         self.ref_table['chi2_y'] = chi2_y
 
-        # Update t0 and n_fit when no fitting is run because all motion_model_input==Fixed
-        if ('t0' not in self.ref_table.colnames) or ('n_fit' not in self.ref_table.colnames):
+        # Update t0 and n_fit when no fitting is run because all motion_model_input==Fixed.
+        # 't0' may already exist as a column (e.g. supplied by the input
+        # reference list) without being populated for every row -- newly
+        # added stars get a NaN placeholder when their row is created (see
+        # add_rows_for_new_stars), and nothing else ever fills it in for the
+        # all-Fixed case. So the check has to be "which rows still need a
+        # value", not just "does the column exist".
+        needs_t0 = (
+            np.ones(len(self.ref_table), dtype=bool) if 't0' not in self.ref_table.colnames
+            else ~np.isfinite(self.ref_table['t0'])
+        )
+        needs_n_fit = 'n_fit' not in self.ref_table.colnames
+
+        if needs_t0.any() or needs_n_fit:
             x_data = np.ma.masked_invalid(self.ref_table['x'].data, copy=True)
             y_data = np.ma.masked_invalid(self.ref_table['y'].data, copy=True)
             if weighted_xy:
@@ -574,13 +586,30 @@ class MosaicSelfRef(object):
                 t_data = np.array(self.ref_table.meta['list_times'])
                 t_data = np.broadcast_to(t_data, xe_data.shape)
 
-            # Update t0, adapted from startables.fit_motion_models
-            if 't0' not in self.ref_table.colnames:
+            # Update t0, adapted from startables.fit_motion_models. Only the
+            # rows that need it are written -- rows that already have a
+            # valid t0 (e.g. from the input reference list) are left alone.
+            if needs_t0.any():
                 weights = 1. / np.hypot(xe_data, ye_data) if weighted_xy else None
-                self.ref_table['t0'] = np.average(t_data, axis=1, weights=weights)
+                # t_data must be masked (not just weights) and np.ma.average
+                # (not plain np.average) must be used here: for the
+                # fill_with_one rows above (no usable xe/ye anywhere at all),
+                # the substitute weight is uniform/unmasked, but t can still
+                # be genuinely NaN in undetected epochs. Plain np.average's
+                # weight-sum denominator doesn't respect t's own mask in that
+                # case, silently corrupting the result. np.ma.average does,
+                # and with a uniform weight that's equivalent to
+                # combine_lists()'s plain (unweighted) mean of just the valid
+                # epochs -- i.e. these stars' t0 still reflects their real
+                # detections, it's just not astrometric-error-weighted.
+                t0_new = np.ma.average(np.ma.masked_invalid(t_data), axis=1, weights=weights).filled(np.nan)
+                if 't0' not in self.ref_table.colnames:
+                    self.ref_table['t0'] = t0_new
+                else:
+                    self.ref_table['t0'][needs_t0] = t0_new[needs_t0]
 
             # Update n_fit: unique epochs with valid data
-            if 'n_fit' not in self.ref_table.colnames:
+            if needs_n_fit:
                 xy_mask = ~ (x_data.mask | y_data.mask)
                 if weighted_xy:
                     xy_mask &= ~ (xe_data.mask | ye_data.mask)
@@ -1210,15 +1239,12 @@ class MosaicSelfRef(object):
             # )
             weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
             weighted_m = ('me' in self.ref_table.colnames)
-            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
-            # Set t0
-            if weighted_xy:
-                t = np.ma.masked_invalid(self.ref_table['t'])   # Shape (N_stars, N_epochs)
-                ast_err = np.ma.masked_invalid(np.hypot(self.ref_table['xe'], self.ref_table['ye']))    # Shape (N_stars, N_epochs)
-                t0 = np.ma.average(t, axis=1, weights=1/ast_err**2).filled(np.nan)  # Shape (N_stars,)
-            else:
-                t0 = np.nanmean(self.ref_table['t'], axis=1)  # Shape (N_stars,)
-            self.ref_table['t0'] = t0
+            # Only (re)average the rows that actually changed this round
+            # (fit_star_idxs) -- for a mosaic that keeps growing across many
+            # starlists, recomputing every already-settled row every time
+            # this is called would make the total cost grow quadratically in
+            # the number of starlists.
+            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m, select_stars=fit_star_idxs)
 
         else:
             self.ref_table.fit_motion_models(
@@ -1240,12 +1266,26 @@ class MosaicSelfRef(object):
                 weights_col = None
             else:
                 weights_col = 'me'
-            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
+            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True, select_stars=fit_star_idxs)
 
         # if (keep_orig is not None) and (sum(keep_orig) > 0):
         # Determine motion_model_used for keep_orig stars
         # Filter possible motion models based on available columns
-        motion_model_used, n_params = determine_motion_models(self.ref_table, self.motion_models, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
+        # Only take the selective path if these columns already exist -- on
+        # the very first call they don't, so every row needs a value
+        # regardless of fit_star_idxs.
+        mm_cols_exist = ('motion_model_used' in self.ref_table.colnames) and ('n_params' in self.ref_table.colnames)
+        if (fit_star_idxs is not None) and mm_cols_exist:
+            # As above: only re-classify the rows that changed this round.
+            motion_model_used_new, n_params_new = determine_motion_models(
+                self.ref_table[fit_star_idxs], self.motion_models, self.fixed_params_dict, processes, chunksize, self.verbose > 0
+            )
+            motion_model_used = np.array(self.ref_table['motion_model_used'], dtype=object)
+            n_params = np.array(self.ref_table['n_params'])
+            motion_model_used[fit_star_idxs] = motion_model_used_new
+            n_params[fit_star_idxs] = n_params_new
+        else:
+            motion_model_used, n_params = determine_motion_models(self.ref_table, self.motion_models, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
 
         # Assign the determined motion models
         self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
@@ -2332,8 +2372,20 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table['chi2_x'] = chi2_x
         self.ref_table['chi2_y'] = chi2_y
 
-        # Update t0 and n_fit when no fitting is run because all motion_model_input==Fixed
-        if ('t0' not in self.ref_table.colnames) or ('n_fit' not in self.ref_table.colnames):
+        # Update t0 and n_fit when no fitting is run because all motion_model_input==Fixed.
+        # 't0' may already exist as a column (e.g. supplied by the input
+        # reference list) without being populated for every row -- newly
+        # added stars get a NaN placeholder when their row is created (see
+        # add_rows_for_new_stars), and nothing else ever fills it in for the
+        # all-Fixed case. So the check has to be "which rows still need a
+        # value", not just "does the column exist".
+        needs_t0 = (
+            np.ones(len(self.ref_table), dtype=bool) if 't0' not in self.ref_table.colnames
+            else ~np.isfinite(self.ref_table['t0'])
+        )
+        needs_n_fit = 'n_fit' not in self.ref_table.colnames
+
+        if needs_t0.any() or needs_n_fit:
             x_data = np.ma.masked_invalid(self.ref_table['x'].data, copy=True)
             y_data = np.ma.masked_invalid(self.ref_table['y'].data, copy=True)
             if weighted_xy:
@@ -2364,13 +2416,30 @@ class MosaicToRef(MosaicSelfRef):
                 t_data = np.array(self.ref_table.meta['list_times'])
                 t_data = np.broadcast_to(t_data, xe_data.shape)
 
-            # Update t0, adapted from startables.fit_motion_models
-            if 't0' not in self.ref_table.colnames:
+            # Update t0, adapted from startables.fit_motion_models. Only the
+            # rows that need it are written -- rows that already have a
+            # valid t0 (e.g. from the input reference list) are left alone.
+            if needs_t0.any():
                 weights = 1. / np.hypot(xe_data, ye_data) if weighted_xy else None
-                self.ref_table['t0'] = np.average(t_data, axis=1, weights=weights)
+                # t_data must be masked (not just weights) and np.ma.average
+                # (not plain np.average) must be used here: for the
+                # fill_with_one rows above (no usable xe/ye anywhere at all),
+                # the substitute weight is uniform/unmasked, but t can still
+                # be genuinely NaN in undetected epochs. Plain np.average's
+                # weight-sum denominator doesn't respect t's own mask in that
+                # case, silently corrupting the result. np.ma.average does,
+                # and with a uniform weight that's equivalent to
+                # combine_lists()'s plain (unweighted) mean of just the valid
+                # epochs -- i.e. these stars' t0 still reflects their real
+                # detections, it's just not astrometric-error-weighted.
+                t0_new = np.ma.average(np.ma.masked_invalid(t_data), axis=1, weights=weights).filled(np.nan)
+                if 't0' not in self.ref_table.colnames:
+                    self.ref_table['t0'] = t0_new
+                else:
+                    self.ref_table['t0'][needs_t0] = t0_new[needs_t0]
 
             # Update n_fit: unique epochs with valid data
-            if 'n_fit' not in self.ref_table.colnames:
+            if needs_n_fit:
                 xy_mask = ~ (x_data.mask | y_data.mask)
                 if weighted_xy:
                     xy_mask &= ~ (xe_data.mask | ye_data.mask)
@@ -2692,7 +2761,17 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
     for col_name in ref_table.colnames:
         if col_name in star_list_T.colnames:
             if col_name == 'name':
-                ref_table['name_in_list'][idx_ref, idx_epoch] = star_list_T[col_name][idx_lis]
+                # name_in_list's dtype width is set once, from whichever
+                # names it saw first (e.g. the reference list's, at
+                # ref_table construction time). Other starlists' names can
+                # be longer, so widen the column here rather than silently
+                # truncating them.
+                incoming_names = star_list_T[col_name][idx_lis]
+                incoming_width = np.asarray(incoming_names).dtype.itemsize // np.dtype('U1').itemsize
+                current_width = ref_table['name_in_list'].dtype.itemsize // np.dtype('U1').itemsize
+                if incoming_width > current_width:
+                    ref_table['name_in_list'] = ref_table['name_in_list'].astype(f'U{incoming_width}')
+                ref_table['name_in_list'][idx_ref, idx_epoch] = incoming_names
             else:
                 ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][idx_lis]
 

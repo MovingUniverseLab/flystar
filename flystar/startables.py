@@ -145,7 +145,7 @@ class StarTable(Table):
             #####
             super().__init__((kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
                            names=('name', 'x', 'y', 'm'))
-            self['name'] = self['name'].astype('U20')
+            self['name'] = self['name'].astype('U30')
             self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
 
             for meta_arg in meta_tab:
@@ -162,7 +162,7 @@ class StarTable(Table):
                 else:
                     self.add_column(Column(data=kwargs[arg], name=arg))
                     if arg == 'name_in_list':
-                        self['name_in_list'] = self['name_in_list'].astype('U20')
+                        self['name_in_list'] = self['name_in_list'].astype('U30')
                     if arg == 'motion_model_input':
                         self['motion_model_input'] = self['motion_model_input'].astype('U20')
                     if arg == 'motion_model_used':
@@ -406,7 +406,7 @@ class StarTable(Table):
         return starlist
 
 
-    def combine_lists_xym(self, weighted_xy=True, weighted_m=True, mask_lists=None, sigma=3):
+    def combine_lists_xym(self, weighted_xy=True, weighted_m=True, mask_lists=None, sigma=3, select_stars=None):
         """
         For x, y and m columns in the table, collapse along the lists
         direction. For 'x', 'y' this means calculating the average position with
@@ -415,6 +415,11 @@ class StarTable(Table):
         "mask_lists" is a list with the indices of starlists that are
         excluded from the combination.
         Also, count the number of times a star is found in starlists.
+
+        select_stars : array-like of bool or int, optional
+            If given, only (re)compute x0/y0/m0 (and errors) for these star
+            rows; see combine_lists() for details. By default None (compute
+            for all rows, same as before).
         """
 
         # Combine by position
@@ -430,14 +435,15 @@ class StarTable(Table):
         else:
             weights_colm = None
 
-        self.combine_lists('x', weights_col=weights_colx, mask_lists=mask_lists, sigma=sigma)
-        self.combine_lists('y', weights_col=weights_coly, mask_lists=mask_lists, sigma=sigma)
-        self.combine_lists('m', weights_col=weights_colm, mask_lists=mask_lists, sigma=sigma, ismag=True)
+        self.combine_lists('x', weights_col=weights_colx, mask_lists=mask_lists, sigma=sigma, select_stars=select_stars)
+        self.combine_lists('y', weights_col=weights_coly, mask_lists=mask_lists, sigma=sigma, select_stars=select_stars)
+        self.combine_lists('m', weights_col=weights_colm, mask_lists=mask_lists, sigma=sigma, ismag=True, select_stars=select_stars)
 
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None,
-                      mask_lists=None, meta_add=True, ismag=False, sigma=3):
+                      mask_lists=None, meta_add=True, ismag=False, sigma=3,
+                      select_stars=None):
         """
         For the specified column (col_name_in), collapse along the starlists
         direction and calculated the average value, with outlier rejection.
@@ -453,7 +459,23 @@ class StarTable(Table):
 
         A flag can be stored in the metadata to record if the average was
         weighted or not.
+
+        select_stars : array-like of bool or int, optional
+            If given, only (re)compute the averaged columns for these star
+            rows; every other row is left untouched. Useful when most rows
+            already hold a valid average from a previous call and only a
+            subset of rows (e.g. newly matched/added stars) actually need
+            recomputing -- avoids redoing work for the whole (potentially
+            very large) table every time. Ignored (falls back to computing
+            for all rows) if the <col_name_in>0/<col_name_in>0_err columns
+            don't exist yet, since there's nothing to selectively update on
+            a first pass. By default None (compute for all rows).
         """
+        col_name_avg = col_name_in + '0'
+        col_name_std = col_name_in + '0_err'
+        if (select_stars is not None) and (col_name_avg not in self.colnames):
+            select_stars = None
+
         if mask_lists is not None:
             # Extract list of indices that we want to keep (i.e. not mask)
             mask_lists = np.atleast_1d(mask_lists)
@@ -463,7 +485,11 @@ class StarTable(Table):
             # Use all indices
             list_indices = np.arange(self[col_name_in].data.shape[1])
 
-        val_2d = np.ma.masked_invalid(self[col_name_in].data[:, list_indices])
+        if select_stars is not None:
+            col_data = self[col_name_in].data[select_stars]
+        else:
+            col_data = self[col_name_in].data
+        val_2d = np.ma.masked_invalid(col_data[:, list_indices])
 
         if ismag:
             # Convert to flux.
@@ -481,9 +507,13 @@ class StarTable(Table):
         else:
             val_2d_clip = val_2d
 
-        # Decide if we are going to have weights (before we do the expensive sigma clipping routine). 
+        # Decide if we are going to have weights (before we do the expensive sigma clipping routine).
         if weights_col in self.colnames:
-            err_2d = np.ma.masked_invalid(self[weights_col].data[:, list_indices])
+            if select_stars is not None:
+                weights_data = self[weights_col].data[select_stars]
+            else:
+                weights_data = self[weights_col].data
+            err_2d = np.ma.masked_invalid(weights_data[:, list_indices])
 
             if ismag:
                 # Convert to flux error
@@ -518,10 +548,8 @@ class StarTable(Table):
 
         std = np.ma.masked_where(std == 0., std)  # Mask out zero uncertainties
 
-        # Save off our new AVG and STD into new columns with shape (N_stars).
-        col_name_avg = col_name_in + '0'
-        col_name_std = col_name_in + '0_err'
-
+        # Save off our new AVG and STD into columns with shape (N_stars)
+        # (col_name_avg/col_name_std were resolved at the top of this function).
         if ismag:
             std = 2.5 / np.log(10) * std / avg  # Error propagation
             avg = -2.5 * np.ma.log10(avg)
@@ -531,7 +559,12 @@ class StarTable(Table):
         avg = avg.filled(np.nan)
         std = std.filled(np.inf)
 
-        if col_name_avg in self.colnames:
+        if select_stars is not None:
+            # Columns must already exist -- only the selected rows are updated,
+            # everything else is left exactly as it was.
+            self[col_name_avg][select_stars] = avg
+            self[col_name_std][select_stars] = std
+        elif col_name_avg in self.colnames:
             self[col_name_avg] = avg
             self[col_name_std] = std
         else:

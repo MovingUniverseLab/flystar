@@ -155,6 +155,78 @@ def test_combine_lists():
 
     return
 
+def test_combine_lists_select_stars():
+    """
+    combine_lists()/combine_lists_xym() gained a select_stars parameter so
+    align.update_ref_table_aggregates() can recompute averages only for the
+    rows that changed, instead of the whole (potentially huge, ever-growing)
+    ref_table every time it's called. Check that:
+      - computing with select_stars over a subset gives the same numbers as
+        a full recompute, for that subset.
+      - rows outside select_stars are left completely untouched, even if
+        their underlying per-epoch data changed after the last full
+        recompute.
+    """
+    t = make_star_table()
+
+    # Seed x0/x0_err and m0/m0_err with a full computation first.
+    t.combine_lists('x', weights_col='xe', mask_val=-100000)
+    t.combine_lists('m', weights_col='me', mask_val=-100000, ismag=True)
+    x0_before = t['x0'].copy()
+    x0_err_before = t['x0_err'].copy()
+    m0_before = t['m0'].copy()
+
+    # Mutate the underlying per-epoch data for every star...
+    rng = np.random.default_rng(0)
+    t['x'] = t['x'] + rng.uniform(-5, 5, t['x'].shape)
+    t['m'] = t['m'] + rng.uniform(-0.5, 0.5, t['m'].shape)
+
+    # ...but only recompute a subset of rows.
+    select = np.zeros(len(t), dtype=bool)
+    select[[1, 3, 5, 7]] = True
+
+    t.combine_lists('x', weights_col='xe', mask_val=-100000, select_stars=select)
+    t.combine_lists('m', weights_col='me', mask_val=-100000, ismag=True, select_stars=select)
+
+    # A fresh full recompute on the same (mutated) data is ground truth.
+    t_full = make_star_table()
+    t_full['x'] = t['x']
+    t_full['m'] = t['m']
+    t_full.combine_lists('x', weights_col='xe', mask_val=-100000)
+    t_full.combine_lists('m', weights_col='me', mask_val=-100000, ismag=True)
+
+    # Selected rows should match the fresh full recompute (allowing for
+    # floating-point reduction-order noise between a sliced vs. full array).
+    np.testing.assert_allclose(t['x0'][select], t_full['x0'][select], rtol=1e-12)
+    np.testing.assert_allclose(t['x0_err'][select], t_full['x0_err'][select], rtol=1e-12)
+    np.testing.assert_allclose(t['m0'][select], t_full['m0'][select], rtol=1e-12)
+
+    # Unselected rows should be untouched -- still equal to the pre-mutation
+    # values, not the (different) values the new data would produce.
+    np.testing.assert_array_equal(t['x0'][~select], x0_before[~select])
+    np.testing.assert_array_equal(t['x0_err'][~select], x0_err_before[~select])
+    np.testing.assert_array_equal(t['m0'][~select], m0_before[~select])
+
+    # combine_lists_xym should thread select_stars through consistently too.
+    tt = make_tiny_star_table()
+    tt.combine_lists_xym(weighted_xy=True, weighted_m=True)
+    x0_before_tt = tt['x0'].copy()
+    tt['x'] = tt['x'] + 100.0  # move every star
+    select_tt = np.array([True, False] * 5)
+    tt.combine_lists_xym(weighted_xy=True, weighted_m=True, select_stars=select_tt)
+    assert not np.allclose(tt['x0'][select_tt], x0_before_tt[select_tt])   # these moved
+    np.testing.assert_array_equal(tt['x0'][~select_tt], x0_before_tt[~select_tt])  # these didn't
+
+    # Edge case: an all-False selection should be a safe no-op.
+    t2 = make_star_table()
+    t2.combine_lists('x', weights_col='xe', mask_val=-100000)
+    x0_snapshot = t2['x0'].copy()
+    none_selected = np.zeros(len(t2), dtype=bool)
+    t2.combine_lists('x', weights_col='xe', mask_val=-100000, select_stars=none_selected)
+    np.testing.assert_array_equal(t2['x0'], x0_snapshot)
+
+    return
+
 def test_add_starlist():
     """
     Test the startables.combine_lists() functionality.
