@@ -503,7 +503,26 @@ class StarList(Table):
                 found_all_required = False
 
         if not found_all_required:
-            if not any(key in kwargs for key in ['copy', 'names', 'masked']): 
+            # A single positional Table-like argument (another Table/StarList,
+            # a dict/OrderedDict of Columns, a list of Columns, etc.) can
+            # already carry name/x/y/m even though they're not in kwargs --
+            # e.g. astropy's Table.__setstate__ reconstructs a pickled
+            # StarList as self.__init__(columns_dict, meta=meta), which is
+            # exactly this case. Don't warn then.
+            has_required_positionally = False
+            if len(args) == 1:
+                candidate = args[0]
+                if hasattr(candidate, 'colnames'):
+                    candidate_names = candidate.colnames
+                elif hasattr(candidate, 'keys'):
+                    candidate_names = list(candidate.keys())
+                elif isinstance(candidate, (list, tuple)) and all(hasattr(c, 'name') for c in candidate):
+                    candidate_names = [c.name for c in candidate]
+                else:
+                    candidate_names = []
+                has_required_positionally = all(a in candidate_names for a in arg_req)
+
+            if not has_required_positionally and not any(key in kwargs for key in ['copy', 'names', 'masked']):
                 # If it's not making a copy of the StarList or replacing columns or selecting from slices
                 err_msg = "The StarList class requires a arguments" + str(arg_req)
                 warnings.warn(err_msg, UserWarning)
