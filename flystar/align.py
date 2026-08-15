@@ -1291,9 +1291,9 @@ class MosaicSelfRef(object):
             )
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
-                weights_col = None
-            else:
                 weights_col = 'me'
+            else:
+                weights_col = None
             self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True, select_stars=complex_idxs)
 
         # if (keep_orig is not None) and (sum(keep_orig) > 0):
