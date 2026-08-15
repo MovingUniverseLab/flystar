@@ -2494,7 +2494,6 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
         chi2_x_list.append(chi2_x)
         chi2_y_list.append(chi2_y)
         #print(fitLineX, x, xerr)
-    #pdb.set_trace()
 
     x = np.array(chi2_x_list)
     y = np.array(chi2_y_list)
@@ -2509,7 +2508,6 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
     chi2_xaxis = np.linspace(0, xlim, xlim*3)
     chi2_bins = np.linspace(0, xlim, n_bins)
     print(x[idx])
-    #pdb.set_trace()
 
     plt.figure(figsize=(6, 4))
     plt.clf()
@@ -3997,7 +3995,7 @@ class PrintSelected(object):
         return
 
 
-def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=0.7, symbol='circle', label=None, xlabel='x', ylabel='y', fig=None, figsize=(700, 700), show=None):
+def plotly_stars(x, y, m=None, xe=None, ye=None, me=None, star_name=None, marker_size=3, color=None, alpha=0.7, symbol='circle', label=None, xlabel='x', ylabel='y', fig=None, figsize=(700, 700), show=None):
     """Plot stars with plotly in interactive html format
 
     Parameters
@@ -4008,6 +4006,12 @@ def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=
         y positions
     m : array-like, optional
         magnitude to be added in hover label, by default None
+    xe : array-like, optional
+        x errors to be added in hover label, by default None
+    ye : array-like, optional
+        y errors to be added in hover label, by default None
+    me : array-like, optional
+        magnitude errors to be added in hover label, by default None
     star_name : array-like, optional
         Star names to be added in hover label, by default None
     marker_size : int, optional
@@ -4059,6 +4063,24 @@ def plotly_stars(x, y, m=None, star_name=None, marker_size=3, color=None, alpha=
         m_idx = len(customdata)
         hover_template += f'<br>m: %{{customdata[{m_idx}]:.2f}}'
         customdata.append(m)
+
+    if xe is not None:
+        xe = np.asarray(xe)
+        xe_idx = len(customdata)
+        hover_template += f'<br>xe: %{{customdata[{xe_idx}]:.2e}}'
+        customdata.append(xe)
+
+    if ye is not None:
+        ye = np.asarray(ye)
+        ye_idx = len(customdata)
+        hover_template += f'<br>ye: %{{customdata[{ye_idx}]:.2e}}'
+        customdata.append(ye)
+
+    if me is not None:
+        me = np.asarray(me)
+        me_idx = len(customdata)
+        hover_template += f'<br>me: %{{customdata[{me_idx}]:.2e}}'
+        customdata.append(me)
 
     if customdata:
         customdata = np.column_stack(customdata)

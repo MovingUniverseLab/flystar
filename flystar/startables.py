@@ -715,28 +715,13 @@ class StarTable(Table):
             if not isinstance(fixed_params_dict, dict):
                 raise ValueError("fit_motion_models: fixed_params_dict must be a dictionary!")
 
-        # Convert motion_models to MotionModel objects if they are strings:
+        all_mm_map = motion_model.get_all_motion_models()
+        # Setting the default to None to avoid mutable default argument issue
+        # See https://stackoverflow.com/questions/15189245/assigning-class-variable-as-default-value-to-class-method-argument
         if motion_models is None:
-            # Setting the default to None to avoid mutable default argument issue
-            # See https://stackoverflow.com/questions/15189245/assigning-class-variable-as-default-value-to-class-method-argument
-            motion_models = [motion_model.Empty, motion_model.Fixed, motion_model.Linear]
-        elif isinstance(motion_models, (motion_model.MotionModel, str)):
-            motion_models = [motion_models]
-        elif not isinstance(motion_models, list):
-            raise ValueError("fit_motion_models: motion_models must be a list of MotionModel objects or strings!")
-        
-        all_mm_map = motion_model.motion_model_map()
-        if all(isinstance(mm, str) for mm in motion_models):
-            mm_names = motion_models
-            motion_models = [all_mm_map[mm] for mm in motion_models]
-        else:
-            mm_names = [mm.name for mm in motion_models]
-
-        # Always add Empty and Fixed in motion models
-        if 'Fixed' not in mm_names:
-            motion_models.insert(0, motion_model.Fixed)
-        if 'Empty' not in mm_names:
-            motion_models.insert(0, motion_model.Empty)
+            # Linear by default
+            motion_models = [motion_model.Linear()]
+        motion_models = motion_model.organize_motion_models(motion_models)
         mm_names = [mm.name for mm in motion_models]
 
         # Construct motion models if motion_model_input column exists
@@ -851,16 +836,16 @@ class StarTable(Table):
         # self['n_fit'] = np.sum(valid_xy, axis=1)
 
         # Calculate n_fit: unique times & unmasked x y values
-        self['n_fit'] = np.array([
+        n_fit = np.array([
             len(set(t_data[i][valid_xy[i]]))
             for i in range(N_stars)
         ])
+        self['n_fit'] = n_fit
 
 
         ###########################
         ####### Determine MM ######
         ###########################
-        n_fit = np.array(self['n_fit'])
         if 'motion_model_input' in self.colnames:
             # Determine which motion model to use based on motion_model_input column
             # If n_fit < n_params for the input motion model, use the most complicated motion model with n_fit >= n_params
@@ -1030,99 +1015,122 @@ class StarTable(Table):
         # Unmasked indices for each star:
         unmasked_idx = [np.flatnonzero(valid_xy[i]) for i in range(N_stars)]
 
-        # For each motion model
-        for unique_motion_model, unique_index in indices_by_motion_model.items():
-            # Create motion model instance
-            motion_model_instance = input_mm_map[unique_motion_model]()
-            param_names = motion_model_instance.fit_param_names
-            # Initialize arrays to store results
-            n_stars_this_model = len(unique_index)
-            n_params = len(param_names)
+        # Plain (non-masked) views of the per-star arrays for the per-star
+        # extraction below. x_data/y_data/xe_data/ye_data need to stay
+        # numpy.ma arrays up to this point because valid_xy (and thus
+        # unmasked_idx) is derived from their masks -- but once we have
+        # unmasked_idx, indexing with it only ever touches already-known-
+        # valid entries, so the mask itself is no longer needed and plain
+        # ndarray indexing (via .data, a zero-copy view) is far cheaper than
+        # numpy.ma's per-element indexing machinery. Doing this extraction
+        # with the masked arrays directly was previously the single largest
+        # cost in this function for large tables (confirmed by profiling:
+        # tens of millions of numpy.ma.core.__getitem__ calls).
+        t_data_arr = np.asarray(t_data)
+        x_data_arr = x_data.data if np.ma.isMaskedArray(x_data) else np.asarray(x_data)
+        y_data_arr = y_data.data if np.ma.isMaskedArray(y_data) else np.asarray(y_data)
+        xe_data_arr = (xe_data.data if np.ma.isMaskedArray(xe_data) else np.asarray(xe_data)) if with_xe_ye else None
+        ye_data_arr = (ye_data.data if np.ma.isMaskedArray(ye_data) else np.asarray(ye_data)) if with_xe_ye else None
 
-            params_array = np.full((n_stars_this_model, n_params), fill_value, dtype=float)
-            param_errs_array = np.full((n_stars_this_model, n_params), np.inf, dtype=float)
-            chi2_x_array = np.full(n_stars_this_model, np.nan, dtype=float)
-            chi2_y_array = np.full(n_stars_this_model, np.nan, dtype=float)
+        # If multiprocessing, spawn ONE pool for the whole function (not one
+        # per motion-model group below), and hand each worker the shared
+        # per-star data arrays exactly once via the initializer. Each task
+        # then only needs to cross the process boundary with a star index +
+        # its small fixed_params_dict, and does its own (ragged -- stars
+        # have different numbers of valid epochs) data extraction locally,
+        # instead of the parent process pre-extracting a t_stars/x_stars/...
+        # slice for every single star up front and pickling all of it per task.
+        pool = None
+        if processes > 1:
+            pool = Pool(
+                processes,
+                initializer=_fit_motion_models_init,
+                initargs=(t_data_arr, x_data_arr, y_data_arr, xe_data_arr, ye_data_arr,
+                          unmasked_idx, input_mm_map, weighting, use_scipy, absolute_sigma,
+                          method, fill_value, bootstrap, seed, verbose)
+            )
 
-            # Prepare data as lists of arrays for faster access during fitting
-            t_stars = [np.array(t_data[i][unmasked_idx[i]]) for i in unique_index]
-            x_stars = [np.array(x_data[i][unmasked_idx[i]]) for i in unique_index]
-            y_stars = [np.array(y_data[i][unmasked_idx[i]]) for i in unique_index]
-            xe_stars = [np.array(xe_data[i][unmasked_idx[i]]) for i in unique_index] if with_xe_ye else [np.ones_like(x_star) for x_star in x_stars]
-            ye_stars = [np.array(ye_data[i][unmasked_idx[i]]) for i in unique_index] if with_xe_ye else [np.ones_like(y_star) for y_star in y_stars]
+        try:
+            # For each motion model
+            for unique_motion_model, unique_index in indices_by_motion_model.items():
+                # Create motion model instance
+                motion_model_instance = input_mm_map[unique_motion_model]()
+                param_names = motion_model_instance.fit_param_names
+                # Initialize arrays to store results
+                n_stars_this_model = len(unique_index)
+                n_params = len(param_names)
 
-            # For each star
-            if len(unique_index) > 0:
-                if processes > 1:
-                    # Use multiprocessing to fit stars in parallel
-                    arguments = [(
-                        motion_model_instance,
-                        t_stars[idx],
-                        x_stars[idx],
-                        y_stars[idx],
-                        xe_stars[idx],
-                        ye_stars[idx],
-                        fixed_params_stars[i_star],
-                        weighting,
-                        use_scipy,
-                        absolute_sigma,
-                        fill_value,
-                        True,
-                        bootstrap,
-                        seed,
-                        verbose
-                    ) for idx, i_star in enumerate(unique_index)]
+                params_array = np.full((n_stars_this_model, n_params), fill_value, dtype=float)
+                param_errs_array = np.full((n_stars_this_model, n_params), np.inf, dtype=float)
+                chi2_x_array = np.full(n_stars_this_model, np.nan, dtype=float)
+                chi2_y_array = np.full(n_stars_this_model, np.nan, dtype=float)
 
-                    with Pool(processes) as pool:
-                        results = list(pool.starmap(
-                            fit_motion_model,
+                # For each star
+                if len(unique_index) > 0:
+                    if pool is not None:
+                        # Use multiprocessing to fit stars in parallel
+                        arguments = [(i_star, unique_motion_model, fixed_params_stars[i_star]) for i_star in unique_index]
+
+                        results = pool.starmap(
+                            _fit_motion_models_worker,
                             tqdm(
                                 arguments,
                                 desc=f"Fitting motion model {unique_motion_model} with {processes} processes",
                                 disable=not verbose
                             ),
                             chunksize=chunksize
-                        ))
-
-                    for idx, (params, param_errs, chi2_x, chi2_y) in enumerate(results):
-                        params_array[idx] = params
-                        param_errs_array[idx] = param_errs
-                        chi2_x_array[idx] = chi2_x
-                        chi2_y_array[idx] = chi2_y
-
-                else:
-                    # Expensive for loop! Prepare everything beforehand to speed up.
-                    for idx, i_star in enumerate(tqdm(unique_index, disable=not verbose, desc=f"Fitting motion model {unique_motion_model}")):
-                        # Fit the star
-                        params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
-                            t=t_stars[idx],
-                            x=x_stars[idx],
-                            y=y_stars[idx],
-                            xe=xe_stars[idx],
-                            ye=ye_stars[idx],
-                            fixed_params_dict=fixed_params_stars[i_star],
-                            weighting=weighting,
-                            use_scipy=use_scipy,
-                            absolute_sigma=absolute_sigma,
-                            method=method,
-                            fill_value=fill_value,
-                            return_chi2=True,
-                            bootstrap=bootstrap,
-                            seed=seed,
-                            verbose=verbose
                         )
-                        params_array[idx] = params
-                        param_errs_array[idx] = param_errs
-                        chi2_x_array[idx] = chi2_x
-                        chi2_y_array[idx] = chi2_y
 
-            # Store results back to the table
-            for j, param_name in enumerate(param_names):
-                self[param_name][unique_index] = params_array[:, j]
-                self[param_name + '_err'][unique_index] = param_errs_array[:, j]
-            self['chi2_x'][unique_index] = chi2_x_array
-            self['chi2_y'][unique_index] = chi2_y_array
-            self['t0'][unique_index] = t0[unique_index]
+                        for idx, (params, param_errs, chi2_x, chi2_y) in enumerate(results):
+                            params_array[idx] = params
+                            param_errs_array[idx] = param_errs
+                            chi2_x_array[idx] = chi2_x
+                            chi2_y_array[idx] = chi2_y
+
+                    else:
+                        # Prepare data as lists of arrays for faster access during fitting
+                        t_stars = [t_data_arr[i][unmasked_idx[i]] for i in unique_index]
+                        x_stars = [x_data_arr[i][unmasked_idx[i]] for i in unique_index]
+                        y_stars = [y_data_arr[i][unmasked_idx[i]] for i in unique_index]
+                        xe_stars = [xe_data_arr[i][unmasked_idx[i]] for i in unique_index] if with_xe_ye else [np.ones_like(x_star) for x_star in x_stars]
+                        ye_stars = [ye_data_arr[i][unmasked_idx[i]] for i in unique_index] if with_xe_ye else [np.ones_like(y_star) for y_star in y_stars]
+
+                        # Expensive for loop! Prepare everything beforehand to speed up.
+                        for idx, i_star in enumerate(tqdm(unique_index, disable=not verbose, desc=f"Fitting motion model {unique_motion_model}")):
+                            # Fit the star
+                            params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
+                                t=t_stars[idx],
+                                x=x_stars[idx],
+                                y=y_stars[idx],
+                                xe=xe_stars[idx],
+                                ye=ye_stars[idx],
+                                fixed_params_dict=fixed_params_stars[i_star],
+                                weighting=weighting,
+                                use_scipy=use_scipy,
+                                absolute_sigma=absolute_sigma,
+                                method=method,
+                                fill_value=fill_value,
+                                return_chi2=True,
+                                bootstrap=bootstrap,
+                                seed=seed,
+                                verbose=verbose
+                            )
+                            params_array[idx] = params
+                            param_errs_array[idx] = param_errs
+                            chi2_x_array[idx] = chi2_x
+                            chi2_y_array[idx] = chi2_y
+
+                # Store results back to the table
+                for j, param_name in enumerate(param_names):
+                    self[param_name][unique_index] = params_array[:, j]
+                    self[param_name + '_err'][unique_index] = param_errs_array[:, j]
+                self['chi2_x'][unique_index] = chi2_x_array
+                self['chi2_y'][unique_index] = chi2_y_array
+                self['t0'][unique_index] = t0[unique_index]
+        finally:
+            if pool is not None:
+                pool.close()
+                pool.join()
 
         # Update n_params regardless of selections
         for mm in motion_model_used:
@@ -1402,33 +1410,60 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed
     return table
 
 
-# Helper function to fit motion model for each star for multiprocessing
-def fit_motion_model(
-    motion_model_instance,
-    t, x, y, xe, ye,
-    fixed_params_dict,
-    weighting,
-    use_scipy,
-    absolute_sigma,
-    fill_value,
-    return_chi2,
-    bootstrap,
-    seed,
-    verbose
-):
+# Per-worker state for the fit_motion_models() process pool, set once by
+# _fit_motion_models_init() when each worker starts. Using a Pool initializer
+# instead of passing this data with every task means the (potentially large)
+# shared arrays cross the process boundary once per worker, not once per star.
+_fmm_worker_state = {}
+
+
+def _fit_motion_models_init(t_data, x_data, y_data, xe_data, ye_data, unmasked_idx,
+                             input_mm_map, weighting, use_scipy, absolute_sigma,
+                             method, fill_value, bootstrap, seed, verbose):
+    """
+    Pool initializer for fit_motion_models(). Stashes the per-star data
+    arrays (shared, read-only across all stars/tasks) as module-level state
+    in each worker process, so individual tasks only need to send a star
+    index and its small fixed_params_dict -- not a freshly-extracted slice
+    of every array -- to get fit.
+    """
+    _fmm_worker_state.update(
+        t_data=t_data, x_data=x_data, y_data=y_data, xe_data=xe_data, ye_data=ye_data,
+        unmasked_idx=unmasked_idx, input_mm_map=input_mm_map, weighting=weighting,
+        use_scipy=use_scipy, absolute_sigma=absolute_sigma, method=method,
+        fill_value=fill_value, bootstrap=bootstrap, seed=seed, verbose=verbose,
+    )
+
+
+def _fit_motion_models_worker(i_star, motion_model_name, fixed_params_dict):
+    """
+    Pool worker for fit_motion_models(). Slices out this one star's own
+    (ragged -- stars have different numbers of valid epochs) data from the
+    shared arrays stashed by _fit_motion_models_init(), then fits it.
+    """
+    s = _fmm_worker_state
+    idx = s['unmasked_idx'][i_star]
+    t = np.array(s['t_data'][i_star][idx])
+    x = np.array(s['x_data'][i_star][idx])
+    y = np.array(s['y_data'][i_star][idx])
+    if s['xe_data'] is not None:
+        xe = np.array(s['xe_data'][i_star][idx])
+        ye = np.array(s['ye_data'][i_star][idx])
+    else:
+        xe = np.ones_like(x)
+        ye = np.ones_like(y)
+
+    motion_model_instance = s['input_mm_map'][motion_model_name]()
     return motion_model_instance.fit(
-            t=t,
-            x=x,
-            y=y,
-            xe=xe,
-            ye=ye,
-            fixed_params_dict=fixed_params_dict,
-            weighting=weighting,
-            use_scipy=use_scipy,
-            absolute_sigma=absolute_sigma,
-            fill_value=fill_value,
-            return_chi2=return_chi2,
-            bootstrap=bootstrap,
-            seed=seed,
-            verbose=verbose
-        )
+        t=t, x=x, y=y, xe=xe, ye=ye,
+        fixed_params_dict=fixed_params_dict,
+        weighting=s['weighting'],
+        use_scipy=s['use_scipy'],
+        absolute_sigma=s['absolute_sigma'],
+        method=s['method'],
+        fill_value=s['fill_value'],
+        return_chi2=True,
+        bootstrap=s['bootstrap'],
+        seed=s['seed'],
+        verbose=s['verbose'],
+    )

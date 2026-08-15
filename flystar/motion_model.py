@@ -1324,3 +1324,49 @@ def motion_model_map():
     # Sort by required epochs
     mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].n_params))
     return mm_map
+
+def organize_motion_models(motion_models):
+    """
+    Organize a list of motion models of type str or MotionModel into a list of MotionModel classes,
+    sorted by increasing number of required parameters. Empty and Fixed are always added if not already present.
+    To be used in align and StarTable.fit_motion_models.
+
+    Parameters
+    ----------
+    motion_models : MotionModel, str, or list of MotionModels/strings.
+        Motion model(s) to organize.
+
+    Returns
+    -------
+    list
+        List of MotionModel classes sorted by increasing number of required parameters.
+    """
+
+    all_mm_map = motion_model_map()
+    # Change to list if not
+    motion_model_classes = []
+    if motion_models is None:
+        motion_models = [Empty, Fixed]
+    elif isinstance(motion_models, str):
+        assert motion_models in all_mm_map.keys(), f"motion_model must be in {list(all_mm_map.keys())}, but got '{motion_models}'"
+        motion_model_classes = [all_mm_map[motion_models]]
+    elif isinstance(motion_models, type) and issubclass(motion_models, MotionModel):
+        motion_model_classes = [motion_models]
+    elif isinstance(motion_models, (list, tuple, np.ndarray)):
+        for mm in motion_models:
+            if isinstance(mm, str):
+                assert mm in all_mm_map.keys(), f"motion_model must be in {list(all_mm_map.keys())}, but got '{mm}'"
+                motion_model_classes.append(all_mm_map[mm])
+            else:
+                assert issubclass(mm, MotionModel), f"motion_model must be a string or a MotionModel object, but got {type(mm)}"
+                motion_model_classes.append(mm)
+
+    mm_names = [mm.name for mm in motion_model_classes]
+    if 'Empty' not in mm_names:
+        motion_model_classes.append(all_mm_map['Empty'])
+    if 'Fixed' not in mm_names:
+        motion_model_classes.append(all_mm_map['Fixed'])
+
+    # Sort by increasing n_params
+    motion_model_classes = sorted(motion_model_classes, key=lambda mm: mm.n_params)
+    return motion_model_classes

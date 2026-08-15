@@ -153,8 +153,11 @@ class MosaicSelfRef(object):
             Note, if you want specify the mag_lim separately for each list,
             you need to pass in a 2D array that has shape (N_lists, 2).
 
-        motion_models : list of MotionModel or str, optional
-            Motion models or their names to use for new or unassigned stars
+        motion_models : list of MotionModel or str, or str, optional
+            Motion models or their names to use for new or unassigned stars. 'Empty' and 'Fixed' will always be added.
+            Can be a single string (e.g., 'Linear') or a list of motion models string or class (e.g., ['Linear', 'Parallax'], [Linear, Acceleration])
+            Note that the provided motion models have to have different numbers of parameters, otherwise the code will not know which one to use for new stars.
+            The most complex motion model will be used for new stars, by default None.
 
         motion_model_for_new_star : str or MotionModel, optional
             Motion model or its name for newly added stars in the ref table. Used in add_rows_for_new_stars().
@@ -276,33 +279,14 @@ class MosaicSelfRef(object):
         else:
             self.outlier_tol = outlier_tol
 
-        all_mm_map = motion_model.motion_model_map()
-        if all(isinstance(mm, str) for mm in motion_models):
-            assert all(mm in all_mm_map.keys() for mm in motion_models), f"All motion model names must be in {list(all_mm_map.keys())}"
-            mm_names = motion_models
-            motion_models = [all_mm_map[mm] for mm in motion_models]
-        else:
-            mm_names = [mm.name for mm in motion_models]
-        if 'Empty' not in mm_names:
-            motion_models.append(all_mm_map['Empty'])
-        if 'Fixed' not in mm_names:
-            motion_models.append(all_mm_map['Fixed'])
-
-        # Sort by increasing n_params
-        motion_models = sorted(motion_models, key=lambda mm: mm.n_params)
-        self.motion_models = motion_models
+        # Organize motion models into a list of MotionModel classes, sorted by increasing number of parameters.
+        self.motion_models = motion_model.organize_motion_models(motion_models)
 
         # if motion_model_for_new_star is None:
         #     self.motion_model_for_new_star = self.motion_models[-1]
         # elif isinstance(motion_model_for_new_star, str):
         #     assert motion_model_for_new_star in all_mm_map.keys(), f"motion_model_for_new_star must be in {list(all_mm_map.keys())}"
         #     self.motion_model_for_new_star = all_mm_map[motion_model_for_new_star]
-
-        # For backwards compatibility.
-        # if self.verbose is True:
-        #     self.verbose = 9
-        # if self.verbose is False:
-        #     self.verbose = 0
 
         self.N_lists = len(self.star_lists)
 
