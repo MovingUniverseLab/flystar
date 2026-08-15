@@ -1266,13 +1266,7 @@ class MosaicSelfRef(object):
             # the number of starlists.
             if self.verbose > 0:
                 print(f'Fixed/Empty motion model: combining lists for {np.count_nonzero(simple_idxs)} stars.')
-            # Magnitude combination below (for complex_idxs) always ends up
-            # unweighted regardless of weighted_m, since combine_lists only
-            # honors weights_col if it's an actual column name and the logic
-            # there passes None whenever 'me' exists. Match that here so a
-            # star's m0/m0_err don't change depending on which routing path
-            # it takes -- only the routing itself should change, not results.
-            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=False, select_stars=simple_idxs)
+            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m, select_stars=simple_idxs)
 
         if np.any(complex_idxs):
             self.ref_table.fit_motion_models(
