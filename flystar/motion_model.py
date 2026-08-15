@@ -554,6 +554,91 @@ class Fixed(MotionModel):
         else:
             return params, param_errors
 
+    def run_fit_batch(self, t, x, y, xe, ye, valid, weighting='var', absolute_sigma=True,
+                       fill_value=np.nan, verbose=True):
+        """
+        Vectorized version of run_fit() for many stars at once. Fixed's fit
+        is closed-form (a weighted average -- no iterative optimizer), so
+        nothing about it actually requires fitting one star at a time; this
+        fits the whole batch in one pass instead of looping (or spinning up
+        multiprocessing for) each star individually.
+
+        Parameters
+        ----------
+        t, x, y, xe, ye : array-like, shape (n_stars, n_epochs)
+            Per-star, per-epoch data. Entries where `valid` is False are
+            ignored -- their content does not matter (e.g. they can be NaN
+            placeholders for undetected epochs).
+        valid : array-like of bool, shape (n_stars, n_epochs)
+            Which entries are usable for each star.
+        weighting, absolute_sigma, fill_value, verbose : as in run_fit().
+
+        Returns
+        -------
+        params : ndarray, shape (n_stars, 2)
+        param_errs : ndarray, shape (n_stars, 2)
+        chi2_x, chi2_y : ndarray, shape (n_stars,)
+        """
+        n_valid = valid.sum(axis=1)
+        has_data = n_valid >= self.n_params  # degree_of_freedom >= 0
+
+        if verbose and np.any(~has_data):
+            warnings.warn(
+                f'Not enough data points to fit model for {np.sum(~has_data)} star(s). '
+                f'Setting parameters to {fill_value} and uncertainties to np.inf.',
+                OptimizeWarning, stacklevel=2
+            )
+
+        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            x_wt = np.where(valid, 1. / sigma_x**2, 0.0)
+            y_wt = np.where(valid, 1. / sigma_y**2, 0.0)
+        x_wt[~np.isfinite(x_wt)] = 0.0
+        y_wt[~np.isfinite(y_wt)] = 0.0
+
+        x_wt_sum = x_wt.sum(axis=1)
+        y_wt_sum = y_wt.sum(axis=1)
+        x_masked = np.where(valid, x, 0.0)
+        y_masked = np.where(valid, y, 0.0)
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            x0 = (x_masked * x_wt).sum(axis=1) / x_wt_sum
+            y0 = (y_masked * y_wt).sum(axis=1) / y_wt_sum
+            x0e = 1. / np.sqrt(x_wt_sum)
+            y0e = 1. / np.sqrt(y_wt_sum)
+
+        params = np.column_stack([x0, y0])
+        param_errs = np.column_stack([x0e, y0e])
+
+        # chi2: Fixed's prediction is time-independent (x_pred == x0 for every epoch)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            chi2x = np.where(valid, (x - x0[:, np.newaxis])**2 / xe**2, 0.0).sum(axis=1)
+            chi2y = np.where(valid, (y - y0[:, np.newaxis])**2 / ye**2, 0.0).sum(axis=1)
+
+        if not absolute_sigma:
+            dof = n_valid - self.n_params
+            dof_pos = dof > 0
+            with np.errstate(divide='ignore', invalid='ignore'):
+                reduced_chi2x = np.where(dof_pos, chi2x / np.where(dof_pos, dof, 1), 1.0)
+                reduced_chi2y = np.where(dof_pos, chi2y / np.where(dof_pos, dof, 1), 1.0)
+            param_errs[:, 0] = np.where(dof_pos, param_errs[:, 0] * np.sqrt(reduced_chi2x), np.inf)
+            param_errs[:, 1] = np.where(dof_pos, param_errs[:, 1] * np.sqrt(reduced_chi2y), np.inf)
+            if verbose and np.any(has_data & ~dof_pos):
+                warnings.warn(
+                    'Degree of freedom <= 0 for some star(s). Covariance of the parameters could not be '
+                    'estimated. Setting parameter uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+
+        # Not-enough-data stars: overwrite with fill_value/inf/nan regardless
+        # of whatever the (meaningless, e.g. 0/0) computation above produced.
+        params[~has_data] = fill_value
+        param_errs[~has_data] = np.inf
+        chi2x[~has_data] = np.nan
+        chi2y[~has_data] = np.nan
+
+        return params, param_errs, chi2x, chi2y
+
 class Linear(MotionModel):
     """
     A 2D linear motion model for a star on the sky.

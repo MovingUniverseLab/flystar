@@ -1213,24 +1213,68 @@ class MosaicSelfRef(object):
         else:
             fit_star_idxs = None
 
-        if np.all(self.ref_table['motion_model_input']=='Fixed'):
-            # self.ref_table.fit_motion_models(
-            #     motion_models=['Fixed'],
-            #     weighting=self.vel_weighting,
-            #     use_scipy=self.use_scipy,
-            #     absolute_sigma=self.absolute_sigma,
-            #     verbose=self.verbose
-            # )
-            weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
-            weighted_m = ('me' in self.ref_table.colnames)
+        weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
+        weighted_m = ('me' in self.ref_table.colnames)
+
+        # Route each star to the fastest applicable fitting path instead of
+        # an all-or-nothing check on the *requested* motion_model_input. A
+        # star with at most 1 valid (finite x, y, xe, ye) epoch can only
+        # ever qualify for the Empty or Fixed motion models -- and
+        # combine_lists_xym already produces identical output for both (0
+        # valid epochs -> nan/inf, matching Empty; >=1 -> weighted average,
+        # matching Fixed) -- so it's safe to route those stars straight to
+        # the fast vectorized combine_lists_xym, regardless of whether
+        # *other* stars need something more complex. This is a conservative
+        # (never-wrong) check: the raw count here is always >= the
+        # deduplicated-unique-times count fit_motion_models itself uses, so
+        # a star this flags as "<=1" can never actually qualify for a model
+        # needing more. Only stars with >=2 valid epochs (which MIGHT
+        # qualify for Linear/Parallax/etc, depending on
+        # self.motion_models/fixed_params_dict) go through
+        # fit_motion_models's fuller (and more expensive) classification.
+        # Previously, a single star needing something other than Fixed
+        # forced ALL stars -- including a huge Fixed/Empty majority -- through
+        # the slower fit_motion_models.
+        valid_epoch = np.isfinite(self.ref_table['x']) & np.isfinite(self.ref_table['y'])
+        if weighted_xy:
+            valid_epoch &= np.isfinite(self.ref_table['xe']) & np.isfinite(self.ref_table['ye'])
+        guaranteed_simple = valid_epoch.sum(axis=1) <= 1
+
+        if weighted_xy:
+            # fit_motion_models falls back to a unit weight (xe=ye=1) for a
+            # star whose xe/ye are invalid (or ~0) across *every* epoch, so
+            # it still gets a position instead of being dropped -- mirrored
+            # here from startables.py's fill_with_one logic. combine_lists
+            # has no such fallback and would produce nan/inf for these
+            # stars instead of the same weighted-by-1 result, so keep them
+            # out of the "simple" bucket and let fit_motion_models handle
+            # them regardless of how few epochs they have.
+            xe_bad = ~np.isfinite(self.ref_table['xe']) | np.isclose(self.ref_table['xe'], 0)
+            ye_bad = ~np.isfinite(self.ref_table['ye']) | np.isclose(self.ref_table['ye'], 0)
+            needs_error_fallback = xe_bad.all(axis=1) & ye_bad.all(axis=1)
+            guaranteed_simple &= ~needs_error_fallback
+
+        need_update = fit_star_idxs if fit_star_idxs is not None else np.ones(len(self.ref_table), dtype=bool)
+        simple_idxs = guaranteed_simple & need_update
+        complex_idxs = (~guaranteed_simple) & need_update
+
+        if np.any(simple_idxs):
             # Only (re)average the rows that actually changed this round
             # (fit_star_idxs) -- for a mosaic that keeps growing across many
             # starlists, recomputing every already-settled row every time
             # this is called would make the total cost grow quadratically in
             # the number of starlists.
-            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m, select_stars=fit_star_idxs)
+            if self.verbose > 0:
+                print(f'Fixed/Empty motion model: combining lists for {np.count_nonzero(simple_idxs)} stars.')
+            # Magnitude combination below (for complex_idxs) always ends up
+            # unweighted regardless of weighted_m, since combine_lists only
+            # honors weights_col if it's an actual column name and the logic
+            # there passes None whenever 'me' exists. Match that here so a
+            # star's m0/m0_err don't change depending on which routing path
+            # it takes -- only the routing itself should change, not results.
+            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=False, select_stars=simple_idxs)
 
-        else:
+        if np.any(complex_idxs):
             self.ref_table.fit_motion_models(
                 motion_models=self.motion_models,
                 fixed_params_dict=self.fixed_params_dict,
@@ -1238,7 +1282,7 @@ class MosaicSelfRef(object):
                 use_scipy=self.use_scipy,
                 absolute_sigma=self.absolute_sigma,
                 method=self.scipy_method,
-                select_stars=fit_star_idxs,
+                select_stars=complex_idxs,
                 bootstrap=n_boot,
                 seed=seed,
                 processes=processes,
@@ -1250,7 +1294,7 @@ class MosaicSelfRef(object):
                 weights_col = None
             else:
                 weights_col = 'me'
-            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True, select_stars=fit_star_idxs)
+            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True, select_stars=complex_idxs)
 
         # if (keep_orig is not None) and (sum(keep_orig) > 0):
         # Determine motion_model_used for keep_orig stars

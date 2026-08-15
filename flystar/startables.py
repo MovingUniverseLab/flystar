@@ -322,6 +322,21 @@ class StarTable(Table):
 
         return
 
+    @staticmethod
+    def _invalid_float_value(col_name):
+        """
+        The "no data" placeholder for a float column: np.inf for uncertainty
+        columns (xe, ye, me, or anything ending in '_err'), np.nan for
+        everything else (x, y, m, t, ...). Matches the convention already
+        used by add_rows_for_new_stars() for brand-new rows -- without this,
+        the exact same "never detected in this list" situation ends up as
+        NaN or inf depending only on whether the row or the column existed
+        first, not on what the data actually means.
+        """
+        if col_name in ('xe', 'ye', 'me') or col_name.endswith('_err'):
+            return np.inf
+        return np.nan
+
     def _set_invalid_list_values(self, col_name, col_idx):
         """
         Set the contents of the specified column (in the 2D column objects)
@@ -330,7 +345,7 @@ class StarTable(Table):
         if np.issubdtype(self[col_name].info.dtype, np.integer):
             self[col_name][:, col_idx] = -1
         elif np.issubdtype(self[col_name].info.dtype, np.floating):
-            self[col_name][:, col_idx] = np.nan
+            self[col_name][:, col_idx] = self._invalid_float_value(col_name)
         else:
             self[col_name][:, col_idx] = None
 
@@ -344,7 +359,7 @@ class StarTable(Table):
         if np.issubdtype(self[col_name].info.dtype, np.integer):
             self[col_name][row_idx] = -1
         elif np.issubdtype(self[col_name].info.dtype, np.floating):
-            self[col_name][row_idx] = np.nan
+            self[col_name][row_idx] = self._invalid_float_value(col_name)
         else:
             self[col_name][row_idx] = None
 
@@ -715,12 +730,12 @@ class StarTable(Table):
             if not isinstance(fixed_params_dict, dict):
                 raise ValueError("fit_motion_models: fixed_params_dict must be a dictionary!")
 
-        all_mm_map = motion_model.get_all_motion_models()
+        all_mm_map = motion_model.motion_model_map()
         # Setting the default to None to avoid mutable default argument issue
         # See https://stackoverflow.com/questions/15189245/assigning-class-variable-as-default-value-to-class-method-argument
         if motion_models is None:
             # Linear by default
-            motion_models = [motion_model.Linear()]
+            motion_models = [motion_model.Linear]
         motion_models = motion_model.organize_motion_models(motion_models)
         mm_names = [mm.name for mm in motion_models]
 
@@ -835,11 +850,27 @@ class StarTable(Table):
         # as scipy.curve_fit and Linear algebra can fit non-unique times.
         # self['n_fit'] = np.sum(valid_xy, axis=1)
 
-        # Calculate n_fit: unique times & unmasked x y values
-        n_fit = np.array([
-            len(set(t_data[i][valid_xy[i]]))
-            for i in range(N_stars)
-        ])
+        # Calculate n_fit: unique times & unmasked x y values.
+        # Vectorized equivalent of len(set(t_data[i][valid_xy[i]])) per star:
+        # push each star's invalid entries to +inf (so they sort last and
+        # never affect the count), sort, then count 1 (for the first valid
+        # entry, if any) plus the number of adjacent sorted valid entries
+        # that differ -- mathematically identical to counting unique values,
+        # but as whole-array numpy ops instead of a per-star Python loop
+        # building a set() object for each of potentially millions of stars.
+        N_epochs = t_data.shape[1]
+        t_for_sort = np.where(valid_xy, t_data, np.inf)
+        t_sorted = np.sort(t_for_sort, axis=1)
+        n_valid_per_star = valid_xy.sum(axis=1)
+        if N_epochs > 1:
+            with np.errstate(invalid='ignore'):
+                diffs_differ = np.diff(t_sorted, axis=1) != 0
+            col_idx = np.arange(N_epochs - 1)
+            diff_counts_valid = col_idx[np.newaxis, :] < (n_valid_per_star[:, np.newaxis] - 1)
+            n_unique_extra = (diffs_differ & diff_counts_valid).sum(axis=1)
+        else:
+            n_unique_extra = np.zeros(N_stars, dtype=int)
+        n_fit = np.where(n_valid_per_star > 0, 1 + n_unique_extra, 0)
         self['n_fit'] = n_fit
 
 
@@ -918,6 +949,13 @@ class StarTable(Table):
         # Identify array parameters (length N_stars) and scalar parameters
         array_params = {k: v for k, v in fixed_params_dict.items() if np.ndim(v) > 0 and len(v) == N_stars}
         scalar_params = {k: v for k, v in fixed_params_dict.items() if k not in array_params}
+
+        # Convert any masked-array fixed params (e.g. the default t0, which
+        # comes out of np.average() as a masked array whenever xe/ye are
+        # masked) to plain arrays before the per-star dict construction
+        # below -- indexing a MaskedArray once per star goes through numpy.ma's
+        # much slower generic machinery vs. plain ndarray indexing.
+        array_params = {k: (np.ma.filled(v, np.nan) if np.ma.isMaskedArray(v) else v) for k, v in array_params.items()}
 
         # Construct list of dicts for each star
         # Using list comprehension for speed
@@ -1012,8 +1050,25 @@ class StarTable(Table):
         else:
             indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
 
-        # Unmasked indices for each star:
-        unmasked_idx = [np.flatnonzero(valid_xy[i]) for i in range(N_stars)]
+        # Unmasked indices for each star -- but only for stars in groups that
+        # actually need the generic per-star path below. Groups handled by
+        # run_fit_batch (currently just Fixed) use valid_xy directly and
+        # never touch unmasked_idx at all, and Fixed is often the majority
+        # of stars in a growing mosaic -- computing this (an inherently
+        # per-star Python loop) for all N_stars regardless was previously
+        # pure waste for that (often large) fraction. Left as None for stars
+        # that don't need it; those entries are never looked up.
+        per_star_star_idxs = [
+            idx for key, idx in indices_by_motion_model.items()
+            if not (hasattr(input_mm_map[key](), 'run_fit_batch') and bootstrap == 0)
+        ]
+        if per_star_star_idxs:
+            per_star_star_idxs = np.concatenate(per_star_star_idxs)
+            unmasked_idx = [None] * N_stars
+            for i in per_star_star_idxs:
+                unmasked_idx[i] = np.flatnonzero(valid_xy[i])
+        else:
+            unmasked_idx = None
 
         # Plain (non-masked) views of the per-star arrays for the per-star
         # extraction below. x_data/y_data/xe_data/ye_data need to stay
@@ -1041,7 +1096,7 @@ class StarTable(Table):
         # instead of the parent process pre-extracting a t_stars/x_stars/...
         # slice for every single star up front and pickling all of it per task.
         pool = None
-        if processes > 1:
+        if processes > 1 and unmasked_idx is not None:
             pool = Pool(
                 processes,
                 initializer=_fit_motion_models_init,
@@ -1067,7 +1122,31 @@ class StarTable(Table):
 
                 # For each star
                 if len(unique_index) > 0:
-                    if pool is not None:
+                    if hasattr(motion_model_instance, 'run_fit_batch') and bootstrap == 0:
+                        # Closed-form models (currently just Fixed) can be fit
+                        # for the whole subgroup in one vectorized pass instead
+                        # of star-by-star. This matters even when the table
+                        # isn't ALL Fixed (the align.py-level shortcut to
+                        # combine_lists_xym only fires then): a large fraction
+                        # of stars in a growing mosaic are often still Fixed
+                        # regardless of what other stars need, and that
+                        # fraction only shrinks as more epochs get added -- so
+                        # without this, the (often huge) Fixed subset would
+                        # keep paying the per-star loop/multiprocessing cost.
+                        # Bootstrap resampling isn't vectorized here, so that
+                        # case still falls through to the per-star path below.
+                        if verbose:
+                            print(f"Fitting motion model {unique_motion_model}: vectorized batch fit for {n_stars_this_model} star(s)")
+                        n_epochs = t_data_arr.shape[1]
+                        xe_batch = xe_data_arr[unique_index] if with_xe_ye else np.ones((n_stars_this_model, n_epochs))
+                        ye_batch = ye_data_arr[unique_index] if with_xe_ye else np.ones((n_stars_this_model, n_epochs))
+                        params_array, param_errs_array, chi2_x_array, chi2_y_array = motion_model_instance.run_fit_batch(
+                            t_data_arr[unique_index], x_data_arr[unique_index], y_data_arr[unique_index],
+                            xe_batch, ye_batch, valid_xy[unique_index],
+                            weighting=weighting, absolute_sigma=absolute_sigma, fill_value=fill_value, verbose=verbose
+                        )
+
+                    elif pool is not None:
                         # Use multiprocessing to fit stars in parallel
                         arguments = [(i_star, unique_motion_model, fixed_params_stars[i_star]) for i_star in unique_index]
 

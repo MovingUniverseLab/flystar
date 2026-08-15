@@ -427,3 +427,62 @@ def test_motion_model_param_names_dedup():
     got_no_extras = motion_model.motion_model_param_names(repeated_names, with_errors=False, with_fixed=False)
     want_no_extras = motion_model.motion_model_param_names(['Fixed', 'Linear'], with_errors=False, with_fixed=False)
     assert got_no_extras == want_no_extras
+
+
+def test_Fixed_run_fit_batch():
+    """
+    Fixed.run_fit_batch() vectorizes run_fit() across many stars at once
+    (closed-form weighted average, no iterative optimizer needed) instead of
+    fitting star by star. Check it against a per-star loop calling fit()
+    directly, across a battery of randomized cases: full epochs, ragged
+    (different numbers of valid epochs per star), a star with exactly one
+    valid epoch (degree_of_freedom == 0), a star with zero valid epochs (not
+    enough data), var/std weighting, and absolute_sigma True/False.
+    """
+    rng = np.random.default_rng(3)
+    n_stars = 40
+    n_epochs = 6
+
+    t = np.tile(np.arange(n_epochs) + 2020.0, (n_stars, 1))
+    x = rng.normal(100, 5, size=(n_stars, n_epochs))
+    y = rng.normal(-50, 5, size=(n_stars, n_epochs))
+    xe = rng.uniform(0.01, 0.5, size=(n_stars, n_epochs))
+    ye = rng.uniform(0.01, 0.5, size=(n_stars, n_epochs))
+
+    valid = rng.random((n_stars, n_epochs)) > 0.3
+    valid[0, :] = False          # zero valid epochs -- not enough data
+    valid[1, :] = False
+    valid[1, 2] = True           # exactly one valid epoch -- degree_of_freedom == 0
+    valid[2, :] = True           # fully detected, for a clean baseline case
+
+    for weighting, absolute_sigma in [('var', True), ('std', True), ('var', False)]:
+        mod = motion_model.Fixed()
+        got_params, got_errs, got_chi2x, got_chi2y = mod.run_fit_batch(
+            t, x, y, xe, ye, valid, weighting=weighting, absolute_sigma=absolute_sigma,
+            fill_value=np.nan, verbose=False
+        )
+
+        want_params = np.full((n_stars, 2), np.nan)
+        want_errs = np.full((n_stars, 2), np.inf)
+        want_chi2x = np.full(n_stars, np.nan)
+        want_chi2y = np.full(n_stars, np.nan)
+        for i in range(n_stars):
+            idx = np.flatnonzero(valid[i])
+            params, errs, chi2x, chi2y = mod.fit(
+                t=t[i][idx], x=x[i][idx], y=y[i][idx], xe=xe[i][idx], ye=ye[i][idx],
+                weighting=weighting, absolute_sigma=absolute_sigma, use_scipy=True,
+                fill_value=np.nan, return_chi2=True, bootstrap=0, verbose=False
+            )
+            want_params[i] = params
+            want_errs[i] = errs
+            want_chi2x[i] = chi2x
+            want_chi2y[i] = chi2y
+
+        np.testing.assert_allclose(got_params, want_params, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                    err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: params mismatch")
+        np.testing.assert_allclose(got_errs, want_errs, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                    err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: errs mismatch")
+        np.testing.assert_allclose(got_chi2x, want_chi2x, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                    err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: chi2x mismatch")
+        np.testing.assert_allclose(got_chi2y, want_chi2y, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                    err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: chi2y mismatch")
