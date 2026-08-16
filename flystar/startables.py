@@ -545,38 +545,51 @@ class StarTable(Table):
                 weights_data = self[weights_col].data
             err_2d = np.array(weights_data[:, list_indices], dtype=float)
 
-            # A star whose every epoch has an invalid raw uncertainty (e.g.
-            # missing/invalid me/xe/ye everywhere) but at least one valid
-            # value falls back to a nominal uncertainty of 1 (in this
-            # column's own units, before any flux conversion below) on its
-            # valid epochs, i.e. an unweighted mean -- mirrors
-            # fit_motion_models' xe/ye=1 fallback for the same situation,
-            # rather than discarding a real measurement as nan just because
-            # we don't know how to weight it.
-            no_usable_err = ~(valid & np.isfinite(err_2d)).any(axis=1) & valid.any(axis=1)
-            err_2d[no_usable_err] = np.where(valid[no_usable_err], 1.0, err_2d[no_usable_err])
-
             if ismag:
                 # Convert to flux error
                 err_2d = 0.4 * np.log(10) * val_2d * err_2d
 
             # A value only contributes if both it (post-clipping) and its
-            # error are finite -- this is the "unify masks" step.
+            # real, reported error are finite -- this is the "unify masks"
+            # step. `err_2d` here is never faked/patched -- it's exactly
+            # what was measured, so the `wgt_2d`/`wgt_sum` derived from it
+            # below are an honest record of how much real uncertainty
+            # information we actually have for each star.
             valid_w = valid & np.isfinite(err_2d)
 
             # Inverse variance weights minimize the propagated uncertainty
             with np.errstate(divide='ignore', invalid='ignore'):
                 wgt_2d = np.where(valid_w, 1. / err_2d**2, 0.0)
+            # Mask infinite weights from zero uncertainties
             wgt_2d[~np.isfinite(wgt_2d)] = 0.0
 
-            # Calculate the weighted mean and uncertainty
+            # Honest weight sum, built only from real, known uncertainties.
+            # The reported std below is derived directly from this, so a
+            # star whose every epoch lacks a usable error naturally ends up
+            # with wgt_sum == 0 -> std = sqrt(1/0) == inf via ordinary
+            # division -- there's no separate flag to remember to apply
+            # afterward, and no way for a fabricated finite error to reach std.
             wgt_sum = wgt_2d.sum(axis=1)
-            has_data = wgt_sum > 0
+            n_valid = valid.sum(axis=1)
+            has_data = n_valid > 0
 
             with np.errstate(divide='ignore', invalid='ignore'):
                 avg = (val_2d_clip * wgt_2d).sum(axis=1) / wgt_sum
                 # Equivalent of avg = np.average(val_2d_clip, weights=wgt_2d, axis=1)
                 std = np.sqrt(1. / wgt_sum)  # Error propagation for weighted mean
+
+            # A star whose every epoch has an invalid raw uncertainty (e.g.
+            # missing/invalid me/xe/ye everywhere) but at least one valid
+            # value still gets an average -- a plain mean of its valid
+            # epoch(s), same as the unweighted branch below would give --
+            # instead of discarding a real measurement as nan just because
+            # we don't know how to weight it. std is untouched here (still
+            # the honest sqrt(1/wgt_sum) computed above, i.e. inf), so this
+            # can't accidentally fabricate a finite reported error.
+            no_usable_err = (wgt_sum == 0) & has_data
+            if no_usable_err.any():
+                avg[no_usable_err] = val_2d_clip[no_usable_err].sum(axis=1) / n_valid[no_usable_err]
+
             avg[~has_data] = np.nan
 
             # Use standard deviation of the weighted residuals as the uncertainty
@@ -1230,6 +1243,14 @@ class StarTable(Table):
                             param_errs_array[idx] = param_errs
                             chi2_x_array[idx] = chi2_x
                             chi2_y_array[idx] = chi2_y
+
+                # fill_with_one substitutes a unit weight so the fit can
+                # still run, but that's not a real measurement uncertainty
+                # -- we still don't know the true error for these stars, so
+                # report it as such rather than the fabricated finite value
+                # the unit weight would otherwise propagate to.
+                if with_xe_ye and fill_with_one.any():
+                    param_errs_array[fill_with_one[unique_index]] = np.inf
 
                 # Store results back to the table
                 for j, param_name in enumerate(param_names):

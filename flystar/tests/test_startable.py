@@ -354,6 +354,206 @@ def test_combine_lists_vectorized():
                                         err_msg=f"trial={trial} use_weights={use_weights} ismag={ismag} mask_lists={mask_lists} sigma={sigma}: std mismatch")
 
 
+def test_combine_lists_weight_fallback():
+    """
+    Regression test for StarTable.combine_lists()'s handling of stars whose
+    weighting column (e.g. 'xe'/'ye'/'me') is entirely invalid (inf) in
+    every epoch. The contract:
+      - if a star has at least one epoch with a real, finite weight, only
+        those epoch(s) are used (epochs with an invalid weight are simply
+        dropped, even if their raw value is finite) -- the reported error
+        is a real, finite propagated uncertainty.
+      - if a star has NO usable weight anywhere but does have at least one
+        finite raw value, the mean falls back to an (unweighted-in-spirit)
+        average of the valid value(s) -- but the reported error MUST be
+        exactly np.inf, never a fabricated finite number, since the true
+        uncertainty was never actually known. This is the exact bug that
+        motivated this refactor: a fake weight=1 fallback elsewhere in this
+        codebase once leaked a finite x0_err=1.0 into real output for
+        months, undetected.
+      - if a star has no valid raw value at all, the mean is nan and the
+        error is inf (nothing to fall back to).
+      - a column with no weights_col at all (the plain unweighted branch,
+        untouched by this refactor) still handles inf/nan correctly.
+
+    All expected numbers below were derived by hand (or, for the weighted
+    cases, via the same textbook inverse-variance formula the production
+    code implements: wgt = 1/err**2, avg = weighted mean, std =
+    sqrt(1/sum(wgt))) and cross-checked against the implementation before
+    being hardcoded here, so a future refactor that silently changes the
+    fallback's arithmetic (and not just its inf/nan-ness) will also be caught.
+    """
+    nan, inf = np.nan, np.inf
+
+    ##########
+    # Non-magnitude column ('x'/'xe'), one star per case, sigma clipping
+    # disabled so every number below is exact (not subject to outlier
+    # rejection on tiny synthetic rows).
+    ##########
+    names = np.array(['case1_baseline', 'case2_partial', 'case3a_fallback_single',
+                       'case3b_fallback_multi', 'case4_no_data', 'case5_composite'])
+
+    # case1_baseline: every epoch has a valid value AND a valid weight --
+    # sanity check that normal weighted averaging is unaffected.
+    # case2_partial: epoch 1 has a finite raw value (999) but an inf weight
+    # -- it must be excluded, leaving only epochs 0, 2, 3 to average, with a
+    # real (finite) propagated error.
+    # case3a_fallback_single: only epoch 0 has a finite value; every weight
+    # is inf. Falls back to that single value; error must be exactly inf.
+    # case3b_fallback_multi: epochs 0, 1 have finite values (5, 9); every
+    # weight is inf. Falls back to the unweighted mean of the two valid
+    # values (7.0); error must be exactly inf.
+    # case4_no_data: no valid value anywhere and no usable weight -- nothing
+    # to fall back to, so mean is nan and error is inf.
+    # case5_composite: combines four different conditions in one row --
+    # epoch 0 is an invalid (nan) value with a valid-looking weight, epoch 1
+    # is a valid value with an inf (unusable) weight, epoch 2 is a valid
+    # value with a real, usable weight, epoch 3 is an invalid (inf) value
+    # with a valid-looking weight. Since epoch 2 gives this star a real,
+    # non-zero weight sum, this is NOT a fallback star -- it should reduce
+    # to the ordinary weighted case using only epoch 2.
+    x = np.array([
+        [10., 20., 30., 40.],
+        [10., 999., 20., 30.],
+        [7., nan, nan, nan],
+        [5., 9., nan, nan],
+        [nan, nan, nan, nan],
+        [nan, 50., 60., inf],
+    ])
+    xe = np.array([
+        [1., 2., 3., 4.],
+        [1., inf, 2., 3.],
+        [inf, inf, inf, inf],
+        [inf, inf, inf, inf],
+        [inf, inf, inf, inf],
+        [0.5, inf, 1.0, nan],
+    ])
+
+    t = StarTable(name=names, x=x.copy(), y=x.copy(), m=np.ones_like(x),
+                  xe=xe.copy(), ye=xe.copy())
+    t.combine_lists('x', weights_col='xe', sigma=None)
+
+    i1, i2, i3a, i3b, i4, i5 = range(6)
+
+    # Case 1: baseline, all weights valid -- ordinary weighted average.
+    wgt1 = 1. / xe[i1]**2
+    avg1 = np.average(x[i1], weights=wgt1)
+    std1 = np.sqrt(1. / wgt1.sum())
+    np.testing.assert_allclose(t['x0'][i1], avg1, rtol=1e-12)
+    np.testing.assert_allclose(t['x0_err'][i1], std1, rtol=1e-12)
+    assert np.isfinite(t['x0_err'][i1])
+
+    # Case 2: epoch 1 (value 999, weight inf) must be excluded -- average
+    # matches using only the epochs with a real, finite weight (0, 2, 3),
+    # and the error is finite (real weight info exists), not inf.
+    idx2 = [0, 2, 3]
+    wgt2 = 1. / xe[i2][idx2]**2
+    avg2 = np.average(x[i2][idx2], weights=wgt2)
+    std2 = np.sqrt(1. / wgt2.sum())
+    np.testing.assert_allclose(t['x0'][i2], avg2, rtol=1e-12)
+    np.testing.assert_allclose(t['x0_err'][i2], std2, rtol=1e-12)
+    assert np.isfinite(t['x0_err'][i2])
+    assert not np.isinf(t['x0_err'][i2])
+
+    # Case 3a: single valid value, all weights inf -- fallback mean is just
+    # that one value; error must be EXACTLY inf (not merely large).
+    assert t['x0'][i3a] == 7.0
+    assert t['x0_err'][i3a] == np.inf
+    assert np.isinf(t['x0_err'][i3a])
+
+    # Case 3b: two valid values (5, 9), all weights inf -- fallback mean is
+    # their plain (unweighted) average, 7.0; error must be EXACTLY inf.
+    # This is the core regression case for today's fix.
+    assert t['x0'][i3b] == pytest.approx(7.0)
+    assert t['x0_err'][i3b] == np.inf
+    assert np.isinf(t['x0_err'][i3b])
+
+    # Case 4: no valid value anywhere -- mean is nan, error is inf.
+    assert np.isnan(t['x0'][i4])
+    assert t['x0_err'][i4] == np.inf
+
+    # Case 5: composite row -- only epoch 2 (value 60, weight 1.0) carries
+    # real weight, so the star reduces to an ordinary weighted case using
+    # only that epoch, exactly as if epochs 0, 1, 3 didn't exist.
+    assert t['x0'][i5] == pytest.approx(60.0)
+    assert t['x0_err'][i5] == pytest.approx(1.0)
+    assert np.isfinite(t['x0_err'][i5])
+
+    ##########
+    # Magnitude column ('m'/'me', ismag=True) -- same fallback contract, but
+    # exercised through the flux-space conversion pipeline.
+    ##########
+    m_names = np.array(['mag_baseline', 'mag_fallback_single', 'mag_fallback_multi'])
+    m_vals = np.array([
+        [10., 12., 14.],
+        [15., nan, nan],
+        [12.0, 14.0, nan],
+    ])
+    m_errs = np.array([
+        [0.05, 0.1, 0.2],
+        [inf, inf, inf],
+        [inf, inf, inf],
+    ])
+    tm = StarTable(name=m_names, x=np.ones_like(m_vals), y=np.ones_like(m_vals),
+                   m=m_vals.copy(), me=m_errs.copy())
+    tm.combine_lists('m', weights_col='me', ismag=True, sigma=None)
+
+    # mag_baseline: every epoch has a valid value and a valid error -- the
+    # refactor must not have changed ordinary weighted-in-flux averaging.
+    val_flux = 10**(-0.4 * m_vals[0])
+    err_flux = 0.4 * np.log(10) * val_flux * m_errs[0]
+    wgt = 1. / err_flux**2
+    avg_flux = np.average(val_flux, weights=wgt)
+    std_flux = np.sqrt(1. / wgt.sum())
+    avg_mag = -2.5 * np.log10(avg_flux)
+    std_mag = 2.5 / np.log(10) * std_flux / avg_flux
+    np.testing.assert_allclose(tm['m0'][0], avg_mag, rtol=1e-10)
+    np.testing.assert_allclose(tm['m0_err'][0], std_mag, rtol=1e-10)
+    assert np.isfinite(tm['m0_err'][0])
+
+    # mag_fallback_single: one valid magnitude (15.0), every weight inf --
+    # fallback mean is that value; error must be EXACTLY inf.
+    np.testing.assert_allclose(tm['m0'][1], 15.0, rtol=1e-10)
+    assert tm['m0_err'][1] == np.inf
+
+    # mag_fallback_multi: two DIFFERENT valid magnitudes (12.0, 14.0), every
+    # weight inf. Averaging magnitudes is physically a flux-space average,
+    # not a plain arithmetic mean of the mag values themselves -- so
+    # independently reproduce that here (a plain, equally-weighted mean of
+    # the *flux* values, since that's the space val_2d is already in when
+    # ismag=True) and require flystar's result to match it, rather than
+    # asserting some simpler (and wrong) unweighted-in-mag-space expectation.
+    flux2 = 10**(-0.4 * m_vals[2, :2])
+    avg_flux2 = flux2.mean()
+    avg_mag2 = -2.5 * np.log10(avg_flux2)
+    np.testing.assert_allclose(tm['m0'][2], avg_mag2, rtol=1e-10)
+    assert tm['m0_err'][2] == np.inf
+
+    ##########
+    # No weights_col at all -- the plain unweighted branch, untouched by
+    # this refactor, but still deserving direct inf/nan regression coverage.
+    ##########
+    names_uw = np.array(['one_nan_two_valid', 'all_nan'])
+    x_uw = np.array([
+        [10., nan, 30.],
+        [nan, nan, nan],
+    ])
+    t_uw = StarTable(name=names_uw, x=x_uw.copy(), y=x_uw.copy(), m=np.ones_like(x_uw))
+    t_uw.combine_lists('x', sigma=None)
+
+    # One nan among three epochs -- mean and std computed from the two
+    # valid values only (10, 30): mean 20, population std of residuals 10.
+    assert t_uw['x0'][0] == pytest.approx(20.0)
+    assert t_uw['x0_err'][0] == pytest.approx(10.0)
+    assert t_uw.meta['x0'] == 'not_weighted'
+
+    # All epochs nan -- nothing to average; mean nan, error inf.
+    assert np.isnan(t_uw['x0'][1])
+    assert t_uw['x0_err'][1] == np.inf
+
+    return
+
+
 def test_add_starlist():
     """
     Test the startables.combine_lists() functionality.
