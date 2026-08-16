@@ -1181,13 +1181,22 @@ class StarTable(Table):
                         # Bootstrap resampling isn't vectorized here, so that
                         # case still falls through to the per-star path below.
                         if verbose:
-                            print(f"Fitting motion model {unique_motion_model}: vectorized batch fit for {n_stars_this_model} star(s)")
+                            print(f"Fitting {unique_motion_model} motion model: vectorized batch fit for {n_stars_this_model} star(s)")
                         n_epochs = t_data_arr.shape[1]
                         xe_batch = xe_data_arr[unique_index] if with_xe_ye else np.ones((n_stars_this_model, n_epochs))
                         ye_batch = ye_data_arr[unique_index] if with_xe_ye else np.ones((n_stars_this_model, n_epochs))
+                        # Same {scalar params} + {array params sliced to this
+                        # group} construction as fixed_params_stars above, but
+                        # kept batched (not exploded into one dict per star)
+                        # since run_fit_batch takes it once for the whole group.
+                        fixed_params_batch = {
+                            **scalar_params,
+                            **{k: v[unique_index] for k, v in array_params.items()}
+                        }
                         params_array, param_errs_array, chi2_x_array, chi2_y_array = motion_model_instance.run_fit_batch(
                             t_data_arr[unique_index], x_data_arr[unique_index], y_data_arr[unique_index],
                             xe_batch, ye_batch, valid_xy[unique_index],
+                            fixed_params_dict=fixed_params_batch,
                             weighting=weighting, absolute_sigma=absolute_sigma, fill_value=fill_value, verbose=verbose
                         )
 
@@ -1199,7 +1208,7 @@ class StarTable(Table):
                             _fit_motion_models_worker,
                             tqdm(
                                 arguments,
-                                desc=f"Fitting motion model {unique_motion_model} with {processes} processes",
+                                desc=f"Fitting {unique_motion_model} motion model with {processes} processes",
                                 disable=not verbose
                             ),
                             chunksize=chunksize
@@ -1220,7 +1229,7 @@ class StarTable(Table):
                         ye_stars = [ye_data_arr[i][unmasked_idx[i]] for i in unique_index] if with_xe_ye else [np.ones_like(y_star) for y_star in y_stars]
 
                         # Expensive for loop! Prepare everything beforehand to speed up.
-                        for idx, i_star in enumerate(tqdm(unique_index, disable=not verbose, desc=f"Fitting motion model {unique_motion_model}")):
+                        for idx, i_star in enumerate(tqdm(unique_index, disable=not verbose, desc=f"Fitting {unique_motion_model} motion model")):
                             # Fit the star
                             params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
                                 t=t_stars[idx],
