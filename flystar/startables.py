@@ -625,11 +625,24 @@ class StarTable(Table):
 
         return
 
-    def detections(self):
+    def detections(self, weight_col=None):
         """
         Find where stars are detected.
+
+        weight_col : str, optional
+            If given and present in this table's columns, sum this per-list
+            column (wherever x, y are valid) instead of counting each valid
+            (x, y) as 1. Used to inherit a per-list 'n_detect_list' column
+            from starlists that are themselves the output of a previous,
+            lower-level align pass, so n_detect reflects the total number
+            of raw detections a star represents. By default None (plain
+            count).
         # """
-        n_detect = np.sum(np.isfinite(self['x']) & np.isfinite(self['y']), axis=1)
+        valid = np.isfinite(self['x']) & np.isfinite(self['y'])
+        if (weight_col is not None) and (weight_col in self.colnames):
+            n_detect = np.sum(np.where(valid, self[weight_col], 0), axis=1)
+        else:
+            n_detect = np.sum(valid, axis=1)
 
         if 'n_detect' in self.colnames:
             self['n_detect'] = n_detect

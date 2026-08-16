@@ -46,6 +46,7 @@ class MosaicSelfRef(object):
             absolute_sigma=True,
             scipy_method=None,
             # Advanced options
+            inherit_n_detect=True,
             iter_callback=None,
             save_path=None,
             prefix_name='msr',
@@ -181,6 +182,16 @@ class MosaicSelfRef(object):
         scipy_method : str, optional
             Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
 
+        inherit_n_detect : bool, optional
+            If True, and an input starlist already has its own 'n_detect' column
+            (e.g. it is itself the output of a previous, lower-level align pass),
+            use that starlist's own n_detect value -- instead of counting 1 --
+            as the contribution from that starlist when computing this mosaic's
+            n_detect. So a star's final n_detect reflects the total number of
+            raw detections it represents, however many alignment layers deep.
+            Starlists without their own 'n_detect' still contribute 1 per
+            detection, same as when this is False. By default True.
+
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state.
@@ -249,6 +260,7 @@ class MosaicSelfRef(object):
         self.use_scipy = use_scipy
         self.absolute_sigma = absolute_sigma
         self.scipy_method = scipy_method
+        self.inherit_n_detect = inherit_n_detect
         self.fixed_params_dict = fixed_params_dict
         self.init_guess_mode = init_guess_mode
         self.briteN = briteN
@@ -452,7 +464,7 @@ class MosaicSelfRef(object):
             )
             # Clean up the reference table
             # Find where stars are detected.
-            self.ref_table.detections()
+            self.ref_table.detections(weight_col='n_detect_list' if self.inherit_n_detect else None)
 
             ### Drop all stars that have 0 detections.
             idx = np.where((self.ref_table['n_detect'] == 0))[0]
@@ -490,7 +502,7 @@ class MosaicSelfRef(object):
             print('')
             print('   Preparing the reference table...')
 
-        self.ref_table.detections()
+        self.ref_table.detections(weight_col='n_detect_list' if self.inherit_n_detect else None)
 
         ### Drop all stars that have 0 detections.
         idx = np.where((self.ref_table['n_detect'] == 0))[0]
@@ -940,6 +952,13 @@ class MosaicSelfRef(object):
                 # The "name" column will be 1D; but we will also add a "name_in_list" column.
                 col_arrays['name'] = star_list[col_name].data
                 new_col_name = "name_in_list"
+            elif col_name == 'n_detect' and self.inherit_n_detect:
+                # Don't let this collide with the 1D 'n_detect' aggregate
+                # that update_n_detect() computes -- store this starlist's
+                # own per-star detection count (e.g. from a previous,
+                # lower-level align pass) under its per-list name instead,
+                # same as every other list-column.
+                new_col_name = 'n_detect_list'
             else:
                 new_col_name = col_name
 
@@ -1019,6 +1038,17 @@ class MosaicSelfRef(object):
 
         # Keep track of whether this is an original reference star.
         ref_table.add_column(np.ones(len(ref_table), dtype=bool), name='ref_orig')
+
+        # Make sure we have a per-list column to track each starlist's
+        # detection-count contribution, even if this particular (seed)
+        # starlist doesn't provide its own 'n_detect' -- a later starlist
+        # in the mosaic still might, and copy_over_values needs somewhere
+        # to write it. Gets reset to invalid below like any other 2D
+        # column, then correctly (re)populated once this starlist goes
+        # through its own match/copy_over_values pass.
+        if self.inherit_n_detect and 'n_detect_list' not in ref_table.colnames:
+            ref_table.add_column(np.zeros((len(ref_table), 1), dtype=int), name='n_detect_list')
+
         # Now reset the original values to invalids... they will be filled in
         # at later times. Preserve content only in the columns: name, x0, y0, m0 (and 0e).
         # Note that these are all the 1D columsn.
@@ -1904,6 +1934,7 @@ class MosaicToRef(MosaicSelfRef):
         absolute_sigma=True,
         scipy_method=None,
         # Advanced options
+        inherit_n_detect=True,
         iter_callback=None,
         save_path=None,
         prefix_name='mtr',
@@ -2062,6 +2093,16 @@ class MosaicToRef(MosaicSelfRef):
         scipy_method : str, optional
             Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
 
+        inherit_n_detect : bool, optional
+            If True, and an input starlist already has its own 'n_detect' column
+            (e.g. it is itself the output of a previous, lower-level align pass),
+            use that starlist's own n_detect value -- instead of counting 1 --
+            as the contribution from that starlist when computing this mosaic's
+            n_detect. So a star's final n_detect reflects the total number of
+            raw detections it represents, however many alignment layers deep.
+            Starlists without their own 'n_detect' still contribute 1 per
+            detection, same as when this is False. By default True.
+
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state.
@@ -2133,6 +2174,7 @@ class MosaicToRef(MosaicSelfRef):
             absolute_sigma=absolute_sigma,
             scipy_method=scipy_method,
             # Advanced options
+            inherit_n_detect=inherit_n_detect,
             iter_callback=iter_callback,
             save_path=save_path,
             prefix_name=prefix_name,
@@ -2323,7 +2365,7 @@ class MosaicToRef(MosaicSelfRef):
 
             # Clean up the reference table
             # Find where stars are detected.
-            self.ref_table.detections()
+            self.ref_table.detections(weight_col='n_detect_list' if self.inherit_n_detect else None)
 
             ### Drop all stars that have 0 detections.
             idx = np.where((self.ref_table['n_detect'] == 0))[0] # & (self.ref_table['ref_orig'] == False))[0]
@@ -2362,7 +2404,7 @@ class MosaicToRef(MosaicSelfRef):
         if self.verbose > 0:
             print('    Preparing the reference table...')
 
-        self.ref_table.detections()
+        self.ref_table.detections(weight_col='n_detect_list' if self.inherit_n_detect else None)
 
         ### Drop all stars that have 0 detections.
         idx = np.where((self.ref_table['n_detect'] == 0))[0] # & (self.ref_table['ref_orig'] == False))[0]
@@ -2785,6 +2827,12 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
     """
     idx_lis = np.array(idx_lis)
     for col_name in ref_table.colnames:
+        if col_name == 'n_detect':
+            # 'n_detect' in ref_table is the 1D aggregate computed by
+            # detections()/update_n_detect(), not a per-list column -- a
+            # starlist's own 'n_detect' (used by inherit_n_detect) is
+            # handled separately below via 'n_detect_list', never here.
+            continue
         if col_name in star_list_T.colnames:
             if col_name == 'name':
                 # name_in_list's dtype width is set once, from whichever
@@ -2804,6 +2852,18 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
             orig_col_name = col_name + '_orig'
             if orig_col_name in ref_table.colnames:
                 ref_table[orig_col_name][idx_ref, idx_epoch] = star_list[col_name][idx_lis]
+
+    # Special case for n_detect_list (used by inherit_n_detect): the source
+    # column is named 'n_detect' (not 'n_detect_list'), so the by-name loop
+    # above never touches it -- copy it explicitly here. A starlist that's
+    # itself the output of a previous, lower-level align pass has its own
+    # 'n_detect'; one without it still contributes a weight of 1 per
+    # detection.
+    if 'n_detect_list' in ref_table.colnames:
+        if 'n_detect' in star_list.colnames:
+            ref_table['n_detect_list'][idx_ref, idx_epoch] = star_list['n_detect'][idx_lis]
+        else:
+            ref_table['n_detect_list'][idx_ref, idx_epoch] = 1
 
     # Special case for list_time
     if 't' not in star_list.colnames:
