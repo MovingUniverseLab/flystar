@@ -1051,7 +1051,11 @@ class MosaicSelfRef(object):
             else:
                 mcol = 'm'
 
-            no_use = (ref_list[mcol] < ref_mag_lim[0]) | (ref_list[mcol] >= ref_mag_lim[1])
+            # NaN comparisons are always False, so a star with a non-finite
+            # magnitude (e.g. no usable 'me' to weight it by) would otherwise
+            # never get excluded by the range check below and would flood
+            # into use_in_trans with an unknown magnitude.
+            no_use = ~np.isfinite(ref_list[mcol]) | (ref_list[mcol] < ref_mag_lim[0]) | (ref_list[mcol] >= ref_mag_lim[1])
 
             ref_list['use_in_trans'][no_use]  = False
 

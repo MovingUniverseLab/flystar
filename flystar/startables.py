@@ -545,6 +545,17 @@ class StarTable(Table):
                 weights_data = self[weights_col].data
             err_2d = np.array(weights_data[:, list_indices], dtype=float)
 
+            # A star whose every epoch has an invalid raw uncertainty (e.g.
+            # missing/invalid me/xe/ye everywhere) but at least one valid
+            # value falls back to a nominal uncertainty of 1 (in this
+            # column's own units, before any flux conversion below) on its
+            # valid epochs, i.e. an unweighted mean -- mirrors
+            # fit_motion_models' xe/ye=1 fallback for the same situation,
+            # rather than discarding a real measurement as nan just because
+            # we don't know how to weight it.
+            no_usable_err = ~(valid & np.isfinite(err_2d)).any(axis=1) & valid.any(axis=1)
+            err_2d[no_usable_err] = np.where(valid[no_usable_err], 1.0, err_2d[no_usable_err])
+
             if ismag:
                 # Convert to flux error
                 err_2d = 0.4 * np.log(10) * val_2d * err_2d
@@ -823,7 +834,15 @@ class StarTable(Table):
         # Add default t0 if not provided in fixed_params_dict
         if 't0' not in fixed_params_dict:
             weights = 1. / np.hypot(xe_data, ye_data) if with_xe_ye else None
-            fixed_params_dict['t0'] = np.average(t_data, axis=1, weights=weights)
+            # t_data must be masked (not just weights) and np.ma.average (not
+            # plain np.average) must be used here: for the fill_with_one
+            # stars above (no usable xe/ye anywhere at all), the substitute
+            # weight is uniform/unmasked, but t can still be genuinely
+            # invalid in undetected epochs, or weights can be masked (e.g.
+            # only some epochs have usable xe/ye) while t_data itself is
+            # plain. Plain np.average's weight-sum denominator doesn't
+            # respect either mask in that case, silently producing NaN.
+            fixed_params_dict['t0'] = np.ma.average(np.ma.masked_invalid(t_data), axis=1, weights=weights).filled(np.nan)
         else:
             if np.ndim(fixed_params_dict['t0']) == 0:
                 fixed_params_dict['t0'] = np.full(N_stars, fixed_params_dict['t0'])
