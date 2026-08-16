@@ -2934,10 +2934,24 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
         fixed_params_dict = mm.optional_fixed_params.copy()
 
     if N_newstars > 0:
-        col_arrays = {}
-
-        for col_name in ref_table.colnames:
-            new_col_name = col_name
+        # Build each column's new rows and concatenate them onto the
+        # existing column data one column at a time, dropping the old
+        # column's reference immediately afterward -- instead of building a
+        # whole parallel StarTable for the new rows and then vstack()-ing
+        # it onto ref_table, which transiently holds the old table, the new
+        # (parallel) table, AND vstack's own freshly-concatenated result all
+        # in memory simultaneously (every column, all at once). That
+        # transient roughly doubles peak memory on every single "add new
+        # stars" step, which dominates total memory use for a mosaic that
+        # grows into the millions of rows across many starlists. Building
+        # concatenated arrays directly (and letting each old column's array
+        # be freed as soon as it's replaced) avoids ever needing a second
+        # full copy of the whole table at once.
+        colnames = list(ref_table.colnames)
+        new_col_arrays = {}
+        for col_name in colnames:
+            old_col = ref_table[col_name]
+            dtype = old_col.dtype
 
             if col_name in fixed_params_dict.keys():
                 new_col_empty = fixed_params_dict[col_name]
@@ -2949,34 +2963,41 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
                 new_col_empty = 'Empty'
             elif col_name in ['xe', 'ye', 'me'] or col_name.endswith('_err'):
                 new_col_empty = np.inf
-            elif ref_table[col_name].dtype == np.dtype('float'):
+            elif dtype == np.dtype('float'):
                 new_col_empty = np.nan
-            elif ref_table[col_name].dtype == np.dtype('int'):
+            elif dtype == np.dtype('int'):
                 new_col_empty = -1
-            elif ref_table[col_name].dtype == np.dtype('bool'):
+            elif dtype == np.dtype('bool'):
                 new_col_empty = False
             else:
                 new_col_empty = np.nan
 
-            if np.ndim(ref_table[col_name].data) == 1:
+            if np.ndim(old_col.data) == 1:
                 new_col_shape = N_newstars
             else:
-                new_col_shape = [N_newstars, ref_table[col_name].shape[1]]
+                new_col_shape = (N_newstars, old_col.shape[1])
 
-            new_col_data = Column(
-                data=np.tile(new_col_empty, new_col_shape),
-                name=col_name,
-                dtype=ref_table[col_name].dtype
-            )
+            new_rows = np.full(new_col_shape, new_col_empty, dtype=dtype)
+            new_col_arrays[col_name] = np.concatenate([old_col.data, new_rows], axis=0)
 
-            col_arrays[new_col_name] = new_col_data
+            # Drop ref_table's reference to the old column now, before
+            # moving on to the next one, so it can be freed immediately
+            # rather than staying alive until every column has been
+            # processed.
+            del ref_table[col_name]
+            del old_col, new_rows
 
-        ref_table_new = StarTable(**col_arrays)
-        ref_table_nstars = ref_table.meta['n_stars'] + ref_table_new.meta['n_stars']
-        ref_table.meta['n_stars'] = ref_table_nstars
-        ref_table_new.meta['n_stars'] = ref_table_nstars
-        ref_table_new.meta['ref_list'] = ref_table.meta['ref_list']
-        ref_table = vstack([ref_table, ref_table_new])
+        ref_table_nstars = ref_table.meta['n_stars'] + N_newstars
+        ref_table_meta = dict(ref_table.meta)
+        ref_table_meta['n_stars'] = ref_table_nstars
+        del ref_table
+
+        # Build the new table directly from the already-concatenated,
+        # already-correctly-shaped/typed arrays with copy=False, so
+        # StarTable.__init__ uses them as-is instead of silently copying
+        # the whole (now full-size) table all over again right at the end.
+        ref_table = StarTable(**new_col_arrays, copy=False)
+        ref_table.meta.update(ref_table_meta)
 
     idx_ref_new = np.arange(last_star_idx, len(ref_table))
 
