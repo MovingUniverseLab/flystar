@@ -5,6 +5,50 @@ from flystar import parallax
 from astropy.time import Time
 from scipy.optimize import curve_fit, OptimizeWarning
 
+
+def weight_from_sigma(sigma, valid=None):
+    """
+    Convert an uncertainty (sigma) array into a safe inverse-variance
+    weight (1/sigma**2), for use in a weighted sum/average.
+
+    A point with no real uncertainty information should contribute
+    nothing to a weighted sum -- but naively computing 1/sigma**2 can
+    instead produce an infinite or NaN weight (sigma is NaN/inf/exactly
+    zero, or so small that squaring it underflows to zero), which would
+    corrupt rather than exclude that point. This handles all of those
+    cases uniformly: any sigma that doesn't produce a finite weight, or
+    any point explicitly marked invalid via `valid`, gets a weight of
+    exactly 0.
+
+    This does NOT handle the "every point has weight 0" case for you --
+    a weighted average built from these weights still needs its own
+    explicit fallback for that (see combine_lists/fit_motion_models),
+    since there's no single value this function could return that fixes
+    an otherwise-undefined 0/0 average.
+
+    Parameters
+    ----------
+    sigma : array-like
+        Uncertainty values (any invalid/zero/overflow-inducing value is
+        safely handled).
+    valid : array-like of bool, optional
+        If given, points where this is False also get weight 0,
+        regardless of sigma.
+
+    Returns
+    -------
+    weight : ndarray
+        Same shape as sigma.
+    """
+    sigma = np.asarray(sigma, dtype=float)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        weight = 1. / sigma**2
+        if valid is not None:
+            weight = np.where(valid, weight, 0.0)
+    weight[~np.isfinite(weight)] = 0.0
+    return weight
+
+
 class MotionModel(ABC):
     name = "MotionModel"
 
@@ -629,11 +673,8 @@ class Fixed(MotionModel):
             )
 
         sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            x_wt = np.where(valid, 1. / sigma_x**2, 0.0)
-            y_wt = np.where(valid, 1. / sigma_y**2, 0.0)
-        x_wt[~np.isfinite(x_wt)] = 0.0
-        y_wt[~np.isfinite(y_wt)] = 0.0
+        x_wt = weight_from_sigma(sigma_x, valid)
+        y_wt = weight_from_sigma(sigma_y, valid)
 
         x_wt_sum = x_wt.sum(axis=1)
         y_wt_sum = y_wt.sum(axis=1)
@@ -971,11 +1012,8 @@ class Linear(MotionModel):
             )
 
         sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            x_wt = np.where(valid, 1. / sigma_x**2, 0.0)
-            y_wt = np.where(valid, 1. / sigma_y**2, 0.0)
-        x_wt[~np.isfinite(x_wt)] = 0.0
-        y_wt[~np.isfinite(y_wt)] = 0.0
+        x_wt = weight_from_sigma(sigma_x, valid)
+        y_wt = weight_from_sigma(sigma_y, valid)
 
         dt_m = np.where(valid, dt, 0.0)
         x_m = np.where(valid, x, 0.0)

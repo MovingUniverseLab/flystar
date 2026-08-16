@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from flystar import motion_model
 
 class StarTable(Table):
-    def __init__(self, *args, ref_list=0, **kwargs):
+    def __init__(self, *args, ref_list=0, copy=True, **kwargs):
         """
         A StarTable is an astropy.Table with stars matched from multiple starlists.
 
@@ -62,6 +62,18 @@ class StarTable(Table):
         ref_list : int
             Specify which list is the reference list (if any).
 
+        copy : bool, optional
+            If True (default), the table makes its own independent copy of
+            every input array -- safe if the caller might mutate their
+            arrays afterward. If False, arrays that are already a
+            compatible ndarray are used directly without copying (they're
+            still converted/copied if genuinely necessary, e.g. from a
+            list or an incompatible dtype) -- only pass False when you
+            know the caller won't touch these arrays again (e.g. they were
+            just freshly built and not stored anywhere else), since the
+            table's data would otherwise alias and mutating one would
+            silently mutate the other.
+
         Examples
         --------------------------
 
@@ -84,21 +96,26 @@ class StarTable(Table):
                           # columns selected
                 err_msg = "The StarTable class requires arguments: " + str(arg_req)
                 warnings.warn(err_msg, UserWarning)
-            Table.__init__(self, *args, **kwargs)
+            Table.__init__(self, *args, copy=copy, **kwargs)
         else:
             # If we have errors, we need them in both dimensions.
             if ('xe' in kwargs) ^ ('ye' in kwargs):
                 raise TypeError("The StarTable class requires both 'xe' and" +
                                 " 'ye' arguments")
-            kwargs['name'] = np.array(kwargs['name'])
-            kwargs['x'] = np.array(kwargs['x'])
-            kwargs['y'] = np.array(kwargs['y'])
-            kwargs['m'] = np.array(kwargs['m'])
+            # np.array(..., copy=True) (the default) always copies; np.asarray
+            # only converts/copies when actually necessary (e.g. a list, or an
+            # incompatible dtype) -- pass a caller-owned, already-correct
+            # ndarray straight through with copy=False.
+            array_convert = np.array if copy else np.asarray
+            kwargs['name'] = array_convert(kwargs['name'])
+            kwargs['x'] = array_convert(kwargs['x'])
+            kwargs['y'] = array_convert(kwargs['y'])
+            kwargs['m'] = array_convert(kwargs['m'])
             if ('xe' in kwargs) and ('ye' in kwargs):
-                kwargs['xe'] = np.array(kwargs['xe'])
-                kwargs['ye'] = np.array(kwargs['ye'])
+                kwargs['xe'] = array_convert(kwargs['xe'])
+                kwargs['ye'] = array_convert(kwargs['ye'])
             if 'me' in kwargs:
-                kwargs['me'] = np.array(kwargs['me'])
+                kwargs['me'] = array_convert(kwargs['me'])
 
             # Figure out the shape
             n_stars = kwargs['x'].shape[0]
@@ -143,30 +160,41 @@ class StarTable(Table):
             #####
             # Create the startable
             #####
-            super().__init__((kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']),
-                           names=('name', 'x', 'y', 'm'))
-            self['name'] = self['name'].astype('U30')
-            self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
-
+            # Pull the special meta-data args out of kwargs first, so the
+            # column-building loop below doesn't see them.
+            meta_updates = {}
             for meta_arg in meta_tab:
                 if meta_arg in kwargs:
-                    self.meta[meta_arg] = kwargs[meta_arg]
-                    del kwargs[meta_arg]
+                    meta_updates[meta_arg] = kwargs.pop(meta_arg)
                 elif meta_arg.upper() in kwargs:
-                    self.meta[meta_arg] = kwargs[meta_arg.upper()]
-                    del kwargs[meta_arg]
+                    meta_updates[meta_arg] = kwargs.pop(meta_arg.upper())
 
+            # Build every column's (name, data) pair upfront and construct
+            # the whole table in a single call, instead of constructing the
+            # 4 required columns and then add_column()-ing the rest one at
+            # a time. add_column() is dramatically more expensive per call
+            # than passing every column to the constructor together
+            # (confirmed empirically: ~1.2s and +4.6GB for ~29 columns
+            # built via a loop of add_column() calls at ~1.4M rows, vs
+            # ~0.001s and ~0GB for the exact same columns passed to the
+            # constructor at once) -- almost certainly because add_column()
+            # re-validates/re-indexes the whole table on every single call.
+            all_col_names = ['name', 'x', 'y', 'm']
+            all_col_data = [kwargs['name'], kwargs['x'], kwargs['y'], kwargs['m']]
             for arg in kwargs:
-                if arg in ['name', 'x', 'y', 'm', 'list_times', 'list_names']:
+                if arg in ('name', 'x', 'y', 'm'):
                     continue
-                else:
-                    self.add_column(Column(data=kwargs[arg], name=arg))
-                    if arg == 'name_in_list':
-                        self['name_in_list'] = self['name_in_list'].astype('U30')
-                    if arg == 'motion_model_input':
-                        self['motion_model_input'] = self['motion_model_input'].astype('U20')
-                    if arg == 'motion_model_used':
-                        self['motion_model_used'] = self['motion_model_used'].astype('U20')
+                data = kwargs[arg]
+                if arg in ('name_in_list', 'motion_model_input', 'motion_model_used'):
+                    width = 'U30' if arg == 'name_in_list' else 'U20'
+                    data = np.asarray(data).astype(width, copy=copy)
+                all_col_names.append(arg)
+                all_col_data.append(data)
+
+            super().__init__(tuple(all_col_data), names=tuple(all_col_names), copy=copy)
+            self['name'] = self['name'].astype('U30')
+            self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
+            self.meta.update(meta_updates)
             #if 'motion_model_input' not in kwargs:
             #    self['motion_model_input'] = np.repeat(self.default_motion_model, len(self['name']))
 
@@ -549,19 +577,15 @@ class StarTable(Table):
                 # Convert to flux error
                 err_2d = 0.4 * np.log(10) * val_2d * err_2d
 
-            # A value only contributes if both it (post-clipping) and its
-            # real, reported error are finite -- this is the "unify masks"
-            # step. `err_2d` here is never faked/patched -- it's exactly
-            # what was measured, so the `wgt_2d`/`wgt_sum` derived from it
-            # below are an honest record of how much real uncertainty
-            # information we actually have for each star.
-            valid_w = valid & np.isfinite(err_2d)
-
-            # Inverse variance weights minimize the propagated uncertainty
-            with np.errstate(divide='ignore', invalid='ignore'):
-                wgt_2d = np.where(valid_w, 1. / err_2d**2, 0.0)
-            # Mask infinite weights from zero uncertainties
-            wgt_2d[~np.isfinite(wgt_2d)] = 0.0
+            # Inverse variance weights minimize the propagated uncertainty.
+            # `err_2d` here is never faked/patched -- it's exactly what was
+            # measured, so the `wgt_2d`/`wgt_sum` derived from it below are
+            # an honest record of how much real uncertainty information we
+            # actually have for each star. weight_from_sigma safely zeroes
+            # out any epoch where the value isn't valid (post-clipping) or
+            # the error itself is invalid/zero/overflow-inducing, rather
+            # than letting a bad error corrupt the weighted sum.
+            wgt_2d = motion_model.weight_from_sigma(err_2d, valid)
 
             # Honest weight sum, built only from real, known uncertainties.
             # The reported std below is derived directly from this, so a
@@ -766,6 +790,75 @@ class StarTable(Table):
         if fixed_params_dict is not None:
             if not isinstance(fixed_params_dict, dict):
                 raise ValueError("fit_motion_models: fixed_params_dict must be a dictionary!")
+
+        if select_stars is not None:
+            select_idx = np.asarray(select_stars)
+            if select_idx.dtype == bool:
+                select_idx = np.flatnonzero(select_idx)
+            else:
+                select_idx = np.asarray(select_idx, dtype=int)
+            if len(select_idx) == 0:
+                return
+        else:
+            select_idx = None
+
+        N_stars = len(self)
+        if (select_idx is not None) and (len(select_idx) < N_stars):
+            # Everything below this point -- the masked-array data prep,
+            # n_fit/motion-model classification, and per-star fixed-params
+            # dict construction -- costs O(N_stars) every single call,
+            # regardless of how few stars select_stars actually asks to
+            # fit. For a mosaic that's re-fit once per starlist (this
+            # function called repeatedly as the table keeps growing), that
+            # made the redundant, unselected majority of the table get
+            # copied and reprocessed on every single call -- for many
+            # starlists and a large final table, this dwarfs the actual
+            # fitting cost. Slice down to just the selected rows (fancy/
+            # boolean indexing always copies in numpy, so this bounds cost
+            # to len(select_stars), not N_stars), run this same function
+            # unmodified on that much smaller table, then scatter its
+            # results back into self at the selected positions. (If
+            # select_stars covers the whole table there's nothing to save
+            # by slicing -- that would just pay a full-table copy for no
+            # benefit -- so fall through to the normal path below instead.)
+            sub_fixed_params_dict = {
+                k: (v[select_idx] if (np.ndim(v) > 0 and len(v) == N_stars) else v)
+                for k, v in (fixed_params_dict or {}).items()
+            }
+
+            sub_table = self[select_idx]
+            orig_meta_keys = set(self.meta.keys())
+            sub_table.fit_motion_models(
+                motion_models=motion_models, fixed_params_dict=sub_fixed_params_dict,
+                weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma,
+                method=method, select_stars=None, keep_existing=keep_existing,
+                bootstrap=bootstrap, seed=seed, mask_value=mask_value, mask_lists=mask_lists,
+                fill_value=fill_value, art_star=art_star, processes=processes,
+                chunksize=chunksize, verbose=verbose
+            )
+
+            for col_name in sub_table.colnames:
+                if col_name not in self.colnames:
+                    default = np.inf if (col_name.endswith('_err')) else fill_value
+                    dtype = sub_table[col_name].dtype
+                    if dtype.kind in 'US':
+                        default = ''
+                    elif dtype.kind == 'i':
+                        default = -1
+                    elif dtype.kind == 'b':
+                        default = False
+                    self.add_column(Column(data=np.full(N_stars, default, dtype=dtype), name=col_name))
+                self[col_name][select_idx] = sub_table[col_name]
+
+            # Only propagate meta keys fit_motion_models itself newly added
+            # (e.g. n_bootstrap, or a scalar-valued fixed param) -- not
+            # table-size-specific ones the smaller sub_table happens to
+            # carry (n_stars, ref_list, list_times, ...).
+            for key, value in sub_table.meta.items():
+                if key not in orig_meta_keys:
+                    self.meta[key] = value
+
+            return
 
         all_mm_map = motion_model.motion_model_map()
         # Setting the default to None to avoid mutable default argument issue
@@ -1079,6 +1172,32 @@ class StarTable(Table):
 
         # Add a column to keep track of the number of points used in a fit and number of bootstrap used.
         self.meta['n_bootstrap'] = bootstrap
+
+        # A star whose motion_model_used just changed to a simpler model
+        # (e.g. Linear -> Fixed, because it now matches fewer epochs than
+        # it used to) would otherwise keep whatever vx/vy (or other params
+        # its old, more complex model had) its previous fit wrote --
+        # nothing rewrites those columns for this star since they aren't
+        # in its new model's fit_param_names. Reset any such leftover
+        # param to fill_value/inf for every star, based on its current
+        # motion_model_used, before the fitting loop below fills in the
+        # correct values for the params that DO belong to its model.
+        # Check against every motion model that could ever exist, not just
+        # ones assigned to a star this round -- a param column can still
+        # exist from an earlier call (e.g. 'vx' from a prior Linear fit)
+        # even if no star is currently classified as that model.
+        all_possible_params = set()
+        for mm in all_mm_map.values():
+            all_possible_params.update(mm.fit_param_names)
+        for param_name in all_possible_params:
+            if param_name not in self.colnames:
+                continue
+            models_with_this_param = [mm.name for mm in all_mm_map.values() if param_name in mm.fit_param_names]
+            belongs = np.isin(self['motion_model_used'], models_with_this_param)
+            self[param_name][~belongs] = fill_value
+            err_name = param_name + '_err'
+            if err_name in self.colnames:
+                self[err_name][~belongs] = np.inf
 
 
         ###########################
