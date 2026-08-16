@@ -2679,9 +2679,7 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
     n_params = np.empty(n_stars, dtype=int)
     assigned = np.zeros(n_stars, dtype=bool)
 
-    for mm, req_col_in_table, req_cols, req_col_in_dict in tqdm(
-        motion_models_possible[::-1], desc='Determining motion models', disable=not verbose
-    ):
+    for mm, req_col_in_table, req_cols, req_col_in_dict in motion_models_possible[::-1]:
         fixed_ok = all(
             np.isfinite(fixed_params_dict[col])
             for col in req_col_in_dict
