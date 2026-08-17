@@ -525,8 +525,11 @@ class StarTable(Table):
             assert mask_lists.dtype == int, "mask_lists needs to be a list of integers."
             list_indices = np.array([i for i in np.arange(self[col_name_in].data.shape[1]) if i not in mask_lists])
         else:
-            # Use all indices
-            list_indices = np.arange(self[col_name_in].data.shape[1])
+            # Use all indices. A plain slice (rather than an arange array) keeps
+            # the col_data[:, list_indices] indexing below a view instead of a
+            # forced fancy-index copy -- np.array()/masked_invalid() further down
+            # already makes the one copy that's actually needed.
+            list_indices = slice(None)
 
         if select_stars is not None:
             col_data = self[col_name_in].data[select_stars]
@@ -706,6 +709,7 @@ class StarTable(Table):
             art_star=False,
             processes=1,
             chunksize=None,
+            mp_star_threshold=100_000,
             verbose=True
     ):
         """Fit velocity for star table
@@ -757,6 +761,17 @@ class StarTable(Table):
             Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
         chunksize : int, optional
             Chunk size for multiprocessing, by default None (auto)
+        mp_star_threshold : int, optional
+            Minimum number of stars that actually require the per-star fitting
+            path (i.e. whose motion model has no vectorized run_fit_batch, or
+            bootstrap > 0) before a multiprocessing Pool is spun up, even if
+            processes > 1 was requested. Below this, fitting runs serially in
+            the calling process instead. Spinning up a Pool has real fixed
+            overhead (worker startup, pickling the shared data arrays to each
+            worker) that a small per-star workload doesn't recoup -- measured
+            break-even was between 20,000 and 100,000 stars on a 10-core
+            machine, so 100,000 (default) is a conservative choice. By default
+            100_000.
         verbose : bool, optional
             Print verbose messages or not, by default True
 
@@ -834,7 +849,7 @@ class StarTable(Table):
                 method=method, select_stars=None, keep_existing=keep_existing,
                 bootstrap=bootstrap, seed=seed, mask_value=mask_value, mask_lists=mask_lists,
                 fill_value=fill_value, art_star=art_star, processes=processes,
-                chunksize=chunksize, verbose=verbose
+                chunksize=chunksize, mp_star_threshold=mp_star_threshold, verbose=verbose
             )
 
             for col_name in sub_table.colnames:
@@ -911,7 +926,12 @@ class StarTable(Table):
         if mask_lists is not None:
             list_indices = np.array([i for i in range(N_times) if i not in mask_lists])
         else:
-            list_indices = np.arange(N_times)
+            # A plain slice (rather than an arange array) keeps x[:, list_indices]
+            # etc. below a view instead of a forced fancy-index copy -- the
+            # explicit copy=True/deepcopy calls further down already make the one
+            # copy that's actually needed. At full-table scale this was making two
+            # full (N_stars, N_times) copies of x, y, xe, ye, and t where one would do.
+            list_indices = slice(None)
 
         x_data = np.ma.masked_invalid(x[:, list_indices], copy=True)
         y_data = np.ma.masked_invalid(y[:, list_indices], copy=True)
@@ -1095,12 +1115,14 @@ class StarTable(Table):
         # much slower generic machinery vs. plain ndarray indexing.
         array_params = {k: (np.ma.filled(v, np.nan) if np.ma.isMaskedArray(v) else v) for k, v in array_params.items()}
 
-        # Construct list of dicts for each star
-        # Using list comprehension for speed
-        fixed_params_stars = [
-            {**scalar_params, **{k: v[i] for k, v in array_params.items()}}
-            for i in range(N_stars)
-        ]
+        # fixed_params_stars (one dict per star) is only actually needed by
+        # the per-star/multiprocessing fitting path below, for stars whose
+        # motion model has no vectorized run_fit_batch -- building it here
+        # for all N_stars unconditionally meant allocating a Python dict (plus
+        # boxed scalar values) per star even for the (often large) fraction
+        # handled entirely by the batched Fixed-model path, which never even
+        # looks at it. It's built lazily further down, once we know which
+        # stars actually need it (same idea as unmasked_idx below).
 
 
         ############################
@@ -1145,7 +1167,15 @@ class StarTable(Table):
 
 
         for param in fixed_param_names:
-            coldata = np.array([fps[param] for fps in fixed_params_stars])
+            # Equivalent to np.array([fps[param] for fps in fixed_params_stars])
+            # from the (no-longer-built-eagerly) per-star dicts, without ever
+            # materializing them: every param here came from array_params or
+            # scalar_params above, so it's already exactly this column, or a
+            # single value to be broadcast to one.
+            if param in array_params:
+                coldata = np.asarray(array_params[param])
+            else:
+                coldata = np.full(N_stars, scalar_params[param])
 
             if param in self.colnames:
                 existing = self[param]
@@ -1222,17 +1252,20 @@ class StarTable(Table):
         # per-star Python loop) for all N_stars regardless was previously
         # pure waste for that (often large) fraction. Left as None for stars
         # that don't need it; those entries are never looked up.
-        per_star_star_idxs = [
+        non_batch_star_idxs = [
             idx for key, idx in indices_by_motion_model.items()
             if not (hasattr(input_mm_map[key](), 'run_fit_batch') and bootstrap == 0)
         ]
-        if per_star_star_idxs:
-            per_star_star_idxs = np.concatenate(per_star_star_idxs)
+        if non_batch_star_idxs:
+            non_batch_star_idxs = np.concatenate(non_batch_star_idxs)
             unmasked_idx = [None] * N_stars
-            for i in per_star_star_idxs:
+            fixed_params_stars = [None] * N_stars
+            for i in non_batch_star_idxs:
                 unmasked_idx[i] = np.flatnonzero(valid_xy[i])
+                fixed_params_stars[i] = {**scalar_params, **{k: v[i] for k, v in array_params.items()}}
         else:
             unmasked_idx = None
+            fixed_params_stars = None
 
         # Plain (non-masked) views of the per-star arrays for the per-star
         # extraction below. x_data/y_data/xe_data/ye_data need to stay
@@ -1259,8 +1292,12 @@ class StarTable(Table):
         # have different numbers of valid epochs) data extraction locally,
         # instead of the parent process pre-extracting a t_stars/x_stars/...
         # slice for every single star up front and pickling all of it per task.
+        # Only actually pay for a multiprocessing Pool when there's enough
+        # per-star work to recoup its fixed cost (worker startup, pickling
+        # the shared data arrays to each worker) -- below mp_star_threshold,
+        # run serially in this process even if processes > 1 was requested.
         pool = None
-        if processes > 1 and unmasked_idx is not None:
+        if processes > 1 and unmasked_idx is not None and len(non_batch_star_idxs) >= mp_star_threshold:
             pool = Pool(
                 processes,
                 initializer=_fit_motion_models_init,

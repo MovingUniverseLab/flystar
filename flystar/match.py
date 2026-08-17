@@ -279,7 +279,7 @@ def order_by_brite(xi, yi, mi, Nout, verbose=True):
     return xo, yo, mo
 
 
-def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
+def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True):
     """
     Finds matches between two different catalogs. No transformations are done and it
     is assumed that the two catalogs are already on the same coordinate system
@@ -313,6 +313,8 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     dm_tol : float or None, optional
         How close in delta-magnitude a match has to be to count as a match.
         If None, then any delta-magnitude is allowed.
+    workers : int, optional
+        Number of jobs to schedule for parallel processing. If -1 is given all processors are used. Default: 1.
     verbose : bool or int, optional
         Prints on screen information on the matching. Higher verbose values
         (up to 9) provide more detail.
@@ -379,7 +381,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
     # radius. We will use this to find those stars that have no or one
     # match and deal with them easily. The more complicated conflict
     # cases will be dealt with afterward.
-    i2_match = kdt.query_ball_point(coords1, dr_tol)
+    i2_match = kdt.query_ball_point(coords1, dr_tol, workers=workers)
     Nmatch = np.array([len(idxs) for idxs in i2_match])
 
     # What is the largest number of matches we have for a given star?
