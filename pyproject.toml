@@ -5,10 +5,14 @@ readme = "README.rst"
 authors = [{name="Jessica Lu", email="jlu.astro@berkeley.edu"},
            {name="Matt Hosek", email="mwhosek@astro.ucla.edu"}]
 license = {text="BSD 3-Clause License"}
-dependencies = ["numpy", "astropy>=3.2"]
+dependencies = ["numpy", "astropy>=3.2", "scipy", "matplotlib", "tqdm", "joblib", "pandas"]
 requires-python = ">=3.9"
 dynamic = ["version"]
 #version = "0.1"
+
+[project.optional-dependencies]
+docs = ["sphinx-astropy"]
+test = ["pytest-astropy"]
 
 [project.urls]
 homepage = "https://github.com/MovingUniverseLab/flystar"
@@ -16,9 +20,6 @@ homepage = "https://github.com/MovingUniverseLab/flystar"
 [build-system]
 requires = ["setuptools",
             "setuptools_scm",
-            "wheel",
-            "extension-helpers",
-            "oldest-supported-numpy",
-            "cython==0.29.14"]
+            "wheel"]
 
 build-backend = 'setuptools.build_meta'
