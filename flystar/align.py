@@ -3888,14 +3888,10 @@ def check_trans_input(list_of_starlists, trans_input, mag_trans):
         assert len(trans_input) == len(list_of_starlists), f'trans_input (len={len(trans_input)}) must have the same length as list_of_starlists (len={len(list_of_starlists)})!'
 
         if mag_trans:
-            for ii in range(len(trans_input)):
-                if trans_input[ii] is not None:
-                    try:
-                        trans_input[ii].mag_offset
-                    except NameError:
-                        print('Missing trans.mag_offset on trans_input[{0:d}].'.format(ii))
-                        print('Setting mag_offset = 0 and dm_tol[0] = 100 and hoping for the best!!')
-                        trans_input[ii].mag_offset = 0.0
+            for ii, trans in enumerate(trans_input):
+                if (trans is not None) and (not hasattr(trans, 'mag_offset')):
+                    print('Missing trans.mag_offset on trans_input[{0:d}], setting to 0.'.format(ii))
+                    trans.mag_offset = 0.0
 
     return
 
