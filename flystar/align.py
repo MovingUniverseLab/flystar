@@ -47,7 +47,6 @@ class MosaicSelfRef(object):
             scipy_method=None,
             # Advanced options
             inherit_n_detect=True,
-            match_workers=1,
             iter_callback=None,
             save_path=None,
             prefix_name='msr',
@@ -193,16 +192,6 @@ class MosaicSelfRef(object):
             Starlists without their own 'n_detect' still contribute 1 per
             detection, same as when this is False. By default True.
 
-        match_workers : int, optional
-            Number of worker threads scipy uses for the KDTree neighbor search inside
-            match.match(). Default is 1 (single-threaded), which is the safe choice on
-            shared/multi-tenant machines where grabbing all cores would step on other
-            users' jobs. Set to -1 to use all available CPU cores (measurably faster on
-            large starlists, with no change in matching results -- the neighbor lists
-            returned per query point are identical, order included, regardless of thread
-            count), or to a specific positive integer to cap the thread count on a shared
-            machine.
-
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state.
@@ -272,7 +261,6 @@ class MosaicSelfRef(object):
         self.absolute_sigma = absolute_sigma
         self.scipy_method = scipy_method
         self.inherit_n_detect = inherit_n_detect
-        self.match_workers = match_workers
         self.fixed_params_dict = fixed_params_dict
         self.init_guess_mode = init_guess_mode
         self.briteN = briteN
@@ -364,7 +352,7 @@ class MosaicSelfRef(object):
         return
 
 
-    def fit(self, processes=1, chunksize=None, mp_star_threshold=100_000):
+    def fit(self, processes=1, chunksize=None, mp_star_threshold=100_000, match_workers=1):
         """
         Using the current parameter settings, match and transform all the lists
         to a reference position. Note in the first pass, the reference position
@@ -397,6 +385,15 @@ class MosaicSelfRef(object):
             even if processes > 1. Below this, fitting runs serially -- Pool
             startup/IPC overhead isn't worth it for small workloads. See
             StarTable.fit_motion_models for details. By default 100_000.
+        match_workers : int, optional
+            Number of worker threads scipy uses for the KDTree neighbor search inside
+            match.match(). Default is 1 (single-threaded), which is the safe choice on
+            shared/multi-tenant machines where grabbing all cores would step on other
+            users' jobs. Set to -1 to use all available CPU cores (measurably faster on
+            large starlists, with no change in matching results -- the neighbor lists
+            returned per query point are identical, order included, regardless of thread
+            count), or to a specific positive integer to cap the thread count on a shared
+            machine.
         """
         # Setup save_path:
         if self.save_path:
@@ -480,7 +477,8 @@ class MosaicSelfRef(object):
                 nn,
                 processes=processes,
                 chunksize=chunksize,
-                mp_star_threshold=mp_star_threshold
+                mp_star_threshold=mp_star_threshold,
+                match_workers=match_workers
             )
             # Clean up the reference table
             # Find where stars are detected.
@@ -509,7 +507,7 @@ class MosaicSelfRef(object):
             print("Final Matching")
             print("**********")
 
-        self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
+        self.match_lists(self.dr_tol[-1], self.dm_tol[-1], workers=match_workers)
         # Hard-coded not to keep ref values for MosaicSelfRef
         self.update_ref_table_aggregates(processes=processes, chunksize=chunksize, mp_star_threshold=mp_star_threshold)
 
@@ -651,7 +649,7 @@ class MosaicSelfRef(object):
             print('===================================')
         return
 
-    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None, processes=1, chunksize=None, mp_star_threshold=100_000):
+    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None, processes=1, chunksize=None, mp_star_threshold=100_000, match_workers=1):
         """
         Given some reference list of positions, loop through all the starlists
         transform and match them.
@@ -721,7 +719,7 @@ class MosaicSelfRef(object):
             idx1, idx2, dr, dm = match.match(
                 star_list_T['x'], star_list_T['y'], star_list_T['m'],
                 ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
-                dr_tol=dr_tol, dm_tol=dm_tol, workers=self.match_workers, verbose=self.verbose
+                dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose
             )
             # Restore idx2 to the full reference list indices
             idx2 = np.where(use_in_trans)[0][idx2]
@@ -775,7 +773,7 @@ class MosaicSelfRef(object):
 
                 idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    ref_list['x'], ref_list['y'], ref_list['m'],
-                                                   dr_tol=dr_tol, dm_tol=dm_tol, workers=self.match_workers,
+                                                   dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers,
                                                    verbose=self.verbose)
 
                 # Let's look at just the ref stars used in the transformation, which are idx1 and idx2
@@ -866,7 +864,7 @@ class MosaicSelfRef(object):
             idx_lis, idx_ref, dr, dm = match.match(
                 star_list_T['x'], star_list_T['y'], star_list_T['m'],
                 ref_list['x'], ref_list['y'], ref_list['m'],
-                dr_tol=dr_tol, dm_tol=dm_tol, workers=self.match_workers, verbose=self.verbose
+                dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose
             )
 
             if self.verbose > 1:
@@ -1429,7 +1427,7 @@ class MosaicSelfRef(object):
         return weight
 
 
-    def match_lists(self, dr_tol, dm_tol):
+    def match_lists(self, dr_tol, dm_tol, workers=1):
         """
         Using the existing trans objects, match all the starlists to the
         reference starlist (self.ref_table), propogated to the appropriate epoch.
@@ -1438,6 +1436,12 @@ class MosaicSelfRef(object):
         No new transformations derived.
 
         The resulting matched values will be used to update self.ref_table
+
+        Parameters
+        ----------
+        workers : int, optional
+            Number of worker threads scipy uses for the KDTree neighbor search
+            inside match.match(). By default 1. See MosaicSelfRef.fit for details.
         """
         for ii in range(self.N_lists):
             # Apply the XY transformation to a new copy of the starlist and
@@ -1453,7 +1457,7 @@ class MosaicSelfRef(object):
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    xref, yref, mref,
-                                                   dr_tol=dr_tol, dm_tol=dm_tol, workers=self.match_workers,
+                                                   dr_tol=dr_tol, dm_tol=dm_tol, workers=workers,
                                                    verbose=self.verbose)
 
             if self.verbose > 0:
@@ -1959,7 +1963,6 @@ class MosaicToRef(MosaicSelfRef):
         scipy_method=None,
         # Advanced options
         inherit_n_detect=True,
-        match_workers=1,
         iter_callback=None,
         save_path=None,
         prefix_name='mtr',
@@ -2128,16 +2131,6 @@ class MosaicToRef(MosaicSelfRef):
             Starlists without their own 'n_detect' still contribute 1 per
             detection, same as when this is False. By default True.
 
-        match_workers : int, optional
-            Number of worker threads scipy uses for the KDTree neighbor search inside
-            match.match(). Default is 1 (single-threaded), which is the safe choice on
-            shared/multi-tenant machines where grabbing all cores would step on other
-            users' jobs. Set to -1 to use all available CPU cores (measurably faster on
-            large starlists, with no change in matching results -- the neighbor lists
-            returned per query point are identical, order included, regardless of thread
-            count), or to a specific positive integer to cap the thread count on a shared
-            machine.
-
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration. This can be used for plotting or printing state.
@@ -2210,7 +2203,6 @@ class MosaicToRef(MosaicSelfRef):
             scipy_method=scipy_method,
             # Advanced options
             inherit_n_detect=inherit_n_detect,
-            match_workers=match_workers,
             iter_callback=iter_callback,
             save_path=save_path,
             prefix_name=prefix_name,
@@ -2259,7 +2251,7 @@ class MosaicToRef(MosaicSelfRef):
         return
 
 
-    def fit(self, processes=1, chunksize=None, mp_star_threshold=100_000):
+    def fit(self, processes=1, chunksize=None, mp_star_threshold=100_000, match_workers=1):
         """
         Using the current parameter settings, match and transform all the lists
         to a reference position. Note in the first pass, the reference position
@@ -2290,6 +2282,13 @@ class MosaicToRef(MosaicSelfRef):
             fitting path before a multiprocessing Pool is used for fitting, even
             if processes > 1. See StarTable.fit_motion_models for details.
             By default 100_000.
+        match_workers : int, optional
+            Number of worker threads scipy uses for the KDTree neighbor search inside
+            match.match(). Default is 1 (single-threaded), which is the safe choice on
+            shared/multi-tenant machines where grabbing all cores would step on other
+            users' jobs. Set to -1 to use all available CPU cores (measurably faster on
+            large starlists, with no change in matching results). See MosaicSelfRef.fit
+            for details.
         """
         # Create a log file of the parameters used in the fit.
         # Setup save_path:
@@ -2402,7 +2401,8 @@ class MosaicToRef(MosaicSelfRef):
                 nn,
                 processes=processes,
                 chunksize=chunksize,
-                mp_star_threshold=mp_star_threshold
+                mp_star_threshold=mp_star_threshold,
+                match_workers=match_workers
             )
 
             # Clean up the reference table
@@ -2431,7 +2431,7 @@ class MosaicToRef(MosaicSelfRef):
             print("Final Matching")
             print("**********")
 
-        self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
+        self.match_lists(self.dr_tol[-1], self.dm_tol[-1], workers=match_workers)
         if self.update_ref_orig:
             keep_orig=None
         else:
