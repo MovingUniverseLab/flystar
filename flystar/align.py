@@ -1190,13 +1190,14 @@ class MosaicSelfRef(object):
             (ii >= self.ref_table['x'].shape[1])):
             # This call only grows the table by one blank list-column --
             # copy_over_values() below fills in the real x/y/m/etc data for
-            # it -- but list_times is tracked as per-list meta, not a column,
-            # so it's never set by that later call. Pass it here (this
-            # starlist's own list_time is guaranteed set by __init__ above)
-            # so add_starlist() doesn't pad it with a placeholder and warn
-            # about a "missing" value that was simply never given a chance
-            # to be passed in.
-            self.ref_table.add_starlist(meta={'list_times': star_list.meta['list_time']})
+            # it. list_times is tracked as per-list meta, not a column, and
+            # add_starlist() has no value for it to give here -- but that's
+            # fine, since fit() unconditionally rebuilds the whole list_times
+            # array from self.star_lists every iteration (a few lines below
+            # match_and_transform's return), superseding whatever this call
+            # would set anyway. Silence the "missing" warning rather than
+            # compute a value here just to have it immediately overwritten.
+            self.ref_table.add_starlist(warn_missing_meta=False)
 
         copy_over_values(self.ref_table, star_list, star_list_T, ii, idx_ref, idx_lis)
         self.ref_table['used_in_trans'][idx_ref_in_trans, ii] = True

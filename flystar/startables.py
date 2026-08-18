@@ -200,7 +200,7 @@ class StarTable(Table):
 
         return
 
-    def add_starlist(self, **kwargs):
+    def add_starlist(self, warn_missing_meta=True, **kwargs):
         """
         Add data from a new list to an existing StarTable.
         Note, you can pass in the data via a StarList object or
@@ -217,13 +217,22 @@ class StarTable(Table):
         Example 2: Pass in data via keywords and 1D arrays.
         t.add_starlist(x=x_new, y=y_new, m=m_new)
 
+        Parameters
+        ----------
+        warn_missing_meta : bool, optional
+            Whether to warn when a per-list meta value (e.g. list_times)
+            already tracked by this table isn't supplied by this call. Set
+            to False when the caller knows that value will be set some other
+            way (e.g. rebuilt in full immediately afterward), so the warning
+            would just be noise about a value that was never meant to be
+            given here. By default True.
         """
         # Check if we are dealing with a StarList object or a
         # set of arguments with individual arrays.
         if 'starlist' in kwargs:
             self._add_list_data_from_starlist(kwargs['starlist'])
         else:
-            self._add_list_data_from_keywords(**kwargs)
+            self._add_list_data_from_keywords(warn_missing_meta=warn_missing_meta, **kwargs)
 
         return
 
@@ -292,7 +301,7 @@ class StarTable(Table):
         return
 
 
-    def _add_list_data_from_keywords(self, **kwargs):
+    def _add_list_data_from_keywords(self, warn_missing_meta=True, **kwargs):
         # # Check if the required arguments are present
         # arg_req = ('x', 'y', 'm')
 
@@ -341,9 +350,9 @@ class StarTable(Table):
                     if key in new_meta_keys:
                         self.meta[key].append(kwargs['meta'][key])
                     else:
-                        self._append_invalid_meta_values(key)
+                        self._append_invalid_meta_values(key, warn=warn_missing_meta)
                 else:
-                    self._append_invalid_meta_values(key)
+                    self._append_invalid_meta_values(key, warn=warn_missing_meta)
 
         # Update the n_lists meta keyword.
         self.meta['n_lists'] += 1
@@ -393,7 +402,7 @@ class StarTable(Table):
 
         return
 
-    def _append_invalid_meta_values(self, key):
+    def _append_invalid_meta_values(self, key, warn=True):
         """
         For an existing meta keyword that is a list (already known),
         add an invalid value depending on the type.
@@ -407,9 +416,9 @@ class StarTable(Table):
         else:
             self.meta[key].append(None)
 
-        # Print a warning message:
-        err_msg = "StarTable.add_starlist(): Missing meta keyword: {0:s}".format(key)
-        warnings.warn(err_msg, UserWarning)
+        if warn:
+            err_msg = "StarTable.add_starlist(): Missing meta keyword: {0:s}".format(key)
+            warnings.warn(err_msg, UserWarning)
 
         return
 
