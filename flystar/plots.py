@@ -103,7 +103,7 @@ def calc_nparam(transformation):
 
 
 def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None,
-                        equal_axis=True, save_path=None, show_plot=True):
+                        equal_axis=True, save_path=None, show_plot=True, max_points=5000):
     """
     Plot positions of stars in reference list and the transformed starlist,
     in reference list coordinates. Stars used in the transformation are
@@ -141,7 +141,23 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None,
     show_plot: boolean
         If true, show the plot. Default is True
 
+    max_points: int, optional
+        Each of the four inputs is randomly subsampled to at most this many
+        points before plotting, since a diagnostic scatter plot doesn't need
+        every star to be legible, and rendering/saving hundreds of thousands
+        of markers at dpi=300 is dramatically slower than the alignment
+        computation itself. By default 5000.
     """
+    rng = np.random.default_rng(0)
+    def _subsample(tab):
+        if len(tab) > max_points:
+            idx = rng.choice(len(tab), size=max_points, replace=False)
+            return tab[idx]
+        return tab
+    ref, ref_mat, starlist, starlist_mat = (
+        _subsample(ref), _subsample(ref_mat), _subsample(starlist), _subsample(starlist_mat)
+    )
+
     plt.figure(figsize=(6, 6))
     plt.clf()
     plt.plot(ref['x'], ref['y'], 'g+', ms=5, label='Reference')

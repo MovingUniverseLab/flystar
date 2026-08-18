@@ -49,6 +49,7 @@ class MosaicSelfRef(object):
             inherit_n_detect=True,
             iter_callback=None,
             save_path=None,
+            save_plot=True,
             prefix_name='msr',
             verbose=True
     ):
@@ -199,10 +200,24 @@ class MosaicSelfRef(object):
             at the end of every iteration. This can be used for plotting or printing state.
 
         save_path : str, optional
-            Path to save the MosaicSelfRef object as a pickle file.
+            Directory to save fit results to: PREFIX_input.txt (the fit
+            parameters), PREFIX_ref_table.hdf5 (self.ref_table), and
+            PREFIX_trans_list.pkl (a dict with key 'trans_list' -- the
+            derived transform objects, which aren't plain data and so need
+            pickling -- and, if calc_trans_inverse is True, 'trans_list_inverse'
+            too). By default None (nothing saved).
+
+        save_plot : bool, optional
+            If save_path is set, also save a transformation diagnostic plot
+            for every (starlist, iteration) under
+            save_path/transformation_plots/iterN/. These are a real cost on
+            large starlists (an unthinned scatter of every star, saved at
+            dpi=300, once per starlist per iteration) -- set to False to
+            keep saving results without paying for them. Ignored if
+            save_path is None. By default True.
 
         prefix_name : str, optional
-            Prefix for the file names, including PREFIX_input.log, PREFIX.pkl, PREFIX_ref_table.fits.
+            Prefix for the saved file names (see save_path).
 
         verbose : bool or int (0 to 9, inclusive)
             Controls the verbosity of print statements. (0 least, 9 most verbose).
@@ -268,6 +283,7 @@ class MosaicSelfRef(object):
         self.briteN = briteN
         self.iter_callback = iter_callback
         self.save_path = save_path
+        self.save_plot = save_plot
         self.prefix_name = prefix_name
         self.verbose = verbose
 
@@ -647,13 +663,22 @@ class MosaicSelfRef(object):
                 ])
 
         if self.save_path is not None:
-            suppress_meta_warnings(self.ref_table)
-            with open(os.path.join(self.save_path, f'{self.prefix_name}.pkl'), 'wb') as file:
-                pickle.dump(self, file)
-            # Using pickle here because nan in a fits file is auto-converted to a masked value in astropy.io.fits.open()
-            with open(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.pkl'), 'wb') as file:
-                pickle.dump(self.ref_table, file)
-            self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.fits'), overwrite=True)
+            # HDF5 (unlike FITS) stores nan as plain nan -- astropy.io.fits.open()
+            # round-trips nan through a MaskedColumn instead, silently changing
+            # every nan-containing column's type on read back -- and it's just
+            # column data, not tied to flystar's class definitions the way a
+            # pickle of self or self.ref_table would be. The transform objects
+            # still need pickling (they're real objects, not plain data), but
+            # that's a much smaller, more stable pickle than the whole self.
+            # trans_list_inverse is included too, when requested (calc_trans_inverse) --
+            # it's just as much a real, computed fit result as trans_list, and would
+            # otherwise be silently lost now that the whole-self pickle is gone.
+            self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.hdf5'), path='data', overwrite=True)
+            trans_out = {'trans_list': self.trans_list}
+            if self.calc_trans_inverse:
+                trans_out['trans_list_inverse'] = self.trans_list_inverse
+            with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list.pkl'), 'wb') as file:
+                pickle.dump(trans_out, file)
 
         if self.verbose > 0:
             print('===================================')
@@ -884,7 +909,7 @@ class MosaicSelfRef(object):
                        '. If match count is low, check dr_tol, dm_tol.' )
 
             ## Make plot, if desired
-            if self.save_path:
+            if self.save_path and self.save_plot:
                 plot_path = os.path.join(self.save_path, 'transformation_plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{list_epoch}.png")
                 plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis], save_path=plot_path, show_plot=False)
 
@@ -1985,6 +2010,7 @@ class MosaicToRef(MosaicSelfRef):
         inherit_n_detect=True,
         iter_callback=None,
         save_path=None,
+        save_plot=True,
         prefix_name='mtr',
         verbose=True
     ):
@@ -2158,7 +2184,21 @@ class MosaicToRef(MosaicSelfRef):
             at the end of every iteration. This can be used for plotting or printing state.
 
         save_path : str, optional
-            Path to save the MosaicToRef object as a pickle file.
+            Directory to save fit results to: PREFIX_input.txt (the fit
+            parameters), PREFIX_ref_table.hdf5 (self.ref_table), and
+            PREFIX_trans_list.pkl (a dict with key 'trans_list' -- the
+            derived transform objects, which aren't plain data and so need
+            pickling -- and, if calc_trans_inverse is True, 'trans_list_inverse'
+            too). By default None (nothing saved).
+
+        save_plot : bool, optional
+            If save_path is set, also save a transformation diagnostic plot
+            for every (starlist, iteration) under
+            save_path/transformation_plots/iterN/. These are a real cost on
+            large starlists (an unthinned scatter of every star, saved at
+            dpi=300, once per starlist per iteration) -- set to False to
+            keep saving results without paying for them. Ignored if
+            save_path is None. By default True.
 
         verbose : bool or int (0 to 9, inclusive)
             Controls the verbosity of print statements. (0 least, 9 most verbose).
@@ -2227,6 +2267,7 @@ class MosaicToRef(MosaicSelfRef):
             inherit_n_detect=inherit_n_detect,
             iter_callback=iter_callback,
             save_path=save_path,
+            save_plot=save_plot,
             prefix_name=prefix_name,
             verbose=verbose
         )
@@ -2554,13 +2595,22 @@ class MosaicToRef(MosaicSelfRef):
                 ])
 
         if self.save_path is not None:
-            suppress_meta_warnings(self.ref_table)
-            with open(os.path.join(self.save_path, f'{self.prefix_name}.pkl'), 'wb') as file:
-                pickle.dump(self, file)
-            # Using pickle here because nan in a fits file is auto-converted to a masked value in astropy.io.fits.open()
-            with open(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.pkl'), 'wb') as file:
-                pickle.dump(self.ref_table, file)
-            self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.fits'), overwrite=True)
+            # HDF5 (unlike FITS) stores nan as plain nan -- astropy.io.fits.open()
+            # round-trips nan through a MaskedColumn instead, silently changing
+            # every nan-containing column's type on read back -- and it's just
+            # column data, not tied to flystar's class definitions the way a
+            # pickle of self or self.ref_table would be. The transform objects
+            # still need pickling (they're real objects, not plain data), but
+            # that's a much smaller, more stable pickle than the whole self.
+            # trans_list_inverse is included too, when requested (calc_trans_inverse) --
+            # it's just as much a real, computed fit result as trans_list, and would
+            # otherwise be silently lost now that the whole-self pickle is gone.
+            self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.hdf5'), path='data', overwrite=True)
+            trans_out = {'trans_list': self.trans_list}
+            if self.calc_trans_inverse:
+                trans_out['trans_list_inverse'] = self.trans_list_inverse
+            with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list.pkl'), 'wb') as file:
+                pickle.dump(trans_out, file)
 
         if self.verbose > 0:
             print('===================================')
