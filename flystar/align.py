@@ -352,7 +352,7 @@ class MosaicSelfRef(object):
         return
 
 
-    def fit(self, processes=1, chunksize=None, mp_star_threshold=100_000, match_workers=1):
+    def fit(self, processes=1, chunksize=None, match_workers=1, mp_star_threshold=100_000):
         """
         Using the current parameter settings, match and transform all the lists
         to a reference position. Note in the first pass, the reference position
@@ -378,14 +378,6 @@ class MosaicSelfRef(object):
             Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
         chunksize : int, optional
             Chunk size for multiprocessing, by default None (auto)
-        mp_star_threshold : int, optional
-            Minimum number of stars needing the per-star motion-model fitting
-            path before a multiprocessing Pool is used for fitting, even if
-            processes > 1. A star needs that path when its motion model has no
-            vectorized run_fit_batch, or when bootstrap > 0. Below this
-            threshold, fitting runs serially instead -- Pool startup/IPC
-            overhead isn't worth it for small workloads. See
-            StarTable.fit_motion_models for details. By default 100_000.
         match_workers : int, optional
             Number of worker threads scipy uses for the KDTree neighbor search inside
             match.match(). Default is 1 (single-threaded), which is the safe choice on
@@ -395,6 +387,14 @@ class MosaicSelfRef(object):
             returned per query point are identical, order included, regardless of thread
             count), or to a specific positive integer to cap the thread count on a shared
             machine.
+        mp_star_threshold : int, optional
+            Minimum number of stars needing the per-star motion-model fitting
+            path before a multiprocessing Pool is used for fitting, even if
+            processes > 1. A star needs that path when its motion model has no
+            vectorized run_fit_batch, or when bootstrap > 0. Below this
+            threshold, fitting runs serially instead -- Pool startup/IPC
+            overhead isn't worth it for small workloads. See
+            StarTable.fit_motion_models for details. By default 100_000.
         """
         # Setup save_path:
         if self.save_path:
@@ -478,8 +478,8 @@ class MosaicSelfRef(object):
                 nn,
                 processes=processes,
                 chunksize=chunksize,
-                mp_star_threshold=mp_star_threshold,
-                match_workers=match_workers
+                match_workers=match_workers,
+                mp_star_threshold=mp_star_threshold
             )
             # Clean up the reference table
             # Find where stars are detected.
@@ -650,7 +650,7 @@ class MosaicSelfRef(object):
             print('===================================')
         return
 
-    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None, processes=1, chunksize=None, mp_star_threshold=100_000, match_workers=1):
+    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None, processes=1, chunksize=None, match_workers=1, mp_star_threshold=100_000):
         """
         Given some reference list of positions, loop through all the starlists
         transform and match them.
@@ -2252,7 +2252,7 @@ class MosaicToRef(MosaicSelfRef):
         return
 
 
-    def fit(self, processes=1, chunksize=None, mp_star_threshold=100_000, match_workers=1):
+    def fit(self, processes=1, chunksize=None, match_workers=1, mp_star_threshold=100_000):
         """
         Using the current parameter settings, match and transform all the lists
         to a reference position. Note in the first pass, the reference position
@@ -2278,11 +2278,6 @@ class MosaicToRef(MosaicSelfRef):
             Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
         chunksize : int, optional
             Chunk size for multiprocessing, by default None (auto)
-        mp_star_threshold : int, optional
-            Minimum number of stars actually requiring the per-star motion-model
-            fitting path before a multiprocessing Pool is used for fitting, even
-            if processes > 1. See StarTable.fit_motion_models for details.
-            By default 100_000.
         match_workers : int, optional
             Number of worker threads scipy uses for the KDTree neighbor search inside
             match.match(). Default is 1 (single-threaded), which is the safe choice on
@@ -2290,6 +2285,11 @@ class MosaicToRef(MosaicSelfRef):
             users' jobs. Set to -1 to use all available CPU cores (measurably faster on
             large starlists, with no change in matching results). See MosaicSelfRef.fit
             for details.
+        mp_star_threshold : int, optional
+            Minimum number of stars actually requiring the per-star motion-model
+            fitting path before a multiprocessing Pool is used for fitting, even
+            if processes > 1. See StarTable.fit_motion_models for details.
+            By default 100_000.
         """
         # Create a log file of the parameters used in the fit.
         # Setup save_path:
@@ -2402,8 +2402,8 @@ class MosaicToRef(MosaicSelfRef):
                 nn,
                 processes=processes,
                 chunksize=chunksize,
-                mp_star_threshold=mp_star_threshold,
-                match_workers=match_workers
+                match_workers=match_workers,
+                mp_star_threshold=mp_star_threshold
             )
 
             # Clean up the reference table
