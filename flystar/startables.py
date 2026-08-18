@@ -762,16 +762,16 @@ class StarTable(Table):
         chunksize : int, optional
             Chunk size for multiprocessing, by default None (auto)
         mp_star_threshold : int, optional
-            Minimum number of stars that actually require the per-star fitting
-            path (i.e. whose motion model has no vectorized run_fit_batch, or
-            bootstrap > 0) before a multiprocessing Pool is spun up, even if
-            processes > 1 was requested. Below this, fitting runs serially in
-            the calling process instead. Spinning up a Pool has real fixed
-            overhead (worker startup, pickling the shared data arrays to each
-            worker) that a small per-star workload doesn't recoup -- measured
-            break-even was between 20,000 and 100,000 stars on a 10-core
-            machine, so 100,000 (default) is a conservative choice. By default
-            100_000.
+            Minimum number of stars needing the per-star fitting path before a
+            multiprocessing Pool is spun up, even if processes > 1 was
+            requested. A star needs that path when its motion model has no
+            vectorized run_fit_batch, or when bootstrap > 0. Below this
+            threshold, fitting runs serially in the calling process instead --
+            spinning up a Pool has real fixed overhead (worker startup,
+            pickling the shared data arrays to each worker) that a small
+            per-star workload doesn't recoup. Measured break-even was between
+            20,000 and 100,000 stars on a 10-core machine, so 100,000
+            (default) is a conservative choice. By default 100_000.
         verbose : bool, optional
             Print verbose messages or not, by default True
 

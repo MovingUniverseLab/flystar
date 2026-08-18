@@ -360,7 +360,7 @@ class MosaicSelfRef(object):
         this is updated.
 
         The ultimate outcome is the creation of self.ref_table. This reference
-        table will contain "averaged" quantites as well as a big 2D array of all
+        table will contain "averaged" quantities as well as a big 2D array of all
         the matched original and transformed quantities.
 
         Averaged columns on ref_table:
@@ -379,11 +379,12 @@ class MosaicSelfRef(object):
         chunksize : int, optional
             Chunk size for multiprocessing, by default None (auto)
         mp_star_threshold : int, optional
-            Minimum number of stars actually requiring the per-star motion-model
-            fitting path (i.e. no vectorized run_fit_batch for their model, or
-            bootstrap > 0) before a multiprocessing Pool is used for fitting,
-            even if processes > 1. Below this, fitting runs serially -- Pool
-            startup/IPC overhead isn't worth it for small workloads. See
+            Minimum number of stars needing the per-star motion-model fitting
+            path before a multiprocessing Pool is used for fitting, even if
+            processes > 1. A star needs that path when its motion model has no
+            vectorized run_fit_batch, or when bootstrap > 0. Below this
+            threshold, fitting runs serially instead -- Pool startup/IPC
+            overhead isn't worth it for small workloads. See
             StarTable.fit_motion_models for details. By default 100_000.
         match_workers : int, optional
             Number of worker threads scipy uses for the KDTree neighbor search inside
@@ -2259,7 +2260,7 @@ class MosaicToRef(MosaicSelfRef):
         this is (optionally) updated.
 
         The ultimate outcome is the creation of self.ref_table. This reference
-        table will contain "averaged" quantites as well as a big 2D array of all
+        table will contain "averaged" quantities as well as a big 2D array of all
         the matched original and transformed quantities.
 
         Averaged columns on ref_table:
