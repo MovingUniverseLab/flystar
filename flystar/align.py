@@ -635,12 +635,11 @@ class MosaicSelfRef(object):
                 ])
 
         if self.save_path is not None:
-            filename = f'{self.prefix_name}.pkl'
-            with open(os.path.join(self.save_path, filename), 'wb') as file:
+            suppress_meta_warnings(self.ref_table)
+            with open(os.path.join(self.save_path, f'{self.prefix_name}.pkl'), 'wb') as file:
                 pickle.dump(self, file)
             # Using pickle here because nan in a fits file is auto-converted to a masked value in astropy.io.fits.open()
-            filename = f'{self.prefix_name}_ref_table.pkl'
-            with open(os.path.join(self.save_path, filename), 'wb') as file:
+            with open(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.pkl'), 'wb') as file:
                 pickle.dump(self.ref_table, file)
             self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.fits'), overwrite=True)
 
@@ -1933,10 +1932,12 @@ class MosaicSelfRef(object):
             print("The same was done for ye and me.")
 
         if self.save_path is not None:
+            suppress_meta_warnings(self.ref_table)
             with open(os.path.join(self.save_path, self.prefix_name+'_bootstrap.pkl'), 'wb') as file:
                 pickle.dump(self, file)
             with open(os.path.join(self.save_path, self.prefix_name+'_ref_table_bootstrap.pkl'), 'wb') as file:
                 pickle.dump(self.ref_table, file)
+            self.save_path = os.path.join(self.save_path, self.prefix_name+'_ref_table_bootstrap.fits')
 
         return
 
@@ -2351,30 +2352,6 @@ class MosaicToRef(MosaicSelfRef):
             self.ref_mag_lim[0] = self.ref_mag_lim[0] if self.ref_mag_lim[0] is not None else -np.inf
             self.ref_mag_lim[1] = self.ref_mag_lim[1] if self.ref_mag_lim[1] is not None else np.inf
 
-        # if self.save_path is not None:
-        #     with open(f'{os.path.dirname(self.save_path)}/MosaicToRef_input_params.log', 'w',) as _log:
-        #         logger(_log, 'Parameters used for fit: ', self.verbose)
-        #         logger(_log, '------------------------- ', self.verbose)
-        #         logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
-        #         logger(_log, '  dm_tol = ' + str(self.dm_tol), self.verbose)
-        #         logger(_log, '  outlier_tol = ' + str(self.outlier_tol), self.verbose)
-        #         logger(_log, '  trans_args = ' + str(self.trans_args), self.verbose)
-        #         logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
-        #         logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
-        #         logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
-        #         logger(_log, '  trans_weights = ' + str(self.trans_weighting), self.verbose)
-        #         logger(_log, '  vel_weights = ' + str(self.vel_weighting), self.verbose)
-        #         logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
-        #         logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
-        #         logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
-        #         logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
-        #         logger(_log, '  motion_models = ' + str([mm.name for mm in self.motion_models]), self.verbose)
-        #         logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
-        #         logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
-        #         logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
-        #         logger(_log, '-------------------------\n', self.verbose)
-
-
         ##########
         # Setup a reference table to store data. It will contain:
         #    x0, y0, m0 -- the running average of positions: 1D
@@ -2387,9 +2364,7 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table = self.setup_ref_table_from_starlist(self.ref_list)
 
         ##########
-        #
         # Repeat transform + match of all the starlists several times.
-        #
         ##########
         for nn in range(self.iters):
             # If we are on subsequent iterations, remove matching results from the
@@ -2434,10 +2409,9 @@ class MosaicToRef(MosaicSelfRef):
                 self.iter_callback(self.ref_table, nn)
 
         ##########
-        #
         # Re-do all matching given final transformations.
-        #        No trimming this time.
-        #        First reset the reference table 2D values.
+        # No trimming this time.
+        # First reset the reference table 2D values.
         ##########
         self.reset_ref_values(exclude=['used_in_trans'])
 
@@ -2455,7 +2429,6 @@ class MosaicToRef(MosaicSelfRef):
 
         ##########
         # Clean up output table.
-        #
         ##########
         # Find where stars are detected.
         if self.verbose > 0:
@@ -2575,13 +2548,13 @@ class MosaicToRef(MosaicSelfRef):
                 ])
 
         if self.save_path is not None:
-            filename = f'{self.prefix_name}.pkl'
-            with open(os.path.join(self.save_path, filename), 'wb') as file:
+            suppress_meta_warnings(self.ref_table)
+            with open(os.path.join(self.save_path, f'{self.prefix_name}.pkl'), 'wb') as file:
                 pickle.dump(self, file)
             # Using pickle here because nan in a fits file is auto-converted to a masked value in astropy.io.fits.open()
-            filename = f'{self.prefix_name}_ref_table.pkl'
-            with open(os.path.join(self.save_path, filename), 'wb') as file:
+            with open(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.pkl'), 'wb') as file:
                 pickle.dump(self.ref_table, file)
+            self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.fits'), overwrite=True)
 
         if self.verbose > 0:
             print('===================================')
@@ -2665,20 +2638,6 @@ def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, re
 
     return x, y
 
-    # # If no motion model, check for velocities
-    # elif ('vx' in startable.colnames) and ('vy' in startable.colnames) and (np.isfinite(startable['vx']).all()) and (np.isfinite(startable['vy']).all()):
-    #     x = startable['x0'] + startable['vx'] * (t - startable['t0'])
-    #     y = startable['y0'] + startable['vy'] * (t - startable['t0'])
-
-    # # If no velocities, try fitted positon
-    # elif ('x0' in startable.colnames) and ('y0' in startable.colnames) and (np.isfinite(startable['x0']).all()) and (np.isfinite(startable['y0']).all()):
-    #     x = startable['x0']
-    #     y = startable['y0']
-    # # Otherwise, use measured position
-    # else:
-    #     x = startable['x']
-    #     y = startable['y']
-    # return x, y
 
 def determine_motion_models(startable, motion_models=None, fixed_params_dict=None, processes=1, chunksize=None, verbose=True):
     """Determine motion model used in star table based on the finite model parameter columns
@@ -3519,13 +3478,6 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
                     i = k-j
                     idx_list.append(int(2*N +2 +j + (2*N+2-i)*(i-1)/2.))
                 idx_list.append(N+1+k)
-
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[0], Ycoeff[0]) )
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[1], Ycoeff[1]) )
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[3], Ycoeff[3]) )
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[2], Ycoeff[2]) )
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[5], Ycoeff[5]) )
-        #_out.write('{0:16.6e}  {1:16.6e}'.format(Xcoeff[4], Ycoeff[4]) )
 
         for i in idx_list:
             _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
@@ -4467,10 +4419,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
          x=np.column_stack((np.array(sl1['x'][sl1_idx]), np.array(sl2_transf['x'][sl2_idx]))),
          y=np.column_stack((np.array(sl1['y'][sl1_idx]), np.array(sl2_transf['y'][sl2_idx]))),
          m=np.column_stack((np.array(sl1['m'][sl1_idx]), np.array(sl2_transf['m'][sl2_idx]))),
-         ep_name=np.column_stack((np.array(sl1['name'][sl1_idx]), np.array(sl2_transf['name'][sl2_idx]))))
-#         ep_name=np.column_stack((np.array(sl1['name'][sl1_idx]), np.array(sl2_transf['name'][sl2_idx]))),
-#         list_times=[sl1.meta['list_time'], sl2.meta['list_time']],
-#         list_names=[sl1.meta['list_name'], sl2.meta['list_name']])
+         ep_name=np.column_stack((np.array(sl1['name'][sl1_idx]), np.array(sl2_transf['name'][sl2_idx])))
+    )
 
     for col in sl1.colnames:
         if col in sl2.colnames:
@@ -4478,3 +4428,11 @@ def generic_match(sl1, sl2, init_mode='triangle',
                 st.add_column(Column(np.column_stack((np.array(sl1[col][sl1_idx]),np.array(sl2_transf[col][sl2_idx]))), name=col))
 
     return transf, st
+
+
+def suppress_meta_warnings(table):
+    table.meta = {
+        (f'HIERARCH {k}' if len(k) > 8 else k): v 
+        for k, v in table.meta.items()
+    }
+    return
