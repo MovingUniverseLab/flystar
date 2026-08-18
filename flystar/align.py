@@ -311,7 +311,7 @@ class MosaicSelfRef(object):
         ##########
         # Error checking for parameters.
         ##########
-        self.fix_iterable_conditions()  # fix dr_tol, dm_tol, outlier_tol, mag_lim to be iterable.
+        self.fix_iterable_conditions()  # fix dr_tol, dm_tol, outlier_tol, mag_lim, trans_args to be iterable.
         check_trans_input(self.star_lists, self.trans_input, self.mag_trans)
 
         ##########
@@ -350,7 +350,17 @@ class MosaicSelfRef(object):
             assert np.shape(self.mag_lim) == (self.iters, len(self.star_lists), 2), f"mag_lim must have shape (iters, N_lists, 2) = ({self.iters}, {len(self.star_lists)}, 2), but has shape {np.shape(self.mag_lim)}"
         else:
             raise ValueError(f"mag_lim must be None, a 2-element array, a (N_lists, 2) array, or a (N_iters, N_lists, 2) array. Got shape {np.shape(self.mag_lim)}")
-        
+
+        # Keep a list of trans_args, one per iteration. If only a single dict
+        # is passed in, replicate it for every iteration -- this is also why
+        # the default is a bare dict rather than a length-1 list: a bare dict
+        # stays valid for whatever `iters` is set to, while a list has to be
+        # kept in sync with `iters` by hand.
+        if type(self.trans_args) == dict:
+            tmp = self.trans_args
+            self.trans_args = [tmp for ii in range(self.iters)]
+        assert len(self.trans_args) == self.iters, f'len(trans_args)={len(self.trans_args)} != iters={self.iters}'
+
         return
 
 
@@ -929,33 +939,19 @@ class MosaicSelfRef(object):
         """ Setup transformation info into a usable format.
 
         trans_input : list or None
-        trans_args : dict or None
+        trans_args : list of dict (already broadcast/validated by
+            fix_iterable_conditions -- one dict per iteration)
         N_lists : int
         iters : int
         """
         trans_input = self.trans_input
-        trans_args = self.trans_args
         N_lists = len(self.star_lists)
-        iters = self.iters
 
         trans_list = [None for ii in range(N_lists)]
         if trans_input is not None:
             trans_list = [trans_input[ii] for ii in range(N_lists)]
 
-        # Keep a list of trans_args, one per iteration. If only a single dict
-        # is passed in, replicate it for every iteration -- this is also why
-        # the default is a bare dict rather than a length-1 list: a bare dict
-        # stays valid for whatever `iters` is set to, while a list has to be
-        # kept in sync with `iters` by hand. A list that's the wrong length
-        # would otherwise pass construction silently and only fail deep into
-        # fit() (self.trans_args[nn] out of range), so check it here instead.
-        if type(trans_args) == dict:
-            tmp = trans_args
-            trans_args = [tmp for ii in range(iters)]
-        assert len(trans_args) == iters, f'len(trans_args)={len(trans_args)} != iters={iters}'
-
         self.trans_list = trans_list
-        self.trans_args = trans_args
 
         # Add inverse trans list, if desired
         if self.calc_trans_inverse:
