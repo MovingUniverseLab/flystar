@@ -10,6 +10,20 @@ from astropy.modeling import models, fitting
 from scipy import stats
 from scipy.interpolate import LSQBivariateSpline as spline
 
+
+def _deriv_times_error(deriv, err):
+    """
+    deriv * err, but treats an exactly-zero derivative as contributing
+    exactly zero regardless of err -- including when err is inf (an
+    unknown uncertainty) or nan. A transform with zero sensitivity to an
+    input genuinely propagates zero uncertainty from it; 0 * inf/nan is
+    an indeterminate form only in general, not in this specific case,
+    where the correct limit is well-defined.
+    """
+    with np.errstate(invalid='ignore'):
+        return np.where(deriv == 0, 0.0, deriv * err)
+
+
 class Transform2D(object):
     '''
     Base class for transformations. It contains the properties common to all
@@ -247,7 +261,7 @@ class four_paramNW(Transform2D):
 
         """
         xe_new = np.hypot(self.px[1] * xe, self.px[2] * ye)
-        ye_new = np.hpyot(self.px[1] * xe, self.px[2] * ye)
+        ye_new = np.hypot(self.py[1] * xe, self.py[2] * ye)
                 
 
         return xe_new, ye_new
@@ -456,8 +470,8 @@ class PolyTransform(Transform2D):
 
                 
         # Take square root for xe/ye_new
-        xe_new = np.sqrt((dxnew_dx * xe)**2 + (dxnew_dy * ye)**2)
-        ye_new = np.sqrt((dynew_dx * xe)**2 + (dynew_dy * ye)**2)
+        xe_new = np.sqrt(_deriv_times_error(dxnew_dx, xe)**2 + _deriv_times_error(dxnew_dy, ye)**2)
+        ye_new = np.sqrt(_deriv_times_error(dynew_dx, xe)**2 + _deriv_times_error(dynew_dy, ye)**2)
 
         return xe_new, ye_new
 
@@ -581,10 +595,10 @@ class PolyTransform(Transform2D):
                     dvxnew_dvy += Xcoeff * (j) * x**(i-j) * y**(j-1)
                     dvynew_dvy += Ycoeff * (j) * x**(i-j) * y**(j-1)
     
-        vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 +
-                              (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
-        vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 +
-                              (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
+        vxe_new = np.sqrt(_deriv_times_error(dvxnew_dx, xe)**2 + _deriv_times_error(dvxnew_dy, ye)**2 +
+                              _deriv_times_error(dvxnew_dvx, vxe)**2 + _deriv_times_error(dvxnew_dvy, vye)**2)
+        vye_new = np.sqrt(_deriv_times_error(dvynew_dx, xe)**2 + _deriv_times_error(dvynew_dy, ye)**2 +
+                              _deriv_times_error(dvynew_dvx, vxe)**2 + _deriv_times_error(dvynew_dvy, vye)**2)
         
         return vxe_new, vye_new
     

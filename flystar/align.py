@@ -3039,12 +3039,14 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
                 new_col_empty = 'Empty'
             elif col_name in ['xe', 'ye', 'me'] or col_name.endswith('_err'):
                 new_col_empty = np.inf
-            elif dtype == np.dtype('float'):
+            elif dtype.kind == 'f':
                 new_col_empty = np.nan
-            elif dtype == np.dtype('int'):
+            elif dtype.kind in 'iu':
                 new_col_empty = -1
-            elif dtype == np.dtype('bool'):
+            elif dtype.kind == 'b':
                 new_col_empty = False
+            elif dtype.kind in 'US':
+                new_col_empty = ''
             else:
                 new_col_empty = np.nan
 
