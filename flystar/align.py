@@ -202,10 +202,11 @@ class MosaicSelfRef(object):
         save_path : str, optional
             Directory to save fit results to: PREFIX_input.txt (the fit
             parameters), PREFIX_ref_table.hdf5 (self.ref_table), and
-            PREFIX_trans_list.pkl (a dict with key 'trans_list' -- the
-            derived transform objects, which aren't plain data and so need
-            pickling -- and, if calc_trans_inverse is True, 'trans_list_inverse'
-            too). By default None (nothing saved).
+            PREFIX_trans_list.pkl (self.trans_list -- the derived transform
+            objects, which aren't plain data and so need pickling). If
+            calc_trans_inverse is True, PREFIX_trans_list_inverse.pkl
+            (self.trans_list_inverse) is also saved. By default None
+            (nothing saved).
 
         save_plot : bool, optional
             If save_path is set, also save a transformation diagnostic plot
@@ -670,15 +671,16 @@ class MosaicSelfRef(object):
             # pickle of self or self.ref_table would be. The transform objects
             # still need pickling (they're real objects, not plain data), but
             # that's a much smaller, more stable pickle than the whole self.
-            # trans_list_inverse is included too, when requested (calc_trans_inverse) --
-            # it's just as much a real, computed fit result as trans_list, and would
-            # otherwise be silently lost now that the whole-self pickle is gone.
+            # trans_list_inverse is saved as its own file, only when requested
+            # (calc_trans_inverse) -- keeping it out of trans_list.pkl means that
+            # file's content is always the same shape, rather than sometimes a
+            # plain list and sometimes a dict depending on calc_trans_inverse.
             self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.hdf5'), path='data', overwrite=True)
-            trans_out = {'trans_list': self.trans_list}
-            if self.calc_trans_inverse:
-                trans_out['trans_list_inverse'] = self.trans_list_inverse
             with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list.pkl'), 'wb') as file:
-                pickle.dump(trans_out, file)
+                pickle.dump(self.trans_list, file)
+            if self.calc_trans_inverse:
+                with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list_inverse.pkl'), 'wb') as file:
+                    pickle.dump(self.trans_list_inverse, file)
 
         if self.verbose > 0:
             print('===================================')
@@ -2186,10 +2188,11 @@ class MosaicToRef(MosaicSelfRef):
         save_path : str, optional
             Directory to save fit results to: PREFIX_input.txt (the fit
             parameters), PREFIX_ref_table.hdf5 (self.ref_table), and
-            PREFIX_trans_list.pkl (a dict with key 'trans_list' -- the
-            derived transform objects, which aren't plain data and so need
-            pickling -- and, if calc_trans_inverse is True, 'trans_list_inverse'
-            too). By default None (nothing saved).
+            PREFIX_trans_list.pkl (self.trans_list -- the derived transform
+            objects, which aren't plain data and so need pickling). If
+            calc_trans_inverse is True, PREFIX_trans_list_inverse.pkl
+            (self.trans_list_inverse) is also saved. By default None
+            (nothing saved).
 
         save_plot : bool, optional
             If save_path is set, also save a transformation diagnostic plot
@@ -2602,15 +2605,16 @@ class MosaicToRef(MosaicSelfRef):
             # pickle of self or self.ref_table would be. The transform objects
             # still need pickling (they're real objects, not plain data), but
             # that's a much smaller, more stable pickle than the whole self.
-            # trans_list_inverse is included too, when requested (calc_trans_inverse) --
-            # it's just as much a real, computed fit result as trans_list, and would
-            # otherwise be silently lost now that the whole-self pickle is gone.
+            # trans_list_inverse is saved as its own file, only when requested
+            # (calc_trans_inverse) -- keeping it out of trans_list.pkl means that
+            # file's content is always the same shape, rather than sometimes a
+            # plain list and sometimes a dict depending on calc_trans_inverse.
             self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.hdf5'), path='data', overwrite=True)
-            trans_out = {'trans_list': self.trans_list}
-            if self.calc_trans_inverse:
-                trans_out['trans_list_inverse'] = self.trans_list_inverse
             with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list.pkl'), 'wb') as file:
-                pickle.dump(trans_out, file)
+                pickle.dump(self.trans_list, file)
+            if self.calc_trans_inverse:
+                with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list_inverse.pkl'), 'wb') as file:
+                    pickle.dump(self.trans_list_inverse, file)
 
         if self.verbose > 0:
             print('===================================')
