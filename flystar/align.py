@@ -28,7 +28,7 @@ class MosaicSelfRef(object):
             outlier_tol=None,
             # Transformation parameters
             trans_class=transforms.PolyTransform,
-            trans_args=[{'order': 1}],
+            trans_args={'order': 1},
             trans_input=None,
             trans_weights=None,
             init_order=1,
@@ -104,11 +104,13 @@ class MosaicSelfRef(object):
             The transform class that will be used to when deriving the optimal
             transformation parameters between each list and the reference list.
 
-        trans_args : dictionary
-            A dictionary (or a list of dictionaries) containing any extra keywords that are needed
-            in the transformation object. For instance, "order". Note that if a list is passed in,
-            then the transformation argument (i.e. order) will be changed for every iteration in
-            iters.
+        trans_args : dict or list of dict
+            A dictionary containing any extra keywords that are needed in the
+            transformation object (for instance, "order"), applied to every
+            iteration -- or a list of such dictionaries, one per iteration, to
+            use a different transformation argument (e.g. increasing order)
+            in later iterations. If a list is passed in, its length must
+            equal iters. By default {'order': 1}.
 
         trans_input : array or list of transform objects
             def = None. If not None, then this should contain an array or list of transform
@@ -940,11 +942,17 @@ class MosaicSelfRef(object):
         if trans_input is not None:
             trans_list = [trans_input[ii] for ii in range(N_lists)]
 
-        # Keep a list of trans_args, one for each starlist. If only
-        # a single is passed in, replicate for all star lists, all loop iterations.
+        # Keep a list of trans_args, one per iteration. If only a single dict
+        # is passed in, replicate it for every iteration -- this is also why
+        # the default is a bare dict rather than a length-1 list: a bare dict
+        # stays valid for whatever `iters` is set to, while a list has to be
+        # kept in sync with `iters` by hand. A list that's the wrong length
+        # would otherwise pass construction silently and only fail deep into
+        # fit() (self.trans_args[nn] out of range), so check it here instead.
         if type(trans_args) == dict:
             tmp = trans_args
             trans_args = [tmp for ii in range(iters)]
+        assert len(trans_args) == iters, f'len(trans_args)={len(trans_args)} != iters={iters}'
 
         self.trans_list = trans_list
         self.trans_args = trans_args
@@ -1959,7 +1967,7 @@ class MosaicToRef(MosaicSelfRef):
         update_ref_orig=False,
         # Transformation parameters
         trans_class=transforms.PolyTransform,
-        trans_args=[{'order': 1}],
+        trans_args={'order': 1},
         trans_input=None,
         trans_weights=None,
         init_order=1,
@@ -2059,11 +2067,13 @@ class MosaicToRef(MosaicSelfRef):
             The transform class that will be used to when deriving the optimal
             transformation parameters between each list and the reference list.
 
-        trans_args : dictionary
-            A dictionary (or a list of dictionaries) containing any extra keywords that are needed
-            in the transformation object. For instance, "order". Note that if a list is passed in,
-            then the transformation argument (i.e. order) will be changed for every iteration in
-            iters.
+        trans_args : dict or list of dict
+            A dictionary containing any extra keywords that are needed in the
+            transformation object (for instance, "order"), applied to every
+            iteration -- or a list of such dictionaries, one per iteration, to
+            use a different transformation argument (e.g. increasing order)
+            in later iterations. If a list is passed in, its length must
+            equal iters. By default {'order': 1}.
 
         trans_input : array or list of transform objects
             def = None. If not None, then this should contain an array or list of transform
