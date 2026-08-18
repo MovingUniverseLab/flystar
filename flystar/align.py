@@ -1188,7 +1188,15 @@ class MosaicSelfRef(object):
         if ((self.ref_table['x'].shape[1] != len(self.star_lists)) and
             (ii != self.ref_index) and
             (ii >= self.ref_table['x'].shape[1])):
-            self.ref_table.add_starlist()
+            # This call only grows the table by one blank list-column --
+            # copy_over_values() below fills in the real x/y/m/etc data for
+            # it -- but list_times is tracked as per-list meta, not a column,
+            # so it's never set by that later call. Pass it here (this
+            # starlist's own list_time is guaranteed set by __init__ above)
+            # so add_starlist() doesn't pad it with a placeholder and warn
+            # about a "missing" value that was simply never given a chance
+            # to be passed in.
+            self.ref_table.add_starlist(meta={'list_times': star_list.meta['list_time']})
 
         copy_over_values(self.ref_table, star_list, star_list_T, ii, idx_ref, idx_lis)
         self.ref_table['used_in_trans'][idx_ref_in_trans, ii] = True
@@ -1391,18 +1399,23 @@ class MosaicSelfRef(object):
             var_ylis = 0.0
 
         if self.trans_weighting is not None:
-            if self.trans_weighting == 'both,var':
-                weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
-            if self.trans_weighting == 'both,std':
-                weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
-            if self.trans_weighting == 'ref,var':
-                weight = 1.0 / (var_xref + var_yref)
-            if self.trans_weighting == 'ref,std':
-                weight = 1.0 / np.sqrt(var_xref + var_yref)
-            if self.trans_weighting == 'list,var':
-                weight = 1.0 / (var_xlis + var_ylis)
-            if self.trans_weighting == 'list,std':
-                weight = 1.0 / np.sqrt(var_xlis + var_ylis)
+            # A star with zero variance here (e.g. xe=ye=0) deliberately
+            # produces inf, which the isfinite check right below this block
+            # already catches and zeroes out -- this is expected, not a bug,
+            # so silence the warning numpy would otherwise raise for it.
+            with np.errstate(divide='ignore'):
+                if self.trans_weighting == 'both,var':
+                    weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
+                if self.trans_weighting == 'both,std':
+                    weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
+                if self.trans_weighting == 'ref,var':
+                    weight = 1.0 / (var_xref + var_yref)
+                if self.trans_weighting == 'ref,std':
+                    weight = 1.0 / np.sqrt(var_xref + var_yref)
+                if self.trans_weighting == 'list,var':
+                    weight = 1.0 / (var_xlis + var_ylis)
+                if self.trans_weighting == 'list,std':
+                    weight = 1.0 / np.sqrt(var_xlis + var_ylis)
         else:
             weight = None
 
