@@ -4011,7 +4011,7 @@ class PrintSelected(object):
         return
 
 
-def plotly_stars(x, y, m=None, xe=None, ye=None, me=None, star_name=None, marker_size=3, color=None, alpha=0.7, symbol='circle', label=None, xlabel='x', ylabel='y', fig=None, figsize=(700, 700), show=None):
+def plotly_stars(x, y, m=None, xe=None, ye=None, me=None, star_name=None, custom_dict=None, marker_size=3, color=None, alpha=0.7, symbol='circle', label=None, xlabel='x', ylabel='y', fig=None, figsize=(700, 700), show=None):
     """Plot stars with plotly in interactive html format
 
     Parameters
@@ -4030,6 +4030,10 @@ def plotly_stars(x, y, m=None, xe=None, ye=None, me=None, star_name=None, marker
         magnitude errors to be added in hover label, by default None
     star_name : array-like, optional
         Star names to be added in hover label, by default None
+    custom_dict : dict, optional
+        Extra fields to add to the hover label, as {name: array-like}, one
+        entry per extra line (e.g. {'chi2_x': chi2_x_arr}). Each array must
+        have the same length as x/y. By default None
     marker_size : int, optional
         Size of marker, by default 10
     color : array or str, optional
@@ -4066,37 +4070,46 @@ def plotly_stars(x, y, m=None, xe=None, ye=None, me=None, star_name=None, marker
         color = f'rgba({color[0]*255}, {color[1]*255}, {color[2]*255}, {color[3]:.2f})'
 
     customdata = []
+    customidx = 0
 
     if star_name is not None:
-        hover_template = 'name: %{customdata[0]}<br>' + hover_template
         customdata.append(star_name)
+        hover_template = f'name: %{{customdata[{customidx}]}}<br>' + hover_template
+        customidx += 1
 
     if label is not None:
         hover_template = f'{label}<br>' + hover_template
 
     if m is not None:
         m = np.asarray(m)
-        m_idx = len(customdata)
-        hover_template += f'<br>m: %{{customdata[{m_idx}]:.2f}}'
         customdata.append(m)
+        hover_template += f'<br>m: %{{customdata[{customidx}]:.2f}}'
+        customidx += 1
 
     if xe is not None:
         xe = np.asarray(xe)
-        xe_idx = len(customdata)
-        hover_template += f'<br>xe: %{{customdata[{xe_idx}]:.2e}}'
         customdata.append(xe)
+        hover_template += f'<br>xe: %{{customdata[{customidx}]:.2e}}'
+        customidx += 1
 
     if ye is not None:
         ye = np.asarray(ye)
-        ye_idx = len(customdata)
-        hover_template += f'<br>ye: %{{customdata[{ye_idx}]:.2e}}'
         customdata.append(ye)
+        hover_template += f'<br>ye: %{{customdata[{customidx}]:.2e}}'
+        customidx += 1
 
     if me is not None:
         me = np.asarray(me)
-        me_idx = len(customdata)
-        hover_template += f'<br>me: %{{customdata[{me_idx}]:.2e}}'
         customdata.append(me)
+        hover_template += f'<br>me: %{{customdata[{customidx}]:.2e}}'
+        customidx += 1
+
+    if custom_dict is not None:
+        for key, val in custom_dict.items():
+            val = np.asarray(val)
+            customdata.append(val)
+            hover_template += f'<br>{key}: %{{customdata[{customidx}]}}'
+            customidx += 1
 
     if customdata:
         customdata = np.column_stack(customdata)
