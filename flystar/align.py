@@ -50,6 +50,7 @@ class MosaicSelfRef(object):
             iter_callback=None,
             save_path=None,
             save_plot=True,
+            save_object=True,
             prefix_name='msr',
             verbose=True
     ):
@@ -217,6 +218,19 @@ class MosaicSelfRef(object):
             keep saving results without paying for them. Ignored if
             save_path is None. By default True.
 
+        save_object : bool, optional
+            If save_path is set, also pickle the entire mosaic object (self)
+            to PREFIX.pkl. This is a much heavier, less stable file
+            than the ref_table.hdf5/trans_list.pkl saved by default (it's
+            tied to flystar's class definitions, so it can break across
+            flystar versions) -- but it lets you reload the whole object
+            later (e.g. `with open(...) as f: msc = pickle.load(f)`) and
+            keep using its normal instance methods (e.g.
+            calc_bootstrap_errors) with their usual, self-contained
+            parameter list, rather than having to supply every piece of
+            alignment config by hand. Ignored if save_path is None. By
+            default True.
+
         prefix_name : str, optional
             Prefix for the saved file names (see save_path).
 
@@ -285,6 +299,7 @@ class MosaicSelfRef(object):
         self.iter_callback = iter_callback
         self.save_path = save_path
         self.save_plot = save_plot
+        self.save_object = save_object
         self.prefix_name = prefix_name
         self.verbose = verbose
 
@@ -681,6 +696,9 @@ class MosaicSelfRef(object):
             if self.calc_trans_inverse:
                 with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list_inverse.pkl'), 'wb') as file:
                     pickle.dump(self.trans_list_inverse, file)
+            if self.save_object:
+                with open(os.path.join(self.save_path, f'{self.prefix_name}.pkl'), 'wb') as file:
+                    pickle.dump(self, file)
 
         if self.verbose > 0:
             print('===================================')
@@ -2013,6 +2031,7 @@ class MosaicToRef(MosaicSelfRef):
         iter_callback=None,
         save_path=None,
         save_plot=True,
+        save_object=True,
         prefix_name='mtr',
         verbose=True
     ):
@@ -2203,6 +2222,19 @@ class MosaicToRef(MosaicSelfRef):
             keep saving results without paying for them. Ignored if
             save_path is None. By default True.
 
+        save_object : bool, optional
+            If save_path is set, also pickle the entire mosaic object (self)
+            to PREFIX.pkl. This is a much heavier, less stable file
+            than the ref_table.hdf5/trans_list.pkl saved by default (it's
+            tied to flystar's class definitions, so it can break across
+            flystar versions) -- but it lets you reload the whole object
+            later (e.g. `with open(...) as f: mtr = pickle.load(f)`) and
+            keep using its normal instance methods (e.g.
+            calc_bootstrap_errors) with their usual, self-contained
+            parameter list, rather than having to supply every piece of
+            alignment config by hand. Ignored if save_path is None. By
+            default True.
+
         verbose : bool or int (0 to 9, inclusive)
             Controls the verbosity of print statements. (0 least, 9 most verbose).
             For backwards compatibility, 0 = False, 9 = True.
@@ -2271,6 +2303,7 @@ class MosaicToRef(MosaicSelfRef):
             iter_callback=iter_callback,
             save_path=save_path,
             save_plot=save_plot,
+            save_object=save_object,
             prefix_name=prefix_name,
             verbose=verbose
         )
@@ -2615,6 +2648,9 @@ class MosaicToRef(MosaicSelfRef):
             if self.calc_trans_inverse:
                 with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list_inverse.pkl'), 'wb') as file:
                     pickle.dump(self.trans_list_inverse, file)
+            if self.save_object:
+                with open(os.path.join(self.save_path, f'{self.prefix_name}.pkl'), 'wb') as file:
+                    pickle.dump(self, file)
 
         if self.verbose > 0:
             print('===================================')
