@@ -379,7 +379,13 @@ class StarTable(Table):
         Set the contents of the specified column (in the 2D column objects)
         to an invalide value depending on the data type.
         """
-        if np.issubdtype(self[col_name].info.dtype, np.integer):
+        if col_name == 'n_detect_list':
+            # Unlike other int columns, 0 (not -1) is the correct "no data"
+            # value here -- it lets n_detect (the aggregate) be computed as
+            # a direct sum(n_detect_list, axis=1) instead of a masked sum
+            # against x/y.
+            self[col_name][:, col_idx] = 0
+        elif np.issubdtype(self[col_name].info.dtype, np.integer):
             self[col_name][:, col_idx] = -1
         elif np.issubdtype(self[col_name].info.dtype, np.floating):
             self[col_name][:, col_idx] = self._invalid_float_value(col_name)
@@ -393,7 +399,9 @@ class StarTable(Table):
         Set the contents of the specified rows (in the 2D column objects)
         to an invalide value depending on the data type.
         """
-        if np.issubdtype(self[col_name].info.dtype, np.integer):
+        if col_name == 'n_detect_list':
+            self[col_name][row_idx] = 0
+        elif np.issubdtype(self[col_name].info.dtype, np.integer):
             self[col_name][row_idx] = -1
         elif np.issubdtype(self[col_name].info.dtype, np.floating):
             self[col_name][row_idx] = self._invalid_float_value(col_name)
@@ -680,17 +688,18 @@ class StarTable(Table):
 
         weight_col : str, optional
             If given and present in this table's columns, sum this per-list
-            column (wherever x, y are valid) instead of counting each valid
-            (x, y) as 1. Used to inherit a per-list 'n_detect_list' column
-            from starlists that are themselves the output of a previous,
-            lower-level align pass, so n_detect reflects the total number
-            of raw detections a star represents. By default None (plain
-            count).
+            column directly instead of counting each valid (x, y) as 1. Its
+            "no detection this epoch" cells must already be 0 (not -1/nan)
+            for this to give the right total. Used to inherit a per-list
+            'n_detect_list' column from starlists that are themselves the
+            output of a previous, lower-level align pass, so n_detect
+            reflects the total number of raw detections a star represents.
+            By default None (plain count).
         # """
-        valid = np.isfinite(self['x']) & np.isfinite(self['y'])
         if (weight_col is not None) and (weight_col in self.colnames):
-            n_detect = np.sum(np.where(valid, self[weight_col], 0), axis=1)
+            n_detect = np.sum(self[weight_col], axis=1)
         else:
+            valid = np.isfinite(self['x']) & np.isfinite(self['y'])
             n_detect = np.sum(valid, axis=1)
 
         if 'n_detect' in self.colnames:

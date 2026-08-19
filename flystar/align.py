@@ -3073,6 +3073,12 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
                 new_col_empty = motion_model_name
             elif col_name=='motion_model_used':
                 new_col_empty = 'Empty'
+            elif col_name == 'n_detect_list':
+                # Unlike other int columns, 0 (not -1) is the correct "no
+                # data" value here -- it lets n_detect (the aggregate) be
+                # computed as a direct sum(n_detect_list, axis=1) instead of
+                # a masked sum against x/y.
+                new_col_empty = 0
             elif col_name in ['xe', 'ye', 'me'] or col_name.endswith('_err'):
                 new_col_empty = np.inf
             elif dtype.kind == 'f':
