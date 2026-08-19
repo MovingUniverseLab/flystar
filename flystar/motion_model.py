@@ -422,8 +422,6 @@ class Empty(MotionModel):
             Fitted parameters, their uncertainties, and optionally chi-squared values
         """
         self.fixed_params_dict = fixed_params_dict
-        if verbose:
-            warnings.warn(f"Empty data cannot be fit. Setting parameters to {fill_value} and uncertainties to np.inf.", OptimizeWarning, stacklevel=2)
         params = np.full(self.n_fit_params, fill_value)
         param_errors = np.full(self.n_fit_params, np.inf)
         if return_chi2:
