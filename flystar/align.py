@@ -43,6 +43,7 @@ class MosaicSelfRef(object):
             fixed_params_dict=None,
             vel_weights='var',
             absolute_sigma=True,
+            std_method='propagation',
             # Advanced options
             inherit_n_detect=True,
             iter_callback=None,
@@ -177,6 +178,22 @@ class MosaicSelfRef(object):
             If True, the velocity fit will use absolute errors in the data. If False, relative
             errors will be used, by default False.
 
+        std_method : str, optional
+            How x0_err/y0_err/m0_err are computed for stars combined via a
+            plain weighted average (Fixed/Empty-eligible stars -- stars
+            actually fit with Linear/Acceleration/Parallax etc. get their
+            error from that fit's own covariance instead, controlled by
+            absolute_sigma above). 'propagation' (default): the formal
+            error-propagated uncertainty of the weighted mean, trusting the
+            per-epoch input errors (xe/ye/me) as correct. 'empirical': the
+            weighted standard deviation of the epochs themselves around
+            their weighted mean -- how much they actually disagree,
+            regardless of what their individual errors claim. More honest
+            than 'propagation' when input errors are systematically
+            underestimated, at the cost of not shrinking as more epochs are
+            added (unlike a true standard-error-of-the-mean). See
+            StarTable.combine_lists for details. By default 'propagation'.
+
         inherit_n_detect : bool, optional
             If True, and an input starlist already has its own 'n_detect' column
             (e.g. it is itself the output of a previous, lower-level align pass),
@@ -281,6 +298,7 @@ class MosaicSelfRef(object):
         self.trans_class = trans_class
         self.calc_trans_inverse = calc_trans_inverse
         self.absolute_sigma = absolute_sigma
+        self.std_method = std_method
         self.inherit_n_detect = inherit_n_detect
         self.fixed_params_dict = fixed_params_dict
         self.init_guess_mode = init_guess_mode
@@ -455,6 +473,7 @@ class MosaicSelfRef(object):
             'fixed_params_dict': self.fixed_params_dict,
             'vel_weights': self.vel_weighting,
             'absolute_sigma': self.absolute_sigma,
+            'std_method': self.std_method,
             'iter_callback': self.iter_callback,
             'save_path': self.save_path,
             'prefix_name': self.prefix_name,
@@ -1365,7 +1384,8 @@ class MosaicSelfRef(object):
             # the number of starlists.
             if self.verbose > 0:
                 print(f'Fixed/Empty motion model: combining lists for {np.count_nonzero(simple_idxs)} stars.')
-            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m, select_stars=simple_idxs)
+            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m, select_stars=simple_idxs,
+                                             std_method=self.std_method)
 
         if np.any(complex_idxs):
             self.ref_table.fit_motion_models(
@@ -1386,7 +1406,8 @@ class MosaicSelfRef(object):
                 weights_col = 'me'
             else:
                 weights_col = None
-            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True, select_stars=complex_idxs)
+            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True, select_stars=complex_idxs,
+                                         std_method=self.std_method)
 
         # if (keep_orig is not None) and (sum(keep_orig) > 0):
         # Determine motion_model_used for keep_orig stars
@@ -2008,6 +2029,7 @@ class MosaicToRef(MosaicSelfRef):
         fixed_params_dict=None,
         vel_weights='var',
         absolute_sigma=True,
+        std_method='propagation',
         # Advanced options
         inherit_n_detect=True,
         iter_callback=None,
@@ -2272,6 +2294,7 @@ class MosaicToRef(MosaicSelfRef):
             fixed_params_dict=fixed_params_dict,
             vel_weights=vel_weights,
             absolute_sigma=absolute_sigma,
+            std_method=std_method,
             # Advanced options
             inherit_n_detect=inherit_n_detect,
             iter_callback=iter_callback,
@@ -2392,6 +2415,7 @@ class MosaicToRef(MosaicSelfRef):
             'fixed_params_dict': self.fixed_params_dict,
             'vel_weights': self.vel_weighting,
             'absolute_sigma': self.absolute_sigma,
+            'std_method': self.std_method,
             'iter_callback': self.iter_callback,
             'save_path': self.save_path,
             'prefix_name': self.prefix_name,

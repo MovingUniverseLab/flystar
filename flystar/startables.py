@@ -466,7 +466,8 @@ class StarTable(Table):
         return starlist
 
 
-    def combine_lists_xym(self, weighted_xy=True, weighted_m=True, mask_lists=None, sigma=3, select_stars=None):
+    def combine_lists_xym(self, weighted_xy=True, weighted_m=True, mask_lists=None, sigma=3, select_stars=None,
+                          std_method='propagation'):
         """
         For x, y and m columns in the table, collapse along the lists
         direction. For 'x', 'y' this means calculating the average position with
@@ -480,6 +481,9 @@ class StarTable(Table):
             If given, only (re)compute x0/y0/m0 (and errors) for these star
             rows; see combine_lists() for details. By default None (compute
             for all rows, same as before).
+        std_method : str, optional
+            'propagation' or 'empirical' -- see combine_lists() for details.
+            By default 'propagation'.
         """
 
         # Combine by position
@@ -495,15 +499,18 @@ class StarTable(Table):
         else:
             weights_colm = None
 
-        self.combine_lists('x', weights_col=weights_colx, mask_lists=mask_lists, sigma=sigma, select_stars=select_stars)
-        self.combine_lists('y', weights_col=weights_coly, mask_lists=mask_lists, sigma=sigma, select_stars=select_stars)
-        self.combine_lists('m', weights_col=weights_colm, mask_lists=mask_lists, sigma=sigma, ismag=True, select_stars=select_stars)
+        self.combine_lists('x', weights_col=weights_colx, mask_lists=mask_lists, sigma=sigma, select_stars=select_stars,
+                           std_method=std_method)
+        self.combine_lists('y', weights_col=weights_coly, mask_lists=mask_lists, sigma=sigma, select_stars=select_stars,
+                           std_method=std_method)
+        self.combine_lists('m', weights_col=weights_colm, mask_lists=mask_lists, sigma=sigma, ismag=True, select_stars=select_stars,
+                           std_method=std_method)
 
         return
 
     def combine_lists(self, col_name_in, weights_col=None, mask_val=None,
                       mask_lists=None, meta_add=True, ismag=False, sigma=3,
-                      select_stars=None):
+                      select_stars=None, std_method='propagation'):
         """
         For the specified column (col_name_in), collapse along the starlists
         direction and calculated the average value, with outlier rejection.
@@ -530,7 +537,24 @@ class StarTable(Table):
             for all rows) if the <col_name_in>0/<col_name_in>0_err columns
             don't exist yet, since there's nothing to selectively update on
             a first pass. By default None (compute for all rows).
+        std_method : str, optional
+            Only affects the weighted branch (weights_col given -- the
+            unweighted branch below always uses the residual scatter, since
+            there's no per-point error to propagate in the first place).
+            'propagation' (default): the formal error-propagated uncertainty
+            of the weighted mean, sqrt(1/sum(weights)). Trusts the per-point
+            input errors (weights_col) as correct.
+            'empirical': the weighted standard deviation of the points
+            themselves around their weighted mean -- how much the epochs
+            actually disagree, regardless of what their individual errors
+            claim. More honest than 'propagation' when input errors are
+            systematically underestimated, at the cost of not shrinking as
+            more epochs are added (unlike a true standard-error-of-the-mean).
+            By default 'propagation'.
         """
+        if std_method not in ('propagation', 'empirical'):
+            raise ValueError(f"combine_lists: std_method must be 'propagation' or 'empirical', not {std_method}!")
+
         col_name_avg = col_name_in + '0'
         col_name_std = col_name_in + '0_err'
         if (select_stars is not None) and (col_name_avg not in self.colnames):
@@ -620,24 +644,43 @@ class StarTable(Table):
             with np.errstate(divide='ignore', invalid='ignore'):
                 avg = (val_2d_clip * wgt_2d).sum(axis=1) / wgt_sum
                 # Equivalent of avg = np.average(val_2d_clip, weights=wgt_2d, axis=1)
-                std = np.sqrt(1. / wgt_sum)  # Error propagation for weighted mean
+                if std_method == 'empirical':
+                    # chi2 = weighted sum of squared residuals against the
+                    # weighted mean -- the same quantity align.py separately
+                    # computes as chi2_x/chi2_y later in fit() (though not
+                    # reusable from here: that happens afterward in the same
+                    # call, using the raw, non-sigma-clipped data, so it isn't
+                    # numerically identical when sigma clipping is active).
+                    # std here is the weighted standard deviation of the
+                    # points around their weighted mean, instead of the
+                    # formal error-propagated uncertainty below -- how much
+                    # the epochs actually disagree, rather than what their
+                    # individual errors claim. Computed manually (not
+                    # np.average, which raises if ANY row's weights sum to
+                    # zero) so a star with no usable error is still safe
+                    # here: its chi2 is also 0, giving 0/0 = nan, fixed up to
+                    # inf below alongside the 'propagation' branch's usual inf.
+                    chi2 = (wgt_2d * (val_2d_clip - avg[:, np.newaxis])**2).sum(axis=1)
+                    std = np.sqrt(chi2 / wgt_sum)
+                else:
+                    std = np.sqrt(1. / wgt_sum)  # Error propagation for weighted mean
 
             # A star whose every epoch has an invalid raw uncertainty (e.g.
             # missing/invalid me/xe/ye everywhere) but at least one valid
             # value still gets an average -- a plain mean of its valid
             # epoch(s), same as the unweighted branch below would give --
             # instead of discarding a real measurement as nan just because
-            # we don't know how to weight it. std is untouched here (still
-            # the honest sqrt(1/wgt_sum) computed above, i.e. inf), so this
-            # can't accidentally fabricate a finite reported error.
+            # we don't know how to weight it. std is forced to inf here
+            # regardless of std_method ('propagation' already gives
+            # inf naturally via 1/0; 'empirical' would otherwise give
+            # 0/0 = nan), so this can't accidentally fabricate a finite
+            # reported error.
             no_usable_err = (wgt_sum == 0) & has_data
             if no_usable_err.any():
                 avg[no_usable_err] = val_2d_clip[no_usable_err].sum(axis=1) / n_valid[no_usable_err]
+                std[no_usable_err] = np.inf
 
             avg[~has_data] = np.nan
-
-            # Use standard deviation of the weighted residuals as the uncertainty
-            # std = np.ma.sqrt(np.ma.average((val_2d_clip.T - avg).T**2, weights=wgt_2d, axis=1))
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'weighted'
