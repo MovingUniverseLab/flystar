@@ -3,7 +3,7 @@ import numpy as np
 from abc import ABC
 from flystar import parallax
 from astropy.time import Time
-from scipy.optimize import curve_fit, OptimizeWarning
+from scipy.optimize import OptimizeWarning
 
 
 def weight_from_sigma(sigma, valid=None):
@@ -47,6 +47,27 @@ def weight_from_sigma(sigma, valid=None):
             weight = np.where(valid, weight, 0.0)
     weight[~np.isfinite(weight)] = 0.0
     return weight
+
+
+def sigma_from_error(xe, ye, weighting='var'):
+    """
+    Convert x/y position errors into the sigma values a weighted fit
+    should use, based on the requested weighting scheme.
+
+    weighting : str, optional
+        'var': sigma = |xe|, |ye|, so a later 1/sigma**2 gives true
+        inverse-variance weighting (w=1/xe**2, 1/ye**2).
+        'std': sigma = sqrt(|xe|), sqrt(|ye|), so the same later
+        1/sigma**2 instead gives standard-error weighting (w=1/xe, 1/ye).
+        By default 'var'.
+    """
+    if weighting=='std':
+        return np.sqrt(np.abs(xe)), np.sqrt(np.abs(ye))
+    elif weighting=='var':
+        return np.abs(xe), np.abs(ye)
+    else:
+        warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
+        return np.abs(xe), np.abs(ye)
 
 
 class MotionModel(ABC):
@@ -113,47 +134,59 @@ class MotionModel(ABC):
             return np.full_like(t, np.nan), np.full_like(t, np.nan)
         return np.full_like(t, np.nan), np.full_like(t, np.nan), np.full_like(t, np.inf), np.full_like(t, np.inf)
 
-    def run_fit(
-        self, t, x, y, xe, ye,
-        fixed_params_dict=None,
-        weighting='var',
-        use_scipy=True,
-        absolute_sigma=True,
-        params_guess=None,
-        fill_value=np.nan,
-        return_chi2=False,
-        method=None,
-        verbose=True
-    ):
-        # Run a single fit (used both for overall fit + bootstrap iterations)
-        if return_chi2:
-            return np.full(self.n_fit_params, fill_value), np.full(self.n_fit_params, np.inf), np.nan, np.nan
-        return np.full(self.n_fit_params, fill_value), np.full(self.n_fit_params, np.inf)
-
-    def calc_sigma(self, xe, ye, weighting='var'):
-        if weighting=='std':
-            return np.sqrt(np.abs(xe)), np.sqrt(np.abs(ye))
-        elif weighting=='var':
-            return np.abs(xe), np.abs(ye)
-        else:
-            warnings.warn("Invalid weighting, using default weighting scheme var.", UserWarning)
-            return np.abs(xe), np.abs(ye)
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+                       absolute_sigma=True, fill_value=np.nan, verbose=True):
+        """
+        Fit a batch of stars at once (used both for the main fit and for
+        fit()'s bootstrap iterations). Every concrete MotionModel subclass
+        must override this -- there is no per-star fallback anymore, so a
+        subclass that doesn't override it would otherwise silently inherit
+        this stub and produce all-fill_value/inf fits with no warning. A
+        subclass whose fit genuinely can't be vectorized across stars can
+        still satisfy this same batch-in/batch-out signature by looping
+        over stars internally (e.g. calling scipy.optimize.curve_fit once
+        per row) -- nothing requires the implementation to be closed-form,
+        only the interface to accept/return a whole batch at once.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement run_fit(t, x, y, xe, ye, valid, ...)."
+        )
 
     def fit(
         self, t, x, y, xe, ye,
         fixed_params_dict=None,
         weighting='var',
-        use_scipy=True,
         absolute_sigma=True,
         fill_value=np.nan,
-        params_guess=None,
         return_chi2=False,
         bootstrap=0,
         seed=None,
-        method=None,
         verbose=True
     ):
-        """Fit stellar motion parameters
+        """Fit stellar motion parameters -- for one star, or for a whole
+        batch of stars at once.
+
+        t, x, y, xe, ye : 1D, shape (n_epochs,)
+            A single star's data. The caller is expected to have already
+            filtered this down to that star's own real epochs -- no
+            padding, nothing to mask.
+        t, x, y, xe, ye : 2D, shape (n_stars, n_epochs)
+            A batch of many stars packed into one rectangular array (this
+            is the path StarTable.fit_motion_models uses for real
+            performance -- run_fit is never called directly from outside
+            this module). Since stars don't all have the same number of
+            real epochs, some cells are padding; padding is marked by nan
+            in x and/or y (this codebase's existing "no data" convention),
+            not by a separate mask the caller has to build. valid =
+            isfinite(x) & isfinite(y) is derived here and handed to
+            run_fit(), which does the actual (closed-form, vectorized)
+            solve for the whole batch in one call.
+
+        Every concrete model's run_fit is closed-form: the single-star
+        case just wraps the star's data into a batch of one row (and, for
+        bootstrap, into a batch of `bootstrap` rows -- one resampled
+        subset/order of this star's epochs per row), so every case above
+        goes through the same vectorized, non-iterative solve.
 
         Parameters
         ----------
@@ -171,59 +204,75 @@ class MotionModel(ABC):
             Dictionary of fixed parameters, see each motion model's fixed_param_names for details, by default None
         weighting : str, optional
             Use standard error weighting ('std': w=1/xe, 1/ye) or variance weighting ('var': w=1/xe**2, 1/ye**2), by default 'var'
-        use_scipy : bool, optional
-            Use scipy for optimization. Otherwise, use linear algebraic solution (Linear model only), which is faster for < 300 epochs, by default True
         absolute_sigma : bool, optional
-            Absolute sigma. See scipy.optimize.curve_fit for details, by default True
+            Absolute sigma. If False, parameter errors are rescaled by the reduced chi^2, by default True
         fill_value : float, optional
             Fill value for parameters when not enough data points to fit model, by default np.nan
-        params_guess : array-like, optional
-            Initial guess for the fit parameters used in scipy curve_fit, by default None
         return_chi2 : bool, optional
-            Return chi^2 values along with parameters and uncertainties in params, param_errs, chi2_x, chi2_y, by default False
+            Return chi^2 values along with parameters and uncertainties in params, param_errs, chi2_x, chi2_y, by default False.
+            Ignored for the 2D (batch) case, which always returns all four.
         bootstrap : int, optional
-            Bootstrapping uncertainties, by default 0
+            Bootstrapping uncertainties (single-star case only), by default 0
         seed : int, optional
             Seed for the random number generator, by default None
-        method : str, optional
-            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
         verbose : bool, optional
             Print warning messages, by default True
 
         Returns
         -------
         params, param_errs(, chi2_x, chi2_y)
-            Parameters, uncertainties, and chi squares if return_chi2 is True. The corresponding parameter names are in self.fit_param_names.
+            Parameters, uncertainties, and chi squares if return_chi2 is True (always for the batch case). The corresponding parameter names are in self.fit_param_names.
         """
-        for variable, name in zip([t, x, y, xe, ye], ['t', 'x', 'y', 'xe', 'ye']):
-            assert np.ndim(variable) == 1, f"Input {name} array must be 1D! Got shape {np.shape(variable)}"
-            if name != 't':
-                assert len(t) == len(variable), f'Input {name} must have the same length as t! Got len(t)={len(t)}, len({name})={len(variable)}'
+        t = np.asarray(t)
+        x = np.asarray(x)
+        y = np.asarray(y)
+        xe = np.asarray(xe)
+        ye = np.asarray(ye)
 
         if not verbose:
             warnings.filterwarnings("ignore", category=OptimizeWarning)
 
-        fit_result = self.run_fit(
-            t, x, y, xe, ye,
-            fixed_params_dict=fixed_params_dict,
-            weighting=weighting,
-            use_scipy=use_scipy,
-            absolute_sigma=absolute_sigma,
-            fill_value=fill_value,
-            params_guess=params_guess,
-            return_chi2=return_chi2,
-            verbose=verbose
+        if t.ndim == 2:
+            # Batch path: many stars packed into one rectangular array.
+            # No separate mask is built or passed by the caller -- padding
+            # epochs are wherever x or y is nan, and that's exactly what
+            # isfinite picks out.
+            valid = np.isfinite(x) & np.isfinite(y)
+            result = self.run_fit(
+                t, x, y, xe, ye, valid,
+                fixed_params_dict=fixed_params_dict, weighting=weighting, absolute_sigma=absolute_sigma,
+                fill_value=fill_value, verbose=verbose
+            )
+            if not verbose:
+                warnings.resetwarnings()
+            return result
+
+        for variable, name in zip([t, x, y, xe, ye], ['t', 'x', 'y', 'xe', 'ye']):
+            assert np.ndim(variable) == 1, f"Input {name} array must be 1D (single star) or 2D (batch)! Got shape {np.shape(variable)}"
+            if name != 't':
+                assert len(t) == len(variable), f'Input {name} must have the same length as t! Got len(t)={len(t)}, len({name})={len(variable)}'
+
+        # Copy (rather than mutate the caller's dict) before filling in a
+        # default t0 -- same convenience the old per-star run_fit() gave
+        # Linear/Acceleration/Parallax when t0 wasn't supplied.
+        fixed_params_dict = dict(fixed_params_dict) if fixed_params_dict is not None else {}
+        if ('t0' in self.required_fixed_param_names) and ('t0' not in fixed_params_dict):
+            fixed_params_dict['t0'] = np.average(t, weights=1. / np.hypot(xe, ye))
+        # Remembered so a later self.model(t, params) call (without its own
+        # fixed_params_dict) can fall back to what this fit used -- same
+        # convenience the old per-star run_fit() provided.
+        self.fixed_params_dict = fixed_params_dict
+
+        n_obs = len(t)
+        valid = np.ones((1, n_obs), dtype=bool)
+        params, param_errs, chi2_x, chi2_y = self.run_fit(
+            t[np.newaxis, :], x[np.newaxis, :], y[np.newaxis, :], xe[np.newaxis, :], ye[np.newaxis, :], valid,
+            fixed_params_dict=fixed_params_dict, weighting=weighting, absolute_sigma=absolute_sigma,
+            fill_value=fill_value, verbose=verbose
         )
-
-        if return_chi2:
-            params, param_errs, chi2_x, chi2_y = fit_result
-        else:
-            params, param_errs = fit_result
-
+        params, param_errs, chi2_x, chi2_y = params[0], param_errs[0], chi2_x[0], chi2_y[0]
 
         # Bootstrap errors
-        n_obs = len(t)
-
         if (bootstrap > 0) and (n_obs > self.n_params):
             rng = np.random.default_rng(seed)
             edx = np.arange(n_obs, dtype=int)
@@ -238,31 +287,25 @@ class MotionModel(ABC):
                 rng.choice(edx, size=n_obs - self.n_params, replace=True)
                 for _ in range(bootstrap)
             ])
-            bdx_all = np.hstack((bdx_unique, bdx_extra))
+            bdx_all = np.hstack((bdx_unique, bdx_extra))  # shape (bootstrap, n_obs)
 
-            bb_params = []
-            bb_params_errs = []
-            for bdx in bdx_all:
-                params_bdx, param_errs_bdx = self.run_fit(
-                    t[bdx], x[bdx], y[bdx], xe[bdx], ye[bdx],
-                    fixed_params_dict=fixed_params_dict,
-                    weighting=weighting,
-                    use_scipy=use_scipy,
-                    absolute_sigma=absolute_sigma,
-                    params_guess=params,
-                    fill_value=fill_value,
-                    return_chi2=False,
-                    method=method,
-                    verbose=verbose
-                )
-                bb_params.append(params_bdx)
-                bb_params_errs.append(param_errs_bdx)
+            # All bootstrap draws of this one star are fit in a single
+            # run_fit call -- each draw is just a "row" with its own
+            # resampled subset/order of this star's epochs (valid is
+            # all-True since every entry in a row is a real, if repeated,
+            # epoch).
+            valid_boot = np.ones_like(bdx_all, dtype=bool)
+            bb_params, bb_param_errs, _, _ = self.run_fit(
+                t[bdx_all], x[bdx_all], y[bdx_all], xe[bdx_all], ye[bdx_all], valid_boot,
+                fixed_params_dict=fixed_params_dict, weighting=weighting, absolute_sigma=absolute_sigma,
+                fill_value=fill_value, verbose=verbose
+            )
 
             # Save the errors from the bootstrap
             param_errs = np.std(bb_params, axis=0)
 
             # Account for odd case
-            inf_errs = [np.all(arr==np.inf) for arr in np.transpose(np.array(bb_params_errs))]
+            inf_errs = np.all(bb_param_errs == np.inf, axis=0)
             param_errs[inf_errs] = 0.0
 
         if not verbose:
@@ -371,73 +414,15 @@ class Empty(MotionModel):
             return x, y
         return x, y, np.full_like(x, np.inf), np.full_like(y, np.inf)
 
-    def run_fit(
-        self, t, x, y, xe, ye,
-        fixed_params_dict=None,
-        weighting='var',
-        use_scipy=True,
-        absolute_sigma=True,
-        params_guess=None,
-        fill_value=np.nan,
-        return_chi2=False,
-        method=None,
-        verbose=True
-    ):
-        """Fit stellar motion parameters
-
-        Parameters
-        ----------
-        t : float or array-like
-            Time array, shape (N_times,)
-        x : array-like
-            Observed x positions, shape (N_times,)
-        y : array-like
-            Observed y positions, shape (N_times,)
-        xe : array-like
-            Observed uncertainties in x positions, shape (N_times,)
-        ye : array-like
-            Observed uncertainties in y positions, shape (N_times,)
-        fixed_params_dict : dict, optional
-            Dictionary of fixed parameters, not applicable for Empty model, by default None
-        weighting : str, optional
-            Weighting scheme to use, 'var' or 'std', by default 'var'
-        use_scipy : bool, optional
-            Whether to use scipy.optimize for fitting, by default True
-        absolute_sigma : bool, optional
-            Whether to treat sigma as absolute, by default True
-        fill_value : float, optional
-            Value to fill parameters with when fitting is not possible, by default np.nan
-        params_guess : array-like, optional
-            Initial guess for parameters, by default None
-        return_chi2 : bool, optional
-            Whether to return chi-squared value, by default False
-        method : str, optional
-            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
-        verbose : bool, optional
-            Whether to print verbose output, by default True
-
-        Returns
-        -------
-        params, param_errors (, chi2_x, chi2_y)
-            Fitted parameters, their uncertainties, and optionally chi-squared values
-        """
-        self.fixed_params_dict = fixed_params_dict
-        params = np.full(self.n_fit_params, fill_value)
-        param_errors = np.full(self.n_fit_params, np.inf)
-        if return_chi2:
-            return params, param_errors, np.nan, np.nan
-        else:
-            return params, param_errors
-
-    def run_fit_batch(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
         """
-        Vectorized version of run_fit() for many stars at once. Empty's
-        "fit" never looks at any data -- it's always fill_value/inf
-        regardless of what's passed in -- so there's no actual computation
-        to batch. This exists purely so that a table containing some Empty
-        stars (there is almost always at least a handful, e.g. stars with
-        0 valid epochs) doesn't force the caller to spin up a
+        Batch fit for many stars at once. Empty's "fit" never looks at any
+        data -- it's always fill_value/inf regardless of what's passed in
+        -- so there's no actual computation to batch. This exists purely
+        so that a table containing some Empty stars (there is almost
+        always at least a handful, e.g. stars with 0 valid epochs)
+        doesn't force the caller to spin up a
         multiprocessing pool -- and pay its real, fixed per-worker spawn
         cost -- just to run this trivial, zero-cost case one star at a time.
 
@@ -445,9 +430,12 @@ class Empty(MotionModel):
         ----------
         t, x, y, xe, ye, valid : array-like, shape (n_stars, n_epochs)
             Unused -- accepted only for interface consistency with other
-            motion models' run_fit_batch.
+            motion models' run_fit.
         fixed_params_dict, weighting, absolute_sigma : unused.
-        fill_value, verbose : as in run_fit().
+        fill_value : float, optional
+            Fill value for parameters when not enough data points to fit model, by default np.nan
+        verbose : bool, optional
+            Print warning messages, by default True
 
         Returns
         -------
@@ -566,78 +554,13 @@ class Fixed(MotionModel):
 
         return x, y, x_err, y_err
 
-    def run_fit(
-        self, t, x, y, xe, ye,
-        fixed_params_dict=None,
-        weighting='var',
-        use_scipy=True,
-        absolute_sigma=True,
-        params_guess=None,
-        fill_value=np.nan,
-        return_chi2=False,
-        method=None,
-        verbose=True
-    ):
-        if verbose and (not use_scipy):
-            warnings.warn("Fixed model has no non-scipy fitter option. Running with scipy.")
-
-        n_obs = len(t)
-        degree_of_freedom = n_obs - self.n_params
-        # Not enough data points to fit model
-        if degree_of_freedom < 0:
-            warnings.warn(
-                f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
-                OptimizeWarning, stacklevel=2
-            )
-            params = np.full(self.n_fit_params, fill_value)
-            param_errors = np.full(self.n_fit_params, np.inf)
-            return params, param_errors, np.nan, np.nan
-
-        # degree_of_freedom >= 0
-        # Calculate weighted average position
-        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
-        x_wt, y_wt = 1. / sigma_x**2, 1. / sigma_y**2
-        x0 = np.average(x, weights=x_wt)
-        # x0e = (np.sum(x_wt_norm**2 * xe**2))**0.5  # Error propagation
-        x0e = 1. / np.sum(x_wt)**0.5  # Error propagation
-        y0 = np.average(y, weights=y_wt)
-        # y0e = (np.sum(y_wt_norm**2 * ye**2))**0.5  # Error propagation
-        y0e = 1. / np.sum(y_wt)**0.5  # Error propagation
-
-        params = np.array([x0, y0])
-        param_errors = np.array([x0e, y0e])
-
-        if (not absolute_sigma) or return_chi2:
-            chi2x, chi2y = self.calc_chi2(t, x, y, xe, ye, params)
-
-        if not absolute_sigma:
-            if degree_of_freedom > 0:
-                reduced_chi2x = chi2x / degree_of_freedom
-                reduced_chi2y = chi2y / degree_of_freedom
-
-                param_errors[0] *= reduced_chi2x**0.5
-                param_errors[1] *= reduced_chi2y**0.5
-            else:
-                # degree_of_freedom == 0, as < 0 case already handled above
-                warnings.warn(
-                    f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to np.inf.',
-                    OptimizeWarning, stacklevel=2
-                )
-                # Set parameter uncertainties to np.inf, same behavior as scipy.optimize.curve_fit
-                param_errors = np.full_like(param_errors, np.inf)
-
-        if return_chi2:
-            return params, param_errors, chi2x, chi2y
-        else:
-            return params, param_errors
-
-    def run_fit_batch(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
         """
-        Vectorized version of run_fit() for many stars at once. Fixed's fit
-        is closed-form (a weighted average -- no iterative optimizer), so
-        nothing about it actually requires fitting one star at a time; this
-        fits the whole batch in one pass instead of looping (or spinning up
+        Batch fit for many stars at once. Fixed's fit is closed-form (a
+        weighted average -- no iterative optimizer), so nothing about it
+        actually requires fitting one star at a time; this fits the whole
+        batch in one pass instead of looping (or spinning up
         multiprocessing for) each star individually.
 
         Parameters
@@ -650,9 +573,16 @@ class Fixed(MotionModel):
             Which entries are usable for each star.
         fixed_params_dict : dict, optional
             Unused -- Fixed has no fixed params -- accepted only so callers
-            can call run_fit_batch() uniformly across motion models (e.g.
+            can call run_fit() uniformly across motion models (e.g.
             Linear requires fixed_params_dict={'t0': ...}).
-        weighting, absolute_sigma, fill_value, verbose : as in run_fit().
+        weighting : str, optional
+            'var' (w=1/xe**2, 1/ye**2) or 'std' (w=1/xe, 1/ye), by default 'var'
+        absolute_sigma : bool, optional
+            If False, parameter errors are rescaled by the reduced chi^2, by default True
+        fill_value : float, optional
+            Fill value for parameters when not enough data points to fit model, by default np.nan
+        verbose : bool, optional
+            Print warning messages, by default True
 
         Returns
         -------
@@ -670,7 +600,7 @@ class Fixed(MotionModel):
                 OptimizeWarning, stacklevel=2
             )
 
-        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
+        sigma_x, sigma_y = sigma_from_error(xe, ye, weighting=weighting)
         x_wt = weight_from_sigma(sigma_x, valid)
         y_wt = weight_from_sigma(sigma_y, valid)
 
@@ -819,157 +749,17 @@ class Linear(MotionModel):
             y_err = y_err.flatten()
         return x, y, x_err, y_err
 
-    def run_fit(
-        self, t, x, y, xe, ye,
-        fixed_params_dict=None,
-        weighting='var',
-        use_scipy=True,
-        absolute_sigma=True,
-        params_guess=None,
-        fill_value=np.nan,
-        return_chi2=False,
-        method=None,
-        verbose=True
-    ):
-        if fixed_params_dict is None:
-            fixed_params_dict = {}
-        if 't0' not in fixed_params_dict:
-            # Default t0 to weighted average time
-            fixed_params_dict['t0'] = np.average(t, weights=1./np.hypot(xe, ye))
-        self.fixed_params_dict = fixed_params_dict
-        t0 = np.atleast_1d(fixed_params_dict['t0'])
-        t = np.atleast_1d(t)
-        x = np.atleast_1d(x)
-        y = np.atleast_1d(y)
-        xe = np.atleast_1d(xe)
-        ye = np.atleast_1d(ye)
 
-        n_obs = len(t)
-        degree_of_freedom = n_obs - self.n_params
-        # Not enough data points to fit model
-        if degree_of_freedom < 0:
-            warnings.warn(
-                f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
-                OptimizeWarning, stacklevel=2
-            )
-            params = np.full(self.n_fit_params, fill_value)
-            param_errors = np.full(self.n_fit_params, np.inf)
-            if return_chi2:
-                return params, param_errors, np.nan, np.nan
-            else:
-                return params, param_errors
-
-        # degree_of_freedom >= 0
-        dt = t - t0
-        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
-        x_wt, y_wt = 1. / sigma_x**2, 1. / sigma_y**2
-
-        if params_guess is None:
-            params_guess = [x.mean(), 0., y.mean(), 0.]
-
-        if use_scipy:
-            x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:2]), sigma=sigma_x, absolute_sigma=absolute_sigma, full_output=True, method=method)
-            y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[2:]), sigma=sigma_y, absolute_sigma=absolute_sigma, full_output=True, method=method)
-            x0, vx = x_opt
-            y0, vy = y_opt
-            x0e, vxe = np.sqrt(x_cov.diagonal())
-            y0e, vye = np.sqrt(y_cov.diagonal())
-            params = np.array([x0, vx, y0, vy])
-            param_errors = np.array([x0e, vxe, y0e, vye])
-            if return_chi2:
-                # chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
-                chi2_x = np.sum(x_info['fvec']**2)
-                chi2_y = np.sum(y_info['fvec']**2)
-                return params, param_errors, chi2_x, chi2_y
-            else:
-                return params, param_errors
-
-        # Linear algebraic solution
-        # Use  https://en.wikipedia.org/wiki/Weighted_least_squares#Solution_scheme
-        X_mat_t = np.vander(dt, 2)
-
-        # x calculation
-        W_mat_x = np.diag(x_wt)
-        XTWX_mat_x = X_mat_t.T @ W_mat_x @ X_mat_t # Shape (2, 2)
-        pcov_x = np.linalg.pinv(XTWX_mat_x)  # Covariance Matrix
-        popt_x = pcov_x @ X_mat_t.T @ W_mat_x @ x   # Linear Solution
-
-        # Singular matrix (not enough unique times): Fill uncertainty with Inf.
-        if np.linalg.matrix_rank(XTWX_mat_x) < 2:
-            warnings.warn(
-                f'Singular matrix. Covariance of the parameters could not be estimated. Setting parameter uncertainties to np.inf.',
-                OptimizeWarning, stacklevel=2
-            )
-            perr_x = np.full_like(popt_x, np.inf)
-        else:
-            perr_x = np.sqrt(np.diag(pcov_x))   # Uncertainty of Linear Solution
-
-        # y calculation
-        W_mat_y = np.diag(y_wt)
-        XTWX_mat_y = X_mat_t.T @ W_mat_y @ X_mat_t # Shape (2, 2)
-        pcov_y = np.linalg.pinv(XTWX_mat_y)  # Covariance Matrix
-        popt_y = pcov_y @ X_mat_t.T @ W_mat_y @ y   # Linear Solution
-
-        # Singular matrix (not enough unique times): Fill uncertainty with Inf.
-        if np.linalg.matrix_rank(XTWX_mat_y) < 2:
-            warnings.warn(
-                f'Singular matrix. Covariance of the parameters could not be estimated. Setting parameter uncertainties to np.inf.',
-                OptimizeWarning, stacklevel=2
-            )
-            perr_y = np.full_like(popt_y, np.inf)
-        else:
-            perr_y = np.sqrt(np.diag(pcov_y))   # Uncertainty of Linear Solution
-
-        # prepare values to return
-        vx, x0 = popt_x
-        vy, y0 = popt_y
-        vxe, x0e = perr_x
-        vye, y0e = perr_y
-
-        params = np.array([x0, vx, y0, vy])
-        param_errors = np.array([x0e, vxe, y0e, vye])
-
-        # Does not use get_chi2 to accelerate calculation
-        if return_chi2 or (not absolute_sigma):
-            residual_x = x - X_mat_t @ popt_x
-            residual_y = y - X_mat_t @ popt_y
-
-            chi2_x = residual_x.T @ W_mat_x @ residual_x
-            chi2_y = residual_y.T @ W_mat_y @ residual_y
-
-        if not absolute_sigma:
-            if degree_of_freedom > 0:
-                reduced_chi2_x = chi2_x / degree_of_freedom
-                reduced_chi2_y = chi2_y / degree_of_freedom
-
-                param_errors[0:2] *= reduced_chi2_x**0.5
-                param_errors[2:4] *= reduced_chi2_y**0.5
-
-            else:
-                # degree_of_freedom == 0, as < 0 case already handled above
-                warnings.warn(
-                    f'Degree of freedom < 0. Covariance of the parameters could not be estimated. Setting parameter uncertainties to np.inf.',
-                    OptimizeWarning, stacklevel=2
-                )
-                # Set parameter uncertainties to np.inf, same behavior as scipy.optimize.curve_fit
-                param_errors = np.full_like(param_errors, np.inf)
-
-        if return_chi2:
-            return params, param_errors, chi2_x, chi2_y
-        else:
-            return params, param_errors
-
-    def run_fit_batch(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
         """
-        Vectorized version of run_fit(use_scipy=False) for many stars at
-        once. Linear's weighted least-squares fit is closed-form (the
-        normal equations, no iterative optimizer) -- so, like Fixed, it
-        doesn't actually need to run one star at a time. The per-star path
-        builds a full (n_epochs, n_epochs) diagonal weight matrix and calls
-        np.linalg.pinv/matrix_rank (SVD-based) on it for every single star,
-        which is wasteful work for what's always exactly a 2x2 system; this
-        instead computes the five weighted sums the 2x2 normal-equations
+        Batch fit for many stars at once. Linear's weighted least-squares
+        fit is closed-form (the normal equations, no iterative optimizer)
+        -- so, like Fixed, it doesn't actually need to run one star at a
+        time. Rather than building a full (n_epochs, n_epochs) diagonal
+        weight matrix and calling np.linalg.pinv/matrix_rank (SVD-based)
+        per star -- wasteful work for what's always exactly a 2x2 system
+        -- this computes the five weighted sums the 2x2 normal-equations
         matrix needs via vectorized .sum(axis=1) calls across the whole
         batch, and solves/inverts that 2x2 system with its closed-form
         (adjugate-over-determinant) formula.
@@ -984,7 +774,14 @@ class Linear(MotionModel):
             Which entries are usable for each star.
         fixed_params_dict : dict
             Must contain 't0', either a scalar or shape (n_stars,).
-        weighting, absolute_sigma, fill_value, verbose : as in run_fit().
+        weighting : str, optional
+            'var' (w=1/xe**2, 1/ye**2) or 'std' (w=1/xe, 1/ye), by default 'var'
+        absolute_sigma : bool, optional
+            If False, parameter errors are rescaled by the reduced chi^2, by default True
+        fill_value : float, optional
+            Fill value for parameters when not enough data points to fit model, by default np.nan
+        verbose : bool, optional
+            Print warning messages, by default True
 
         Returns
         -------
@@ -993,7 +790,7 @@ class Linear(MotionModel):
         chi2_x, chi2_y : ndarray, shape (n_stars,)
         """
         assert fixed_params_dict is not None and 't0' in fixed_params_dict, \
-            "Linear.run_fit_batch requires fixed_params_dict={'t0': ...}."
+            "Linear.run_fit requires fixed_params_dict={'t0': ...}."
 
         n_stars, n_epochs = t.shape
         t0 = np.broadcast_to(np.atleast_1d(fixed_params_dict['t0']), (n_stars,)).astype(float)
@@ -1009,7 +806,7 @@ class Linear(MotionModel):
                 OptimizeWarning, stacklevel=2
             )
 
-        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
+        sigma_x, sigma_y = sigma_from_error(xe, ye, weighting=weighting)
         x_wt = weight_from_sigma(sigma_x, valid)
         y_wt = weight_from_sigma(sigma_y, valid)
 
@@ -1018,8 +815,7 @@ class Linear(MotionModel):
         y_m = np.where(valid, y, 0.0)
 
         def solve(wt, val_m):
-            # Weighted normal-equations matrix for [v, x0] (matching
-            # np.vander(dt, 2)'s [dt, 1] column order in the per-star path):
+            # Weighted normal-equations matrix for [v, x0] (basis [dt, 1]):
             #   [[Swdt2, Swdt], [Swdt, Sw]] @ [v, x0] = [Swdtv, Swv]
             # Solved and inverted in closed form (2x2 adjugate/det) rather
             # than via np.linalg.pinv/matrix_rank.
@@ -1030,9 +826,8 @@ class Linear(MotionModel):
             Swdtv = (wt * dt_m * val_m).sum(axis=1)
 
             det = Swdt2 * Sw - Swdt**2
-            # Singular (e.g. every valid epoch at the same time): mirrors
-            # the per-star path's matrix_rank(XTWX) < 2 check, just via a
-            # direct determinant tolerance instead of an SVD-based rank.
+            # Singular (e.g. every valid epoch at the same time): a direct
+            # determinant tolerance instead of an SVD-based matrix_rank check.
             scale = np.maximum(Sw * Swdt2, np.finfo(float).tiny)
             singular = has_data & (np.abs(det) <= 1e-12 * scale)
 
@@ -1067,8 +862,8 @@ class Linear(MotionModel):
         params = np.column_stack([x0, vx, y0, vy])
         param_errs = np.column_stack([x0e, vxe, y0e, vye])
 
-        # chi2, using the same (weighting-scheme) weights the fit itself
-        # used -- matches the per-star path's residual.T @ W @ residual.
+        # chi2 = weighted sum of squared residuals (residual.T @ W @ residual),
+        # using the same (weighting-scheme) weights the fit itself used.
         with np.errstate(divide='ignore', invalid='ignore'):
             chi2x = (x_wt * (x_m - (vx[:, np.newaxis] * dt_m + x0[:, np.newaxis]))**2).sum(axis=1)
             chi2y = (y_wt * (y_m - (vy[:, np.newaxis] * dt_m + y0[:, np.newaxis]))**2).sum(axis=1)
@@ -1218,75 +1013,176 @@ class Acceleration(MotionModel):
         return x, y, x_err, y_err
 
 
-    def run_fit(
-        self, t, x, y, xe, ye,
-        fixed_params_dict=None,
-        weighting='var',
-        use_scipy=True,
-        absolute_sigma=True,
-        params_guess=None,
-        fill_value=np.nan,
-        return_chi2=False,
-        method=None,
-        verbose=True
-    ):
-        if fixed_params_dict is None:
-            fixed_params_dict = {}
-        if 't0' not in fixed_params_dict:
-            # Default t0 to weighted average time
-            fixed_params_dict['t0'] = np.average(t, weights=1./np.hypot(xe, ye))
-        self.fixed_params_dict = fixed_params_dict
-        t0 = np.atleast_1d(fixed_params_dict['t0'])
-        t = np.atleast_1d(t)
-        x = np.atleast_1d(x)
-        y = np.atleast_1d(y)
-        xe = np.atleast_1d(xe)
-        ye = np.atleast_1d(ye)
 
-        if not use_scipy:
-            if verbose:
-                warnings.warn("Acceleration model has no non-scipy fitter option. Running with scipy.")
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+                       absolute_sigma=True, fill_value=np.nan, verbose=True):
+        """
+        Batch fit for many stars at once. Acceleration's model
+        (x0 + vx0*dt + 0.5*ax*dt**2) is linear
+        in its fit parameters despite being quadratic in time, so its
+        weighted least-squares fit is closed-form too -- same situation as
+        Linear, just with a 3-parameter (instead of 2-parameter) basis
+        [1, dt, 0.5*dt**2] per direction. Unlike Linear, this solves the
+        3x3 normal-equations system with a batched np.linalg.inv rather
+        than a hand-derived closed-form adjugate -- deriving that by hand
+        for a 3x3 system is error-prone for little extra speed over
+        LAPACK's own (also closed-form, non-iterative) solver.
 
-        n_obs = len(t)
-        degree_of_freedom = n_obs - self.n_params
-        # Not enough data points to fit model
-        if degree_of_freedom < 0:
+        Parameters
+        ----------
+        t, x, y, xe, ye : array-like, shape (n_stars, n_epochs)
+            Per-star, per-epoch data. Entries where `valid` is False are
+            ignored -- their content does not matter (e.g. they can be NaN
+            placeholders for undetected epochs).
+        valid : array-like of bool, shape (n_stars, n_epochs)
+            Which entries are usable for each star.
+        fixed_params_dict : dict
+            Must contain 't0', either a scalar or shape (n_stars,).
+        weighting : str, optional
+            'var' (w=1/xe**2, 1/ye**2) or 'std' (w=1/xe, 1/ye), by default 'var'
+        absolute_sigma : bool, optional
+            If False, parameter errors are rescaled by the reduced chi^2, by default True
+        fill_value : float, optional
+            Fill value for parameters when not enough data points to fit model, by default np.nan
+        verbose : bool, optional
+            Print warning messages, by default True
+
+        Returns
+        -------
+        params : ndarray, shape (n_stars, 6) -- [x0, vx0, ax, y0, vy0, ay]
+        param_errs : ndarray, shape (n_stars, 6)
+        chi2_x, chi2_y : ndarray, shape (n_stars,)
+        """
+        assert fixed_params_dict is not None and 't0' in fixed_params_dict, \
+            "Acceleration.run_fit requires fixed_params_dict={'t0': ...}."
+
+        n_stars, n_epochs = t.shape
+        t0 = np.broadcast_to(np.atleast_1d(fixed_params_dict['t0']), (n_stars,)).astype(float)
+        dt = t - t0[:, np.newaxis]
+
+        n_valid = valid.sum(axis=1)
+        has_data = n_valid >= self.n_params  # degree_of_freedom >= 0
+
+        if verbose and np.any(~has_data):
             warnings.warn(
-                f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                f'Not enough data points to fit model for {np.sum(~has_data)} star(s). '
+                f'Setting parameters to {fill_value} and uncertainties to np.inf.',
                 OptimizeWarning, stacklevel=2
             )
-            params = np.full(self.n_fit_params, fill_value)
-            param_errors = np.full(self.n_fit_params, np.inf)
-            if return_chi2:
-                return params, param_errors, np.nan, np.nan
-            else:
-                return params, param_errors
 
-        # degree_of_freedom >= 0
-        dt = t - t0
-        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
-        if params_guess is None:
-            # Initial guess for velocity:
-            idx_first, idx_last = np.argmin(t), np.argmax(t)
-            t_span = t[idx_last] - t[idx_first]
-            params_guess = [x.mean(), (x[idx_last] - x[idx_first]) / t_span, 0., y.mean(), (y[idx_last] - y[idx_first]) / t_span, 0.]
+        sigma_x, sigma_y = sigma_from_error(xe, ye, weighting=weighting)
+        x_wt = weight_from_sigma(sigma_x, valid)
+        y_wt = weight_from_sigma(sigma_y, valid)
 
-        x_opt, x_cov, x_info, x_msg, x_ier = curve_fit(self.model_fit, dt, x, p0=np.array(params_guess[:3]), sigma=sigma_x, absolute_sigma=absolute_sigma, full_output=True, method=method)
-        y_opt, y_cov, y_info, y_msg, y_ier = curve_fit(self.model_fit, dt, y, p0=np.array(params_guess[3:]), sigma=sigma_y, absolute_sigma=absolute_sigma, full_output=True, method=method)
-        x0, vx0, ax = x_opt
-        y0, vy0, ay = y_opt
-        x0e, vx0e, axe = np.sqrt(x_cov.diagonal())
-        y0e, vy0e, aye = np.sqrt(y_cov.diagonal())
+        dt_m = np.where(valid, dt, 0.0)
+        dt2_m = 0.5 * dt_m**2
+        x_m = np.where(valid, x, 0.0)
+        y_m = np.where(valid, y, 0.0)
 
-        params = np.array([x0, vx0, ax, y0, vy0, ay])
-        param_errors = np.array([x0e, vx0e, axe, y0e, vy0e, aye])
-        if return_chi2:
-            # chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
-            chi2_x = np.sum(x_info['fvec']**2)
-            chi2_y = np.sum(y_info['fvec']**2)
-            return params, param_errors, chi2_x, chi2_y
-        else:
-            return params, param_errors
+        def solve(wt, val_m):
+            # Weighted normal-equations matrix for [x0, v0, a] built from
+            # basis [1, dt, 0.5*dt**2].
+            S0 = wt.sum(axis=1)
+            S1 = (wt * dt_m).sum(axis=1)
+            S2 = (wt * dt2_m).sum(axis=1)
+            S11 = (wt * dt_m**2).sum(axis=1)
+            S12 = (wt * dt_m * dt2_m).sum(axis=1)
+            S22 = (wt * dt2_m**2).sum(axis=1)
+
+            r0 = (wt * val_m).sum(axis=1)
+            r1 = (wt * val_m * dt_m).sum(axis=1)
+            r2 = (wt * val_m * dt2_m).sum(axis=1)
+
+            M = np.zeros((n_stars, 3, 3))
+            M[:, 0, 0] = S0
+            M[:, 0, 1] = M[:, 1, 0] = S1
+            M[:, 0, 2] = M[:, 2, 0] = S2
+            M[:, 1, 1] = S11
+            M[:, 1, 2] = M[:, 2, 1] = S12
+            M[:, 2, 2] = S22
+            r = np.column_stack([r0, r1, r2])
+
+            # Singular (e.g. fewer than 3 unique valid times): a direct
+            # determinant tolerance instead of an SVD-based matrix_rank check.
+            det = np.linalg.det(M)
+            scale = np.maximum(np.abs(S0 * S11 * S22), np.finfo(float).tiny)
+            singular = has_data & (np.abs(det) <= 1e-12 * scale)
+            unsafe = singular | ~has_data
+
+            if verbose and np.any(singular):
+                warnings.warn(
+                    'Singular matrix. Covariance of the parameters could not be estimated. '
+                    'Setting parameter uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+
+            # Stars with too little/degenerate data would otherwise send a
+            # singular matrix into np.linalg.inv for the whole batch (which
+            # raises, unlike a per-star pinv) -- swap those in for a safe
+            # placeholder first; their real params/errs get overwritten
+            # with fill_value/inf below regardless of what this produces.
+            M_safe = M.copy()
+            M_safe[unsafe] = np.eye(3)
+
+            cov = np.linalg.inv(M_safe)
+            params = np.einsum('nij,nj->ni', cov, r)
+            param_errs = np.sqrt(np.diagonal(cov, axis1=1, axis2=2))
+
+            params[unsafe] = fill_value
+            param_errs[unsafe] = np.inf
+
+            return params, param_errs, singular
+
+        x_params, x_errs, singular_x = solve(x_wt, x_m)
+        y_params, y_errs, singular_y = solve(y_wt, y_m)
+
+        params = np.column_stack([x_params, y_params])
+        param_errs = np.column_stack([x_errs, y_errs])
+
+        # chi2 = weighted sum of squared residuals (residual.T @ W @ residual),
+        # using the same (weighting-scheme) weights the fit itself used.
+        with np.errstate(divide='ignore', invalid='ignore'):
+            x_model = x_params[:, 0:1] + x_params[:, 1:2] * dt_m + x_params[:, 2:3] * dt2_m
+            y_model = y_params[:, 0:1] + y_params[:, 1:2] * dt_m + y_params[:, 2:3] * dt2_m
+            chi2x = (x_wt * (x_m - x_model)**2).sum(axis=1)
+            chi2y = (y_wt * (y_m - y_model)**2).sum(axis=1)
+        # A singular fit has no real params to compute a residual from
+        # (regardless of what fill_value happens to be) -- nan them
+        # explicitly rather than relying on fill_value being nan.
+        chi2x[singular_x] = np.nan
+        chi2y[singular_y] = np.nan
+
+        if not absolute_sigma:
+            dof = n_valid - self.n_params
+            dof_pos = dof > 0
+            with np.errstate(divide='ignore', invalid='ignore'):
+                reduced_chi2x = np.where(dof_pos, chi2x / np.where(dof_pos, dof, 1), 1.0)
+                reduced_chi2y = np.where(dof_pos, chi2y / np.where(dof_pos, dof, 1), 1.0)
+            for jj in range(3):
+                param_errs[:, jj] = np.where(dof_pos, param_errs[:, jj] * np.sqrt(reduced_chi2x), np.inf)
+                param_errs[:, 3 + jj] = np.where(dof_pos, param_errs[:, 3 + jj] * np.sqrt(reduced_chi2y), np.inf)
+            if verbose and np.any(has_data & ~dof_pos):
+                warnings.warn(
+                    'Degree of freedom <= 0 for some star(s). Covariance of the parameters could not be '
+                    'estimated. Setting parameter uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+
+        # Not-enough-data and singular stars: overwrite with fill_value/inf/nan
+        # regardless of whatever the (meaningless, e.g. 0/0, or inf*nan from
+        # the absolute_sigma=False rescaling above) computation produced.
+        # This must come last -- e.g. the rescaling above would otherwise
+        # silently turn a singular star's correct inf error into nan
+        # (inf * sqrt(nan) == nan, not inf).
+        params[~has_data] = fill_value
+        param_errs[~has_data] = np.inf
+        chi2x[~has_data] = np.nan
+        chi2y[~has_data] = np.nan
+        for jj in range(3):
+            param_errs[singular_x, jj] = np.inf
+            param_errs[singular_y, 3 + jj] = np.inf
+
+        return params, param_errs, chi2x, chi2y
 
 class Parallax(MotionModel):
     """
@@ -1382,14 +1278,6 @@ class Parallax(MotionModel):
         y_result = y0 + vy * dt + pi * self.pvec[:, 1, :]  # Parallax contribution in y direction
         return x_result, y_result
 
-    def _model_fit(self, dt, x0, vx, y0, vy, pi):
-        """Wrapper for model_fit to return concatenated results for scipy fitting."""
-        x_result, y_result = self.model_fit(dt, x0, vx, y0, vy, pi)
-        # scipy.optimize.curve_fit expects a 1D output array with the same length
-        # as the input ydata. For single-star fits, intermediate broadcasting can
-        # yield arrays with shape (1, N_times); flatten to avoid M=1 interpretation.
-        return np.hstack([np.ravel(x_result), np.ravel(y_result)])  # Shape (2*N_times,)
-
     def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Parallax model.
 
@@ -1469,87 +1357,224 @@ class Parallax(MotionModel):
         return x, y, x_err, y_err
 
 
-    def run_fit(
-        self, t, x, y, xe, ye,
-        fixed_params_dict,
-        weighting='var',
-        use_scipy=True,
-        absolute_sigma=True,
-        params_guess=None,
-        fill_value=np.nan,
-        return_chi2=False,
-        method=None,
-        verbose=True
-    ):
-        if not use_scipy:
-            if verbose:
-                warnings.warn("Parallax model has no non-scipy fitter option. Running with scipy.", UserWarning)
 
-        assert all([k in fixed_params_dict for k in ['ra', 'dec']]), "Parallax model requires 'ra' and 'dec' in fixed_params."
-        t = np.atleast_1d(t)
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+                       absolute_sigma=True, fill_value=np.nan, verbose=True):
+        """
+        Batch fit for many stars at once. Parallax's model
+        (x0 + vx*dt + pi*Px(t), y0 + vy*dt + pi*Py(t)) is linear in its
+        fit parameters once the parallax factors Px, Py are precomputed
+        from each star's fixed ra/dec -- so, like Linear/Acceleration, it
+        has a closed-form weighted least-squares solution. Unlike those
+        two, x and y are NOT independent here: pi is shared between both
+        directions (all 5 params are fit jointly from the stacked [x, y]
+        data), so this is one coupled 5x5 normal-equations system per
+        star -- the x0/vx block and y0/vy block only interact with each
+        other through the shared pi row/column -- solved via a batched
+        np.linalg.inv.
 
-        if 't0' not in fixed_params_dict:
-            # Default t0 to weighted average time
-            fixed_params_dict['t0'] = np.average(t, weights=1./np.hypot(xe, ye))
-        if 'obsLocation' not in fixed_params_dict:
-            fixed_params_dict['obsLocation'] = 'earth'
-        self.fixed_params_dict = fixed_params_dict
-        t0 = np.atleast_1d(fixed_params_dict['t0'])
-        ra = np.atleast_1d(fixed_params_dict['ra'])
-        dec = np.atleast_1d(fixed_params_dict['dec'])
-        pa = np.atleast_1d(fixed_params_dict.get('pa', 0.0))
-        obsLocation = fixed_params_dict['obsLocation']
+        Parameters
+        ----------
+        t, x, y, xe, ye : array-like, shape (n_stars, n_epochs)
+            Per-star, per-epoch data. Entries where `valid` is False are
+            ignored -- their content does not matter (e.g. they can be NaN
+            placeholders for undetected epochs). All stars must share the
+            same observation times (parallax_in_direction only supports
+            one shared time axis for the whole batch, and ref_table's 2D
+            't' column is populated the same way for every star at a
+            given epoch) -- t[0] is taken as that shared grid.
+        valid : array-like of bool, shape (n_stars, n_epochs)
+            Which entries are usable for each star.
+        fixed_params_dict : dict
+            Must contain 't0', 'ra', 'dec' (each scalar or shape
+            (n_stars,)), and optionally 'pa', 'obsLocation'.
+        weighting : str, optional
+            'var' (w=1/xe**2, 1/ye**2) or 'std' (w=1/xe, 1/ye), by default 'var'
+        absolute_sigma : bool, optional
+            If False, parameter errors are rescaled by the reduced chi^2, by default True
+        fill_value : float, optional
+            Fill value for parameters when not enough data points to fit model, by default np.nan
+        verbose : bool, optional
+            Print warning messages, by default True
 
-        n_fit = len(t)
-        degree_of_freedom = n_fit - self.n_params
-        # Not enough data points to fit model
-        if degree_of_freedom < 0:
+        Returns
+        -------
+        params : ndarray, shape (n_stars, 5) -- [x0, vx, y0, vy, pi]
+        param_errs : ndarray, shape (n_stars, 5)
+        chi2_x, chi2_y : ndarray, shape (n_stars,)
+        """
+        assert fixed_params_dict is not None and all(k in fixed_params_dict for k in ['t0', 'ra', 'dec']), \
+            "Parallax.run_fit requires fixed_params_dict={'t0':..., 'ra':..., 'dec':...}."
+
+        n_stars, n_epochs = t.shape
+        t0 = np.broadcast_to(np.atleast_1d(fixed_params_dict['t0']), (n_stars,)).astype(float)
+        ra = np.broadcast_to(np.atleast_1d(fixed_params_dict['ra']), (n_stars,)).astype(float)
+        dec = np.broadcast_to(np.atleast_1d(fixed_params_dict['dec']), (n_stars,)).astype(float)
+        pa = np.broadcast_to(np.atleast_1d(fixed_params_dict.get('pa', 0.0)), (n_stars,)).astype(float)
+        obsLocation = fixed_params_dict.get('obsLocation', 'earth')
+        assert isinstance(obsLocation, str) or (np.unique(obsLocation).size == 1), \
+            "obsLocation must be a single string for all stars at this time."
+        if not isinstance(obsLocation, str):
+            obsLocation = np.unique(obsLocation)[0]
+
+        dt = t - t0[:, np.newaxis]
+
+        n_valid = valid.sum(axis=1)
+        has_data = n_valid >= self.n_params  # degree_of_freedom >= 0
+
+        if verbose and np.any(~has_data):
             warnings.warn(
-                f'Not enough data points to fit model. Setting parameters to {fill_value} and uncertainties to np.inf.',
+                f'Not enough data points to fit model for {np.sum(~has_data)} star(s). '
+                f'Setting parameters to {fill_value} and uncertainties to np.inf.',
                 OptimizeWarning, stacklevel=2
             )
-            params = np.full(self.n_fit_params, fill_value)
-            param_errors = np.full(self.n_fit_params, np.inf)
-            if return_chi2:
-                return params, param_errors, np.nan, np.nan
-            else:
-                return params, param_errors
 
-        # degree_of_freedom >= 0
-        t_mjd = Time(t, format='decimalyear', scale='utc').mjd
-        self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (2, N_times)
+        # Rows don't have to share the same times (e.g. fit()'s bootstrap
+        # resampling gives each row its own resampled subset/order of one
+        # star's epochs) -- parallax_in_direction only takes one shared mjd
+        # axis, so compute it once for the *unique* times across the whole
+        # batch, then gather back per (row, epoch). When every row does
+        # share the same grid (the normal multi-star case), unique_t is
+        # just that grid and this is a no-op reshape.
+        unique_t, inverse_idx = np.unique(t, return_inverse=True)
+        inverse_idx = inverse_idx.reshape(t.shape)
+        t_mjd = Time(unique_t, format='decimalyear', scale='utc').mjd
+        pvec_unique = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation)  # (n_stars, 2, n_unique_times)
+        star_idx = np.arange(n_stars)[:, np.newaxis]
+        Px = pvec_unique[:, 0, :][star_idx, inverse_idx]  # (n_stars, n_epochs)
+        Py = pvec_unique[:, 1, :][star_idx, inverse_idx]
 
-        # Initial guesses, x0,y0 as x,y averages;
-        #     vx,vy as average velocity if first and last points are perfectly measured;
-        #     pi for 10 pc distance
-        if params_guess is None:
-            idx_first, idx_last = np.argmin(t), np.argmax(t)
-            t_span = t[idx_last] - t[idx_first]
-            params_guess = np.array([
-                x.mean(), (x[idx_last] - x[idx_first]) / t_span,
-                y.mean(), (y[idx_last] - y[idx_first]) / t_span,
-                0.1
-            ])
+        sigma_x, sigma_y = sigma_from_error(xe, ye, weighting=weighting)
+        x_wt = weight_from_sigma(sigma_x, valid)
+        y_wt = weight_from_sigma(sigma_y, valid)
 
-        sigma_x, sigma_y = self.calc_sigma(xe, ye, weighting=weighting)
-        popt, pcov, infodict, mesg, ier = curve_fit(
-            self._model_fit, t - t0, np.hstack([x, y]),
-            p0=params_guess, sigma=np.hstack([sigma_x, sigma_y]),
-            absolute_sigma=absolute_sigma, full_output=True, method=method
-        )
-        x0, vx, y0, vy, pi = popt
-        x0_err, vx_err, y0_err, vy_err, pi_err = np.sqrt(pcov.diagonal())
+        dt_m = np.where(valid, dt, 0.0)
+        x_m = np.where(valid, x, 0.0)
+        y_m = np.where(valid, y, 0.0)
+        Px_m = np.where(valid, Px, 0.0)
+        Py_m = np.where(valid, Py, 0.0)
 
-        params = np.array([x0, vx, y0, vy, pi])
-        param_errors = np.array([x0_err, vx_err, y0_err, vy_err, pi_err])
+        # Per-direction weighted sums -- the x0/vx block and y0/vy block
+        # never mix with each other, only (separately) with the shared pi
+        # row/column below.
+        Sx0 = x_wt.sum(axis=1)
+        Sx1 = (x_wt * dt_m).sum(axis=1)
+        Sx11 = (x_wt * dt_m**2).sum(axis=1)
+        SxP = (x_wt * Px_m).sum(axis=1)
+        Sx1P = (x_wt * dt_m * Px_m).sum(axis=1)
+        SxPP = (x_wt * Px_m**2).sum(axis=1)
 
-        if return_chi2:
-            # chi2_x, chi2_y = self.calc_chi2(t, x, y, xe, ye, params, fixed_params_dict)
-            chi2_x = np.sum(infodict['fvec'][:len(t)]**2)
-            chi2_y = np.sum(infodict['fvec'][len(t):]**2)
-            return params, param_errors, chi2_x, chi2_y
-        else:
-            return params, param_errors
+        Sy0 = y_wt.sum(axis=1)
+        Sy1 = (y_wt * dt_m).sum(axis=1)
+        Sy11 = (y_wt * dt_m**2).sum(axis=1)
+        SyP = (y_wt * Py_m).sum(axis=1)
+        Sy1P = (y_wt * dt_m * Py_m).sum(axis=1)
+        SyPP = (y_wt * Py_m**2).sum(axis=1)
+
+        rx0 = (x_wt * x_m).sum(axis=1)
+        rx1 = (x_wt * x_m * dt_m).sum(axis=1)
+        ry0 = (y_wt * y_m).sum(axis=1)
+        ry1 = (y_wt * y_m * dt_m).sum(axis=1)
+        # Both x and y data feed into the pi row/column -- this is exactly
+        # where x and y stop being independent.
+        rP = (x_wt * x_m * Px_m).sum(axis=1) + (y_wt * y_m * Py_m).sum(axis=1)
+
+        M = np.zeros((n_stars, 5, 5))
+        M[:, 0, 0] = Sx0
+        M[:, 0, 1] = M[:, 1, 0] = Sx1
+        M[:, 1, 1] = Sx11
+        M[:, 0, 4] = M[:, 4, 0] = SxP
+        M[:, 1, 4] = M[:, 4, 1] = Sx1P
+
+        M[:, 2, 2] = Sy0
+        M[:, 2, 3] = M[:, 3, 2] = Sy1
+        M[:, 3, 3] = Sy11
+        M[:, 2, 4] = M[:, 4, 2] = SyP
+        M[:, 3, 4] = M[:, 4, 3] = Sy1P
+
+        M[:, 4, 4] = SxPP + SyPP
+
+        r = np.column_stack([rx0, rx1, ry0, ry1, rP])
+
+        # Singular (e.g. fewer than 3 unique valid times, or a star whose
+        # parallax factor is degenerate over its valid epochs): a direct
+        # determinant tolerance instead of an SVD-based matrix_rank check.
+        det = np.linalg.det(M)
+        scale = np.maximum(np.abs(Sx0 * Sx11 * Sy0 * Sy11 * M[:, 4, 4]), np.finfo(float).tiny)
+        singular = has_data & (np.abs(det) <= 1e-12 * scale)
+        unsafe = singular | ~has_data
+
+        if verbose and np.any(singular):
+            warnings.warn(
+                'Singular matrix. Covariance of the parameters could not be estimated. '
+                'Setting parameter uncertainties to np.inf.',
+                OptimizeWarning, stacklevel=2
+            )
+
+        # Stars with too little/degenerate data would otherwise send a
+        # singular matrix into np.linalg.inv for the whole batch (which
+        # raises, unlike a per-star pinv) -- swap those in for a safe
+        # placeholder first; their real params/errs get overwritten with
+        # fill_value/inf below regardless of what this produces.
+        M_safe = M.copy()
+        M_safe[unsafe] = np.eye(5)
+
+        cov = np.linalg.inv(M_safe)
+        params = np.einsum('nij,nj->ni', cov, r)
+        param_errs = np.sqrt(np.diagonal(cov, axis1=1, axis2=2))
+
+        params[unsafe] = fill_value
+        param_errs[unsafe] = np.inf
+
+        x0, vx, y0, vy, pi = params.T
+        with np.errstate(divide='ignore', invalid='ignore'):
+            x_model = x0[:, np.newaxis] + vx[:, np.newaxis] * dt_m + pi[:, np.newaxis] * Px_m
+            y_model = y0[:, np.newaxis] + vy[:, np.newaxis] * dt_m + pi[:, np.newaxis] * Py_m
+            chi2x = (x_wt * (x_m - x_model)**2).sum(axis=1)
+            chi2y = (y_wt * (y_m - y_model)**2).sum(axis=1)
+        # A singular fit has no real params to compute a residual from
+        # (regardless of what fill_value happens to be) -- nan them
+        # explicitly rather than relying on fill_value being nan.
+        chi2x[singular] = np.nan
+        chi2y[singular] = np.nan
+
+        if not absolute_sigma:
+            # Unlike Linear/Acceleration (two independent per-direction
+            # fits, each rescaled by its own reduced chi2), this is one
+            # joint 5-parameter fit over the combined [x, y] data -- so
+            # scipy's own curve_fit(absolute_sigma=False) rescales the
+            # whole covariance by a single reduced chi2 built from the
+            # combined residuals and the true combined degrees of freedom
+            # (2*n_valid data points minus all 5 params), not
+            # self.n_params (which is only a "min epochs needed" heuristic
+            # shared with the has_data check above, not the real dof here).
+            dof = 2 * n_valid - self.n_fit_params
+            dof_pos = dof > 0
+            chi2 = chi2x + chi2y
+            with np.errstate(divide='ignore', invalid='ignore'):
+                reduced_chi2 = np.where(dof_pos, chi2 / np.where(dof_pos, dof, 1), 1.0)
+            for jj in range(5):
+                param_errs[:, jj] = np.where(dof_pos, param_errs[:, jj] * np.sqrt(reduced_chi2), np.inf)
+            if verbose and np.any(has_data & ~dof_pos):
+                warnings.warn(
+                    'Degree of freedom <= 0 for some star(s). Covariance of the parameters could not be '
+                    'estimated. Setting parameter uncertainties to np.inf.',
+                    OptimizeWarning, stacklevel=2
+                )
+
+        # Not-enough-data and singular stars: overwrite with fill_value/inf/nan
+        # regardless of whatever the (meaningless, e.g. 0/0, or inf*nan from
+        # the absolute_sigma=False rescaling above) computation produced.
+        # This must come last -- e.g. the rescaling above would otherwise
+        # silently turn a singular star's correct inf error into nan
+        # (inf * sqrt(nan) == nan, not inf).
+        params[~has_data] = fill_value
+        param_errs[~has_data] = np.inf
+        chi2x[~has_data] = np.nan
+        chi2y[~has_data] = np.nan
+        param_errs[singular] = np.inf
+
+        return params, param_errs, chi2x, chi2y
 
 
 def motion_model_param_names(motion_models, with_errors=True, with_fixed=True):

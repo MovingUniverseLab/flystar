@@ -714,9 +714,7 @@ class StarTable(Table):
             motion_models=None,
             fixed_params_dict=None,
             weighting='var',
-            use_scipy=True,
             absolute_sigma=True,
-            method=None,
             select_stars=None,
             keep_existing=True,
             bootstrap=0,
@@ -753,12 +751,8 @@ class StarTable(Table):
             - The keys should match the fixed parameter names in the motion models. See MotionModel class for details, by default None
         weighting : str, optional
             Uncertainty weighting, 'std' for weight=1/xe(ye) or 'var' for weight=1/xe(ye)**2, by default 'var'
-        use_scipy : bool, optional
-            Use scipy.optimize.curve_fit or algebraic solution (for Linear model only), by default False
         absolute_sigma : bool, optional
-            Use absolute sigma or not, see scipy curve_fit for details, by default True
-        method : str, optional
-            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
+            Use absolute sigma or not, by default True
         select_stars : list of int, optional
             Indices of stars to fit, by default None (fit all stars)
         keep_existing : bool, optional
@@ -782,8 +776,8 @@ class StarTable(Table):
         mp_star_threshold : int, optional
             Minimum number of stars needing the per-star fitting path before a
             multiprocessing Pool is spun up, even if processes > 1 was
-            requested. A star needs that path when its motion model has no
-            vectorized run_fit_batch, or when bootstrap > 0. Below this
+            requested. A star needs that path only when bootstrap > 0 (bootstrap
+            resampling isn't vectorized across stars). Below this
             threshold, fitting runs serially in the calling process instead --
             spinning up a Pool has real fixed overhead (worker startup,
             pickling the shared data arrays to each worker) that a small
@@ -863,8 +857,8 @@ class StarTable(Table):
             orig_meta_keys = set(self.meta.keys())
             sub_table.fit_motion_models(
                 motion_models=motion_models, fixed_params_dict=sub_fixed_params_dict,
-                weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma,
-                method=method, select_stars=None, keep_existing=keep_existing,
+                weighting=weighting, absolute_sigma=absolute_sigma,
+                select_stars=None, keep_existing=keep_existing,
                 bootstrap=bootstrap, seed=seed, mask_value=mask_value, mask_lists=mask_lists,
                 fill_value=fill_value, art_star=art_star, processes=processes,
                 chunksize=chunksize, mp_star_threshold=mp_star_threshold, verbose=verbose
@@ -967,6 +961,15 @@ class StarTable(Table):
             fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
             xe_data[fill_with_one] = 1.
             ye_data[fill_with_one] = 1.
+            # motion_model.fit()'s batch path only checks isfinite(x)/isfinite(y)
+            # for validity -- weight_from_sigma zeroes any weight that comes out
+            # non-finite, but a merely tiny (not exactly zero/inf/nan) xe/ye from
+            # the np.isclose masking above wouldn't trip that check on its own.
+            # Make the epochs that are *still* masked at this point (i.e. not
+            # rescued by fill_with_one above) genuinely nan, so they're reliably
+            # zero-weighted regardless of how close to zero they were.
+            xe_data.data[xe_data.mask] = np.nan
+            ye_data.data[ye_data.mask] = np.nan
 
         # Ensure data is 2D for consistent indexing, even if we have only one list/epoch (shape (N_stars, 1) instead of (N_stars,))
         if np.ndim(x_data) == 1:
@@ -1013,7 +1016,22 @@ class StarTable(Table):
             if with_xe_ye:
                 xe_data = np.ma.masked_values(xe_data, mask_value)
                 ye_data = np.ma.masked_values(ye_data, mask_value)
-
+            # motion_model.fit()'s batch path derives validity as
+            # isfinite(x) & isfinite(y) directly from the data (no
+            # separate mask array is passed) -- unlike genuine "no
+            # detection" gaps, mask_value cells aren't already nan, so
+            # make them so here (once, only when mask_value is actually
+            # used) rather than leaving a finite-but-meaningless value
+            # (e.g. mask_value itself) silently treated as real. xe/ye
+            # need the same treatment: fit()'s weight calculation already
+            # zeroes out any weight that comes out non-finite, so a nan
+            # xe/ye is enough to exclude that epoch even though only x/y
+            # feed the isfinite() mask itself.
+            x_data.data[x_data.mask] = np.nan
+            y_data.data[y_data.mask] = np.nan
+            if with_xe_ye:
+                xe_data.data[xe_data.mask] = np.nan
+                ye_data.data[ye_data.mask] = np.nan
 
         # Calculate mask array
         valid_xy = ~ (x_data.mask | y_data.mask)
@@ -1134,9 +1152,8 @@ class StarTable(Table):
         array_params = {k: (np.ma.filled(v, np.nan) if np.ma.isMaskedArray(v) else v) for k, v in array_params.items()}
 
         # fixed_params_stars (one dict per star) is only actually needed by
-        # the per-star/multiprocessing fitting path below, for stars whose
-        # motion model has no vectorized run_fit_batch -- building it here
-        # for all N_stars unconditionally meant allocating a Python dict (plus
+        # the per-star/multiprocessing fitting path below (bootstrap > 0) --
+        # building it here for all N_stars unconditionally meant allocating a Python dict (plus
         # boxed scalar values) per star even for the (often large) fraction
         # handled entirely by the batched Fixed-model path, which never even
         # looks at it. It's built lazily further down, once we know which
@@ -1263,17 +1280,12 @@ class StarTable(Table):
             indices_by_motion_model = {key: np.flatnonzero(unique_inv_indices == k) for k, key in enumerate(unique_motion_models)}
 
         # Unmasked indices for each star -- but only for stars in groups that
-        # actually need the generic per-star path below. Groups handled by
-        # run_fit_batch (currently just Fixed) use valid_xy directly and
-        # never touch unmasked_idx at all, and Fixed is often the majority
-        # of stars in a growing mosaic -- computing this (an inherently
-        # per-star Python loop) for all N_stars regardless was previously
-        # pure waste for that (often large) fraction. Left as None for stars
-        # that don't need it; those entries are never looked up.
-        non_batch_star_idxs = [
-            idx for key, idx in indices_by_motion_model.items()
-            if not (hasattr(input_mm_map[key](), 'run_fit_batch') and bootstrap == 0)
-        ]
+        # actually need the generic per-star path below. Every group goes
+        # through the batch fit() path unless bootstrap > 0 forces the
+        # per-star fallback (bootstrap resampling isn't vectorized across
+        # stars), so this is only ever non-empty in that case. Left as None
+        # for stars that don't need it; those entries are never looked up.
+        non_batch_star_idxs = list(indices_by_motion_model.values()) if bootstrap > 0 else []
         if non_batch_star_idxs:
             non_batch_star_idxs = np.concatenate(non_batch_star_idxs)
             unmasked_idx = [None] * N_stars
@@ -1320,8 +1332,8 @@ class StarTable(Table):
                 processes,
                 initializer=_fit_motion_models_init,
                 initargs=(t_data_arr, x_data_arr, y_data_arr, xe_data_arr, ye_data_arr,
-                          unmasked_idx, input_mm_map, weighting, use_scipy, absolute_sigma,
-                          method, fill_value, bootstrap, seed, verbose)
+                          unmasked_idx, input_mm_map, weighting, absolute_sigma,
+                          fill_value, bootstrap, seed, verbose)
             )
 
         try:
@@ -1341,14 +1353,15 @@ class StarTable(Table):
 
                 # For each star
                 if len(unique_index) > 0:
-                    if hasattr(motion_model_instance, 'run_fit_batch') and bootstrap == 0:
-                        # Closed-form models (currently just Fixed) can be fit
-                        # for the whole subgroup in one vectorized pass instead
-                        # of star-by-star. This matters even when the table
-                        # isn't ALL Fixed (the align.py-level shortcut to
-                        # combine_lists_xym only fires then): a large fraction
-                        # of stars in a growing mosaic are often still Fixed
-                        # regardless of what other stars need, and that
+                    if bootstrap == 0:
+                        # Every model's fit() accepts a 2D batch (many stars
+                        # packed into one rectangular array) as well as a
+                        # single star, and fits the whole subgroup in one
+                        # vectorized pass instead of star-by-star. This matters
+                        # even when the table isn't ALL Fixed (the align.py-level
+                        # shortcut to combine_lists_xym only fires then): a large
+                        # fraction of stars in a growing mosaic are often still
+                        # Fixed regardless of what other stars need, and that
                         # fraction only shrinks as more epochs get added -- so
                         # without this, the (often huge) Fixed subset would
                         # keep paying the per-star loop/multiprocessing cost.
@@ -1362,14 +1375,19 @@ class StarTable(Table):
                         # Same {scalar params} + {array params sliced to this
                         # group} construction as fixed_params_stars above, but
                         # kept batched (not exploded into one dict per star)
-                        # since run_fit_batch takes it once for the whole group.
+                        # since fit() takes it once for the whole group.
                         fixed_params_batch = {
                             **scalar_params,
                             **{k: v[unique_index] for k, v in array_params.items()}
                         }
-                        params_array, param_errs_array, chi2_x_array, chi2_y_array = motion_model_instance.run_fit_batch(
+                        # No mask is passed -- fit()'s batch path derives
+                        # validity from nan in x/y directly (x_data_arr/
+                        # y_data_arr already have real nan at every invalid
+                        # cell, including mask_value/near-zero-error cells,
+                        # which were explicitly nan-ed above for exactly this).
+                        params_array, param_errs_array, chi2_x_array, chi2_y_array = motion_model_instance.fit(
                             t_data_arr[unique_index], x_data_arr[unique_index], y_data_arr[unique_index],
-                            xe_batch, ye_batch, valid_xy[unique_index],
+                            xe_batch, ye_batch,
                             fixed_params_dict=fixed_params_batch,
                             weighting=weighting, absolute_sigma=absolute_sigma, fill_value=fill_value, verbose=verbose
                         )
@@ -1413,9 +1431,7 @@ class StarTable(Table):
                                 ye=ye_stars[idx],
                                 fixed_params_dict=fixed_params_stars[i_star],
                                 weighting=weighting,
-                                use_scipy=use_scipy,
                                 absolute_sigma=absolute_sigma,
-                                method=method,
                                 fill_value=fill_value,
                                 return_chi2=True,
                                 bootstrap=bootstrap,
@@ -1733,8 +1749,8 @@ _fmm_worker_state = {}
 
 
 def _fit_motion_models_init(t_data, x_data, y_data, xe_data, ye_data, unmasked_idx,
-                             input_mm_map, weighting, use_scipy, absolute_sigma,
-                             method, fill_value, bootstrap, seed, verbose):
+                             input_mm_map, weighting, absolute_sigma,
+                             fill_value, bootstrap, seed, verbose):
     """
     Pool initializer for fit_motion_models(). Stashes the per-star data
     arrays (shared, read-only across all stars/tasks) as module-level state
@@ -1745,7 +1761,7 @@ def _fit_motion_models_init(t_data, x_data, y_data, xe_data, ye_data, unmasked_i
     _fmm_worker_state.update(
         t_data=t_data, x_data=x_data, y_data=y_data, xe_data=xe_data, ye_data=ye_data,
         unmasked_idx=unmasked_idx, input_mm_map=input_mm_map, weighting=weighting,
-        use_scipy=use_scipy, absolute_sigma=absolute_sigma, method=method,
+        absolute_sigma=absolute_sigma,
         fill_value=fill_value, bootstrap=bootstrap, seed=seed, verbose=verbose,
     )
 
@@ -1773,9 +1789,7 @@ def _fit_motion_models_worker(i_star, motion_model_name, fixed_params_dict):
         t=t, x=x, y=y, xe=xe, ye=ye,
         fixed_params_dict=fixed_params_dict,
         weighting=s['weighting'],
-        use_scipy=s['use_scipy'],
         absolute_sigma=s['absolute_sigma'],
-        method=s['method'],
         fill_value=s['fill_value'],
         return_chi2=True,
         bootstrap=s['bootstrap'],

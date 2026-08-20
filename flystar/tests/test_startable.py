@@ -873,7 +873,6 @@ def test_multiprocessing():
     st1.fit_motion_models(
         motion_models=['Linear'],
         weighting=weighting,
-        use_scipy=True,
         absolute_sigma=True,
         bootstrap=0,
         fill_value=fill_value,
@@ -883,7 +882,6 @@ def test_multiprocessing():
     st2.fit_motion_models(
         motion_models=['Linear'],
         weighting=weighting,
-        use_scipy=True,
         absolute_sigma=True,
         bootstrap=0,
         fill_value=fill_value,

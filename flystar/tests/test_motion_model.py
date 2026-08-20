@@ -7,6 +7,7 @@ def within_error(true_val, fit_val, fit_err, n_sigma=3):
     return np.abs(true_val - fit_val) <= n_sigma*fit_err
 
 def test_Fixed():
+    rng = np.random.default_rng(0)
     # Test handling of a single star
     true_params = {'x0': 1.0, 'y0':0.5, 'x0_err':0.1, 'y0_err':0.1}
     mod = motion_model.Fixed()
@@ -60,8 +61,8 @@ def test_Fixed():
         t, 
         fit_params=np.array([true_params['x0'], true_params['y0']])
     )
-    x_sim = np.random.normal(x_true, true_params['x0_err'])
-    y_sim = np.random.normal(y_true, true_params['y0_err'])
+    x_sim = rng.normal(x_true, true_params['x0_err'])
+    y_sim = rng.normal(y_true, true_params['y0_err'])
     xe = np.ones_like(t)*true_params['x0_err']
     ye = np.ones_like(t)*true_params['y0_err']
     # Run fit
@@ -90,6 +91,7 @@ def test_Fixed():
 
 
 def test_Linear():
+    rng = np.random.default_rng(1)
     # Test handling of a single star
     true_params = {'x0': 1.0, 'y0':0.5, 'x0_err':0.1, 'y0_err':0.1,
                     'vx':0.2, 'vy':0.5, 'vx_err':0.05, 'vy_err':0.05,
@@ -158,8 +160,8 @@ def test_Linear():
         fit_params=np.array([true_params[p] for p in param_list]).T,
         fixed_params_dict={'t0': true_params['t0']}
     )
-    x_sim = np.random.normal(x_true, 0.05)
-    y_sim = np.random.normal(y_true, 0.05)
+    x_sim = rng.normal(x_true, 0.05)
+    y_sim = rng.normal(y_true, 0.05)
     # Run fit
     xe = np.ones_like(t)*0.05
     ye = np.ones_like(t)*0.05
@@ -169,42 +171,40 @@ def test_Linear():
 
     for absolute_sigma in [True, False]:
         for weighting in ['std', 'var']:
-            for use_scipy in [True, False]:
-                params, param_errs = mod.fit(
-                    t=t, 
-                    x=x_sim,
-                    y=y_sim,
-                    xe=xe, 
-                    ye=ye, 
-                    fixed_params_dict={'t0': true_params['t0']},
-                    weighting=weighting,
-                    use_scipy=use_scipy,
-                    absolute_sigma=absolute_sigma
-                )
-                
-                # Scipy
-                xe_scipy = xe**0.5 if weighting=='std' else xe
-                ye_scipy = ye**0.5 if weighting=='std' else ye
-                x_popt, x_pcov = curve_fit(
-                    linear, 
-                    t - true_params['t0'],
-                    x_sim,
-                    sigma=xe_scipy,
-                    absolute_sigma=absolute_sigma,
-                    p0=[np.mean(x_sim), 0.0]
-                )
-                y_popt, y_pcov = curve_fit(
-                    linear,
-                    t - true_params['t0'],
-                    y_sim,
-                    sigma=ye_scipy,
-                    absolute_sigma=absolute_sigma,
-                    p0=[np.mean(y_sim), 0.0]
-                )
-                np.testing.assert_allclose(params[:2], x_popt, atol=1e-5)
-                np.testing.assert_allclose(param_errs[:2], np.sqrt(np.diag(x_pcov)), atol=1e-5)
-                np.testing.assert_allclose(params[2:], y_popt, atol=1e-5)
-                np.testing.assert_allclose(param_errs[2:], np.sqrt(np.diag(y_pcov)), atol=1e-5)
+            params, param_errs = mod.fit(
+                t=t,
+                x=x_sim,
+                y=y_sim,
+                xe=xe,
+                ye=ye,
+                fixed_params_dict={'t0': true_params['t0']},
+                weighting=weighting,
+                absolute_sigma=absolute_sigma
+            )
+
+            # Scipy (independent ground truth to check our closed-form fit against)
+            xe_scipy = xe**0.5 if weighting=='std' else xe
+            ye_scipy = ye**0.5 if weighting=='std' else ye
+            x_popt, x_pcov = curve_fit(
+                linear,
+                t - true_params['t0'],
+                x_sim,
+                sigma=xe_scipy,
+                absolute_sigma=absolute_sigma,
+                p0=[np.mean(x_sim), 0.0]
+            )
+            y_popt, y_pcov = curve_fit(
+                linear,
+                t - true_params['t0'],
+                y_sim,
+                sigma=ye_scipy,
+                absolute_sigma=absolute_sigma,
+                p0=[np.mean(y_sim), 0.0]
+            )
+            np.testing.assert_allclose(params[:2], x_popt, atol=1e-5)
+            np.testing.assert_allclose(param_errs[:2], np.sqrt(np.diag(x_pcov)), atol=1e-5)
+            np.testing.assert_allclose(params[2:], y_popt, atol=1e-5)
+            np.testing.assert_allclose(param_errs[2:], np.sqrt(np.diag(y_pcov)), atol=1e-5)
 
     # Test fitter with bootstrap
     t = np.arange(2015.0, 2025.0, 0.5)
@@ -215,8 +215,8 @@ def test_Linear():
         fixed_params_dict={'t0': true_params['t0']}
     )
     x_true_err, y_true_err = np.ones_like(t)*0.05, np.ones_like(t)*0.05
-    x_sim = np.random.normal(x_true, x_true_err)
-    y_sim = np.random.normal(y_true, y_true_err)
+    x_sim = rng.normal(x_true, x_true_err)
+    y_sim = rng.normal(y_true, y_true_err)
     # Run fit
     params, param_errs = mod.fit(t, x_sim, y_sim, x_true_err, y_true_err, fixed_params_dict={'t0': true_params['t0']}, bootstrap=10, seed=42)
     # Confirm true value is within error bar of fit value
@@ -224,6 +224,7 @@ def test_Linear():
 
     
 def test_Acceleration():
+    rng = np.random.default_rng(2)
     # Test handling of a single star
     true_params = {'x0': 1.0, 'y0':0.5, 'x0_err':0.1, 'y0_err':0.1,
                     'vx0':0.2, 'vy0':0.5, 'vx0_err':0.05, 'vy0_err':0.05,
@@ -302,8 +303,8 @@ def test_Acceleration():
                             (0.5*(t - true_params['t0'])**2 * true_params['ax_err'])**2)
     y_true_err = np.sqrt(true_params['y0_err']**2 + ((t - true_params['t0']) * true_params['vy0_err'])**2 +
                             (0.5*(t - true_params['t0'])**2 * true_params['ay_err'])**2)
-    x_sim = np.random.normal(x_true, x_true_err)
-    y_sim = np.random.normal(y_true, y_true_err)
+    x_sim = rng.normal(x_true, x_true_err)
+    y_sim = rng.normal(y_true, y_true_err)
     # Run fit
     mod_fit = motion_model.Acceleration()
     params, param_errs = mod_fit.fit(
@@ -319,6 +320,7 @@ def test_Acceleration():
 
 #@pytest.mark.skip(reason="not written")
 def test_Parallax():
+    rng = np.random.default_rng(4)
     # Test handling of a single star
     true_params = {'x0': 1.0, 'y0':-0.5, 'x0_err':0.1, 'y0_err':0.1,
                     'vx':-0.2, 'vy':0.5, 'vx_err':0.05, 'vy_err':0.05,
@@ -343,8 +345,8 @@ def test_Parallax():
         fixed_params_dict=fixed_params_dict
     )
     x_true_err, y_true_err = np.ones_like(t)*true_params['x0_err'], np.ones_like(t)*true_params['y0_err']
-    x_sim = np.random.normal(x_true, x_true_err)
-    y_sim = np.random.normal(y_true, y_true_err)
+    x_sim = rng.normal(x_true, x_true_err)
+    y_sim = rng.normal(y_true, y_true_err)
     # Run fit
     params, param_errs = mod.fit(t, x_sim,y_sim, x_true_err, y_true_err, fixed_params_dict=fixed_params_dict)
 
@@ -429,15 +431,16 @@ def test_motion_model_param_names_dedup():
     assert got_no_extras == want_no_extras
 
 
-def test_Fixed_run_fit_batch():
+def test_Fixed_run_fit():
     """
-    Fixed.run_fit_batch() vectorizes run_fit() across many stars at once
-    (closed-form weighted average, no iterative optimizer needed) instead of
-    fitting star by star. Check it against a per-star loop calling fit()
-    directly, across a battery of randomized cases: full epochs, ragged
-    (different numbers of valid epochs per star), a star with exactly one
-    valid epoch (degree_of_freedom == 0), a star with zero valid epochs (not
-    enough data), var/std weighting, and absolute_sigma True/False.
+    Fixed.run_fit() fits many stars at once in a single vectorized call
+    (closed-form weighted average, no iterative optimizer needed). Check it
+    against a per-star loop calling fit() directly (which wraps a single
+    star into a batch of one row and calls run_fit() itself), across a
+    battery of randomized cases: full epochs, ragged (different numbers of
+    valid epochs per star), a star with exactly one valid epoch
+    (degree_of_freedom == 0), a star with zero valid epochs (not enough
+    data), var/std weighting, and absolute_sigma True/False.
     """
     rng = np.random.default_rng(3)
     n_stars = 40
@@ -457,7 +460,7 @@ def test_Fixed_run_fit_batch():
 
     for weighting, absolute_sigma in [('var', True), ('std', True), ('var', False)]:
         mod = motion_model.Fixed()
-        got_params, got_errs, got_chi2x, got_chi2y = mod.run_fit_batch(
+        got_params, got_errs, got_chi2x, got_chi2y = mod.run_fit(
             t, x, y, xe, ye, valid, weighting=weighting, absolute_sigma=absolute_sigma,
             fill_value=np.nan, verbose=False
         )
@@ -470,7 +473,7 @@ def test_Fixed_run_fit_batch():
             idx = np.flatnonzero(valid[i])
             params, errs, chi2x, chi2y = mod.fit(
                 t=t[i][idx], x=x[i][idx], y=y[i][idx], xe=xe[i][idx], ye=ye[i][idx],
-                weighting=weighting, absolute_sigma=absolute_sigma, use_scipy=True,
+                weighting=weighting, absolute_sigma=absolute_sigma,
                 fill_value=np.nan, return_chi2=True, bootstrap=0, verbose=False
             )
             want_params[i] = params

@@ -42,9 +42,7 @@ class MosaicSelfRef(object):
             motion_models=['Empty', 'Fixed'],
             fixed_params_dict=None,
             vel_weights='var',
-            use_scipy=True,
             absolute_sigma=True,
-            scipy_method=None,
             # Advanced options
             inherit_n_detect=True,
             iter_callback=None,
@@ -175,16 +173,9 @@ class MosaicSelfRef(object):
             Either 'var' (def) or 'std', depending on whether you want to weight the motion model
             fits by the variance or standard deviation of the position data
 
-        use_scipy : bool, optional
-            If True, use scipy.optimize.curve_fit for velocity fitting. If False, use linear
-            algebra fitting of posible, by default True.
-
         absolute_sigma : bool, optional
             If True, the velocity fit will use absolute errors in the data. If False, relative
             errors will be used, by default False.
-
-        scipy_method : str, optional
-            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
 
         inherit_n_detect : bool, optional
             If True, and an input starlist already has its own 'n_detect' column
@@ -289,9 +280,7 @@ class MosaicSelfRef(object):
         self.trans_input = trans_input
         self.trans_class = trans_class
         self.calc_trans_inverse = calc_trans_inverse
-        self.use_scipy = use_scipy
         self.absolute_sigma = absolute_sigma
-        self.scipy_method = scipy_method
         self.inherit_n_detect = inherit_n_detect
         self.fixed_params_dict = fixed_params_dict
         self.init_guess_mode = init_guess_mode
@@ -434,8 +423,8 @@ class MosaicSelfRef(object):
         mp_star_threshold : int, optional
             Minimum number of stars needing the per-star motion-model fitting
             path before a multiprocessing Pool is used for fitting, even if
-            processes > 1. A star needs that path when its motion model has no
-            vectorized run_fit_batch, or when bootstrap > 0. Below this
+            processes > 1. A star needs that path only when bootstrap > 0
+            (bootstrap resampling isn't vectorized across stars). Below this
             threshold, fitting runs serially instead -- Pool startup/IPC
             overhead isn't worth it for small workloads. See
             StarTable.fit_motion_models for details. By default 100_000.
@@ -465,7 +454,6 @@ class MosaicSelfRef(object):
             'motion_models': self.motion_models,
             'fixed_params_dict': self.fixed_params_dict,
             'vel_weights': self.vel_weighting,
-            'use_scipy': self.use_scipy,
             'absolute_sigma': self.absolute_sigma,
             'iter_callback': self.iter_callback,
             'save_path': self.save_path,
@@ -1384,9 +1372,7 @@ class MosaicSelfRef(object):
                 motion_models=self.motion_models,
                 fixed_params_dict=self.fixed_params_dict,
                 weighting=self.vel_weighting,
-                use_scipy=self.use_scipy,
                 absolute_sigma=self.absolute_sigma,
-                method=self.scipy_method,
                 select_stars=complex_idxs,
                 bootstrap=n_boot,
                 seed=seed,
@@ -1870,9 +1856,7 @@ class MosaicSelfRef(object):
                     motion_models=self.motion_models,
                     fixed_params_dict=fixed_params_dict,
                     weighting=self.vel_weighting,
-                    use_scipy=self.use_scipy,
                     absolute_sigma=self.absolute_sigma,
-                    method=self.scipy_method,
                     processes=processes,
                     chunksize=chunksize,
                     mp_star_threshold=mp_star_threshold,
@@ -2023,9 +2007,7 @@ class MosaicToRef(MosaicSelfRef):
         motion_models=['Empty', 'Fixed'],
         fixed_params_dict=None,
         vel_weights='var',
-        use_scipy=True,
         absolute_sigma=True,
-        scipy_method=None,
         # Advanced options
         inherit_n_detect=True,
         iter_callback=None,
@@ -2181,14 +2163,8 @@ class MosaicToRef(MosaicSelfRef):
             Either 'var' (def) or 'std', depending on whether you want to weight the motion model
             fits by the variance or standard deviation of the position data
 
-        use_scipy : bool, optional
-            If True, use scipy.optimize.curve_fit for velocity fitting. If False, use linear algebra fitting, by default True.
-
         absolute_sigma : bool, optional
             If True, the velocity fit will use absolute errors in the data. If False, relative errors will be used, by default False.
-
-        scipy_method : str, optional
-            Method of scipy.curve_fit, {'lm', 'trf', 'dogbox'}, by default None
 
         inherit_n_detect : bool, optional
             If True, and an input starlist already has its own 'n_detect' column
@@ -2295,9 +2271,7 @@ class MosaicToRef(MosaicSelfRef):
             # motion_model_for_new_star=motion_model_for_new_star,
             fixed_params_dict=fixed_params_dict,
             vel_weights=vel_weights,
-            use_scipy=use_scipy,
             absolute_sigma=absolute_sigma,
-            scipy_method=scipy_method,
             # Advanced options
             inherit_n_detect=inherit_n_detect,
             iter_callback=iter_callback,
@@ -2417,7 +2391,6 @@ class MosaicToRef(MosaicSelfRef):
             'motion_models': self.motion_models,
             'fixed_params_dict': self.fixed_params_dict,
             'vel_weights': self.vel_weighting,
-            'use_scipy': self.use_scipy,
             'absolute_sigma': self.absolute_sigma,
             'iter_callback': self.iter_callback,
             'save_path': self.save_path,
