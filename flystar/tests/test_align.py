@@ -1695,3 +1695,125 @@ def test_ref_velocity_propagation_independent_of_motion_models():
     mtr_fixed.fit()
     assert set(np.asarray(mtr_fixed.ref_table['motion_model_used'])) == {'Fixed'}, \
         'motion_models=[Fixed] must still fit only Fixed'
+
+
+def test_propagation_honors_motion_model_input():
+    """
+    determine_propagation_models honors a caller-supplied 'motion_model_input'
+    column as an explicit per-star propagation request, and otherwise falls
+    back to the most complex model each star's own finite parameters support.
+
+    The subtlety worth pinning: align's setup_ref_table_from_starlist
+    AUTO-FILLS 'motion_model_input' with motion_models[-1].name when the input
+    has no such column. That value is just the fitting setting restated per
+    row, so honoring it would tie propagation back to `motion_models` and
+    re-freeze a reference that carries velocities -- exactly what
+    test_ref_velocity_propagation_independent_of_motion_models forbids. Only a
+    genuine request is honored, tracked by motion_model_input_from_user.
+    """
+    from flystar.align import MosaicToRef, determine_propagation_models
+    from flystar.starlists import StarList
+
+    n, T0 = 25, 2020.0
+    rng = np.random.default_rng(3)
+    names = [f'r{i:03d}' for i in range(n)]
+    x0 = rng.uniform(40, 160, n)
+    y0 = rng.uniform(40, 160, n)
+    vx = rng.normal(0, 0.8, n)
+    vy = rng.normal(0, 0.8, n)
+    m0 = rng.uniform(13, 18, n)
+
+    def build(mm_input=None):
+        ref = StarList(name=names, x=x0, y=y0, m=m0, xe=np.full(n, .01),
+                       ye=np.full(n, .01), me=np.full(n, .01), vx=vx, vy=vy,
+                       t0=np.full(n, T0), vx_err=np.full(n, .001),
+                       vy_err=np.full(n, .001), x0_err=np.full(n, .01),
+                       y0_err=np.full(n, .01))
+        if mm_input is not None:
+            ref['motion_model_input'] = np.array(mm_input, dtype='U20')
+        lists = []
+        for e in range(4):
+            t = T0 + e
+            sl = StarList(name=names, x=x0 + vx * (t - T0), y=y0 + vy * (t - T0),
+                          m=m0, xe=np.full(n, .01), ye=np.full(n, .01),
+                          me=np.full(n, .01))
+            sl.meta['list_time'] = t
+            lists.append(sl)
+        return ref, lists
+
+    def slopes(mm_input):
+        ref, lists = build(mm_input)
+        mtr = MosaicToRef(ref, lists, motion_models=['Fixed'],
+                          update_ref_orig=False, iters=1, dr_tol=[6.],
+                          dm_tol=[3], outlier_tol=[None],
+                          init_guess_mode='name', verbose=False)
+        mtr.fit()
+        r0 = mtr.get_ref_list_from_table(T0)
+        r5 = mtr.get_ref_list_from_table(T0 + 5.0)
+        return mtr, (np.asarray(r5['x']) - np.asarray(r0['x']))[:n] / 5.0
+
+    # no column supplied -> auto-filled 'Fixed' must NOT suppress the velocities
+    mtr, sl_auto = slopes(None)
+    assert mtr.motion_model_input_from_user is False
+    np.testing.assert_allclose(sl_auto, vx, rtol=1e-6, atol=1e-8,
+                               err_msg='auto-filled motion_model_input froze the reference')
+
+    # explicit Fixed request -> honored, so the stars do NOT move
+    mtr, sl_fixed = slopes(['Fixed'] * n)
+    assert mtr.motion_model_input_from_user is True
+    np.testing.assert_allclose(sl_fixed, 0.0, atol=1e-10,
+                               err_msg='explicit Fixed request was not honored')
+
+    # explicit Linear request -> honored, stars move at their own vx
+    mtr, sl_linear = slopes(['Linear'] * n)
+    np.testing.assert_allclose(sl_linear, vx, rtol=1e-6, atol=1e-8,
+                               err_msg='explicit Linear request was not honored')
+
+    # mixed per-star requests are resolved per star
+    mixed = ['Fixed'] * 10 + ['Linear'] * 15
+    mtr, sl_mixed = slopes(mixed)
+    np.testing.assert_allclose(sl_mixed[:10], 0.0, atol=1e-10,
+                               err_msg='per-star Fixed rows moved')
+    np.testing.assert_allclose(sl_mixed[10:], vx[10:], rtol=1e-6, atol=1e-8,
+                               err_msg='per-star Linear rows did not move at vx')
+
+    # fitting is still confined to motion_models regardless of the requests
+    assert set(np.asarray(mtr.ref_table['motion_model_used'])) == {'Fixed'}
+
+
+def test_determine_propagation_models_precedence():
+    """Unit-level precedence: a usable request wins; an unusable, unrecognized
+    or absent one falls back to most-complex-available."""
+    from astropy.table import Column
+    from flystar.startables import StarTable
+    from flystar.align import determine_propagation_models
+
+    n = 6
+    tab = StarTable(name=[f's{i}' for i in range(n)],
+                    x=np.zeros((n, 2)), y=np.zeros((n, 2)), m=np.zeros((n, 2)),
+                    xe=np.ones((n, 2)) * .01, ye=np.ones((n, 2)) * .01,
+                    me=np.ones((n, 2)) * .01, t=np.tile([2020., 2021.], (n, 1)))
+    tab['x0'] = np.arange(n, dtype=float)
+    tab['y0'] = np.arange(n, dtype=float)
+    tab['vx'] = np.array([1., 2., np.nan, 4., 5., 6.])
+    tab['vy'] = np.array([1., 2., np.nan, 4., 5., 6.])
+    tab['t0'] = np.full(n, 2020.)
+
+    # no request column -> pure finiteness fallback
+    got = determine_propagation_models(tab)
+    assert list(got) == ['Linear', 'Linear', 'Fixed', 'Linear', 'Linear', 'Linear']
+
+    tab['motion_model_input'] = Column(
+        ['Linear',    # usable          -> honored
+         'Fixed',     # explicit downgrade despite finite vx -> honored
+         'Linear',    # vx is nan       -> unusable, fallback
+         'Bogus',     # unrecognized    -> fallback
+         'Parallax',  # needs pi/ra/dec -> absent, fallback
+         'Empty'],    # explicit        -> honored
+        dtype='U20')
+    got = determine_propagation_models(tab)
+    assert list(got) == ['Linear', 'Fixed', 'Fixed', 'Linear', 'Linear', 'Empty']
+
+    # and the column can be ignored entirely
+    got = determine_propagation_models(tab, honor_motion_model_input=False)
+    assert list(got) == ['Linear', 'Linear', 'Fixed', 'Linear', 'Linear', 'Linear']
