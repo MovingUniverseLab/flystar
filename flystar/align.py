@@ -1540,6 +1540,15 @@ class MosaicSelfRef(object):
             Number of worker threads scipy uses for the KDTree neighbor search
             inside match.match(). By default 1. See MosaicSelfRef.fit for details.
         """
+        # Same rule as get_ref_list_from_table: what a star is propagated with
+        # is decided by the parameters it actually has, not by which models
+        # were requested for fitting -- so a reference star carrying vx/vy/t0
+        # still moves with Linear under motion_models=['Fixed']. Computed once
+        # here rather than per starlist, since it doesn't depend on the epoch.
+        motion_model_propagate, _ = determine_motion_models(
+            self.ref_table, None, self.fixed_params_dict, verbose=False
+        )
+
         for ii in range(self.N_lists):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
@@ -1549,7 +1558,11 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
 
-            xref, yref = infer_positions(star_list_T.meta['list_time'], self.ref_table, self.motion_models, self.fixed_params_dict)
+            xref, yref, _, _ = self.ref_table.infer_positions(
+                star_list_T.meta['list_time'],
+                fixed_params_dict=self.fixed_params_dict,
+                motion_model_used=motion_model_propagate
+            )
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
@@ -1589,7 +1602,27 @@ class MosaicSelfRef(object):
             self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
             self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
-        x, y, xe, ye = self.ref_table.infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)
+        # Propagation is deliberately NOT restricted to self.motion_models.
+        # That setting says which models to FIT for the observed stars; how far
+        # a star should be moved to reach this epoch is a separate question,
+        # answered by whatever parameters that star actually has. A reference
+        # star imported from an external catalog (Gaia, say) may carry vx/vy/t0
+        # that were never fit here, and must still move with Linear even when
+        # motion_models=['Fixed'] -- otherwise its velocity sits unused in the
+        # table and the reference is silently frozen at its catalog epoch.
+        #
+        # Passing motion_models=None picks, per star, the most complex model
+        # whose own parameters are all present and finite. That degrades
+        # correctly in both directions: a star fit with Fixed has nan vx and so
+        # propagates as Fixed, while a reference star with real velocities
+        # propagates as Linear. 'motion_model_used' still records what was fit.
+        motion_model_propagate, _ = determine_motion_models(
+            self.ref_table, None, self.fixed_params_dict, processes, chunksize, verbose=False
+        )
+        x, y, xe, ye = self.ref_table.infer_positions(
+            epoch, fixed_params_dict=self.fixed_params_dict,
+            motion_model_used=motion_model_propagate
+        )
 
         m = self.ref_table['m0']
 
