@@ -1609,3 +1609,89 @@ if __name__ == '__main__':
         plt.scatter(msc.ref_table['x'][:, i], msc.ref_table['y'][:, i])
     plt.show()
     plot_stars(msc.ref_table, msc.ref_table['name'][:3])
+
+def test_ref_velocity_propagation_independent_of_motion_models():
+    """
+    align's `motion_models` says which models to FIT for the observed stars.
+    It must NOT limit how a reference star is PROPAGATED to an observed epoch:
+    a reference imported from an external catalog can carry vx/vy/t0 that were
+    never fit here, and those have to be used even when motion_models=['Fixed']
+    -- otherwise the velocities sit unused in the table and the reference stays
+    frozen at its catalog epoch.
+    """
+    from flystar.align import MosaicToRef, determine_motion_models
+    from flystar.starlists import StarList
+
+    n, T0 = 25, 2020.0
+    rng = np.random.default_rng(3)
+    names = [f'r{i:03d}' for i in range(n)]
+    x0 = rng.uniform(40, 160, n)
+    y0 = rng.uniform(40, 160, n)
+    # per-star (not uniform) velocities -- a uniform proper motion is
+    # degenerate with the per-epoch transformation, which would absorb it and
+    # make this test pass vacuously
+    vx = rng.normal(0, 0.8, n)
+    vy = rng.normal(0, 0.8, n)
+    m0 = rng.uniform(13, 18, n)
+
+    # NOTE: StarList.__init__ only accepts x/y/m/xe/ye/me/corr as keywords and
+    # silently drops anything else, so the Linear params go on as columns.
+    ref = StarList(name=names, x=x0, y=y0, m=m0, xe=np.full(n, .01),
+                   ye=np.full(n, .01), me=np.full(n, .01))
+    for col, val in [('vx', vx), ('vy', vy), ('t0', np.full(n, T0)),
+                     ('vx_err', np.full(n, .001)), ('vy_err', np.full(n, .001)),
+                     ('x0_err', np.full(n, .01)), ('y0_err', np.full(n, .01))]:
+        ref[col] = val
+
+    lists = []
+    for e in range(4):
+        t = T0 + e
+        sl = StarList(name=names,
+                      x=x0 + vx * (t - T0) + rng.normal(0, .01, n),
+                      y=y0 + vy * (t - T0) + rng.normal(0, .01, n),
+                      m=m0 + rng.normal(0, .01, n),
+                      xe=np.full(n, .01), ye=np.full(n, .01), me=np.full(n, .01))
+        sl.meta['list_time'] = t
+        lists.append(sl)
+
+    for models in (['Fixed'], ['Linear']):
+        mtr = MosaicToRef(ref, lists, motion_models=models,
+                          update_ref_orig=False, iters=1, dr_tol=[6.],
+                          dm_tol=[3], outlier_tol=[None],
+                          init_guess_mode='name', verbose=False)
+        mtr.fit()
+        tab = mtr.ref_table
+
+        # the reference's Linear params must survive into ref_table
+        assert 'vx' in tab.colnames, f'{models}: vx column lost'
+        assert 't0' in tab.colnames, f'{models}: t0 column lost'
+
+        # propagation picks the most complex model each star supports...
+        mm_prop, _ = determine_motion_models(tab, None, mtr.fixed_params_dict,
+                                             verbose=False)
+        assert set(np.asarray(mm_prop)) == {'Linear'}, \
+            f'{models}: propagation model should be Linear, got {set(mm_prop)}'
+
+        # ...and align's own propagation path really moves the stars at the
+        # reference's per-star velocity
+        r0 = mtr.get_ref_list_from_table(T0)
+        r5 = mtr.get_ref_list_from_table(T0 + 5.0)
+        slope = (np.asarray(r5['x']) - np.asarray(r0['x'])) / 5.0
+        np.testing.assert_allclose(
+            slope[:n], vx, rtol=1e-6, atol=1e-8,
+            err_msg=f'{models}: reference not propagated at its own vx')
+
+        slope_y = (np.asarray(r5['y']) - np.asarray(r0['y'])) / 5.0
+        np.testing.assert_allclose(
+            slope_y[:n], vy, rtol=1e-6, atol=1e-8,
+            err_msg=f'{models}: reference not propagated at its own vy')
+
+    # And what was FIT still respects motion_models: Fixed-only must not
+    # produce Linear fits for the observed stars.
+    mtr_fixed = MosaicToRef(ref, lists, motion_models=['Fixed'],
+                            update_ref_orig=False, iters=1, dr_tol=[6.],
+                            dm_tol=[3], outlier_tol=[None],
+                            init_guess_mode='name', verbose=False)
+    mtr_fixed.fit()
+    assert set(np.asarray(mtr_fixed.ref_table['motion_model_used'])) == {'Fixed'}, \
+        'motion_models=[Fixed] must still fit only Fixed'
