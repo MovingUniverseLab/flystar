@@ -489,3 +489,191 @@ def test_Fixed_run_fit():
                                     err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: chi2x mismatch")
         np.testing.assert_allclose(got_chi2y, want_chi2y, rtol=1e-10, atol=1e-10, equal_nan=True,
                                     err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: chi2y mismatch")
+
+# ----------------------------------------------------------------------
+# scipy.optimize.curve_fit agreement
+#
+# Every MotionModel.run_fit is a closed-form (vectorized) weighted
+# least-squares solve rather than an iterative optimizer call, so nothing
+# structurally guarantees it still matches scipy's conventions -- these
+# tests pin that down. They caught a real bug: Fixed.run_fit computed chi2
+# as residual**2/xe**2 instead of using the fit's own weights (1/sigma**2).
+# Those coincide only for weighting='var'; under weighting='std' the fit
+# weight is 1/xe, so chi2 (and, through the absolute_sigma=False
+# sqrt(chi2/dof) rescaling, the reported parameter errors) disagreed with
+# curve_fit. Keep weighting='std' x absolute_sigma=False in the sweep.
+# ----------------------------------------------------------------------
+
+_CF_KW = dict(xtol=1e-14, ftol=1e-14, gtol=1e-14, maxfev=200000)
+
+_FIXED_BASIS = lambda tt, x0: x0 + 0.0 * tt
+_LINEAR_BASIS = lambda tt, x0, v: x0 + v * tt
+_ACCEL_BASIS = lambda tt, x0, v, a: x0 + v * tt + 0.5 * a * tt ** 2
+
+_INDEP_MODELS = [
+    ('Fixed', motion_model.Fixed, _FIXED_BASIS, 1),
+    ('Linear', motion_model.Linear, _LINEAR_BASIS, 2),
+    ('Acceleration', motion_model.Acceleration, _ACCEL_BASIS, 3),
+]
+
+
+def _wchi2(resid, sigma):
+    return float(np.sum((resid / sigma) ** 2))
+
+
+def test_scipy_agreement_independent_models():
+    """
+    Fixed/Linear/Acceleration fit x and y independently -- compare each
+    direction against its own curve_fit, over both weighting schemes, both
+    absolute_sigma settings, several epoch counts (including exactly
+    n_params, where dof == 0), and nan-padded epochs.
+    """
+    for name, cls, basis, n_par in _INDEP_MODELS:
+        for n_epochs in [n_par, n_par + 1, 8]:
+            for weighting in ['var', 'std']:
+                for absolute_sigma in [True, False]:
+                    for nan_count in ([0, 2] if n_epochs == 8 else [0]):
+                        _check_independent(name, cls, basis, n_par, n_epochs,
+                                           weighting, absolute_sigma, nan_count)
+
+
+def _check_independent(name, cls, basis, n_par, n_epochs, weighting,
+                       absolute_sigma, nan_count):
+    seed = abs(hash((name, n_epochs, weighting, absolute_sigma, nan_count))) % (2**31)
+    rng = np.random.default_rng(seed)
+
+    t = 2020.0 + np.arange(n_epochs, dtype=float) * 0.9
+    t0 = float(np.mean(t))
+    dt = t - t0
+
+    tx = rng.normal(50, 2, n_par)
+    ty = rng.normal(30, 2, n_par)
+    xe = rng.uniform(0.5, 2.0, n_epochs) * 1e-3
+    ye = rng.uniform(0.5, 2.0, n_epochs) * 1e-3
+    x = basis(dt, *tx) + rng.normal(0, 1, n_epochs) * xe
+    y = basis(dt, *ty) + rng.normal(0, 1, n_epochs) * ye
+    if nan_count:
+        idx = rng.choice(n_epochs, size=nan_count, replace=False)
+        x[idx] = np.nan
+        y[idx] = np.nan
+
+    model = cls()
+    tag = (f'{name} N={n_epochs} nan={nan_count} weighting={weighting} '
+           f'absolute_sigma={absolute_sigma}')
+
+    if nan_count:
+        # nan padding is only supported on the 2D batch path -- the 1D path's
+        # contract is data the caller already filtered down to real epochs.
+        gp, ge, gx2, gy2 = model.fit(
+            t[None, :], x[None, :], y[None, :], xe[None, :], ye[None, :],
+            fixed_params_dict={'t0': t0}, weighting=weighting,
+            absolute_sigma=absolute_sigma, verbose=False)
+        gp, ge, gx2, gy2 = gp[0], ge[0], gx2[0], gy2[0]
+    else:
+        gp, ge, gx2, gy2 = model.fit(
+            t, x, y, xe, ye, fixed_params_dict={'t0': t0}, weighting=weighting,
+            absolute_sigma=absolute_sigma, return_chi2=True, verbose=False)
+
+    valid = np.isfinite(x) & np.isfinite(y)
+    n_valid = int(valid.sum())
+    sx, sy = motion_model.sigma_from_error(xe, ye, weighting=weighting)
+    dtv = dt[valid]
+
+    want_p, want_e = [], []
+    for val, sig, truth in ((x[valid], sx[valid], tx), (y[valid], sy[valid], ty)):
+        popt, pcov = curve_fit(lambda tt, *p: basis(tt, *p), dtv, val,
+                               p0=np.array(truth, dtype=float), sigma=sig,
+                               absolute_sigma=absolute_sigma, **_CF_KW)
+        want_p.append(popt)
+        want_e.append(np.sqrt(np.diag(pcov)))
+    want_p = np.concatenate(want_p)
+    want_e = np.concatenate(want_e)
+
+    if n_valid == n_par and not absolute_sigma:
+        # dof == 0: scipy's cov is inf/nan; flystar's contract is inf
+        want_e = np.full_like(want_e, np.inf)
+
+    np.testing.assert_allclose(gp, want_p, rtol=1e-6, atol=1e-12,
+                               err_msg=f'{tag}: params disagree with curve_fit')
+    np.testing.assert_allclose(ge, want_e, rtol=1e-5, atol=1e-14,
+                               err_msg=f'{tag}: param errors disagree with curve_fit')
+
+    # chi2 is compared using scipy's definition evaluated at flystar's OWN
+    # params: for a near-exact (low-dof) fit chi2 is so sensitive to the
+    # parameters that curve_fit's residual convergence error would dominate,
+    # even though the params themselves agree to ~1e-11 relative.
+    want_c2 = (_wchi2(x[valid] - basis(dtv, *gp[:n_par]), sx[valid]),
+               _wchi2(y[valid] - basis(dtv, *gp[n_par:]), sy[valid]))
+    np.testing.assert_allclose([gx2, gy2], want_c2, rtol=1e-9, atol=1e-14,
+                               err_msg=f'{tag}: chi2 disagrees with curve_fit definition')
+
+
+def test_scipy_agreement_parallax():
+    """
+    Parallax is a single joint 5-parameter fit over the stacked [x, y] data
+    (pi is shared between both directions), so it's compared against one
+    curve_fit over that same stacked model -- not two independent fits.
+    """
+    from astropy.time import Time
+
+    ra, dec = 266.4, -29.0
+    truth = np.array([50.0, 0.4, 30.0, -0.3, 0.05])
+
+    for n_epochs in [4, 9]:
+        for weighting in ['var', 'std']:
+            for absolute_sigma in [True, False]:
+                seed = abs(hash((n_epochs, weighting, absolute_sigma))) % (2**31)
+                rng = np.random.default_rng(seed)
+
+                t = 2020.0 + np.arange(n_epochs, dtype=float) * 0.7
+                t0 = float(np.mean(t))
+                dt = t - t0
+
+                model = motion_model.Parallax()
+                pvec = model.calc_parallax_vector(
+                    Time(t, format='decimalyear', scale='utc').mjd,
+                    np.array([ra]), np.array([dec]),
+                    pa=np.array([0.0]), obsLocation='earth')
+                Px, Py = pvec[0, 0, :].copy(), pvec[0, 1, :].copy()
+                model.pvec_cached = None
+                model.t_mjd_cached = None
+
+                xe = rng.uniform(0.5, 2.0, n_epochs) * 1e-3
+                ye = rng.uniform(0.5, 2.0, n_epochs) * 1e-3
+                x = truth[0] + truth[1]*dt + truth[4]*Px + rng.normal(0, 1, n_epochs)*xe
+                y = truth[2] + truth[3]*dt + truth[4]*Py + rng.normal(0, 1, n_epochs)*ye
+
+                tag = (f'Parallax N={n_epochs} weighting={weighting} '
+                       f'absolute_sigma={absolute_sigma}')
+
+                gp, ge, gx2, gy2 = model.fit(
+                    t, x, y, xe, ye,
+                    fixed_params_dict={'t0': t0, 'ra': ra, 'dec': dec},
+                    weighting=weighting, absolute_sigma=absolute_sigma,
+                    return_chi2=True, verbose=False)
+
+                sx, sy = motion_model.sigma_from_error(xe, ye, weighting=weighting)
+
+                def f_joint(dummy, x0, vx, y0, vy, pi):
+                    return np.concatenate([x0 + vx*dt + pi*Px,
+                                           y0 + vy*dt + pi*Py])
+
+                data = np.concatenate([x, y])
+                sig = np.concatenate([sx, sy])
+                dummy = np.arange(2 * n_epochs)
+                popt, pcov = curve_fit(f_joint, dummy, data, p0=truth, sigma=sig,
+                                       absolute_sigma=absolute_sigma, **_CF_KW)
+                want_e = np.sqrt(np.diag(pcov))
+                if 2 * n_epochs - 5 <= 0 and not absolute_sigma:
+                    want_e = np.full(5, np.inf)
+
+                np.testing.assert_allclose(gp, popt, rtol=1e-6, atol=1e-12,
+                                           err_msg=f'{tag}: params disagree with curve_fit')
+                np.testing.assert_allclose(ge, want_e, rtol=1e-5, atol=1e-14,
+                                           err_msg=f'{tag}: param errors disagree with curve_fit')
+
+                resid = (data - f_joint(dummy, *gp)) / sig
+                want_c2 = (float((resid[:n_epochs]**2).sum()),
+                           float((resid[n_epochs:]**2).sum()))
+                np.testing.assert_allclose([gx2, gy2], want_c2, rtol=1e-9, atol=1e-14,
+                                           err_msg=f'{tag}: chi2 disagrees with curve_fit definition')
