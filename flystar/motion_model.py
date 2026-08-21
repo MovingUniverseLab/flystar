@@ -49,6 +49,70 @@ def weight_from_sigma(sigma, valid=None):
     return weight
 
 
+def broadcast_times(t, n_stars, caller='model'):
+    """
+    Normalize a time argument into an explicit (n_stars, n_times) grid.
+
+    The SHAPE of `t` alone decides whether the times are shared across stars
+    or are per-star. There is deliberately no inference from
+    len(t) == n_stars: that used to be read as "one time per star", so the
+    very same 1D array changed meaning depending on how many stars the table
+    happened to contain, and a table whose star count coincided with its
+    epoch count silently took the wrong branch.
+
+    ==========================  ====================================
+    `t`                         meaning
+    ==========================  ====================================
+    scalar                      one time, every star
+    ``(n_times,)``              one shared grid, every star -- always,
+                                even when n_times == n_stars
+    ``(1, n_times)``            the same, written explicitly
+    ``(n_stars, n_times)``      each star has its own times
+    ==========================  ====================================
+
+    To evaluate every star at its own single time, pass a column vector --
+    ``t[:, np.newaxis]``, of shape ``(n_stars, 1)`` -- not a bare 1D array.
+    Note that propagating a whole table to one new epoch does NOT need this:
+    pass the scalar epoch and a per-star ``t0`` fixed parameter, and each
+    star's dt = t - t0[star] already differs.
+
+    Parameters
+    ----------
+    t : scalar or array-like
+        Times, in one of the shapes above.
+    n_stars : int
+        Number of stars the times are being broadcast against.
+    caller : str, optional
+        Name used in the error message, by default 'model'.
+
+    Returns
+    -------
+    ndarray, shape (n_stars, n_times)
+        May be a read-only broadcast view -- do not write into it.
+    """
+    t = np.asarray(t, dtype=float)
+
+    if t.ndim == 0:
+        return np.full((n_stars, 1), float(t))
+    if t.ndim == 1:
+        return np.broadcast_to(t[np.newaxis, :], (n_stars, t.shape[0]))
+    if t.ndim == 2:
+        if t.shape[0] == n_stars:
+            return t
+        if t.shape[0] == 1:
+            return np.broadcast_to(t, (n_stars, t.shape[1]))
+        raise ValueError(
+            f"{caller}: 2D time array must have one row per star -- got shape "
+            f"{t.shape} for {n_stars} star(s). Pass a shared time grid as 1D "
+            f"(n_times,), or per-star times as (n_stars, n_times); for one "
+            f"time per star use t[:, np.newaxis], of shape ({n_stars}, 1)."
+        )
+    raise ValueError(
+        f"{caller}: time array must be scalar, 1D (n_times,), or 2D "
+        f"(n_stars, n_times) -- got a {t.ndim}D array of shape {t.shape}."
+    )
+
+
 def sigma_from_error(xe, ye, weighting='var'):
     """
     Convert x/y position errors into the sigma values a weighted fit
@@ -396,19 +460,19 @@ class Empty(MotionModel):
         """
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
-        t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
 
         N_stars = fit_params.shape[0]
-        N_times = len(t)
+        # See broadcast_times: t's shape alone says shared-grid vs per-star.
+        N_times = broadcast_times(t, N_stars, caller='Empty.model').shape[1]
 
-        if N_times == N_stars or N_times == 1 or N_stars == 1:
-            # Assume each time corresponds to each star, so N_times = 1
-            x = np.full(N_stars, np.nan)
-            y = np.full(N_stars, np.nan)
-        else:
-            x = np.full((N_stars, N_times), np.nan)
-            y = np.full((N_stars, N_times), np.nan)
+        x = np.full((N_stars, N_times), np.nan)
+        y = np.full((N_stars, N_times), np.nan)
+
+        if N_stars == 1 or N_times == 1:
+            # Same squeeze convention as every other model
+            x = x.flatten()
+            y = y.flatten()
 
         if fit_param_errs is None:
             return x, y
@@ -511,26 +575,19 @@ class Fixed(MotionModel):
             Predicted position (and uncertainties) of Fixed model, shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
         """
         self.fixed_params_dict = fixed_params_dict
-        t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         N_stars = fit_params.shape[0]
-        N_times = len(t)
+        # See broadcast_times: t's shape alone says shared-grid vs per-star.
+        dt = broadcast_times(t, N_stars, caller='Fixed.model')  # (N_stars, N_times)
+        N_times = dt.shape[1]
         x0, y0 = fit_params.T  # Each shape (N_stars,)
 
-        # FIXME: Do we want this assumption?
-        if N_times == N_stars:
-            # Assume each time corresponds to each star, so N_times = 1
-            dt = t[:, np.newaxis]  # Shape (N_stars, 1)
-            N_times = 1
-        else:
-            # Else, calculate each time for each star
-            dt = t[np.newaxis, :]  - np.zeros(N_stars)[:, np.newaxis]  # Shape (N_stars, N_times)
-
-        # Return results in (N_stars, N_times) shape
-        x = self.model_fit(t, x0[:, np.newaxis])  # Shape (N_stars, N_times)
-        y = self.model_fit(t, y0[:, np.newaxis])  # Shape (N_stars, N_times)
+        # Return results in (N_stars, N_times) shape. Fixed is
+        # time-independent, so dt only sets the output shape here.
+        x = self.model_fit(dt, x0[:, np.newaxis])  # Shape (N_stars, N_times)
+        y = self.model_fit(dt, y0[:, np.newaxis])  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays
@@ -719,22 +776,17 @@ class Linear(MotionModel):
         assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Linear model."
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
-        t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
 
         N_stars = fit_params.shape[0]
-        N_times = len(t)
+        # See broadcast_times: t's shape alone says shared-grid vs per-star.
+        t_grid = broadcast_times(t, N_stars, caller='Linear.model')  # (N_stars, N_times)
+        N_times = t_grid.shape[1]
 
         x0, vx, y0, vy = fit_params.T  # Each shape (N_stars,)
-        t0 = np.atleast_1d(fixed_params_dict['t0'])  # Shape (N_stars,) or (1,)
+        t0 = np.broadcast_to(np.atleast_1d(fixed_params_dict['t0']), (N_stars,))
 
-        if N_times == N_stars:
-            # Assume each time corresponds to each star, so N_times = 1
-            dt = t - t0 # Shape (N_stars,)
-            dt = dt[:, np.newaxis]  # Shape (N_stars, 1)
-            N_times = 1
-        else:
-            dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+        dt = t_grid - np.asarray(t0)[:, np.newaxis]  # Shape (N_stars, N_times)
 
         x = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis])  # Shape (N_stars, N_times)
         y = self.model_fit(dt, y0[:, np.newaxis], vy[:, np.newaxis])  # Shape (N_stars, N_times)
@@ -981,22 +1033,17 @@ class Acceleration(MotionModel):
         assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Acceleration model."
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
-        t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
 
         N_stars = fit_params.shape[0]
-        N_times = len(t)
+        # See broadcast_times: t's shape alone says shared-grid vs per-star.
+        t_grid = broadcast_times(t, N_stars, caller='Acceleration.model')  # (N_stars, N_times)
+        N_times = t_grid.shape[1]
 
         x0, vx0, ax, y0, vy0, ay = fit_params.T  # Each shape (N_stars,)
-        t0 = np.atleast_1d(fixed_params_dict['t0'])  # Shape (N_stars,) or (1,)
+        t0 = np.broadcast_to(np.atleast_1d(fixed_params_dict['t0']), (N_stars,))
 
-        if N_times == N_stars:
-            # Assume each time corresponds to each star, so N_times = 1
-            dt = t - t0 # Shape (N_stars,)
-            dt = dt[:, np.newaxis]  # Shape (N_stars, 1)
-            N_times = 1
-        else:
-            dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+        dt = t_grid - np.asarray(t0)[:, np.newaxis]  # Shape (N_stars, N_times)
 
         x = self.model_fit(dt, x0[:, np.newaxis], vx0[:, np.newaxis], ax[:, np.newaxis])  # Shape (N_stars, N_times)
         y = self.model_fit(dt, y0[:, np.newaxis], vy0[:, np.newaxis], ay[:, np.newaxis])  # Shape (N_stars, N_times)
@@ -1315,17 +1362,22 @@ class Parallax(MotionModel):
         assert all([_ in fixed_params_dict for _ in ['t0', 'ra', 'dec']]), "Fixed parameters t0, ra, and dec are required for Parallax model."
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
-        t = np.atleast_1d(t)
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
 
         N_stars = fit_params.shape[0]
-        N_times = len(t)
+        # See broadcast_times: t's shape alone says shared-grid vs per-star.
+        t_grid = broadcast_times(t, N_stars, caller='Parallax.model')  # (N_stars, N_times)
+        N_times = t_grid.shape[1]
 
         x0, vx, y0, vy, pi = fit_params.T  # Each shape (N_stars,)
-        t0 = np.atleast_1d(fixed_params_dict['t0'])  # Shape (N_stars,) or (1,)
-        ra = np.atleast_1d(fixed_params_dict['ra'])
-        dec = np.atleast_1d(fixed_params_dict['dec'])
-        pa = np.atleast_1d(fixed_params_dict.get('pa', 0.0))
+        # Broadcast every per-star fixed param to (N_stars,), as run_fit does.
+        # A scalar ra/dec would otherwise leave the parallax vector with a
+        # single row, which only happens to broadcast for a shared time grid
+        # and indexes out of bounds for a per-star one.
+        t0 = np.broadcast_to(np.atleast_1d(fixed_params_dict['t0']), (N_stars,))
+        ra = np.broadcast_to(np.atleast_1d(fixed_params_dict['ra']), (N_stars,))
+        dec = np.broadcast_to(np.atleast_1d(fixed_params_dict['dec']), (N_stars,))
+        pa = np.broadcast_to(np.atleast_1d(fixed_params_dict.get('pa', 0.0)), (N_stars,))
         obsLocation = fixed_params_dict.get('obsLocation', 'earth')
 
         # TODO: vectorize parallax.parallax_in_direction to handle multiple obsLocation?
@@ -1334,16 +1386,23 @@ class Parallax(MotionModel):
             obsLocation = np.unique(obsLocation)[0]
 
 
-        if N_times == N_stars:
-            # Assume each time corresponds to each star, so N_times = 1
-            dt = t - t0 # Shape (N_stars,)
-            dt = dt[:, np.newaxis]  # Shape (N_stars, 1)
-            N_times = 1
-        else:
-            dt = t[np.newaxis, :] - t0[:, np.newaxis]  # Shape (N_stars, N_times)
+        dt = t_grid - np.asarray(t0)[:, np.newaxis]  # Shape (N_stars, N_times)
 
-        t_mjd = Time(t, format='decimalyear', scale='utc').mjd  # Shape (N_times,)
-        self.pvec = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation) # Shape (N_stars, 2, N_times)
+        # parallax_in_direction takes a single shared mjd axis, but t_grid may
+        # give each star its own times -- so evaluate it once for the unique
+        # times across the whole grid and gather back per (star, epoch). When
+        # every star shares one grid (the common case) unique_t is just that
+        # grid and this reduces to a reshape, same as run_fit does.
+        unique_t, inverse_idx = np.unique(t_grid, return_inverse=True)
+        inverse_idx = inverse_idx.reshape(t_grid.shape)
+        t_mjd = Time(unique_t, format='decimalyear', scale='utc').mjd
+        pvec_unique = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation)  # (N_stars, 2, n_unique)
+        star_idx = np.arange(N_stars)[:, np.newaxis]
+        self.pvec = np.stack(
+            [pvec_unique[:, 0, :][star_idx, inverse_idx],
+             pvec_unique[:, 1, :][star_idx, inverse_idx]],
+            axis=1
+        )  # Shape (N_stars, 2, N_times)
         x, y = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis], y0[:, np.newaxis], vy[:, np.newaxis], pi[:, np.newaxis])  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:

@@ -1551,8 +1551,24 @@ class StarTable(Table):
 
         Parameters
         ----------
-        times : array_like
-            Times at which to predict positions. Scalar, or (N_times,) array, or (N_stars, N_times) array.
+        times : scalar or array_like
+            Times at which to predict positions. The SHAPE decides whether the
+            times are shared across stars or are per-star -- nothing is
+            inferred from len(times) matching N_stars:
+
+              scalar               one time, every star
+              (N_times,)           one shared grid, every star -- always,
+                                   even when N_times == N_stars
+              (1, N_times)         the same, written explicitly
+              (N_stars, N_times)   each star has its own times
+
+            To evaluate every star at its own single time, pass a column
+            vector, times[:, np.newaxis], of shape (N_stars, 1) -- not a bare
+            1D array. Propagating the whole table to one new epoch does NOT
+            need that: pass the scalar epoch and a per-star 't0' (column or
+            fixed_params_dict entry), and each star's dt = t - t0[star]
+            already differs. Any other shape raises ValueError rather than
+            being guessed at. See motion_model.broadcast_times.
         fixed_params_dict : None or dict, optional
             Dictionary of fixed parameters to use for prediction.
             If not provided, will try to look for fixed parameters in the meta data then in table columns.
@@ -1570,8 +1586,12 @@ class StarTable(Table):
             "infer_positions: 'motion_model_used' column not found in the table. Please run fit_motion_models first."
 
         N_stars = len(self)
-        times = np.atleast_1d(times)
-        N_times = len(times)
+        # Normalize to an explicit (N_stars, N_times) grid up front, so the
+        # shared-grid vs per-star distinction is settled by times' shape
+        # rather than re-derived (differently) inside each motion model.
+        # See motion_model.broadcast_times for the accepted shapes.
+        times_grid = motion_model.broadcast_times(times, N_stars, caller='infer_positions')
+        N_times = times_grid.shape[1]
 
         x_pred = np.full((N_stars, N_times), fill_value, dtype=float)
         y_pred = np.full((N_stars, N_times), fill_value, dtype=float)
@@ -1638,13 +1658,17 @@ class StarTable(Table):
 
             # Predict positions
             # shape = (N_stars_this_model, N_times) or (N_stars_this_model,) if N_times=1 or (N_times,) if N_stars_this_model=1 or scalar
+            # Hand this model's stars their own rows of the time grid, so a
+            # per-star grid stays aligned with the per-star fit_params /
+            # fixed_params sliced by unique_index just above.
+            times_this_model = times_grid[unique_index]
             if with_xe_ye:
                 x, y, xe, ye = motion_model_instance.model(
-                    times, fit_params, fit_param_errs, fixed_params
+                    times_this_model, fit_params, fit_param_errs, fixed_params
                 )
             else:
                 x, y = motion_model_instance.model(
-                    times, fit_params, fixed_params=fixed_params
+                    times_this_model, fit_params, fixed_params=fixed_params
                 )
 
             if N_stars==1 and N_times > 1:
