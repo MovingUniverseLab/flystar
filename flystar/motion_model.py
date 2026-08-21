@@ -618,10 +618,19 @@ class Fixed(MotionModel):
         params = np.column_stack([x0, y0])
         param_errs = np.column_stack([x0e, y0e])
 
-        # chi2: Fixed's prediction is time-independent (x_pred == x0 for every epoch)
+        # chi2: Fixed's prediction is time-independent (x_pred == x0 for every
+        # epoch). Weighted with x_wt/y_wt -- the same (weighting-scheme)
+        # weights the fit itself used, as in Linear/Acceleration/Parallax --
+        # NOT a re-derived 1/xe**2. Those two only coincide for
+        # weighting='var'; under weighting='std' the fit's weight is 1/xe, so
+        # dividing by xe**2 here would report a chi2 inconsistent with the fit
+        # (and, via the absolute_sigma=False rescaling below, wrong parameter
+        # errors that disagree with scipy.optimize.curve_fit). Using the
+        # weights also makes an epoch with unusable xe/ye (weight 0) drop out
+        # of chi2 cleanly instead of poisoning the whole sum with nan.
         with np.errstate(divide='ignore', invalid='ignore'):
-            chi2x = np.where(valid, (x - x0[:, np.newaxis])**2 / xe**2, 0.0).sum(axis=1)
-            chi2y = np.where(valid, (y - y0[:, np.newaxis])**2 / ye**2, 0.0).sum(axis=1)
+            chi2x = (x_wt * (x_masked - x0[:, np.newaxis])**2).sum(axis=1)
+            chi2y = (y_wt * (y_masked - y0[:, np.newaxis])**2).sum(axis=1)
 
         if not absolute_sigma:
             dof = n_valid - self.n_params
