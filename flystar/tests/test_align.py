@@ -1699,7 +1699,7 @@ def test_ref_velocity_propagation_independent_of_motion_models():
 
 def test_propagation_honors_motion_model_input():
     """
-    determine_propagation_models honors a caller-supplied 'motion_model_input'
+    determine_motion_models(tab, None) honors a caller-supplied 'motion_model_input'
     column as an explicit per-star propagation request, and otherwise falls
     back to the most complex model each star's own finite parameters support.
 
@@ -1711,7 +1711,7 @@ def test_propagation_honors_motion_model_input():
     carries velocities, exactly what
     test_ref_velocity_propagation_independent_of_motion_models forbids.
     """
-    from flystar.align import MosaicToRef, determine_propagation_models
+    from flystar.align import MosaicToRef
     from flystar.starlists import StarList
 
     n, T0 = 25, 2020.0
@@ -1779,16 +1779,22 @@ def test_propagation_honors_motion_model_input():
     np.testing.assert_allclose(sl_mixed[10:], vx[10:], rtol=1e-6, atol=1e-8,
                                err_msg='per-star Linear rows did not move at vx')
 
-    # fitting is still confined to motion_models regardless of the requests
-    assert set(np.asarray(mtr.ref_table['motion_model_used'])) == {'Fixed'}
+    # A usable per-star request outranks the motion_models list, so
+    # motion_model_used follows the request rather than being clamped to
+    # ['Fixed'] -- the same priority fit_motion_models gives the column. These
+    # reference stars carry real vx/vy from the input catalog, so labeling the
+    # requested rows 'Linear' points at parameters that genuinely exist.
+    mmu = np.asarray(mtr.ref_table['motion_model_used'])[:n]
+    assert set(mmu[:10]) == {'Fixed'}, f'Fixed-requested rows got {set(mmu[:10])}'
+    assert set(mmu[10:]) == {'Linear'}, f'Linear-requested rows got {set(mmu[10:])}'
 
 
-def test_determine_propagation_models_precedence():
+def test_determine_motion_models_precedence():
     """Unit-level precedence: a usable request wins; an unusable, unrecognized
     or absent one falls back to most-complex-available."""
     from astropy.table import Column
     from flystar.startables import StarTable
-    from flystar.align import determine_propagation_models
+    from flystar.align import determine_motion_models
 
     n = 6
     tab = StarTable(name=[f's{i}' for i in range(n)],
@@ -1802,7 +1808,7 @@ def test_determine_propagation_models_precedence():
     tab['t0'] = np.full(n, 2020.)
 
     # no request column -> pure finiteness fallback
-    got = determine_propagation_models(tab)
+    got, _ = determine_motion_models(tab, None, verbose=False)
     assert list(got) == ['Linear', 'Linear', 'Fixed', 'Linear', 'Linear', 'Linear']
 
     tab['motion_model_input'] = Column(
@@ -1813,5 +1819,5 @@ def test_determine_propagation_models_precedence():
          'Parallax',  # needs pi/ra/dec -> absent, fallback
          'Empty'],    # explicit        -> honored
         dtype='U20')
-    got = determine_propagation_models(tab)
+    got, _ = determine_motion_models(tab, None, verbose=False)
     assert list(got) == ['Linear', 'Fixed', 'Fixed', 'Linear', 'Linear', 'Empty']
