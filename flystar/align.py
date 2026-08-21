@@ -1350,28 +1350,40 @@ class MosaicSelfRef(object):
         weighted_m = ('me' in self.ref_table.colnames)
 
         # Route each star to the fastest applicable fitting path instead of
-        # an all-or-nothing check on the *requested* motion_model_input. A
-        # star with at most 1 valid (finite x, y, xe, ye) epoch can only
-        # ever qualify for the Empty or Fixed motion models -- and
-        # combine_lists_xym already produces identical output for both (0
-        # valid epochs -> nan/inf, matching Empty; >=1 -> weighted average,
-        # matching Fixed) -- so it's safe to route those stars straight to
-        # the fast vectorized combine_lists_xym, regardless of whether
-        # *other* stars need something more complex. This is a conservative
-        # (never-wrong) check: the raw count here is always >= the
-        # deduplicated-unique-times count fit_motion_models itself uses, so
-        # a star this flags as "<=1" can never actually qualify for a model
-        # needing more. Only stars with >=2 valid epochs (which MIGHT
-        # qualify for Linear/Parallax/etc, depending on
-        # self.motion_models/fixed_params_dict) go through
+        # an all-or-nothing check on the *requested* motion_model_input.
+        #
+        # If Empty/Fixed are the only motion models even possible (nothing
+        # more complex was requested), there's no ambiguity to resolve at
+        # all: every star is guaranteed to end up Empty or Fixed regardless
+        # of how many epochs it has, so route all of them through the fast,
+        # vectorized combine_lists_xym without needing fit_motion_models's
+        # fuller classification. (combine_lists honors absolute_sigma the
+        # same way Fixed.run_fit does, so these stars' errors are computed
+        # consistently either way.)
+        #
+        # Otherwise (Linear/Parallax/etc. are also possible), a star with at
+        # most 1 valid (finite x, y, xe, ye) epoch can still only ever
+        # qualify for Empty or Fixed -- and combine_lists_xym already
+        # produces identical output for both (0 valid epochs -> nan/inf,
+        # matching Empty; >=1 -> weighted average, matching Fixed) -- so
+        # it's safe to route those stars the same way, regardless of
+        # whether *other* stars need something more complex. This is a
+        # conservative (never-wrong) check: the raw count here is always >=
+        # the deduplicated-unique-times count fit_motion_models itself
+        # uses, so a star this flags as "<=1" can never actually qualify
+        # for a model needing more. Only stars with >=2 valid epochs (which
+        # MIGHT qualify for Linear/Parallax/etc.) go through
         # fit_motion_models's fuller (and more expensive) classification.
         # Previously, a single star needing something other than Fixed
         # forced ALL stars -- including a huge Fixed/Empty majority -- through
         # the slower fit_motion_models.
-        valid_epoch = np.isfinite(self.ref_table['x']) & np.isfinite(self.ref_table['y'])
-        if weighted_xy:
-            valid_epoch &= np.isfinite(self.ref_table['xe']) & np.isfinite(self.ref_table['ye'])
-        guaranteed_simple = valid_epoch.sum(axis=1) <= 1
+        if {mm.name for mm in self.motion_models} <= {'Empty', 'Fixed'}:
+            guaranteed_simple = np.ones(len(self.ref_table), dtype=bool)
+        else:
+            valid_epoch = np.isfinite(self.ref_table['x']) & np.isfinite(self.ref_table['y'])
+            if weighted_xy:
+                valid_epoch &= np.isfinite(self.ref_table['xe']) & np.isfinite(self.ref_table['ye'])
+            guaranteed_simple = valid_epoch.sum(axis=1) <= 1
 
         if weighted_xy:
             # fit_motion_models falls back to a unit weight (xe=ye=1) for a
