@@ -789,14 +789,33 @@ class MosaicSelfRef(object):
             idx2 = np.where(use_in_trans)[0][idx2]
 
             if len(idx1) == 0 or len(idx2) == 0:
-                fig, ax = plt.subplots()
-                ax.scatter(star_list_T['x'], star_list_T['y'], s=1, c='C0', alpha=0.5, label='Transformed Star List')
-                ax.scatter(ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], s=1, c='C3', alpha=0.5, label='Reference List (use_in_trans=True)')
-                ax.set_xlabel('X')
-                ax.set_ylabel('Y')
-                ax.set_title(f'Matching Results for Catalog {ii + 1}')
-                ax.legend()
-                plt.show()
+                try:
+                    import plotly.graph_objects as go
+                    fig = go.Figure()
+                    plots.plotly_stars(
+                        x=star_list_T['x'],
+                        y=star_list_T['y'],
+                        color='C0',
+                        label='Transformed Starlist',
+                        fig=fig
+                    )
+                    plots.plotly_stars(
+                        x=ref_list['x'][use_in_trans],
+                        y=ref_list['y'][use_in_trans],
+                        color='C3',
+                        label='Reference List (use_in_trans=True)',
+                        fig=fig
+                    )
+                    fig.show()
+                except ImportError:
+                    fig, ax = plt.subplots()
+                    ax.scatter(star_list_T['x'], star_list_T['y'], s=1, c='C0', alpha=0.5, label='Transformed Starlist')
+                    ax.scatter(ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], s=1, c='C3', alpha=0.5, label='Reference List (use_in_trans=True)')
+                    ax.set_xlabel('X')
+                    ax.set_ylabel('Y')
+                    ax.set_title(f'Matching Results for Catalog {ii + 1}')
+                    ax.legend()
+                    plt.show()
                 raise ValueError(f"align.match_and_transform: No matches found between star_list at index {ii} and the reference list. Check your dr_tol={dr_tol} and dm_tol={dm_tol} values.")
 
             if self.verbose > 1:
