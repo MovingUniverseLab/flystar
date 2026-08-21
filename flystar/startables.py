@@ -797,7 +797,24 @@ class StarTable(Table):
         weighting : str, optional
             Uncertainty weighting, 'std' for weight=1/xe(ye) or 'var' for weight=1/xe(ye)**2, by default 'var'
         absolute_sigma : bool, optional
-            Use absolute sigma or not, by default True
+            Same convention as scipy.optimize.curve_fit. If True (default),
+            the reported parameter errors are propagated from the input
+            xe/ye as given. If False, they are rescaled by
+            sqrt(chi2/dof), so only the relative magnitudes of xe/ye
+            matter and the errors instead reflect the epochs' own scatter.
+
+            Special case -- no uncertainty information available (the table
+            has no xe/ye columns, or a given star's xe/ye are invalid in
+            every epoch): the fit falls back to a substituted unit error
+            (sigma=1) so a position can still be measured. With
+            absolute_sigma=True the resulting error would be purely a
+            function of that fabricated sigma (e.g. exactly 1/sqrt(N_valid)
+            for Fixed), so it is reported as np.inf instead -- unknown
+            rather than a finite number that only looks like a real
+            uncertainty. With absolute_sigma=False the sqrt(chi2/dof)
+            rescaling cancels the fabricated sigma back out, leaving the
+            epochs' genuine empirical scatter, which is kept.
+            By default True.
         select_stars : list of int, optional
             Indices of stars to fit, by default None (fit all stars)
         keep_existing : bool, optional
@@ -1488,13 +1505,29 @@ class StarTable(Table):
                             chi2_x_array[idx] = chi2_x
                             chi2_y_array[idx] = chi2_y
 
-                # fill_with_one substitutes a unit weight so the fit can
-                # still run, but that's not a real measurement uncertainty
-                # -- we still don't know the true error for these stars, so
-                # report it as such rather than the fabricated finite value
-                # the unit weight would otherwise propagate to.
-                if with_xe_ye and fill_with_one.any():
-                    param_errs_array[fill_with_one[unique_index]] = np.inf
+                # These stars were fit with a substituted unit error (sigma=1)
+                # rather than a real measurement uncertainty -- either the
+                # table has no xe/ye columns at all (xe_batch/xe_stars above
+                # fall back to np.ones), or this particular star's own xe/ye
+                # were invalid in every epoch (fill_with_one). Both cases are
+                # the same situation: no uncertainty information exists.
+                #
+                # With absolute_sigma=True the reported error is then purely
+                # propagated from that fabricated sigma -- e.g. exactly
+                # 1/sqrt(N_valid) for Fixed (0.577... for 3 epochs) -- a
+                # finite number that looks like a real uncertainty in the
+                # data's units but carries no measurement information at all,
+                # so report inf instead. With absolute_sigma=False the errors
+                # are rescaled by sqrt(chi2/dof), which cancels the fabricated
+                # sigma back out and leaves the epochs' own empirical scatter:
+                # a genuine, correctly-scaled uncertainty, so that one is kept.
+                if absolute_sigma:
+                    if with_xe_ye:
+                        no_real_err = fill_with_one[unique_index]
+                    else:
+                        no_real_err = np.ones(len(unique_index), dtype=bool)
+                    if no_real_err.any():
+                        param_errs_array[no_real_err] = np.inf
 
                 # Store results back to the table
                 for j, param_name in enumerate(param_names):
