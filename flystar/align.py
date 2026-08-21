@@ -1149,6 +1149,13 @@ class MosaicSelfRef(object):
                 else:
                     ref_table._set_invalid_list_values(col_name, -1)
 
+        # Remember whether 'motion_model_input' is the caller's own per-star
+        # request or one this function invented. Propagation honors a real
+        # request (see determine_propagation_models) but must ignore the
+        # invented one: it is just motion_models restated per row, so honoring
+        # it would tie propagation back to the fitting setting and, for
+        # motion_models=['Fixed'], freeze a reference that has velocities.
+        self.motion_model_input_from_user = 'motion_model_input' in ref_table.colnames
         if 'motion_model_input' not in ref_table.colnames:
             ref_table.add_column(np.repeat(self.motion_models[-1].name, len(ref_table)), name='motion_model_input')
 
@@ -1541,12 +1548,14 @@ class MosaicSelfRef(object):
             inside match.match(). By default 1. See MosaicSelfRef.fit for details.
         """
         # Same rule as get_ref_list_from_table: what a star is propagated with
-        # is decided by the parameters it actually has, not by which models
-        # were requested for fitting -- so a reference star carrying vx/vy/t0
-        # still moves with Linear under motion_models=['Fixed']. Computed once
-        # here rather than per starlist, since it doesn't depend on the epoch.
-        motion_model_propagate, _ = determine_motion_models(
-            self.ref_table, None, self.fixed_params_dict, verbose=False
+        # is a 'motion_model_input' request where usable, else the most complex
+        # model that star's own finite parameters support -- not the models
+        # requested for fitting. So a reference star carrying vx/vy/t0 still
+        # moves with Linear under motion_models=['Fixed']. Computed once here
+        # rather than per starlist, since it doesn't depend on the epoch.
+        motion_model_propagate = determine_propagation_models(
+            self.ref_table, self.fixed_params_dict,
+            honor_motion_model_input=getattr(self, 'motion_model_input_from_user', False)
         )
 
         for ii in range(self.N_lists):
@@ -1605,19 +1614,18 @@ class MosaicSelfRef(object):
         # Propagation is deliberately NOT restricted to self.motion_models.
         # That setting says which models to FIT for the observed stars; how far
         # a star should be moved to reach this epoch is a separate question,
-        # answered by whatever parameters that star actually has. A reference
-        # star imported from an external catalog (Gaia, say) may carry vx/vy/t0
-        # that were never fit here, and must still move with Linear even when
+        # answered by the parameters that star actually has. A reference star
+        # imported from an external catalog (Gaia, say) may carry vx/vy/t0 that
+        # were never fit here, and must still move with Linear even when
         # motion_models=['Fixed'] -- otherwise its velocity sits unused in the
         # table and the reference is silently frozen at its catalog epoch.
-        #
-        # Passing motion_models=None picks, per star, the most complex model
-        # whose own parameters are all present and finite. That degrades
-        # correctly in both directions: a star fit with Fixed has nan vx and so
-        # propagates as Fixed, while a reference star with real velocities
-        # propagates as Linear. 'motion_model_used' still records what was fit.
-        motion_model_propagate, _ = determine_motion_models(
-            self.ref_table, None, self.fixed_params_dict, processes, chunksize, verbose=False
+        # See determine_propagation_models: a 'motion_model_input' request wins
+        # where it is usable, otherwise the most complex model that star's own
+        # finite parameters support. 'motion_model_used' still records what was
+        # fit.
+        motion_model_propagate = determine_propagation_models(
+            self.ref_table, self.fixed_params_dict,
+            honor_motion_model_input=getattr(self, 'motion_model_input_from_user', False)
         )
         x, y, xe, ye = self.ref_table.infer_positions(
             epoch, fixed_params_dict=self.fixed_params_dict,
@@ -2871,6 +2879,104 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
     n_params = n_params[assigned].tolist()
 
     return motion_model_used, n_params
+
+
+def determine_propagation_models(startable, fixed_params_dict=None,
+                                 honor_motion_model_input=True):
+    """Per-star motion model to PROPAGATE each star with.
+
+    This is deliberately a different question from which model a star was
+    *fit* with. Fitting is governed by the caller's `motion_models` list and
+    recorded in 'motion_model_used'; how far a star must move to reach some
+    other epoch depends instead on the parameters that star actually has. A
+    reference star imported from an external catalog can carry vx/vy/t0 that
+    were never fit here, and still has to move with Linear.
+
+    Selection, in order of precedence:
+
+    1. A 'motion_model_input' column, where present and usable. That column
+       is the caller's explicit per-star request, and honoring it here is the
+       behavior the original get_star_positions_at_time had -- it batched
+       stars by 'motion_model_input' and only fell back for the leftovers.
+       "Usable" means every parameter that model needs is available (a table
+       column or a fixed_params_dict entry) and finite for that star, so a
+       requested model that cannot actually be evaluated does not silently
+       produce nan.
+    2. Otherwise, the most complex model whose own parameters are all present
+       and finite for that star -- see determine_motion_models(startable,
+       None). This is what rows with no 'motion_model_input' column, an
+       unrecognized name, or an unusable request fall back to. It degrades
+       correctly on its own: a star fit with Fixed has nan vx and so
+       propagates as Fixed.
+
+    Unlike the original, the fallback is decided by an explicit finiteness
+    check rather than by catching an exception and retrying whatever came out
+    nan, so a genuinely broken model evaluation still surfaces as an error.
+
+    Parameters
+    ----------
+    startable : StarTable
+        Table with motion model parameter columns.
+    fixed_params_dict : dict, optional
+        Fixed parameters supplied outside the table, by default None.
+    honor_motion_model_input : bool, optional
+        Whether the 'motion_model_input' column is a real per-star request.
+        Set this False when the column was auto-filled rather than supplied by
+        the caller: align's setup_ref_table_from_starlist populates it with
+        motion_models[-1].name when the input starlist has no such column, and
+        that value is just the fitting setting restated per row. Honoring it
+        would tie propagation straight back to `motion_models` -- with
+        motion_models=['Fixed'] every row would read 'Fixed' and a reference
+        carrying real velocities would be frozen at its catalog epoch, which is
+        the whole thing this function exists to avoid. MosaicSelfRef/MosaicToRef
+        pass self.motion_model_input_from_user here. By default True.
+
+    Returns
+    -------
+    motion_model_propagate : ndarray of str, shape (N_stars,)
+        Model name to propagate each star with.
+    """
+    # Most complex model each star's own finite parameters support. Empty
+    # needs no parameters, so every row is assigned and the length matches.
+    best, _ = determine_motion_models(startable, None, fixed_params_dict, verbose=False)
+    motion_model_propagate = np.asarray(best, dtype=object)
+
+    if not honor_motion_model_input or ('motion_model_input' not in startable.colnames):
+        return motion_model_propagate
+
+    if fixed_params_dict is None:
+        fixed_params_dict = {}
+
+    mm_map = motion_model.motion_model_map()
+    requested = np.asarray(startable['motion_model_input'])
+
+    for name in np.unique(requested):
+        if name not in mm_map:
+            # Unrecognized request -- leave those rows on the fallback.
+            continue
+        mm = mm_map[name]
+        rows = np.flatnonzero(requested == name)
+        if rows.size == 0:
+            continue
+
+        usable = np.ones(rows.size, dtype=bool)
+        for col in mm.fit_param_names + mm.fixed_param_names:
+            if col in startable.colnames:
+                col_data = np.asarray(startable[col][rows])
+                if np.issubdtype(col_data.dtype, np.number):
+                    usable &= np.isfinite(col_data)
+            elif col in fixed_params_dict:
+                value = np.asarray(fixed_params_dict[col])
+                if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+                    usable[:] = False
+            else:
+                # The requested model needs something this table doesn't have.
+                usable[:] = False
+                break
+
+        motion_model_propagate[rows[usable]] = name
+
+    return motion_model_propagate
 
 
 def get_all_epochs(t):
