@@ -1149,15 +1149,19 @@ class MosaicSelfRef(object):
                 else:
                     ref_table._set_invalid_list_values(col_name, -1)
 
-        # Remember whether 'motion_model_input' is the caller's own per-star
-        # request or one this function invented. Propagation honors a real
-        # request (see determine_propagation_models) but must ignore the
-        # invented one: it is just motion_models restated per row, so honoring
-        # it would tie propagation back to the fitting setting and, for
-        # motion_models=['Fixed'], freeze a reference that has velocities.
-        self.motion_model_input_from_user = 'motion_model_input' in ref_table.colnames
-        if 'motion_model_input' not in ref_table.colnames:
-            ref_table.add_column(np.repeat(self.motion_models[-1].name, len(ref_table)), name='motion_model_input')
+        # 'motion_model_input' is deliberately NOT auto-filled here. It used to
+        # be populated with motion_models[-1].name whenever the input starlist
+        # lacked it, which made the column always present and therefore
+        # indistinguishable from a real per-star request -- so propagation,
+        # which honors the column when present (see
+        # determine_propagation_models), would have been tied straight back to
+        # the fitting setting: with motion_models=['Fixed'] every row would
+        # read 'Fixed' and a reference carrying real velocities would be frozen
+        # at its catalog epoch. Leaving it absent keeps "present" meaning "the
+        # caller asked for this". Fitting is unaffected: fit_motion_models
+        # already handles the column being absent, and its no-column branch
+        # ("most complex model in motion_models with n_fit >= n_params") is
+        # exactly what the uniformly-auto-filled column used to produce.
 
         # Add time column if it doesn't exist
         if 't' not in ref_table.colnames:
@@ -1554,8 +1558,7 @@ class MosaicSelfRef(object):
         # moves with Linear under motion_models=['Fixed']. Computed once here
         # rather than per starlist, since it doesn't depend on the epoch.
         motion_model_propagate = determine_propagation_models(
-            self.ref_table, self.fixed_params_dict,
-            honor_motion_model_input=getattr(self, 'motion_model_input_from_user', False)
+            self.ref_table, self.fixed_params_dict
         )
 
         for ii in range(self.N_lists):
@@ -1624,8 +1627,7 @@ class MosaicSelfRef(object):
         # finite parameters support. 'motion_model_used' still records what was
         # fit.
         motion_model_propagate = determine_propagation_models(
-            self.ref_table, self.fixed_params_dict,
-            honor_motion_model_input=getattr(self, 'motion_model_input_from_user', False)
+            self.ref_table, self.fixed_params_dict
         )
         x, y, xe, ye = self.ref_table.infer_positions(
             epoch, fixed_params_dict=self.fixed_params_dict,
@@ -2881,8 +2883,7 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
     return motion_model_used, n_params
 
 
-def determine_propagation_models(startable, fixed_params_dict=None,
-                                 honor_motion_model_input=True):
+def determine_propagation_models(startable, fixed_params_dict=None):
     """Per-star motion model to PROPAGATE each star with.
 
     This is deliberately a different question from which model a star was
@@ -2919,17 +2920,6 @@ def determine_propagation_models(startable, fixed_params_dict=None,
         Table with motion model parameter columns.
     fixed_params_dict : dict, optional
         Fixed parameters supplied outside the table, by default None.
-    honor_motion_model_input : bool, optional
-        Whether the 'motion_model_input' column is a real per-star request.
-        Set this False when the column was auto-filled rather than supplied by
-        the caller: align's setup_ref_table_from_starlist populates it with
-        motion_models[-1].name when the input starlist has no such column, and
-        that value is just the fitting setting restated per row. Honoring it
-        would tie propagation straight back to `motion_models` -- with
-        motion_models=['Fixed'] every row would read 'Fixed' and a reference
-        carrying real velocities would be frozen at its catalog epoch, which is
-        the whole thing this function exists to avoid. MosaicSelfRef/MosaicToRef
-        pass self.motion_model_input_from_user here. By default True.
 
     Returns
     -------
@@ -2941,7 +2931,7 @@ def determine_propagation_models(startable, fixed_params_dict=None,
     best, _ = determine_motion_models(startable, None, fixed_params_dict, verbose=False)
     motion_model_propagate = np.asarray(best, dtype=object)
 
-    if not honor_motion_model_input or ('motion_model_input' not in startable.colnames):
+    if 'motion_model_input' not in startable.colnames:
         return motion_model_propagate
 
     if fixed_params_dict is None:

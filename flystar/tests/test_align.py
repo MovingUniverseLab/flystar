@@ -1703,13 +1703,13 @@ def test_propagation_honors_motion_model_input():
     column as an explicit per-star propagation request, and otherwise falls
     back to the most complex model each star's own finite parameters support.
 
-    The subtlety worth pinning: align's setup_ref_table_from_starlist
-    AUTO-FILLS 'motion_model_input' with motion_models[-1].name when the input
-    has no such column. That value is just the fitting setting restated per
-    row, so honoring it would tie propagation back to `motion_models` and
-    re-freeze a reference that carries velocities -- exactly what
-    test_ref_velocity_propagation_independent_of_motion_models forbids. Only a
-    genuine request is honored, tracked by motion_model_input_from_user.
+    The subtlety worth pinning: 'motion_model_input' must NOT be auto-filled
+    by setup_ref_table_from_starlist. It used to be populated with
+    motion_models[-1].name whenever the input lacked it, which made the column
+    always present and so indistinguishable from a real request -- tying
+    propagation back to `motion_models` and re-freezing a reference that
+    carries velocities, exactly what
+    test_ref_velocity_propagation_independent_of_motion_models forbids.
     """
     from flystar.align import MosaicToRef, determine_propagation_models
     from flystar.starlists import StarList
@@ -1752,15 +1752,17 @@ def test_propagation_honors_motion_model_input():
         r5 = mtr.get_ref_list_from_table(T0 + 5.0)
         return mtr, (np.asarray(r5['x']) - np.asarray(r0['x']))[:n] / 5.0
 
-    # no column supplied -> auto-filled 'Fixed' must NOT suppress the velocities
+    # no column supplied -> it must not be invented, and the velocities stand
     mtr, sl_auto = slopes(None)
-    assert mtr.motion_model_input_from_user is False
+    assert 'motion_model_input' not in mtr.ref_table.colnames, \
+        'motion_model_input was auto-filled; propagation can no longer tell a ' \
+        'real per-star request from the fitting setting restated per row'
     np.testing.assert_allclose(sl_auto, vx, rtol=1e-6, atol=1e-8,
-                               err_msg='auto-filled motion_model_input froze the reference')
+                               err_msg='reference velocities were suppressed')
 
     # explicit Fixed request -> honored, so the stars do NOT move
     mtr, sl_fixed = slopes(['Fixed'] * n)
-    assert mtr.motion_model_input_from_user is True
+    assert 'motion_model_input' in mtr.ref_table.colnames
     np.testing.assert_allclose(sl_fixed, 0.0, atol=1e-10,
                                err_msg='explicit Fixed request was not honored')
 
@@ -1813,7 +1815,3 @@ def test_determine_propagation_models_precedence():
         dtype='U20')
     got = determine_propagation_models(tab)
     assert list(got) == ['Linear', 'Fixed', 'Fixed', 'Linear', 'Linear', 'Empty']
-
-    # and the column can be ignored entirely
-    got = determine_propagation_models(tab, honor_motion_model_input=False)
-    assert list(got) == ['Linear', 'Linear', 'Fixed', 'Linear', 'Linear', 'Linear']
