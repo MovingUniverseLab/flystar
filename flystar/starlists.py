@@ -583,6 +583,47 @@ class StarList(Table):
                     else:
                         self.add_column(Column(data=kwargs[arg], name=arg))
 
+            # Any remaining keyword is treated as an extra column rather than
+            # being dropped. A caller building, say, a Linear-model reference
+            # list naturally writes
+            #     StarList(name=.., x=.., y=.., m=.., vx=.., vy=.., t0=..)
+            # and silently discarding vx/vy/t0 loses real data with no error --
+            # the resulting list simply has no velocities, which then shows up
+            # much later as a reference that refuses to move (see
+            # align.MosaicToRef propagation). Extra columns must still be 1D
+            # and one entry per star, so a typo'd or wrongly-shaped argument
+            # fails loudly here instead of becoming a bogus column.
+            reserved = ('meta', 'copy', 'masked', 'names', 'dtype', 'rows',
+                        'units', 'descriptions')
+            handled = set(arg_req) | set(arg_tab) | set(meta_tab) | set(reserved)
+            for arg in kwargs:
+                if arg in handled:
+                    continue
+                value = kwargs[arg]
+                # MaskedColumn subclasses np.ma.MaskedArray, so testing the
+                # base class keeps a plain np.ma.masked_array's mask too
+                # (np.asarray would silently strip it).
+                is_masked = isinstance(value, np.ma.MaskedArray)
+                col_data = value if is_masked else np.asarray(value)
+                if col_data.shape != (n_stars,):
+                    raise ValueError(
+                        f"The '{arg}' argument has to match the shape of x "
+                        f"({n_stars:d},), but has shape {col_data.shape}. "
+                        f"StarList treats any unrecognized keyword as an "
+                        f"extra column, so this must be a 1D array with one "
+                        f"entry per star."
+                    )
+                if is_masked:
+                    self.add_column(MaskedColumn(data=col_data, name=arg))
+                else:
+                    self.add_column(Column(data=col_data, name=arg))
+
+            # 'meta' is the one reserved keyword worth honoring here: this
+            # branch builds the table itself and then overwrites self.meta, so
+            # a caller-supplied meta would otherwise vanish too.
+            if 'meta' in kwargs and kwargs['meta']:
+                self.meta.update(dict(kwargs['meta']))
+
         return
 
     @classmethod
