@@ -193,6 +193,47 @@ class MotionModel(ABC):
         return np.full_like(dt, np.nan)
 
     def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+        """Evaluate the model at the given time(s).
+
+        Every concrete subclass overrides this. The time argument follows one
+        contract across all of them, resolved by :func:`broadcast_times`:
+
+        Parameters
+        ----------
+        t : scalar or array-like
+            Time(s) at which to evaluate the model. The SHAPE decides
+            whether the times are shared across stars or are per-star --
+            nothing is inferred from ``len(t)`` matching ``N_stars``:
+
+            ======================  =========================================
+            ``t``                   meaning
+            ======================  =========================================
+            scalar                  one time, every star
+            ``(N_times,)``          one shared grid, every star -- always,
+                                    even when ``N_times == N_stars``
+            ``(1, N_times)``        the same, written explicitly
+            ``(N_stars, N_times)``  each star has its own times
+            ======================  =========================================
+
+            For one time per star, pass a column vector
+            ``t[:, np.newaxis]`` of shape ``(N_stars, 1)`` -- not a bare 1D
+            array. Any other shape raises ``ValueError`` rather than being
+            guessed at. See :func:`broadcast_times`.
+        fit_params : array-like
+            Fit parameters, shape (N_fit_params,) or (N_stars, N_fit_params).
+        fit_param_errs : array-like, optional
+            Uncertainties on fit_params, same shape, by default None.
+        fixed_params_dict : dict, optional
+            Fixed (non-fit) parameters; see each subclass's
+            fixed_param_names, by default None.
+
+        Returns
+        -------
+        x, y (, xe, ye)
+            Predicted positions, and uncertainties if fit_param_errs is
+            given, with shape (N_stars, N_times) -- flattened when
+            N_stars == 1 or N_times == 1.
+        """
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
         if fit_param_errs is None:
             return np.full_like(t, np.nan), np.full_like(t, np.nan)
@@ -444,8 +485,16 @@ class Empty(MotionModel):
 
         Parameters
         ----------
-        t : float or array-like
-            Time array, shape (N_times,)
+        t : scalar or array-like
+            Time(s) at which to evaluate the model. The shape decides
+            whether the times are shared across stars or are per-star --
+            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
+            a scalar (one time, every star), ``(N_times,)`` or
+            ``(1, N_times)`` (one shared grid for every star -- always, even
+            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
+            its own times); for one time per star pass ``t[:, np.newaxis]``.
+            Any other shape raises ``ValueError``. See
+            :func:`broadcast_times` for the full table.
         fit_params : array-like
             Fit parameters, shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -559,8 +608,16 @@ class Fixed(MotionModel):
 
         Parameters
         ----------
-        t : float or array-like
-            Time array, shape (N_times,)
+        t : scalar or array-like
+            Time(s) at which to evaluate the model. The shape decides
+            whether the times are shared across stars or are per-star --
+            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
+            a scalar (one time, every star), ``(N_times,)`` or
+            ``(1, N_times)`` (one shared grid for every star -- always, even
+            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
+            its own times); for one time per star pass ``t[:, np.newaxis]``.
+            Any other shape raises ``ValueError``. See
+            :func:`broadcast_times` for the full table.
         fit_params : array-like
             x0, y0 in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -757,8 +814,16 @@ class Linear(MotionModel):
 
         Parameters
         ----------
-        t : float or array-like
-            Time(s) at which to evaluate the model
+        t : scalar or array-like
+            Time(s) at which to evaluate the model. The shape decides
+            whether the times are shared across stars or are per-star --
+            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
+            a scalar (one time, every star), ``(N_times,)`` or
+            ``(1, N_times)`` (one shared grid for every star -- always, even
+            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
+            its own times); for one time per star pass ``t[:, np.newaxis]``.
+            Any other shape raises ``ValueError``. See
+            :func:`broadcast_times` for the full table.
         fit_params : array-like
             x0, vx, y0, vy in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -1014,8 +1079,16 @@ class Acceleration(MotionModel):
 
         Parameters
         ----------
-        t : float or array-like
-            Time(s) at which to evaluate the model
+        t : scalar or array-like
+            Time(s) at which to evaluate the model. The shape decides
+            whether the times are shared across stars or are per-star --
+            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
+            a scalar (one time, every star), ``(N_times,)`` or
+            ``(1, N_times)`` (one shared grid for every star -- always, even
+            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
+            its own times); for one time per star pass ``t[:, np.newaxis]``.
+            Any other shape raises ``ValueError``. See
+            :func:`broadcast_times` for the full table.
         fit_params : array-like
             x0, vx, ax, y0, vy, ay in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -1339,8 +1412,16 @@ class Parallax(MotionModel):
 
         Parameters
         ----------
-        t : float or array-like
-            Times at which to evaluate the model
+        t : scalar or array-like
+            Time(s) at which to evaluate the model. The shape decides
+            whether the times are shared across stars or are per-star --
+            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
+            a scalar (one time, every star), ``(N_times,)`` or
+            ``(1, N_times)`` (one shared grid for every star -- always, even
+            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
+            its own times); for one time per star pass ``t[:, np.newaxis]``.
+            Any other shape raises ``ValueError``. See
+            :func:`broadcast_times` for the full table.
         fit_params : array-like
             x0, vx, y0, vy, pi in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional

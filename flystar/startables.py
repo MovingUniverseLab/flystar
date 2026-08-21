@@ -1554,21 +1554,26 @@ class StarTable(Table):
         times : scalar or array_like
             Times at which to predict positions. The SHAPE decides whether the
             times are shared across stars or are per-star -- nothing is
-            inferred from len(times) matching N_stars:
+            inferred from ``len(times)`` matching ``N_stars``:
 
-              scalar               one time, every star
-              (N_times,)           one shared grid, every star -- always,
-                                   even when N_times == N_stars
-              (1, N_times)         the same, written explicitly
-              (N_stars, N_times)   each star has its own times
+            ======================  =========================================
+            ``times``               meaning
+            ======================  =========================================
+            scalar                  one time, every star
+            ``(N_times,)``          one shared grid, every star -- always,
+                                    even when ``N_times == N_stars``
+            ``(1, N_times)``        the same, written explicitly
+            ``(N_stars, N_times)``  each star has its own times
+            ======================  =========================================
 
-            To evaluate every star at its own single time, pass a column
-            vector, times[:, np.newaxis], of shape (N_stars, 1) -- not a bare
-            1D array. Propagating the whole table to one new epoch does NOT
-            need that: pass the scalar epoch and a per-star 't0' (column or
-            fixed_params_dict entry), and each star's dt = t - t0[star]
-            already differs. Any other shape raises ValueError rather than
-            being guessed at. See motion_model.broadcast_times.
+            For one time per star, pass a column vector
+            ``times[:, np.newaxis]`` of shape ``(N_stars, 1)`` -- not a bare
+            1D array. Note that propagating the whole table to a single new
+            epoch does NOT need that: pass the scalar epoch and a per-star
+            ``t0`` (table column or fixed_params_dict entry), and each star's
+            ``dt = t - t0[star]`` already differs. Any other shape raises
+            ``ValueError`` rather than being guessed at. See
+            :func:`~flystar.motion_model.broadcast_times`.
         fixed_params_dict : None or dict, optional
             Dictionary of fixed parameters to use for prediction.
             If not provided, will try to look for fixed parameters in the meta data then in table columns.
