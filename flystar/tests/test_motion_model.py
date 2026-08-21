@@ -677,3 +677,132 @@ def test_scipy_agreement_parallax():
                            float((resid[n_epochs:]**2).sum()))
                 np.testing.assert_allclose([gx2, gy2], want_c2, rtol=1e-9, atol=1e-14,
                                            err_msg=f'{tag}: chi2 disagrees with curve_fit definition')
+
+
+# ----------------------------------------------------------------------
+# Time-argument shape contract (motion_model.broadcast_times)
+#
+# model() used to infer "one time per star" from len(t) == N_stars, so the
+# same 1D array changed meaning based on how many stars the table happened
+# to hold -- and a table whose star count equalled its epoch count took the
+# per-star branch by accident, then crashed in infer_positions. Shape alone
+# decides now; these tests pin that, especially the coincidence case, which
+# previously had no coverage anywhere in the suite.
+# ----------------------------------------------------------------------
+
+def test_broadcast_times_shape_contract():
+    n_stars = 3
+    bt = motion_model.broadcast_times
+
+    assert bt(2025.0, n_stars).shape == (n_stars, 1)
+    assert bt(np.array([1., 2., 3., 4.]), n_stars).shape == (n_stars, 4)
+    # 1D whose length equals n_stars is a SHARED grid, never per-star
+    assert bt(np.array([1., 2., 3.]), n_stars).shape == (n_stars, 3)
+    assert bt(np.array([[1., 2., 3., 4.]]), n_stars).shape == (n_stars, 4)
+    assert bt(np.array([[1.], [2.], [3.]]), n_stars).shape == (n_stars, 1)
+    assert bt(np.zeros((n_stars, 5)), n_stars).shape == (n_stars, 5)
+
+    # a shared 1D grid really is shared: every row identical
+    grid = bt(np.array([1., 2., 3.]), n_stars)
+    assert np.all(grid == np.array([1., 2., 3.])[np.newaxis, :])
+
+    # unusable shapes raise instead of being guessed at
+    for bad in [np.zeros((7, 2)), np.zeros((2, 2, 2))]:
+        try:
+            bt(bad, n_stars)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f'broadcast_times accepted bad shape {bad.shape}')
+
+
+def test_model_time_shape_contract():
+    """Every model honors the same time-shape contract and agrees, row by
+    row, with independent single-star evaluations."""
+    t0 = np.array([2020., 2021., 2022.])
+    t_shared = np.array([2025., 2026., 2027., 2028.])
+    t_coincide = np.array([2025., 2026., 2027.])        # len == N_stars
+    t_per_star = np.array([[2025., 2026.], [2030., 2031.], [2035., 2036.]])
+
+    cases = [
+        (motion_model.Fixed, np.array([[1., 2.], [3., 4.], [5., 6.]]), {}),
+        (motion_model.Linear,
+         np.array([[10., 1., 20., 2.], [30., -1., 40., .5], [50., 0., 60., -3.]]),
+         {'t0': t0}),
+        (motion_model.Acceleration,
+         np.array([[10., 1., .1, 20., 2., -.1],
+                   [30., -1., .2, 40., .5, .05],
+                   [50., 0., -.3, 60., -3., .01]]),
+         {'t0': t0}),
+        (motion_model.Parallax,
+         np.array([[10., 1., 20., 2., .05],
+                   [30., -1., 40., .5, .04],
+                   [50., 0., 60., -3., .03]]),
+         {'t0': t0, 'ra': 266.4, 'dec': -29.0}),
+    ]
+
+    for cls, params, fpd in cases:
+        n_stars = params.shape[0]
+
+        assert np.shape(cls().model(t_shared, params, fixed_params_dict=fpd)[0]) \
+            == (n_stars, len(t_shared)), f'{cls.__name__}: shared grid'
+
+        # the coincidence case: must be a shared grid, NOT per-star
+        x_co = cls().model(t_coincide, params, fixed_params_dict=fpd)[0]
+        assert np.shape(x_co) == (n_stars, len(t_coincide)), \
+            f'{cls.__name__}: len(t) == N_stars must stay a shared grid'
+        x_1x = cls().model(t_coincide[np.newaxis, :], params, fixed_params_dict=fpd)[0]
+        np.testing.assert_allclose(
+            x_co, x_1x, rtol=1e-12, atol=1e-12,
+            err_msg=f'{cls.__name__}: (N,) and (1,N) must agree')
+
+        # per-star times: each row equals an independent single-star fit
+        x_ps, y_ps = cls().model(t_per_star, params, fixed_params_dict=fpd)[:2]
+        assert np.shape(x_ps) == t_per_star.shape, f'{cls.__name__}: per-star grid'
+        for i in range(n_stars):
+            fpd_i = {k: (np.atleast_1d(v)[i] if (not isinstance(v, str)
+                                                and np.ndim(v) > 0) else v)
+                     for k, v in fpd.items()}
+            xi, yi = cls().model(t_per_star[i], params[i], fixed_params_dict=fpd_i)[:2]
+            np.testing.assert_allclose(
+                x_ps[i], xi, rtol=1e-10, atol=1e-10,
+                err_msg=f'{cls.__name__}: per-star row {i} x')
+            np.testing.assert_allclose(
+                y_ps[i], yi, rtol=1e-10, atol=1e-10,
+                err_msg=f'{cls.__name__}: per-star row {i} y')
+
+
+def test_infer_positions_time_shape_contract():
+    """StarTable.infer_positions with N_stars == N_times used to raise a
+    broadcasting ValueError, because model() silently switched to its
+    per-star interpretation. It is a shared grid now."""
+    from flystar.startables import StarTable
+
+    n = 6  # deliberately N_stars == N_times
+    rng = np.random.default_rng(0)
+    t = np.tile(2020.0 + np.arange(n, dtype=float), (n, 1))
+    tab = StarTable(name=[f's{i}' for i in range(n)],
+                    x=rng.uniform(10, 50, (n, n)), y=rng.uniform(10, 50, (n, n)),
+                    m=np.full((n, n), 15.0), xe=np.full((n, n), 0.01),
+                    ye=np.full((n, n), 0.01), me=np.full((n, n), 0.01), t=t)
+    tab.fit_motion_models(motion_models=['Linear'], verbose=False)
+
+    times = 2020.0 + np.arange(n, dtype=float)
+    x, y, xe, ye = tab.infer_positions(times)
+    assert x.shape == (n, n), f'expected shared grid (6, 6), got {x.shape}'
+
+    # identical to spelling the same grid as (1, N_times)
+    x2, _, _, _ = tab.infer_positions(times[np.newaxis, :])
+    np.testing.assert_allclose(x, x2, rtol=1e-12, atol=1e-12, equal_nan=True)
+
+    # per-star times: give every star its own grid, check against a shared
+    # call for the subset of stars whose row is that same grid
+    per_star = np.tile(times, (n, 1))
+    x3, _, _, _ = tab.infer_positions(per_star)
+    np.testing.assert_allclose(x, x3, rtol=1e-12, atol=1e-12, equal_nan=True)
+
+    # one time per star, as a column vector
+    x4, _, _, _ = tab.infer_positions(times[:, np.newaxis])
+    assert x4.shape == (n,), f'expected (6,) for one time per star, got {x4.shape}'
+    for i in range(n):
+        assert np.isclose(x4[i], x3[i, i], rtol=1e-10, atol=1e-10)
