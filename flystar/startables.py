@@ -1546,8 +1546,7 @@ class StarTable(Table):
             self['n_params'][self['motion_model_used'] == mm.name] = mm.n_params
         return
 
-    def infer_positions(self, times, fixed_params_dict=None, fill_value=np.nan,
-                        motion_model_used=None):
+    def infer_positions(self, times, fixed_params_dict=None, fill_value=np.nan):
         """Infer star positions at given times using fitted motion models.
 
         Parameters
@@ -1582,35 +1581,28 @@ class StarTable(Table):
             by default None
         fill_value : float, optional
             Value to use for missing data, by default np.nan
-        motion_model_used : array_like of str, optional
-            Which motion model to evaluate for each star, one entry per row.
-            Overrides the table's own 'motion_model_used' column, which is
-            otherwise required.
-
-            This exists because the model a star was *fit* with is not always
-            the model it should be *propagated* with. A reference star
-            imported from an external catalog may carry vx/vy/t0 that were
-            never fit here at all, and should still be propagated with Linear
-            even when only Fixed was requested for fitting. See
-            align.determine_motion_models(startable, None), which returns the
-            most complex model each star's own finite parameters support.
-            By default None (use the column).
 
         Returns
         -------
         x, y, xe, ye : ndarray
             Arrays of predicted x, y positions and their uncertainties xe, ye, with shape (N_stars, N_times) or (N_stars,) if N_times=1, or (N_times,) if N_stars=1, or scalar.
         """
-        if motion_model_used is None:
-            assert 'motion_model_used' in self.colnames, \
-                "infer_positions: 'motion_model_used' column not found in the table. Please run fit_motion_models first."
-            motion_model_used = self['motion_model_used']
-        else:
-            motion_model_used = np.asarray(motion_model_used)
-            assert len(motion_model_used) == len(self), (
-                f"infer_positions: motion_model_used must have one entry per star "
-                f"({len(self)}), got {len(motion_model_used)}."
-            )
+        # Which model moves each star is decided here rather than taken from a
+        # caller-supplied array: it is an internal detail, not something the
+        # user should have to compute. A 'motion_model_input' column is honored
+        # as an explicit per-star request, falling back -- per star -- to the
+        # most complex model that star's own parameters actually support, both
+        # when the column is absent and when a request cannot be evaluated
+        # (e.g. Acceleration requested but ax is nan for too few epochs).
+        #
+        # Deliberately NOT 'motion_model_used': that records which model was
+        # FIT, and a reference star imported from an external catalog can carry
+        # vx/vy/t0 that were never fit here and must still move with Linear.
+        # For a star that was fit, the two agree anyway -- the parameters
+        # outside its own model are nan, so they cannot be selected.
+        motion_model_used = motion_model.determine_motion_models(
+            self, motion_models=None, fixed_params_dict=fixed_params_dict
+        )[0]
 
         N_stars = len(self)
         # Normalize to an explicit (N_stars, N_times) grid up front, so the

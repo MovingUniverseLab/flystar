@@ -1726,6 +1726,157 @@ class Parallax(MotionModel):
         return params, param_errs, chi2x, chi2y
 
 
+def determine_motion_models(startable, motion_models=None, fixed_params_dict=None):
+    """Determine, per star, which motion model to use.
+
+    Precedence:
+
+    1. A ``motion_model_input`` column -- the caller's explicit per-star
+       request -- wherever that model can actually be evaluated for that star
+       (every parameter it needs present and finite). This is the same
+       priority fit_motion_models gives the column.
+    2. Otherwise the most complex model in `motion_models` whose parameters
+       are all present and finite for that star.
+    3. `motion_models=None` means "any model", so step 2 becomes "the most
+       complex model this star's parameters support".
+
+    The distinction between a restricted list and None is what separates the
+    two questions this answers. Which model a star was FIT with is confined to
+    the models that were requested, so callers pass their list. How far a star
+    must move to reach some other epoch is a property of the star, not of what
+    you chose to fit -- a reference imported from an external catalog can carry
+    vx/vy/t0 that were never fit here and still has to move with Linear -- so
+    propagation passes None.
+
+    Parameters
+    ----------
+    startable : startable
+        Startable with motion model parameter columns
+    motion_models : list of MotionModel or str, optional
+        List of motion model classes or their names to select from.
+        If None, all available motion models will be considered, by default None
+    fixed_params_dict : dict, optional
+        Dictionary of fixed parameters, by default None
+
+    Returns
+    -------
+    motion_model_used : list
+        List of motion model used for each star
+    n_params : list
+        List of n parameters per direction for each star
+    """
+
+    # Needed unconditionally: both for resolving a list of model names and for
+    # resolving 'motion_model_input' requests further down, which are looked up
+    # against every known model rather than just the ones passed in.
+    all_mm_map = motion_model_map()
+
+    if motion_models is None:
+        motion_models = MotionModel.__subclasses__()
+    elif all(isinstance(mm, str) for mm in motion_models):
+        motion_models = [all_mm_map[mm] for mm in motion_models]
+
+    if fixed_params_dict is None:
+        fixed_params_dict = {}
+
+    motion_models_possible = []
+    for mm in motion_models:
+        required_columns = mm.fit_param_names + mm.fixed_param_names
+        req_col_in_table = [col for col in required_columns if (col in startable.colnames)]
+        req_col_in_dict = [col for col in required_columns if (col in fixed_params_dict.keys())]
+        req_cols = startable[req_col_in_table]
+        if all((col in startable.colnames) or (col in fixed_params_dict.keys()) for col in required_columns):
+            motion_models_possible.append((mm, req_col_in_table, req_cols, req_col_in_dict))
+
+    # Vectorized replacement for the old per-star Python loop (which called
+    # np.isfinite/np.issubdtype once per star per required column -- millions
+    # of times for large mosaics). For each candidate motion model, checked in
+    # the same priority order as before (last-declared model first), compute a
+    # whole-table boolean mask of which stars have all of that model's required
+    # *numeric* columns finite, then assign that model to every not-yet-assigned
+    # star the mask covers. Whether the fixed_params_dict entries are finite
+    # doesn't depend on the star, so it's checked once per model instead of once
+    # per star. This makes the `processes`/`chunksize` arguments unnecessary for
+    # this function; they are kept in the signature for backward compatibility.
+    n_stars = len(startable)
+    motion_model_used = np.empty(n_stars, dtype=object)
+    n_params = np.empty(n_stars, dtype=int)
+    assigned = np.zeros(n_stars, dtype=bool)
+
+    for mm, req_col_in_table, req_cols, req_col_in_dict in motion_models_possible[::-1]:
+        fixed_ok = all(
+            np.isfinite(fixed_params_dict[col])
+            for col in req_col_in_dict
+            if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)
+        )
+        if not fixed_ok:
+            continue
+
+        satisfies = np.ones(n_stars, dtype=bool)
+        for col in req_col_in_table:
+            col_data = req_cols[col]
+            if np.issubdtype(col_data.dtype, np.number):
+                satisfies &= np.isfinite(col_data)
+
+        newly_assigned = satisfies & ~assigned
+        motion_model_used[newly_assigned] = mm.name
+        n_params[newly_assigned] = mm.n_params
+        assigned |= newly_assigned
+
+    # Highest priority: an explicit per-star request in 'motion_model_input',
+    # wherever that model can actually be evaluated for that star. Applied
+    # last so it overrides the choice made from `motion_models` above.
+    #
+    # This is the same priority fit_motion_models already gives the column --
+    # it resolves requests through the full model map rather than the
+    # restricted list -- so honoring it here keeps the two in agreement
+    # instead of having this function silently re-derive something else.
+    #
+    # "Can be evaluated" means every parameter that model needs is present (a
+    # table column or a fixed_params_dict entry) and finite for that star. So
+    # a request downgrades by itself when its parameters are missing: a star
+    # asking for Acceleration with no ax/ay, or with ax nan because it had too
+    # few epochs to fit, falls through to the choice above rather than
+    # silently producing nan positions.
+    if 'motion_model_input' in startable.colnames:
+        requested = np.asarray(startable['motion_model_input'])
+        for name in np.unique(requested):
+            if name not in all_mm_map:
+                # Unrecognized request -- leave those rows as assigned above.
+                continue
+            mm = all_mm_map[name]
+            rows = np.flatnonzero(requested == name)
+            if rows.size == 0:
+                continue
+
+            usable = np.ones(rows.size, dtype=bool)
+            for col in mm.fit_param_names + mm.fixed_param_names:
+                if col in startable.colnames:
+                    col_data = np.asarray(startable[col][rows])
+                    if np.issubdtype(col_data.dtype, np.number):
+                        usable &= np.isfinite(col_data)
+                elif col in fixed_params_dict:
+                    value = np.asarray(fixed_params_dict[col])
+                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+                        usable[:] = False
+                else:
+                    # The requested model needs something this table lacks.
+                    usable[:] = False
+                    break
+
+            honored = rows[usable]
+            motion_model_used[honored] = mm.name
+            n_params[honored] = mm.n_params
+            assigned[honored] = True
+
+    # Stars that matched no motion model are dropped, matching the old
+    # behavior of simply never appending an entry for them.
+    motion_model_used = motion_model_used[assigned].tolist()
+    n_params = n_params[assigned].tolist()
+
+    return motion_model_used, n_params
+
+
 def motion_model_param_names(motion_models, with_errors=True, with_fixed=True):
     """Get the motion model parameter names from a list of MotionModels.
 
