@@ -1599,7 +1599,14 @@ class MosaicSelfRef(object):
         # Calculate x, y, xe, ye
 
         if 'motion_model_used' not in self.ref_table.colnames:
-            motion_model_used, n_params = determine_motion_models(self.ref_table, self.motion_models, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
+            # motion_models=None, not self.motion_models: nothing has been fit
+            # yet at this point, so the only truthful thing this column can say
+            # is which model the row's own parameters constitute. Restricting to
+            # the fitting configuration would label a reference star carrying
+            # catalog vx/vy as 'Fixed' -- a row holding Linear parameters while
+            # claiming to be Fixed, with n_params=1. Rows that later get fit are
+            # re-classified against self.motion_models after the fit.
+            motion_model_used, n_params = determine_motion_models(self.ref_table, None, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
             self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
             self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 

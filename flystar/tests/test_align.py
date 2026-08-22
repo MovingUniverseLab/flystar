@@ -1667,8 +1667,7 @@ def test_ref_velocity_propagation_independent_of_motion_models():
         assert 't0' in tab.colnames, f'{models}: t0 column lost'
 
         # propagation picks the most complex model each star supports...
-        mm_prop, _ = determine_motion_models(tab, None, mtr.fixed_params_dict,
-                                             verbose=False)
+        mm_prop, _ = determine_motion_models(tab, None, mtr.fixed_params_dict)
         assert set(np.asarray(mm_prop)) == {'Linear'}, \
             f'{models}: propagation model should be Linear, got {set(mm_prop)}'
 
@@ -1686,15 +1685,25 @@ def test_ref_velocity_propagation_independent_of_motion_models():
             slope_y[:n], vy, rtol=1e-6, atol=1e-8,
             err_msg=f'{models}: reference not propagated at its own vy')
 
-    # And what was FIT still respects motion_models: Fixed-only must not
-    # produce Linear fits for the observed stars.
+    # motion_model_used says which model the ROW'S PARAMETERS constitute, not
+    # which one the fitting configuration asked for. These reference stars are
+    # frozen (update_ref_orig=False) and hold catalog x0/vx/t0, so the row is a
+    # Linear model and must be labeled as one -- labeling it 'Fixed' because
+    # motion_models=['Fixed'] would describe a row holding Linear parameters as
+    # Fixed with n_params=1, which is what this used to do.
     mtr_fixed = MosaicToRef(ref, lists, motion_models=['Fixed'],
                             update_ref_orig=False, iters=1, dr_tol=[6.],
                             dm_tol=[3], outlier_tol=[None],
                             init_guess_mode='name', verbose=False)
     mtr_fixed.fit()
-    assert set(np.asarray(mtr_fixed.ref_table['motion_model_used'])) == {'Fixed'}, \
-        'motion_models=[Fixed] must still fit only Fixed'
+    tab_f = mtr_fixed.ref_table
+    ref_rows = np.asarray(tab_f['ref_orig'])
+    assert set(np.asarray(tab_f['motion_model_used'])[ref_rows]) == {'Linear'}, \
+        'frozen reference rows hold Linear params and must be labeled Linear'
+    assert set(np.asarray(tab_f['n_params'])[ref_rows]) == {2}, \
+        'n_params must agree with the label'
+    assert np.isfinite(np.asarray(tab_f['vx'])[ref_rows]).all(), \
+        'the Linear label must point at finite parameters'
 
 
 def test_propagation_honors_motion_model_input():
@@ -1808,7 +1817,7 @@ def test_determine_motion_models_precedence():
     tab['t0'] = np.full(n, 2020.)
 
     # no request column -> pure finiteness fallback
-    got, _ = determine_motion_models(tab, None, verbose=False)
+    got, _ = determine_motion_models(tab, None)
     assert list(got) == ['Linear', 'Linear', 'Fixed', 'Linear', 'Linear', 'Linear']
 
     tab['motion_model_input'] = Column(
@@ -1819,5 +1828,5 @@ def test_determine_motion_models_precedence():
          'Parallax',  # needs pi/ra/dec -> absent, fallback
          'Empty'],    # explicit        -> honored
         dtype='U20')
-    got, _ = determine_motion_models(tab, None, verbose=False)
+    got, _ = determine_motion_models(tab, None)
     assert list(got) == ['Linear', 'Fixed', 'Fixed', 'Linear', 'Linear', 'Empty']
