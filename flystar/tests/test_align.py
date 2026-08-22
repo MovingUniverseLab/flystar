@@ -1607,7 +1607,9 @@ if __name__ == '__main__':
     msc.fit()
     for i in range(msc.ref_table['x'].shape[1]):
         plt.scatter(msc.ref_table['x'][:, i], msc.ref_table['y'][:, i])
-    plt.show()
+    # block=False: with an interactive backend (e.g. macosx) a blocking show()
+    # hangs the whole test session until the window is closed by hand.
+    plt.show(block=False)
     plot_stars(msc.ref_table, msc.ref_table['name'][:3])
 
 def test_ref_velocity_propagation_independent_of_motion_models():
@@ -1899,3 +1901,132 @@ def test_outlier_tol_second_pass_redoes_transform():
         f'{n_without} with outlier_tol=None -- the second rejection pass is '
         f'not running'
     )
+
+
+def test_outlier_rejection_keeps_identical_residuals():
+    """
+    Outlier rejection on a set of identical residuals must keep every star.
+
+    The threshold is median + outlier_tol * sigma. With no scatter, sigma is 0
+    and the threshold collapses onto the median, so a strict '<' comparison
+    rejected 100% of the stars. That is not a corner case invented for a test:
+    MosaicSelfRef matches the reference list's own starlist against a reference
+    table built from it, under an identity transform, so on the first iteration
+    every residual is exactly 0.
+    """
+    from flystar.align import MosaicSelfRef
+    from flystar.starlists import StarList
+
+    n = 25
+    rng = np.random.default_rng(7)
+    x = rng.uniform(0, 100, n)
+    y = rng.uniform(0, 100, n)
+    m = rng.uniform(13, 18, n)
+    sl = StarList(name=[f's{i:03d}' for i in range(n)], x=x, y=y, m=m)
+    sl.meta['list_time'] = 2020.0
+
+    # An unbound call: outlier_rejection_indices touches no instance state.
+    keepers = MosaicSelfRef.outlier_rejection_indices(
+        None, sl, sl, 5, verbose=False)
+    assert np.count_nonzero(keepers) == n, (
+        f'identical (zero) residuals: kept {np.count_nonzero(keepers)} of {n}, '
+        f'expected all of them'
+    )
+
+    # A constant nonzero offset is also scatter-free, and equally must survive.
+    sl_off = StarList(sl, copy=True)
+    sl_off['x'] = sl['x'] + 0.3
+    keepers = MosaicSelfRef.outlier_rejection_indices(
+        None, sl_off, sl, 5, verbose=False)
+    assert np.count_nonzero(keepers) == n, (
+        f'identical (constant 0.3) residuals: kept '
+        f'{np.count_nonzero(keepers)} of {n}, expected all of them'
+    )
+
+    # A genuine outlier must still be rejected -- the fix must not disable
+    # rejection altogether.
+    sl_bad = StarList(sl, copy=True)
+    sl_bad['x'] = sl['x'] + rng.normal(0, .01, n)
+    sl_bad['x'][0] += 10.0
+    keepers = MosaicSelfRef.outlier_rejection_indices(
+        None, sl_bad, sl, 3, verbose=False)
+    assert not keepers[0], 'a 10-unit outlier at 3 sigma was not rejected'
+    assert np.count_nonzero(keepers) == n - 1, (
+        f'expected exactly 1 rejection, got {n - np.count_nonzero(keepers)}'
+    )
+
+
+def test_min_stars_for_transform():
+    """Free-parameter counts per transformation order."""
+    from flystar.align import min_stars_for_transform
+
+    assert min_stars_for_transform({'order': 0}) == 1
+    assert min_stars_for_transform({'order': 1}) == 3
+    assert min_stars_for_transform({'order': 2}) == 6
+    assert min_stars_for_transform({'order': 3}) == 10
+    # No order given, and no trans_args at all, fall back to the linear case.
+    assert min_stars_for_transform({}) == 3
+    assert min_stars_for_transform(None) == 3
+
+
+def test_outlier_tol_self_ref_transforms_are_finite():
+    """
+    A MosaicSelfRef fit with a finite outlier_tol must not produce NaN
+    transformations, positions, or reference table entries.
+
+    This is the end-to-end shape of the failure: on iteration 1 the reference
+    starlist matched itself with exactly-zero residuals, outlier rejection threw
+    away all of its matches, derive_transform quietly returned NaN coefficients
+    for 0 stars, and the NaNs only announced themselves an iteration later as
+
+        ValueError: x1 does not contain any finite values!
+
+    raised from match.match. The same fit with outlier_tol=None worked, which is
+    what made it look like a tolerance problem rather than a rejection bug.
+    """
+    from flystar.align import MosaicSelfRef
+    from flystar.starlists import StarList
+    from flystar import transforms
+
+    n, n_ep = 60, 4
+    rng = np.random.default_rng(11)
+    x0 = rng.uniform(20, 180, n)
+    y0 = rng.uniform(20, 180, n)
+    m0 = rng.uniform(13, 19, n)
+    names = [f's{i:03d}' for i in range(n)]
+
+    lists = []
+    for e in range(n_ep):
+        sl = StarList(name=names,
+                      x=x0 + rng.normal(0, .01, n),
+                      y=y0 + rng.normal(0, .01, n),
+                      m=m0 + rng.normal(0, .01, n),
+                      xe=np.full(n, .01), ye=np.full(n, .01), me=np.full(n, .01))
+        sl.meta['list_time'] = 2020.0 + e
+        lists.append(sl)
+
+    # Two iterations with second-order transformations on the second pass --
+    # the configuration that failed, scaled down.
+    msc = MosaicSelfRef(lists, iters=2, dr_tol=[1., .5], dm_tol=[.5, .5],
+                        outlier_tol=[5, 5], trans_class=transforms.PolyTransform,
+                        trans_args=[{'order': 1}, {'order': 2}],
+                        trans_input=[transforms.PolyTransform(order=0, px=[0], py=[0])
+                                     for _ in lists],
+                        motion_models=['Fixed'], init_guess_mode='name',
+                        mag_lim=[[(13, 19)] * n_ep] * 2, verbose=0)
+    msc.fit()
+
+    for ii, trans in enumerate(msc.trans_list):
+        assert np.isfinite(trans.px.parameters).all(), (
+            f'starlist {ii}: NaN in the x transformation parameters '
+            f'{trans.px.parameters}'
+        )
+        assert np.isfinite(trans.py.parameters).all(), (
+            f'starlist {ii}: NaN in the y transformation parameters '
+            f'{trans.py.parameters}'
+        )
+
+    for col in ['x0', 'y0']:
+        assert np.isfinite(msc.ref_table[col]).all(), (
+            f'NaN in ref_table["{col}"] after fitting with outlier_tol'
+        )

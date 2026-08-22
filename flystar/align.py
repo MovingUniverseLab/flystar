@@ -821,6 +821,7 @@ class MosaicSelfRef(object):
             # Outlier rejection
             if outlier_tol is not None:
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2], outlier_tol, verbose=self.verbose)
+                keepers = self.guard_outlier_rejection(keepers, trans_args, ii, 'pre-fit')
                 if self.verbose > 1:
                     print( '  Rejected ', len(idx1) - sum(keepers), ' outliers.' )
 
@@ -839,6 +840,11 @@ class MosaicSelfRef(object):
                 **trans_args,
                 m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                 weights=weight, mag_trans=self.mag_trans
+            )
+            check_transform_finite(
+                trans, len(idx1),
+                f'align.match_and_transform: starlist {ii}, '
+                f'order={trans_args.get("order")} fit'
             )
 
             # Outlier rejection: ref stars in final transformation, if desired.
@@ -859,6 +865,7 @@ class MosaicSelfRef(object):
                 # Let's look at just the ref stars used in the transformation, which are idx1 and idx2
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
                                                           outlier_tol)
+                keepers = self.guard_outlier_rejection(keepers, trans_args, ii, 'post-fit')
 
                 # keepers is a boolean MASK over idx2, so len(keepers) is always
                 # len(idx2) -- counting with len() made the message read 0 and
@@ -896,6 +903,12 @@ class MosaicSelfRef(object):
                                                       **trans_args,
                                                       m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight, mag_trans=self.mag_trans)
+                    check_transform_finite(
+                        trans, len(idx1),
+                        f'align.match_and_transform: starlist {ii}, '
+                        f'order={trans_args.get("order")} refit after outlier '
+                        f'rejection'
+                    )
 
             # Save the final transformation
             self.trans_list[ii] = trans
@@ -1239,13 +1252,73 @@ class MosaicSelfRef(object):
         resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
 
         threshold = np.median(resid_on_old_trans) + (outlier_tol * resid_on_old_trans.std())
-        keepers = resid_on_old_trans < threshold
+
+        # Keep stars sitting exactly AT the threshold. When every residual is
+        # identical the std is 0 and the threshold collapses onto the median,
+        # so a strict '<' rejects all of them -- which is precisely what
+        # happens to the reference list's own starlist under an identity
+        # transform, where the residuals are all exactly 0. Rejecting 100% of
+        # the matches leaves derive_transform with nothing to fit and it
+        # returns NaN coefficients, which only surface much later as
+        # 'x1 does not contain any finite values!' out of match.match.
+        keepers = resid_on_old_trans <= threshold
 
         if verbose:
             msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
             print(msg.format(sum(keepers), len(resid_on_old_trans)))
 
         return keepers
+
+    def guard_outlier_rejection(self, keepers, trans_args, ii, stage):
+        """
+        Refuse an outlier rejection that would starve the transformation fit.
+
+        Outlier rejection is a heuristic; the transformation is the result. If a
+        rejection pass leaves fewer stars than the transformation has free
+        parameters per axis, derive_transform returns NaN coefficients rather
+        than raising, and the NaNs propagate silently into the transformed
+        positions and the reference table. Keeping every matched star -- a
+        transformation fit including some outliers -- is strictly better than a
+        transformation made of NaNs, so drop the rejection and say so.
+
+        Parameters
+        ----------
+        keepers : boolean array
+            The mask returned by outlier_rejection_indices.
+
+        trans_args : dict
+            The derive_transform keywords for this iteration.
+
+        ii : int
+            Index of the starlist being matched, for the warning message.
+
+        stage : str
+            Which rejection pass this is, for the warning message.
+
+        Returns
+        ----------
+        keepers : boolean array
+            The input mask, or an all-True mask if the rejection was refused.
+        """
+        n_keep = np.count_nonzero(keepers)
+        n_req = min_stars_for_transform(trans_args)
+
+        if n_keep >= n_req:
+            return keepers
+
+        warnings.warn(
+            f'align.match_and_transform: outlier rejection ({stage}) on starlist '
+            f'{ii} would leave {n_keep} of {len(keepers)} matched stars, fewer '
+            f'than the {n_req} needed for an order={trans_args.get("order")} '
+            f'transformation. Keeping all matched stars instead. This usually '
+            f'means the residuals are nearly all identical -- e.g. a starlist '
+            f'matched against a reference built from itself -- so the '
+            f'median + outlier_tol * sigma threshold has no scatter to work '
+            f'with.',
+            AstropyUserWarning
+        )
+
+        return np.ones(len(keepers), dtype=bool)
 
     def update_ref_table_from_list(self, star_list, star_list_T, ii, idx_ref, idx_lis, idx_ref_in_trans):
         """
@@ -4179,6 +4252,81 @@ def copy_and_rename_for_ref(star_list):
 
     return ref_list
 
+def check_transform_finite(trans, n_stars, context):
+    """
+    Raise if a freshly derived transformation contains non-finite parameters.
+
+    derive_transform / find_transform run a least-squares fit that returns NaN
+    coefficients instead of raising when it is underdetermined -- most often
+    because it was handed fewer stars than the transformation has free
+    parameters, or none at all. The NaNs then propagate into transformed
+    positions and only announce themselves much later, and far from the cause,
+    as 'x1 does not contain any finite values!' out of match.match. Check here
+    so the error names the fit that actually failed.
+
+    Parameters
+    ----------
+    trans : Transform2D
+        The transformation just derived.
+
+    n_stars : int
+        Number of stars the fit was given, for the error message.
+
+    context : str
+        Where this fit came from, for the error message.
+
+    Raises
+    ----------
+    ValueError
+        If any x or y parameter of the transformation is not finite.
+    """
+    bad_x = not np.isfinite(np.asarray(trans.px.parameters)).all()
+    bad_y = not np.isfinite(np.asarray(trans.py.parameters)).all()
+
+    if not (bad_x or bad_y):
+        return
+
+    raise ValueError(
+        f'{context}: the derived transformation has non-finite parameters '
+        f'(px={np.asarray(trans.px.parameters)}, '
+        f'py={np.asarray(trans.py.parameters)}) after being fit to '
+        f'{n_stars} star(s). The fit was underdetermined -- with too few '
+        f'matched stars for the transformation order, the least-squares '
+        f'solve returns NaN rather than raising. Loosen dr_tol / dm_tol, '
+        f'widen mag_lim, or lower the transformation order.'
+    )
+
+
+def min_stars_for_transform(trans_args):
+    """
+    The minimum number of matched stars needed to constrain a transformation.
+
+    A 2D polynomial (or Legendre) transformation of a given order has
+    (order+1)(order+2)/2 free coefficients per axis -- 3 for order 1, 6 for
+    order 2 -- and order 0 is the special case of a pure shift, 1 coefficient
+    per axis. Handed fewer stars than that, derive_transform runs a degenerate
+    least-squares fit and returns NaN coefficients without raising.
+
+    Parameters
+    ----------
+    trans_args : dict
+        The keyword arguments passed to trans_class.derive_transform for this
+        iteration. Only 'order' is consulted; if it is absent we assume the
+        linear case, the smallest order with more than one free parameter.
+
+    Returns
+    ----------
+    n_req : int
+        The minimum usable number of stars.
+    """
+    order = trans_args.get('order', 1) if trans_args is not None else 1
+
+    if order == 0:
+        return 1
+
+    return (order + 1) * (order + 2) // 2
+
+
 def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, fixed_params_dict=None, verbose=True):
     """
     Determine the outliers based on the residual positions between two different
@@ -4217,8 +4365,12 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, f
     y_resid_on_old_trans = star_list['y'] - yref
     resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
 
-    threshold = outlier_tol * resid_on_old_trans.std()
-    keepers = resid_on_old_trans < threshold
+    # Centre the threshold on the median residual, as
+    # MosaicSelfRef.outlier_rejection_indices does. Without the median term a
+    # tight cluster of residuals around a nonzero offset is rejected wholesale,
+    # and the '<' rejects everything when the std is 0 (all residuals equal).
+    threshold = np.median(resid_on_old_trans) + (outlier_tol * resid_on_old_trans.std())
+    keepers = resid_on_old_trans <= threshold
 
     if verbose > 0:
         msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
@@ -4387,6 +4539,13 @@ def generic_match(sl1, sl2, init_mode='triangle',
 
     """
     from flystar import starlists, startables
+
+    # order_dr is documented as (n, 2): one (order, dr_tol) row per refinement
+    # loop. A single pair may be passed flat, e.g. (1, 1.0) -- as the default
+    # does -- so normalize to 2D. Without this, len(order_dr) is 2 for a flat
+    # pair and the refinement loop runs twice for one requested pass.
+    order_dr = np.atleast_2d(order_dr)
+
     #  Check the input StarLists and transform them into astropy Tables
     if not isinstance(sl1, starlists.StarList):
         raise TypeError("The first catalog has to be a StarList")
@@ -4408,13 +4567,24 @@ def generic_match(sl1, sl2, init_mode='triangle',
 
         # Find the transformation
         # TODO: test 'initial_align' with StarList input
-        transf = initial_align(sl1_cut, sl2_cut, briteN=n_bright, transformModel=model, order=order_dr[0]) #order_dr[i_loop][0] ?
+        transf = initial_align(sl1_cut, sl2_cut, briteN=n_bright, transformModel=model,
+                               order=int(order_dr[0][0]))
 
     elif init_mode == 'match_name': #  Name match
         sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(sl1, sl2)
-        transf = model(sl2['x'][sl2_idx_init], sl2['y'][sl2_idx_init],
-                       sl1['x'][sl1_idx_init], sl1['y'][sl1_idx_init],
-                       order=int(order_dr[0][0]))
+        # derive_transform, not the constructor: model(...) is the old calling
+        # convention and PolyTransform.__init__ now takes (order, px, py)
+        # coefficients, so passing positions to it raises TypeError.
+        transf = model.derive_transform(sl2['x'][sl2_idx_init], sl2['y'][sl2_idx_init],
+                                        sl1['x'][sl1_idx_init], sl1['y'][sl1_idx_init],
+                                        int(order_dr[0][0]),
+                                        m=sl2['m'][sl2_idx_init],
+                                        mref=sl1['m'][sl1_idx_init])
+        check_transform_finite(
+            transf, len(sl1_idx_init),
+            f'align.generic_match: match_name initial guess '
+            f'(order={int(order_dr[0][0])})'
+        )
 
     elif init_mode == 'load': #  Load a transformation file
         transf = transforms.Transform2D.from_file(kwargs['transf_file'])
@@ -4439,7 +4609,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
 
         #  Transform and match the catalog to the reference frame
         sl2_idx, sl1_idx = transform_and_match(sl2_match, sl1_match, transf,
-                                                     dr_tol=order_dr[1],
+                                                     dr_tol=order_dr[i_loop][1],
                                                      verbose=verbose)
 
         #  Transform the catalog to the reference frame
@@ -4474,7 +4644,12 @@ def generic_match(sl1, sl2, init_mode='triangle',
             sl2_match[sl2_idx],
             sl2_transf_match[sl2_idx],
             sl1_match[sl1_idx], transModel=model,
-            order=order_dr[0], verbose=verbose
+            order=int(order_dr[i_loop][0]), verbose=verbose
+        )
+        check_transform_finite(
+            transf, len(sl1_idx),
+            f'align.generic_match: refinement loop {i_loop} '
+            f'(order={int(order_dr[i_loop][0])}, dr_tol={order_dr[i_loop][1]})'
         )
 
         # This section was used for testing transformations with normalized

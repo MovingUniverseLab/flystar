@@ -173,9 +173,71 @@ def test_generic_match():
     starlist1 = starlists.StarList.from_table(list1)
     starlist2 = starlists.StarList.from_table(list2)
 
-    out = align.generic_match(starlist1, starlist2, init_mode='triangle',
-                              model=transforms.PolyTransform, order_dr=(1, 1.0),
-                              dr_final=1.0,
+    # These two lists are deliberately perturbed copies of each other: after the
+    # blind-triangle initial align, the six real counterparts sit 1.3-3.2 pixels
+    # from their partners, and the three sl2 stars with no counterpart sit
+    # hundreds of pixels away. dr_tol has to straddle that gap -- the original
+    # 1.0 matched nothing at all, so the refinement fit 3 free parameters to 0
+    # stars and returned a NaN transformation.
+    transf, st = align.generic_match(starlist1, starlist2, init_mode='triangle',
+                              model=transforms.PolyTransform, order_dr=[[1, 4.0]],
+                              dr_final=4.0,
                               xy_match=(None, None, None, None, None, None, None, None),
                               m_match=(None, None, None, None), sigma_match=None,
                               n_bright=8, verbose=True)
+
+    assert np.isfinite(transf.px.parameters).all(), \
+        f'NaN in the x transformation parameters: {transf.px.parameters}'
+    assert np.isfinite(transf.py.parameters).all(), \
+        f'NaN in the y transformation parameters: {transf.py.parameters}'
+
+    # The six sl2 stars that have a counterpart in sl1, and only those.
+    assert len(st) == 6, f'expected 6 matches, got {len(st)}'
+    matched_sl1 = set(np.asarray(st['ep_name'][:, 0]))
+    assert matched_sl1 == {'S01', 'S02', 'S04', 'S06', 'S07', 'S10'}, \
+        f'matched the wrong sl1 stars: {sorted(matched_sl1)}'
+
+    # Every matched pair lands inside the final search radius.
+    resid = np.hypot(st['x'][:, 0] - st['x'][:, 1], st['y'][:, 0] - st['y'][:, 1])
+    assert (resid < 4.0).all(), f'matched pairs beyond dr_final: {resid}'
+
+
+def test_generic_match_no_matches_raises():
+    """
+    A refinement pass that matches nothing must say so, not return NaN.
+
+    find_transform runs an underdetermined least-squares solve and hands back
+    NaN coefficients without raising. Those NaNs used to travel one loop
+    iteration further and surface as the thoroughly unhelpful
+
+        ValueError: x1 does not contain any finite values!
+
+    from inside match.match. The error should name the fit that failed instead.
+    """
+    import pytest
+
+    n = 12
+    rng = np.random.default_rng(3)
+    x = rng.uniform(0, 2000, n)
+    y = rng.uniform(0, 2000, n)
+    m = rng.uniform(-6, -2, n)
+    names = [f'S{i:02d}' for i in range(n)]
+
+    sl1 = starlists.StarList.from_table(
+        Table([names, x, y, m], names=('name', 'x', 'y', 'm')))
+    # The same stars under a strongly quadratic distortion. Name-matching gives
+    # an initial guess from all 12 stars, but an order=1 refinement cannot
+    # absorb the quadratic term, so its residuals are tens of pixels -- nothing
+    # falls inside dr_tol=0.001 and the refit gets 0 stars.
+    sl2 = starlists.StarList.from_table(
+        Table([names,
+               x + 50.0 + 1e-4 * (x - 1000.0)**2,
+               y + 50.0 + 1e-4 * (y - 1000.0)**2,
+               m], names=('name', 'x', 'y', 'm')))
+
+    with pytest.raises(ValueError, match='non-finite parameters'):
+        align.generic_match(sl1, sl2, init_mode='match_name',
+                            model=transforms.PolyTransform,
+                            order_dr=[[1, 0.001]], dr_final=0.001,
+                            m_match=(None, None, None, None),
+                            sigma_match=None, verbose=False)
