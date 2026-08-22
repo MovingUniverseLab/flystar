@@ -279,7 +279,303 @@ def order_by_brite(xi, yi, mi, Nout, verbose=True):
     return xo, yo, mo
 
 
-def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True):
+def robust_sigma(values):
+    """
+    Gaussian-consistent robust scatter, 1.4826 * median absolute deviation.
+
+    Used to measure the real offset scatter between two matched catalogs
+    without trusting any per-star error columns. NaNs are ignored; returns NaN
+    if nothing finite is left.
+    """
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+
+    if len(v) == 0:
+        return np.nan
+
+    return 1.4826 * np.median(np.abs(v - np.median(v)))
+
+
+def best_and_runner_up(keys, score, n_keys):
+    """
+    For each key, find its lowest-scoring pair and the score of the runner-up.
+
+    Parameters
+    ----------
+    keys : int array
+        Group label of every candidate pair -- the catalog-1 index when ranking
+        each list star's candidates, the catalog-2 index when ranking each
+        reference star's suitors.
+
+    score : float array
+        The score (chi^2) of every candidate pair. Same length as keys.
+
+    n_keys : int
+        Size of the catalog the keys index into, so the returned arrays can be
+        addressed directly by catalog index.
+
+    Returns
+    ----------
+    best_pair : int array, length n_keys
+        Index into keys/score of each key's best pair, or -1 if the key has no
+        candidate pairs at all.
+
+    delta : float array, length n_keys
+        score(runner-up) - score(best) for each key: how decisively the best
+        pair wins. inf when the key has exactly one candidate (nothing to be
+        confused with), and 0.0 for keys with no candidates.
+    """
+    best_pair = np.full(n_keys, -1, dtype=int)
+    delta = np.zeros(n_keys, dtype=float)
+
+    if len(keys) == 0:
+        return best_pair, delta
+
+    # Sort by key, then by score within each key, so each group's best pair is
+    # its first element and the runner-up is the one right after it.
+    order = np.lexsort((score, keys))
+    k_sorted = keys[order]
+    s_sorted = score[order]
+
+    is_first = np.ones(len(k_sorted), dtype=bool)
+    is_first[1:] = k_sorted[1:] != k_sorted[:-1]
+    i_first = np.flatnonzero(is_first)
+
+    best_pair[k_sorted[i_first]] = order[i_first]
+
+    # The runner-up exists only if the next entry belongs to the same key.
+    i_next = np.minimum(i_first + 1, len(k_sorted) - 1)
+    has_runner_up = (i_first + 1 < len(k_sorted)) & (k_sorted[i_next] == k_sorted[i_first])
+    runner_up = np.where(has_runner_up, s_sorted[i_next], np.inf)
+
+    delta[k_sorted[i_first]] = runner_up - s_sorted[i_first]
+
+    return best_pair, delta
+
+
+def calibrate_match_scales(pair_i, dx, dy, dm, n_stars, dr_tol, dm_tol,
+                           verbose=True, min_pairs=10):
+    """
+    Measure the position and magnitude scatter between two catalogs from the
+    catalogs themselves, so the chi^2 needs no per-star error columns.
+
+    A star with exactly one candidate inside the tolerances needs no
+    tie-breaking, so the spread of those offsets is a clean estimate of how far
+    apart the same star lands in the two catalogs -- centroiding error,
+    transformation error and any systematic, all folded in. That is precisely
+    the scale needed to judge whether one candidate is decisively closer than
+    another.
+
+    Three tiers, in order of preference:
+
+    1. Unambiguous (single-candidate) pairs. Cleanest, and what any real
+       catalog pairing supplies in bulk.
+    2. Each star's nearest candidate. Contains some wrong pairs, which inflates
+       the scale and so errs toward calling things ambiguous.
+    3. dr_tol / 10, with the magnitude term switched off. Reached only when
+       there are barely any candidates to learn from. dr_tol is a search
+       radius, chosen with room to spare, so the true scatter sits well inside
+       it; anchoring the scale AT the tolerance would make a candidate 20x
+       closer than its rival look like a coin toss.
+
+    The magnitude term is used only if its scale was actually measured (tier 1
+    or 2). Without a measured scale there is no defensible exchange rate
+    between arcseconds and magnitudes, and inventing one from the ratio of the
+    two tolerances is the very mistake this is meant to remove -- dm_tol keeps
+    working as a hard gate regardless.
+
+    Parameters
+    ----------
+    pair_i : int array
+        Catalog-1 index of every candidate pair that passed the tolerances.
+
+    dx, dy, dm : float array
+        Offsets of those pairs.
+
+    n_stars : int
+        Length of catalog 1.
+
+    dr_tol : float
+        Match radius, for the tier-3 fallback.
+
+    dm_tol : float or None
+        Magnitude tolerance. None means magnitudes are not compared at all.
+
+    min_pairs : int
+        Fewest pairs a tier needs before its scatter is trusted.
+
+    Returns
+    ----------
+    sigma_pos : float
+        Per-axis position scatter.
+
+    sigma_mag : float or None
+        Magnitude scatter, or None to score on position alone.
+    """
+    n_cand = np.bincount(pair_i, minlength=n_stars)
+
+    def scales_from(mask):
+        if int(mask.sum()) < min_pairs:
+            return np.nan, np.nan
+        sx = robust_sigma(dx[mask])
+        sy = robust_sigma(dy[mask])
+        s_pos = np.sqrt(0.5 * (sx**2 + sy**2)) if np.isfinite(sx) and np.isfinite(sy) else np.nan
+        s_mag = robust_sigma(dm[mask]) if dm_tol is not None else np.nan
+        return s_pos, s_mag
+
+    # Tier 1: pairs belonging to a star that had exactly one candidate.
+    tier = 'unambiguous pairs'
+    sigma_pos, sigma_mag = scales_from(n_cand[pair_i] == 1)
+
+    # Tier 2: each star's nearest candidate, ambiguous stars included.
+    if not np.isfinite(sigma_pos) or sigma_pos <= 0:
+        dr = np.hypot(dx, dy)
+        nearest = np.zeros(len(pair_i), dtype=bool)
+        order = np.lexsort((dr, pair_i))
+        i_sorted = pair_i[order]
+        is_first = np.ones(len(i_sorted), dtype=bool)
+        is_first[1:] = i_sorted[1:] != i_sorted[:-1]
+        nearest[order[is_first]] = True
+        tier = 'nearest candidates'
+        sigma_pos, sigma_mag = scales_from(nearest)
+
+    # Tier 3: nothing to learn from.
+    if not np.isfinite(sigma_pos) or sigma_pos <= 0:
+        tier = 'dr_tol/10 fallback'
+        sigma_pos = dr_tol / 10.0
+        sigma_mag = np.nan
+
+    if dm_tol is None or not np.isfinite(sigma_mag) or sigma_mag <= 0:
+        sigma_mag = None
+
+    if verbose > 2:
+        mag_msg = 'position only' if sigma_mag is None else f'sigma_mag={sigma_mag:.4f}'
+        print(f'    Match scales from {tier}: sigma_pos={sigma_pos:.6f}, {mag_msg}')
+
+    return sigma_pos, sigma_mag
+
+
+def match_chi2(x1, y1, m1, x2, y2, m2, i2_match, dr_tol, dm_tol,
+               dchi2_tol=9.0, sigma_pos=None, sigma_mag=None, verbose=True):
+    """
+    Resolve candidate matches by chi^2, keeping only reciprocal best pairs.
+
+    Scores every candidate pair as
+
+        chi2 = (dx^2 + dy^2) / sigma_pos^2  +  dm^2 / sigma_mag^2
+
+    and matches a pair when it is BOTH stars' lowest-chi^2 candidate and wins
+    by at least dchi2_tol over each star's runner-up.
+
+    This replaces two rules that were losing good matches in crowded fields.
+    The first required a star's nearest candidate in position to also be its
+    nearest in magnitude, which discarded a 3.6 mas match because a star 83 mas
+    away happened to be 0.06 mag closer -- position and magnitude were compared
+    as equals no matter how lopsided the evidence. Scoring in units of the
+    measured scatter lets each carry the weight it has earned: a 20x closer
+    candidate produces a chi^2 difference in the hundreds, while a fraction of
+    a magnitude produces a few, so magnitude only decides when the positions
+    are genuinely coincident. Second, one-to-one was enforced by resolving
+    duplicates after the fact with the same both-must-agree rule; requiring the
+    match to be reciprocal is symmetric by construction and needs no
+    arbitration.
+
+    Parameters
+    ----------
+    x1, y1, m1, x2, y2, m2 : float array
+        The two catalogs, already on a common system.
+
+    i2_match : list of lists
+        Candidate catalog-2 indices within dr_tol of each catalog-1 star, as
+        returned by the KD-tree radius query.
+
+    dr_tol, dm_tol : float, float or None
+        Hard search tolerances, already applied to i2_match for dr.
+
+    dchi2_tol : float
+        How much better the best candidate must be than the runner-up, in
+        chi^2. The default 9 is a 3-sigma margin. Below it the pair is treated
+        as genuinely ambiguous and left unmatched.
+
+    sigma_pos, sigma_mag : float or None
+        Scales for the chi^2. None (the default) measures them from the
+        unambiguous pairs of these two catalogs -- no error columns needed.
+
+    Returns
+    ----------
+    idxs1, idxs2, dr, dm : arrays
+        As match().
+    """
+    n_cand = np.array([len(c) for c in i2_match])
+    n_pairs_total = int(n_cand.sum())
+
+    if n_pairs_total == 0:
+        empty_i = np.zeros(0, dtype=int)
+        empty_f = np.zeros(0, dtype=float)
+        return empty_i, empty_i, empty_f, empty_f
+
+    pair_i = np.repeat(np.arange(len(x1)), n_cand)
+    pair_j = np.fromiter(itertools.chain.from_iterable(i2_match), dtype=int,
+                         count=n_pairs_total)
+
+    dx = x2[pair_j] - x1[pair_i]
+    dy = y2[pair_j] - y1[pair_i]
+    dm = m2[pair_j] - m1[pair_i]
+
+    # Apply the hard gates. A non-finite offset can never be a match, and the
+    # KD-tree was built with non-finite catalog-2 coordinates replaced by 0, so
+    # those rows must be dropped here rather than scored.
+    good = np.isfinite(dx) & np.isfinite(dy)
+    if dm_tol is not None:
+        good &= np.isfinite(dm) & (np.abs(dm) < dm_tol)
+
+    pair_i, pair_j = pair_i[good], pair_j[good]
+    dx, dy, dm = dx[good], dy[good], dm[good]
+
+    if len(pair_i) == 0:
+        empty_i = np.zeros(0, dtype=int)
+        empty_f = np.zeros(0, dtype=float)
+        return empty_i, empty_i, empty_f, empty_f
+
+    if sigma_pos is None or sigma_mag is None:
+        auto_pos, auto_mag = calibrate_match_scales(
+            pair_i, dx, dy, dm, len(x1), dr_tol, dm_tol, verbose=verbose
+        )
+        if sigma_pos is None:
+            sigma_pos = auto_pos
+        if sigma_mag is None:
+            sigma_mag = auto_mag
+
+    chi2 = (dx**2 + dy**2) / sigma_pos**2
+    if dm_tol is not None and sigma_mag is not None:
+        chi2 = chi2 + dm**2 / sigma_mag**2
+
+    best_of_i, delta_i = best_and_runner_up(pair_i, chi2, len(x1))
+    best_of_j, delta_j = best_and_runner_up(pair_j, chi2, len(x2))
+
+    # Keep a pair only if each star prefers the other, and each prefers it
+    # decisively. The reciprocity makes the result independent of which catalog
+    # is which; the margin is what used to be called "confused".
+    p = np.arange(len(pair_i))
+    keep = ((best_of_i[pair_i] == p) & (best_of_j[pair_j] == p) &
+            (delta_i[pair_i] >= dchi2_tol) & (delta_j[pair_j] >= dchi2_tol))
+
+    if verbose > 2:
+        n_contested = int(((best_of_i[pair_i] == p) & (best_of_j[pair_j] == p)).sum())
+        mag_msg = 'off' if sigma_mag is None else f'{sigma_mag:.3f}'
+        print(f'    chi2 matching: sigma_pos={sigma_pos:.5f}, sigma_mag={mag_msg}, '
+              f'dchi2_tol={dchi2_tol}')
+        print(f'    {int(keep.sum())} matched; {n_contested - int(keep.sum())} '
+              f'reciprocal pairs dropped as ambiguous')
+
+    idxs1 = pair_i[keep]
+    idxs2 = pair_j[keep]
+
+    return idxs1, idxs2, np.hypot(dx[keep], dy[keep]), dm[keep]
+
+
+def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
+          matching='legacy', dchi2_tol=9.0, sigma_pos=None, sigma_mag=None):
     """
     Finds matches between two different catalogs. No transformations are done and it
     is assumed that the two catalogs are already on the same coordinate system
@@ -318,6 +614,30 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True):
     verbose : bool or int, optional
         Prints on screen information on the matching. Higher verbose values
         (up to 9) provide more detail.
+    matching : {'legacy', 'chi2'}, optional
+        How to resolve a star with more than one candidate, and how to enforce
+        one-to-one.
+
+        'legacy' (default) keeps the historical rules: a multi-candidate star
+        is matched only if its nearest candidate in position is also its
+        nearest in magnitude, and duplicates are arbitrated afterwards by the
+        same both-must-agree test. In a crowded field this discards good
+        matches -- a candidate 20x closer loses to one a few hundredths of a
+        magnitude nearer in brightness -- and every discarded star then becomes
+        a duplicate reference entry that makes the next catalog ambiguous too.
+
+        'chi2' scores each candidate as (dr/sigma_pos)^2 + (dm/sigma_mag)^2 and
+        keeps reciprocal best pairs that win by dchi2_tol. See match_chi2().
+    dchi2_tol : float, optional
+        matching='chi2' only. Required chi^2 margin over the runner-up.
+        Default 9.0, a 3-sigma margin.
+    sigma_pos : float or None, optional
+        matching='chi2' only. Position scale for the chi^2, in the units of
+        x1/y1. None (default) measures it from the unambiguous pairs of these
+        two catalogs, so no per-star error columns are needed.
+    sigma_mag : float or None, optional
+        matching='chi2' only. Magnitude scale for the chi^2. None (default)
+        measures it the same way.
 
     Returns
     -------
@@ -382,6 +702,14 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True):
     # match and deal with them easily. The more complicated conflict
     # cases will be dealt with afterward.
     i2_match = kdt.query_ball_point(coords1, dr_tol, workers=workers)
+
+    if matching == 'chi2':
+        return match_chi2(x1, y1, m1, x2, y2, m2, i2_match, dr_tol, dm_tol,
+                          dchi2_tol=dchi2_tol, sigma_pos=sigma_pos,
+                          sigma_mag=sigma_mag, verbose=verbose)
+    elif matching != 'legacy':
+        raise ValueError(f"matching must be 'legacy' or 'chi2', got {matching!r}")
+
     Nmatch = np.array([len(idxs) for idxs in i2_match])
 
     # What is the largest number of matches we have for a given star?

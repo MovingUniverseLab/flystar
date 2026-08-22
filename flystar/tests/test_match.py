@@ -241,3 +241,123 @@ def test_generic_match_no_matches_raises():
                             order_dr=[[1, 0.001]], dr_final=0.001,
                             m_match=(None, None, None, None),
                             sigma_match=None, verbose=False)
+
+
+def test_chi2_matching_decisive_vs_ambiguous():
+    """
+    matching='chi2' must keep a decisively closer candidate and still refuse a
+    genuine positional tie.
+
+    The legacy rule required a star's nearest candidate in position to also be
+    its nearest in magnitude, with no regard for how lopsided the positional
+    evidence was. Real case from a NIRCam pointing: a counterpart 3.6 mas away
+    was thrown out because an unrelated star 82.9 mas away -- 23x farther --
+    happened to be 0.06 mag closer in brightness.
+    """
+    import pytest
+
+    # One star, two candidates. Distances in arcsec.
+    x1, y1, m1 = np.array([0.0]), np.array([0.0]), np.array([20.23])
+
+    decisive_x, decisive_m = np.array([0.0036, 0.0829]), np.array([19.97, 20.43])
+    tie_x, tie_m = np.array([0.011, 0.013]), np.array([20.65, 20.28])
+
+    def run(x2, m2, mode):
+        return match.match(x1, y1, m1, x2, np.zeros(2), m2,
+                           dr_tol=0.1, dm_tol=0.5, matching=mode, verbose=0)
+
+    # Decisive: legacy drops it, chi2 takes the near one.
+    assert len(run(decisive_x, decisive_m, 'legacy')[0]) == 0, \
+        'legacy behaviour changed: the 3.6 mas match is no longer dropped'
+    i1, i2, dr, dm = run(decisive_x, decisive_m, 'chi2')
+    assert len(i1) == 1 and i2[0] == 0, \
+        f'chi2 did not match the decisively closer candidate: {i2}'
+    np.testing.assert_allclose(dr[0], 0.0036, rtol=1e-6)
+
+    # Genuine tie, 11 vs 13 mas: neither mode should guess.
+    assert len(run(tie_x, tie_m, 'legacy')[0]) == 0
+    assert len(run(tie_x, tie_m, 'chi2')[0]) == 0, \
+        'chi2 matched a pair separated by less than the scatter from its rival'
+
+    with pytest.raises(ValueError, match="matching must be"):
+        run(decisive_x, decisive_m, 'nonsense')
+
+
+def test_chi2_matching_is_reciprocal():
+    """
+    Two stars competing for one reference star: only the pair that both sides
+    prefer survives, and only if it wins decisively.
+
+    Legacy enforced one-to-one by arbitrating duplicates after the fact with
+    the same both-must-agree test. Reciprocity is symmetric by construction --
+    the result cannot depend on which catalog is passed first.
+    """
+    # Catalog 1: a star right on top of ref 0, and an interloper further away.
+    x1 = np.array([0.000, 0.030])
+    y1 = np.array([0.0, 0.0])
+    m1 = np.array([18.00, 18.10])
+    # Catalog 2: a single reference star.
+    x2, y2, m2 = np.array([0.0]), np.array([0.0]), np.array([18.02])
+
+    i1, i2, dr, dm = match.match(x1, y1, m1, x2, y2, m2, dr_tol=0.05, dm_tol=0.5,
+                                 matching='chi2', verbose=0)
+    assert len(i1) == 1 and i1[0] == 0, \
+        f'the contested reference star went to the wrong suitor: {i1}'
+
+    # Symmetry: swapping the catalogs must pair the same two stars.
+    j1, j2, _, _ = match.match(x2, y2, m2, x1, y1, m1, dr_tol=0.05, dm_tol=0.5,
+                               matching='chi2', verbose=0)
+    assert len(j1) == 1 and j2[0] == 0, \
+        f'match is not symmetric under catalog order: {j2}'
+
+    # Equidistant suitors of equal brightness are unresolvable, so neither wins.
+    x1_sym = np.array([-0.010, 0.010])
+    m1_sym = np.array([18.02, 18.02])
+    k1, _, _, _ = match.match(x1_sym, y1, m1_sym, x2, y2, m2, dr_tol=0.05,
+                              dm_tol=0.5, matching='chi2', verbose=0)
+    assert len(k1) == 0, 'chi2 picked a winner between two identical suitors'
+
+
+def test_chi2_scale_calibration_without_errors():
+    """
+    The chi^2 scales are measured from the starlists, with no error columns.
+
+    Tier 1 uses unambiguous pairs; the estimate must track the injected
+    scatter. A catalog matched against itself has zero scatter, which must not
+    become a zero divisor -- the same class of degeneracy that made outlier
+    rejection reject everything.
+    """
+    from flystar.match import calibrate_match_scales, robust_sigma
+
+    rng = np.random.default_rng(5)
+    n = 500
+    x = rng.uniform(0, 100, n)
+    y = rng.uniform(0, 100, n)
+    m = rng.uniform(14, 20, n)
+
+    for truth in (0.002, 0.010):
+        x2 = x + rng.normal(0, truth, n)
+        y2 = y + rng.normal(0, truth, n)
+        m2 = m + rng.normal(0, 0.03, n)
+        i1, i2, _, _ = match.match(x2, y2, m2, x, y, m, dr_tol=0.05, dm_tol=0.5,
+                                   matching='chi2', verbose=0)
+        # Recover the scale the matcher would have measured for this pairing.
+        pair_i = np.arange(len(i1))
+        s_pos, s_mag = calibrate_match_scales(
+            pair_i, x2[i1] - x[i2], y2[i1] - y[i2], m2[i1] - m[i2],
+            len(x2), 0.05, 0.5, verbose=0)
+        # sqrt(2) because both catalogs carry the injected scatter.
+        expect = truth * np.sqrt(2)
+        assert 0.6 * expect < s_pos < 1.4 * expect, \
+            f'measured sigma_pos={s_pos:.5f}, expected about {expect:.5f}'
+        assert i1.size > 0.9 * n, f'only {i1.size} of {n} matched at scatter {truth}'
+
+    # Zero scatter: a list against itself. Must not divide by zero, and must
+    # match every star to itself.
+    i1, i2, _, _ = match.match(x, y, m, x, y, m, dr_tol=0.05, dm_tol=0.5,
+                               matching='chi2', verbose=0)
+    assert len(i1) > 0, 'self-match produced nothing -- zero scatter divided by zero'
+    np.testing.assert_array_equal(i1, i2)
+
+    assert np.isnan(robust_sigma([]))
+    np.testing.assert_allclose(robust_sigma([1., 1., 1.]), 0.0)

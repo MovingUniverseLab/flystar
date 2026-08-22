@@ -2030,3 +2030,72 @@ def test_outlier_tol_self_ref_transforms_are_finite():
         assert np.isfinite(msc.ref_table[col]).all(), (
             f'NaN in ref_table["{col}"] after fitting with outlier_tol'
         )
+
+
+def test_chi2_matching_reduces_split_stars():
+    """
+    matching='chi2' must stop one physical star being recorded as several
+    reference rows in a crowded field.
+
+    With the legacy rules, a star whose nearest candidate was not also its
+    nearest in magnitude was left unmatched and added to the reference table as
+    a new row a few mas from the original. Every later starlist then saw two
+    nearly coincident reference rows, was ambiguous by construction, and split
+    again -- so one bad tie-break seeded the next. This builds a field dense
+    enough to trigger it and asserts on the number of duplicate rows.
+    """
+    from flystar.align import MosaicSelfRef
+    from flystar.starlists import StarList
+    from flystar import transforms
+    from scipy.spatial import cKDTree
+
+    n, n_ep = 400, 4
+    rng = np.random.default_rng(17)
+    # A crowded field: mean separation comparable to dr_tol, so most stars have
+    # neighbours inside the match radius.
+    x0 = rng.uniform(0, 4, n)
+    y0 = rng.uniform(0, 4, n)
+    m0 = rng.uniform(15, 20, n)
+
+    lists = []
+    for e in range(n_ep):
+        sl = StarList(name=[f'e{e}_{i:04d}' for i in range(n)],
+                      x=x0 + rng.normal(0, .004, n),
+                      y=y0 + rng.normal(0, .004, n),
+                      m=m0 + rng.normal(0, .08, n))
+        sl.meta['list_time'] = 2020.0 + e
+        lists.append(sl)
+
+    def n_split(mode):
+        msc = MosaicSelfRef(
+            lists, iters=2, dr_tol=[.1, .05], dm_tol=[.5, .5], matching=mode,
+            trans_class=transforms.PolyTransform,
+            trans_args=[{'order': 1}, {'order': 1}],
+            trans_input=[transforms.PolyTransform(order=0, px=[0], py=[0]) for _ in lists],
+            motion_models=['Fixed'], init_guess_mode='name', verbose=0)
+        msc.fit()
+        rt = msc.ref_table
+        det = np.isfinite(np.asarray(rt['x']))
+        pairs = cKDTree(np.c_[np.asarray(rt['x0']), np.asarray(rt['y0'])]).query_pairs(
+            0.02, output_type='ndarray')
+        if len(pairs) == 0:
+            return len(rt), 0
+        # Two rows this close that never appear in the same exposure are one
+        # star split in two, not two stars.
+        disjoint = ~(det[pairs[:, 0]] & det[pairs[:, 1]]).any(axis=1)
+        return len(rt), int(disjoint.sum())
+
+    rows_legacy, split_legacy = n_split('legacy')
+    rows_chi2, split_chi2 = n_split('chi2')
+
+    assert split_chi2 < split_legacy, (
+        f'chi2 matching did not reduce split stars: {split_chi2} split pairs vs '
+        f'{split_legacy} with legacy matching'
+    )
+    assert rows_chi2 <= rows_legacy, (
+        f'chi2 matching grew the reference table: {rows_chi2} rows vs {rows_legacy}'
+    )
+    # The field really does have only n stars in it.
+    assert rows_chi2 < n * 1.5, (
+        f'{rows_chi2} reference rows for {n} stars -- still splitting badly'
+    )

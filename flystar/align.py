@@ -26,6 +26,10 @@ class MosaicSelfRef(object):
             dr_tol=[1.],
             dm_tol=[1.],
             outlier_tol=None,
+            matching='legacy',
+            dchi2_tol=9.0,
+            match_sigma_pos=None,
+            match_sigma_mag=None,
             # Transformation parameters
             trans_class=transforms.PolyTransform,
             trans_args={'order': 1},
@@ -98,6 +102,30 @@ class MosaicSelfRef(object):
         outlier_tol : list or array
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
             This is a list of tol values, one for each iteration of matching/transformation.
+        matching : str, optional
+            How a star with more than one candidate inside the tolerances is
+            resolved, and how one-to-one is enforced. 'legacy' (default) keeps
+            the historical behavior: a multi-candidate star is matched only if
+            its nearest candidate in position is also its nearest in
+            magnitude. In a crowded field that discards good matches -- a
+            candidate 20x closer loses to one a few hundredths of a magnitude
+            nearer -- and each discarded star then becomes a duplicate
+            reference row that makes the next starlist ambiguous in turn, so
+            one split seeds the next. 'chi2' scores candidates as
+            (dr/sigma_pos)^2 + (dm/sigma_mag)^2, with the scales measured from
+            the starlists themselves, and keeps reciprocal best pairs that win
+            by dchi2_tol. See match.match_chi2 for the details.
+        dchi2_tol : float, optional
+            matching='chi2' only. How much better the best candidate must be
+            than the runner-up, in chi^2. Default 9.0, a 3-sigma margin. Below
+            it the star is treated as genuinely ambiguous and left unmatched.
+        match_sigma_pos : float or None, optional
+            matching='chi2' only. Position scale for the chi^2, in reference
+            coordinate units. None (default) measures it from the unambiguous
+            pairs of each starlist, so no error columns are required.
+        match_sigma_mag : float or None, optional
+            matching='chi2' only. Magnitude scale for the chi^2. None (default)
+            measures it the same way.
             If not provided, will be None for each iteration.
 
         trans_class : transforms.Transform2D object (or subclass)
@@ -329,6 +357,11 @@ class MosaicSelfRef(object):
         else:
             self.outlier_tol = outlier_tol
 
+        self.matching = matching
+        self.dchi2_tol = dchi2_tol
+        self.match_sigma_pos = match_sigma_pos
+        self.match_sigma_mag = match_sigma_mag
+
         # Organize motion models into a list of MotionModel classes, sorted by increasing number of parameters.
         self.motion_models = motion_model.organize_motion_models(motion_models)
 
@@ -457,6 +490,10 @@ class MosaicSelfRef(object):
             'dr_tol': self.dr_tol,
             'dm_tol': self.dm_tol,
             'outlier_tol': self.outlier_tol,
+            'matching': self.matching,
+            'dchi2_tol': self.dchi2_tol,
+            'match_sigma_pos': self.match_sigma_pos,
+            'match_sigma_mag': self.match_sigma_mag,
             'trans_class': self.trans_class,
             'trans_args': self.trans_args,
             'trans_input': self.trans_input,
@@ -779,7 +816,9 @@ class MosaicSelfRef(object):
             idx1, idx2, dr, dm = match.match(
                 star_list_T['x'], star_list_T['y'], star_list_T['m'],
                 ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
-                dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose
+                dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
+                matching=self.matching, dchi2_tol=self.dchi2_tol,
+                sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag
             )
             # Restore idx2 to the full reference list indices
             idx2 = np.where(use_in_trans)[0][idx2]
@@ -963,7 +1002,9 @@ class MosaicSelfRef(object):
             idx_lis, idx_ref, dr, dm = match.match(
                 star_list_T['x'], star_list_T['y'], star_list_T['m'],
                 ref_list['x'], ref_list['y'], ref_list['m'],
-                dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose
+                dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
+                matching=self.matching, dchi2_tol=self.dchi2_tol,
+                sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag
             )
 
             if self.verbose > 1:
@@ -1649,7 +1690,10 @@ class MosaicSelfRef(object):
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    xref, yref, mref,
                                                    dr_tol=dr_tol, dm_tol=dm_tol, workers=workers,
-                                                   verbose=self.verbose)
+                                                   verbose=self.verbose,
+                                                   matching=self.matching, dchi2_tol=self.dchi2_tol,
+                                                   sigma_pos=self.match_sigma_pos,
+                                                   sigma_mag=self.match_sigma_mag)
 
             if self.verbose > 0:
                 fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} ± {4:6.4f}, dm = {5:5.2f} ± {6:4.2f}]'
@@ -2150,6 +2194,10 @@ class MosaicToRef(MosaicSelfRef):
         dr_tol=[1.],
         dm_tol=[1.],
         outlier_tol=None,
+        matching='legacy',
+        dchi2_tol=9.0,
+        match_sigma_pos=None,
+        match_sigma_mag=None,
         # Reference behavior (MosiacToRef specific)
         use_ref_new=False,
         update_ref_orig=False,
@@ -2231,6 +2279,30 @@ class MosaicToRef(MosaicSelfRef):
         outlier_tol : list or array
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
             This is a list of tol values, one for each iteration of matching/transformation.
+        matching : str, optional
+            How a star with more than one candidate inside the tolerances is
+            resolved, and how one-to-one is enforced. 'legacy' (default) keeps
+            the historical behavior: a multi-candidate star is matched only if
+            its nearest candidate in position is also its nearest in
+            magnitude. In a crowded field that discards good matches -- a
+            candidate 20x closer loses to one a few hundredths of a magnitude
+            nearer -- and each discarded star then becomes a duplicate
+            reference row that makes the next starlist ambiguous in turn, so
+            one split seeds the next. 'chi2' scores candidates as
+            (dr/sigma_pos)^2 + (dm/sigma_mag)^2, with the scales measured from
+            the starlists themselves, and keeps reciprocal best pairs that win
+            by dchi2_tol. See match.match_chi2 for the details.
+        dchi2_tol : float, optional
+            matching='chi2' only. How much better the best candidate must be
+            than the runner-up, in chi^2. Default 9.0, a 3-sigma margin. Below
+            it the star is treated as genuinely ambiguous and left unmatched.
+        match_sigma_pos : float or None, optional
+            matching='chi2' only. Position scale for the chi^2, in reference
+            coordinate units. None (default) measures it from the unambiguous
+            pairs of each starlist, so no error columns are required.
+        match_sigma_mag : float or None, optional
+            matching='chi2' only. Magnitude scale for the chi^2. None (default)
+            measures it the same way.
 
         use_ref_new : boolean
             Each pass, new stars are matched and added to the ref_table. However, we don't
@@ -2417,6 +2489,10 @@ class MosaicToRef(MosaicSelfRef):
             dr_tol=dr_tol,
             dm_tol=dm_tol,
             outlier_tol=outlier_tol,
+            matching=matching,
+            dchi2_tol=dchi2_tol,
+            match_sigma_pos=match_sigma_pos,
+            match_sigma_mag=match_sigma_mag,
             # Transformation parameters
             trans_class=trans_class,
             trans_args=trans_args,
