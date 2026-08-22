@@ -1830,3 +1830,72 @@ def test_determine_motion_models_precedence():
         dtype='U20')
     got, _ = determine_motion_models(tab, None)
     assert list(got) == ['Linear', 'Fixed', 'Fixed', 'Linear', 'Linear', 'Empty']
+
+
+def test_outlier_tol_second_pass_redoes_transform():
+    """
+    match_and_transform rejects outliers twice: once before deriving the
+    transformation, and again against the derived transformation, re-deriving
+    it without any star that is still an outlier.
+
+    That second pass was dead code. Its guard read
+
+        keepers = self.outlier_rejection_indices(...)   # a boolean MASK
+        if len(keepers) < len(idx2):                    # len(mask) == len(idx2)
+
+    so it could never fire, and the accompanying message always reported 0
+    rejected. Every existing test passes outlier_tol=None, so nothing caught
+    it. This one asserts the transformation is actually re-derived.
+    """
+    from flystar.align import MosaicSelfRef
+    from flystar.starlists import StarList
+    from flystar import transforms
+
+    n, n_ep = 40, 3
+    rng = np.random.default_rng(2)
+    x0 = rng.uniform(20, 180, n)
+    y0 = rng.uniform(20, 180, n)
+    m0 = rng.uniform(13, 19, n)
+    names = [f's{i:03d}' for i in range(n)]
+
+    lists = []
+    for e in range(n_ep):
+        x = x0 + rng.normal(0, .01, n)
+        y = y0 + rng.normal(0, .01, n)
+        if e > 0:
+            x[:3] += 4.0          # three hard outliers, well outside the scatter
+        sl = StarList(name=names, x=x, y=y, m=m0 + rng.normal(0, .01, n),
+                      xe=np.full(n, .01), ye=np.full(n, .01), me=np.full(n, .01))
+        sl.meta['list_time'] = 2020.0 + e
+        lists.append(sl)
+
+    def run(outlier_tol):
+        calls = [0]
+        original = transforms.PolyTransform.derive_transform
+
+        @classmethod
+        def counting(cls, *args, **kwargs):
+            calls[0] += 1
+            return original.__func__(cls, *args, **kwargs)
+
+        transforms.PolyTransform.derive_transform = counting
+        try:
+            msc = MosaicSelfRef(lists, iters=1, dr_tol=[8.], dm_tol=[3],
+                                outlier_tol=outlier_tol, motion_models=['Fixed'],
+                                init_guess_mode='name', verbose=0)
+            msc.fit()
+        finally:
+            transforms.PolyTransform.derive_transform = original
+        return calls[0]
+
+    n_with = run([2.0])
+    n_without = run([None])
+
+    # With outliers present and a finite tolerance, at least one starlist must
+    # trigger the second pass, which derives its transformation a second time.
+    assert n_with > n_without, (
+        f'outlier_tol did not re-derive any transformation: '
+        f'{n_with} derive_transform calls with outlier_tol=2.0 vs '
+        f'{n_without} with outlier_tol=None -- the second rejection pass is '
+        f'not running'
+    )
