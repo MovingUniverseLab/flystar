@@ -841,29 +841,36 @@ class MosaicSelfRef(object):
                 weights=weight, mag_trans=self.mag_trans
             )
 
-            # Outlier rejection: ref stars in final transformation, if desired
+            # Outlier rejection: ref stars in final transformation, if desired.
+            # This is a second pass: the transformation derived just above is
+            # applied, residuals are re-measured against it, and if any star is
+            # now an outlier the transformation is derived again without it.
             if outlier_tol != None:
-                # Apply transformation to starlist, run match between starlist and ref_list
-                star_list_T = StarList(star_list, copy=True)
+                # Re-transform the TRIMMED list, not the full star_list: idx1
+                # indexes star_list_orig_trim (mag_lim applied), so building
+                # this from star_list would read the wrong rows whenever
+                # mag_lim actually trimmed something.
+                star_list_T = StarList(star_list_orig_trim, copy=True)
                 if self.mag_trans:
                     star_list_T.transform_xym(trans)
                 else:
                     star_list_T.transform_xy(trans)
 
-                idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                                   ref_list['x'], ref_list['y'], ref_list['m'],
-                                                   dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers,
-                                                   verbose=self.verbose)
-
                 # Let's look at just the ref stars used in the transformation, which are idx1 and idx2
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
                                                           outlier_tol)
 
+                # keepers is a boolean MASK over idx2, so len(keepers) is always
+                # len(idx2) -- counting with len() made the message read 0 and
+                # the guard below unsatisfiable, so this whole second pass never
+                # ran. Count the True entries instead.
+                n_keep = np.count_nonzero(keepers)
+
                 if self.verbose > 1:
-                    print( '  Rejected ', len(idx2) - len(keepers), ' outliers, final trans.' )
+                    print( '  Rejected ', len(idx2) - n_keep, ' outliers, final trans.' )
 
                 # If at least 1 ref star was eliminated, redo transformation
-                if len(keepers) < len(idx2):
+                if n_keep < len(idx2):
                     # Return print statment if verbose high enough
                     if self.verbose > 7:
                         print('=========================')
