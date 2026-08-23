@@ -537,23 +537,33 @@ class StarTable(Table):
             don't exist yet, since there's nothing to selectively update on
             a first pass. By default None (compute for all rows).
         absolute_sigma : bool, optional
-            Only affects the weighted branch (weights_col given -- the
-            unweighted branch below always uses the residual scatter, since
-            there's no per-point error to propagate in the first place).
             Same convention as scipy.optimize.curve_fit and every
-            MotionModel.run_fit: if True (default), the formal
-            error-propagated uncertainty of the weighted mean,
-            sqrt(1/sum(weights)) -- trusts the per-point input errors
-            (weights_col) as correct. If False, that propagated uncertainty
-            is rescaled by sqrt(chi2/dof) (dof = n_valid - 1, the weighted
-            mean being a 1-parameter fit) -- how much the epochs actually
-            disagree, regardless of what their individual errors claim, with
-            the standard reduced-chi2 normalization. More honest than
-            absolute_sigma=True when input errors are systematically
-            underestimated. dof <= 0 (0 or 1 valid epochs) has no residual
-            information to estimate scatter from, so the uncertainty is
-            reported as inf in that case, same as absolute_sigma=False in
-            every MotionModel.run_fit. By default True.
+            MotionModel.run_fit. The reported uncertainty is always an
+            uncertainty OF THE MEAN, never the scatter of the points, in all
+            four cases below. With S = sum((x - xbar)**2), w = 1/sigma**2,
+            chi2 = sum(w * (x - xbar)**2) and dof = n_valid - 1 (one parameter,
+            the mean, estimated from the data):
+
+            ==================  ==========================  =========================
+            branch              absolute_sigma=True         absolute_sigma=False
+            ==================  ==========================  =========================
+            weighted            ``sqrt(1/sum(w))``          ``sqrt(1/sum(w)) *
+            (weights_col given)                             sqrt(chi2/dof)``
+            unweighted          ``sqrt(S/(n_valid*dof))``   ``sqrt(S/(n_valid*dof))``
+            ==================  ==========================  =========================
+
+            True trusts the per-point input errors and propagates them; False
+            rescales by the epochs' own disagreement, which is more honest when
+            the input errors are systematically underestimated. absolute_sigma
+            does not reach the unweighted branch: it chooses between
+            propagating the input errors and rescaling by the observed scatter,
+            and that branch runs precisely when there are no input errors to
+            propagate, leaving only one thing to compute. That single entry is
+            exactly the weighted False entry with every weight equal to 1.
+
+            dof <= 0 (0 or 1 valid epochs) carries no residual information, so
+            the uncertainty is inf there in both branches, as in every
+            MotionModel.run_fit. By default True.
         """
         col_name_avg = col_name_in + '0'
         col_name_std = col_name_in + '0_err'
@@ -693,10 +703,32 @@ class StarTable(Table):
             with np.errstate(divide='ignore', invalid='ignore'):
                 avg = val_2d_clip.sum(axis=1) / n_valid
             avg[~has_data] = np.nan
-            # Use standard deviation of the residuals as the uncertainty
+            # Uncertainty OF THE MEAN, not the scatter of the points. This
+            # used to return sqrt(sum(dev**2)/n_valid) -- the population RMS of
+            # the individual values -- which is larger than the error on their
+            # average by sqrt(n_valid - 1), and described a different quantity
+            # from the weighted branch above, though both land in the same
+            # <col>0_err column and both feed align's transformation weights.
             deviations = np.where(valid, val_2d_clip - avg[:, np.newaxis], 0.0)
+            # sqrt(S / (n_valid * dof)) with dof = n_valid - 1: the standard
+            # error of the mean. Identical to the weighted branch above with
+            # every weight set to 1 -- sqrt(1/sum(w)) * sqrt(chi2/dof)
+            # collapses to exactly this -- so both branches now report the same
+            # quantity. absolute_sigma does not enter: it selects between
+            # propagating the input errors and rescaling by the observed
+            # scatter, and with no input errors to propagate there is only one
+            # thing this branch can compute.
+            #
+            # dof is substituted with 1 inside the denominator rather than
+            # dividing by zero and repairing the result afterwards: at
+            # n_valid <= 1 the honest answer is 0/0, and the std == 0 guard
+            # further down tests for zero, so a nan would slip past it.
+            dof = n_valid - 1
+            dof_pos = dof > 0
             with np.errstate(divide='ignore', invalid='ignore'):
-                std = np.sqrt((deviations**2).sum(axis=1) / n_valid)
+                std = np.sqrt((deviations**2).sum(axis=1)
+                              / (n_valid * np.where(dof_pos, dof, 1)))
+            std = np.where(dof_pos, std, np.inf)
 
             if meta_add:
                 self.meta[col_name_in + '0'] = 'not_weighted'

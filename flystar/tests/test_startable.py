@@ -275,7 +275,14 @@ def _bruteforce_combine_lists(startable, col_name_in, weights_col=None, mask_val
         std = np.ma.sqrt(1. / np.ma.sum(wgt_2d, axis=1))
     else:
         avg = np.ma.mean(val_2d_clip, axis=1)
-        std = np.ma.std(val_2d_clip, axis=1)
+        # Standard error of the MEAN, matching combine_lists' unweighted
+        # branch. np.ma.std is the population scatter sqrt(S/n); the error on
+        # their average is sqrt(S/(n(n-1))), i.e. that divided by sqrt(n-1).
+        # n <= 1 carries no residual information and is masked -> inf below.
+        n_val = val_2d_clip.count(axis=1)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            std = np.ma.std(val_2d_clip, axis=1) / np.ma.sqrt(n_val - 1)
+        std = np.ma.masked_where(n_val <= 1, std)
 
     std = np.ma.masked_where(std == 0., std)
 
