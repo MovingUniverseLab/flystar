@@ -1181,15 +1181,63 @@ def plot_mag_error(tab, save_path=None):
     plt.show()
     return
 
+def _epoch_times(tab):
+    """
+    One time per epoch, as a 1D array of length N_lists.
+
+    A StarTable's 't' column is 2D (N_stars, N_lists) but is filled one
+    column at a time from a single per-list time, so every star in an epoch
+    shares that epoch's time -- except where a star wasn't detected, which
+    leaves nan. Recovering the epoch grid therefore does not require any
+    star to be detected in every epoch: take each column's finite entries.
+    Falls back to meta['list_times'] when there is no 't' column at all.
+
+    Parameters
+    ----------
+    tab : StarTable
+
+    Returns
+    -------
+    times : ndarray, shape (N_lists,)
+
+    Raises
+    ------
+    KeyError
+        If the table carries no time information at all.
+    ValueError
+        If some epoch has no finite time in any star, so its time is
+        genuinely unknown.
+    """
+    if 't' in tab.colnames:
+        t = np.asarray(tab['t'], dtype=float)
+        finite = np.isfinite(t)
+        times = np.full(t.shape[1], np.nan)
+        for j in np.flatnonzero(finite.any(axis=0)):
+            times[j] = np.median(t[finite[:, j], j])
+    elif 'list_times' in tab.meta:
+        times = np.asarray(tab.meta['list_times'], dtype=float)
+    else:
+        raise KeyError("Failed to access time values: no 't' column in the "
+                       "table and no 'list_times' in its meta.")
+
+    if not np.all(np.isfinite(times)):
+        bad = np.flatnonzero(~np.isfinite(times))
+        raise ValueError(f"No finite time for epoch(s) {bad.tolist()} -- no star "
+                         "in those epochs has a time, so the epoch grid is unknown.")
+
+    return times
+
+
 def plot_mean_residuals_by_epoch(tab):
     """
     Plot mean position and magnitude residuals vs. epoch.
     Note we are plotting the ``mean(|dx|)`` to see
     the size of the mean residual.
     """
-    # Predicted model positions at each epoch
-    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    # Predicted model positions at each epoch. A 1D array of times is one grid
+    # shared by every star, so this returns shape (N_stars, N_lists).
+    epoch_times = _epoch_times(tab)
+    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.infer_positions(epoch_times)
 
     # Residuals
     dx = tab['x'] - xt_mod
@@ -1220,9 +1268,9 @@ def plot_mean_residuals_by_epoch(tab):
     plt.subplots_adjust(wspace=0.4)
 
     ax1 = plt.subplot(2, 1, 1)
-    plt.errorbar(tab['t'][0, :], dx_mean, yerr=dx_std,
+    plt.errorbar(epoch_times, dx_mean, yerr=dx_std,
                      marker='s', linestyle='none', color='blue', ecolor='blue', label='X')
-    plt.errorbar(tab['t'][0, :], dy_mean, yerr=dy_std,
+    plt.errorbar(epoch_times, dy_mean, yerr=dy_std,
                      marker='x', linestyle='none', color='red', ecolor='red', label='Y')
     plt.axhline(0, ls='--', color='black')
     plt.legend()
@@ -1230,7 +1278,7 @@ def plot_mean_residuals_by_epoch(tab):
     plt.ylabel('Pos Residuals')
 
     plt.subplot(2, 1, 2, sharex=ax1)
-    plt.errorbar(tab['t'][0, :], dm_mean, yerr=dm_std,
+    plt.errorbar(epoch_times, dm_mean, yerr=dm_std,
                      marker='o', linestyle='none', color='black', ecolor='black')
     plt.axhline(0, ls='--', color='black')
     plt.xlabel('Time (yr)')
