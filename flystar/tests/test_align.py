@@ -2099,3 +2099,101 @@ def test_chi2_matching_reduces_split_stars():
     assert rows_chi2 < n * 1.5, (
         f'{rows_chi2} reference rows for {n} stars -- still splitting badly'
     )
+
+
+
+def test_use_in_trans_on_input_starlist():
+    """
+    Supplying a 'use_in_trans' column on an input starlist used to crash:
+    copy_over_values writes every column shared with ref_table at
+    [idx_ref, idx_epoch], but ref_table's 'use_in_trans' is a 1D per-star flag
+    with no epoch axis, so it raised
+
+        IndexError: too many indices for array:
+                    array is 1-dimensional, but 2 were indexed
+
+    Only 2D (per-list) columns can take a per-epoch write; 1D ones are
+    aggregates or per-star flags and are left to whoever owns them.
+    """
+    from flystar.align import MosaicSelfRef
+    from flystar.starlists import StarList
+
+    n, n_ep, n_out = 40, 3, 4
+    rng = np.random.default_rng(11)
+    x0 = rng.uniform(20, 180, n)
+    y0 = rng.uniform(20, 180, n)
+    m0 = rng.uniform(13, 19, n)
+    names = [f's{i:03d}' for i in range(n)]
+
+    lists = []
+    for e in range(n_ep):
+        x = x0 + rng.normal(0, .01, n)
+        y = y0 + rng.normal(0, .01, n)
+        if e > 0:
+            x[:n_out] += 4.0
+        sl = StarList(name=names, x=x, y=y, m=m0 + rng.normal(0, .01, n),
+                      xe=np.full(n, .01), ye=np.full(n, .01), me=np.full(n, .01))
+        sl['use_in_trans'] = np.ones(n, dtype=bool)
+        sl['use_in_trans'][:n_out] = False
+        sl.meta['list_time'] = 2020.0 + e
+        lists.append(sl)
+
+    msc = MosaicSelfRef(lists, iters=2, dr_tol=[8., 8.], dm_tol=[3, 3],
+                        outlier_tol=[None, None], motion_models=['Fixed'],
+                        init_guess_mode='name', verbose=0)
+    msc.fit()      # must not raise
+
+    tab = msc.ref_table
+    assert 'use_in_trans' in tab.colnames
+    assert np.ndim(tab['use_in_trans']) == 1, \
+        "ref_table's use_in_trans must stay a 1D per-star flag"
+
+    # other 1D aggregates shared by name are likewise left alone, not written
+    # per-epoch -- x0 must remain 1D
+    assert np.ndim(tab['x0']) == 1
+
+
+def test_iter_callback_indices_are_distinct():
+    """
+    iter_callback fires once per iteration and once more after the final
+    re-matching pass. That last call used to reuse the last iteration's index,
+    so a callback could not tell the two apart -- and one with side effects
+    (accumulating outlier rejections, say) silently ran twice for the last
+    iteration. The final call now reports `iters`, one past the last index.
+    """
+    from flystar.align import MosaicSelfRef
+    from flystar.starlists import StarList
+
+    n = 30
+    rng = np.random.default_rng(4)
+    x0 = rng.uniform(20, 180, n)
+    y0 = rng.uniform(20, 180, n)
+    m0 = rng.uniform(13, 19, n)
+    names = [f's{i:03d}' for i in range(n)]
+
+    def make_lists():
+        out = []
+        for e in range(3):
+            sl = StarList(name=names, x=x0 + rng.normal(0, .01, n),
+                          y=y0 + rng.normal(0, .01, n), m=m0,
+                          xe=np.full(n, .01), ye=np.full(n, .01),
+                          me=np.full(n, .01))
+            sl.meta['list_time'] = 2020.0 + e
+            out.append(sl)
+        return out
+
+    for iters in (1, 2, 3):
+        seen = []
+        msc = MosaicSelfRef(make_lists(), iters=iters, dr_tol=[8.] * iters,
+                            dm_tol=[3] * iters, outlier_tol=[None] * iters,
+                            motion_models=['Fixed'], init_guess_mode='name',
+                            verbose=0,
+                            iter_callback=lambda tab, it: seen.append(it))
+        msc.fit()
+
+        assert len(seen) == len(set(seen)), \
+            f'iters={iters}: callback saw a repeated index: {seen}'
+        assert seen == list(range(iters + 1)), \
+            f'iters={iters}: expected indices 0..{iters}, got {seen}'
+        assert seen[-1] == iters, \
+            f'iters={iters}: final call must be marked {iters}, got {seen[-1]}'
