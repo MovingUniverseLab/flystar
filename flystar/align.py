@@ -282,31 +282,34 @@ class MosaicSelfRef(object):
 
         Example
         -------
-        mtr = align.MosaicToRef(list_of_starlists, iters=1,
-                                dr_tol=[0.1], dm_tol=[5],
-                                outlier_tol=[None], mag_lim=[13, 21],
-                                trans_class=transforms.PolyTransform,
-                                trans_args=[{'order': 1}],
-                                weights='both,std',
-                                init_guess_mode='miracle', verbose=False)
-        mtr.fit()
 
-        # Access a list of all the transformation parameters:
-        trans_list = mtr.trans_list
+        .. code-block:: python
 
-        # Access the fully-combined reference table.
-        stars_table = mtr.ref_table
+            mtr = align.MosaicToRef(list_of_starlists, iters=1,
+                                    dr_tol=[0.1], dm_tol=[5],
+                                    outlier_tol=[None], mag_lim=[13, 21],
+                                    trans_class=transforms.PolyTransform,
+                                    trans_args=[{'order': 1}],
+                                    weights='both,std',
+                                    init_guess_mode='miracle', verbose=False)
+            mtr.fit()
 
-        # Plot the magnitude of the first star vs. time:
-        # Overplot the mean magnitude.
-        plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
-        plt.axhline(stars_table['m0'][0])
+            # Access a list of all the transformation parameters:
+            trans_list = mtr.trans_list
 
-        # Plot the X position of the first star vs. time:
-        # Overplot the best-fit proper motion.
-        times = stars_table['t'][0, :]
-        plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
-        plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
+            # Access the fully-combined reference table.
+            stars_table = mtr.ref_table
+
+            # Plot the magnitude of the first star vs. time:
+            # Overplot the mean magnitude.
+            plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
+            plt.axhline(stars_table['m0'][0])
+
+            # Plot the X position of the first star vs. time:
+            # Overplot the best-fit proper motion.
+            times = stars_table['t'][0, :]
+            plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
+            plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
         """
         dr_tol = np.atleast_1d(dr_tol)
         self.iters = len(dr_tol)
@@ -1080,9 +1083,12 @@ class MosaicSelfRef(object):
     def setup_trans_info(self):
         """ Setup transformation info into a usable format.
 
+        Parameters
+        ----------
         trans_input : list or None
-        trans_args : list of dict (already broadcast/validated by
-            fix_iterable_conditions -- one dict per iteration)
+        trans_args : list of dict
+            Already broadcast/validated by fix_iterable_conditions --
+            one dict per iteration.
         N_lists : int
         iters : int
         """
@@ -1723,6 +1729,7 @@ class MosaicSelfRef(object):
         appropriate for the specified epoch.
 
         Columns in resulting reference list will include:
+
             name
             x
             y
@@ -1815,18 +1822,21 @@ class MosaicSelfRef(object):
         as the proper motions. For each iteration, this will:
 
         1) Draw full-size bootstrap w/replacement sample from reference stars in
-        ref_table and re-calculate the transformations for each epoch
+           ref_table and re-calculate the transformations for each epoch
         2) Apply transformation to all stars in each epoch
-        If calc_vel_in_bootstrap:
-            3) For each star, draw full-size boostrap sample w/replacement from epochs
-            4) Calculate proper motion for each star using resampled epochs
+        3) If calc_vel_in_bootstrap, for each star draw a full-size bootstrap
+           sample w/replacement from epochs
+        4) If calc_vel_in_bootstrap, calculate proper motion for each star
+           using the resampled epochs
 
         The saved outputs will be: x_trans, y_trans, m_trans (transformed postions/mags),
         as well as the proper motion fit parameters.
 
         Final calculated errors:
-        std(x_trans) ---> x-direction transformation error (and likewise for y_trans, m_trans)
-        std(x0) --> x0e (and same with all proper motion fit parameters)
+
+        - ``std(x_trans)`` -> x-direction transformation error (and likewise
+          for y_trans, m_trans)
+        - ``std(x0)`` -> x0e (and same with all proper motion fit parameters)
 
         Parameters
         ----------
@@ -2474,34 +2484,37 @@ class MosaicToRef(MosaicSelfRef):
 
         Example
         -------
-        mtr = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
-                                dr_tol=[0.1], dm_tol=[5],
-                                outlier_tol=[None], mag_lim=[13, 21],
-                                trans_class=transforms.PolyTransform,
-                                trans_args=[{'order': 1}],
-                                use_ref_new=False,
-                                update_ref_orig=False,
-                                mag_trans=False,
-                                weights='both,std',
-                                init_guess_mode='miracle', verbose=False)
-        mtr.fit()
 
-        # Access a list of all the transformation parameters:
-        trans_list = mtr.trans_list
+        .. code-block:: python
 
-        # Access the fully-combined reference table.
-        stars_table = mtr.ref_table
+            mtr = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
+                                    dr_tol=[0.1], dm_tol=[5],
+                                    outlier_tol=[None], mag_lim=[13, 21],
+                                    trans_class=transforms.PolyTransform,
+                                    trans_args=[{'order': 1}],
+                                    use_ref_new=False,
+                                    update_ref_orig=False,
+                                    mag_trans=False,
+                                    weights='both,std',
+                                    init_guess_mode='miracle', verbose=False)
+            mtr.fit()
 
-        # Plot the magnitude of the first star vs. time:
-        # Overplot the mean magnitude.
-        plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
-        plt.axhline(stars_table['m0'][0])
+            # Access a list of all the transformation parameters:
+            trans_list = mtr.trans_list
 
-        # Plot the X position of the first star vs. time:
-        # Overplot the best-fit proper motion.
-        times = stars_table['t'][0, :]
-        plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
-        plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
+            # Access the fully-combined reference table.
+            stars_table = mtr.ref_table
+
+            # Plot the magnitude of the first star vs. time:
+            # Overplot the mean magnitude.
+            plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
+            plt.axhline(stars_table['m0'][0])
+
+            # Plot the X position of the first star vs. time:
+            # Overplot the best-fit proper motion.
+            times = stars_table['t'][0, :]
+            plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
+            plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
         """
         super().__init__(
             list_of_starlists,
@@ -3420,33 +3433,32 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, work
     Starlists must be astropy tables with standard columns names as specified
     in initial_align.
 
-    Parameters:
-   -----------
-    -table1: astropy.table
+    Parameters
+    ----------
+    table1 : astropy.table
         contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0.
 
-    -table2: astropy.table
+    table2 : astropy.table
         contains name,m,x,y,xe,ye.
         this is the reference template
 
-    -dr_tol: float (default=1.0)
+    transform : transformation object
+
+    dr_tol : float (default=1.0)
         The search radius for the matching algorithm, in the same units as the
         starlist file positions.
 
-    -workers: int (default=1)
+    workers : int (default=1)
         Number of worker threads for the KDTree neighbor search. -1 uses all
         available CPU cores. See match.match() for details.
 
-    -transform: transformation object
-
-    -verbose: bool, optional
+    verbose : bool, optional
         Prints on screen information on the matching
 
-
-    Output:
+    Returns
     -------
-    -idx1: indicies of matched stars from table1
-    -idx2: indicies of matched stars from tabel2
+    idx1 : indicies of matched stars from table1
+    idx2 : indicies of matched stars from tabel2
     """
 
     # Extract necessary information from tables (x, y, m)
@@ -3593,7 +3605,7 @@ def find_transform_new(table1_mat, table2_mat,
     weights: string (default=None)
         if weights=='both', we use position error  in transformed
         starlist and reference starlist as uncertanties. And weights is the reciprocal
-            of this uncertanty.
+        of this uncertanty.
         if weights=='starlist', we only use postion error and velocity error in transformed
         starlist as uncertainty.
         if weights=='reference', we only use position error in reference starlist as uncertainty.
@@ -3696,7 +3708,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
     weights: string (default=None)
         if weights=='both', we use both position error and velocity error in transformed
         starlist and reference starlist as uncertanties. And weights is the reciprocal
-            of this uncertanty.
+        of this uncertanty.
         if weights=='starlist', we only use postion error and velocity error in transformed
         starlist as uncertainty.
         if weights=='reference', we only use position error in reference starlist as uncertainty
@@ -3920,11 +3932,13 @@ def position_transform_from_object(x, y, xe, ye, transform):
     position and position error based on transformation object from
     astropy.modeling.models.polynomial2D.
     Input:
+
         - x, y: original position
         - xe, ye: original position error
         - transform: transformation object from astropy.modeling.models.polynomial2D
 
     Outpus:
+
         - x_new, y_new: transformed position
         - xe_new, ye_new: transformed position error
     """
@@ -4020,11 +4034,13 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
     calculat the transformed velocity and velocity error based on transformation
     from astropy.modling.models.polynomial2D.
     Input:
+
         - x0, y0, x0e, y0e: original position and position error
         - vx, vy, vxe, vye: original velocity and velocity error
         - transform: transformation object from astropy.modeling.models.polynomial2D
 
     Outpus:
+
         - vx_new, vy_new, vxe_new, vye_new: transformed velocity and velocity error
     """
 
@@ -4602,6 +4618,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
 
 
     Parameters
+    ----------
     sl1 : StarList
         starlist used for reference frame
     sl2 : StarList

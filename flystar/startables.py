@@ -208,14 +208,17 @@ class StarTable(Table):
         In either case, the number of stars must already match
         the existing number of stars in the StarTable.
 
-        Example 1: Pass in data via StarList object.
-        ----------
-        print(t['x'].shape)
-        t.add_starlist(starlist=my_list)
-        print(t['x'].shape)   # Should be 1 column larger than before.
+        Examples
+        --------
+        Pass in data via a StarList object::
 
-        Example 2: Pass in data via keywords and 1D arrays.
-        t.add_starlist(x=x_new, y=y_new, m=m_new)
+            print(t['x'].shape)
+            t.add_starlist(starlist=my_list)
+            print(t['x'].shape)   # Should be 1 column larger than before.
+
+        Pass in data via keywords and 1D arrays::
+
+            t.add_starlist(x=x_new, y=y_new, m=m_new)
 
         Parameters
         ----------
@@ -771,7 +774,7 @@ class StarTable(Table):
             output of a previous, lower-level align pass, so n_detect
             reflects the total number of raw detections a star represents.
             By default None (plain count).
-        # """
+        """
         if (weight_col is not None) and (weight_col in self.colnames):
             n_detect = np.sum(self[weight_col], axis=1)
         else:
@@ -813,12 +816,16 @@ class StarTable(Table):
             Empty and Fixed models are always added automatically for stars with n_fit = 0 or 1.
             The behavior is as follows:
             1. If 'motion_model_input' column is NOT in table:
+
                 - Use the most complex model that has enough parameters to fit the data (n_fit >= n_params).
                 - If multiple models are supplied, prioritize the model with the most parameters to fit.
                 - If multiple models have the same number of parameters, raise AssertionError: not sure which to use.
+
             2. If 'motion_model_input' column IS in table:
+
                 - Use the model specified in the 'motion_model_input' column.
                 - If not enough data points to fit the specified model, use the most complex model in any 'motion_model_input' column that has enough parameters to fit the data (n_fit >= n_params) among the provided motion_models and 'motion_model_input'.
+
             The actual used motion model is stored in the 'motion_model_used' column. The default motion_models are [Empty, Fixed, Linear].
         fixed_params_dict : dict, optional
             Dictionary of fixed parameters for motion models, e.g., {'t0': 0., 'ra': np.array([...]), 'dec': np.array([...])}.

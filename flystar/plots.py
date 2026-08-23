@@ -19,20 +19,22 @@ def calc_chi2(ref_mat, starlist_mat, transform, errs='both'):
     """
     calculate the chi2 and reduced chi2 of the position
     between two matched starlists.
-    Input:
-    ref_mat: astropy table
+
+    Parameters
+    ----------
+    ref_mat : astropy table
         Reference starlist only containing matched stars that were used in the
         transformation. Standard column headers are assumed.
 
-    starlist_mat: astropy table
+    starlist_mat : astropy table
         Transformed starlist only containing the matched stars used in
         the transformation. Standard column headers are assumed.
 
-    transform: transformation object
+    transform : transformation object
         Transformation object of final transform. Used in chi-square
         determination
 
-    errs: string; 'both', 'reference', or 'starlist'
+    errs : string; 'both', 'reference', or 'starlist'
         If both, add starlist errors in quadrature with reference errors.
 
         If reference, only consider reference errors. This should be used if the starlist
@@ -41,12 +43,13 @@ def calc_chi2(ref_mat, starlist_mat, transform, errs='both'):
         If starlist, only consider starlist errors. This should be used if the reference
         does not have valid errors
 
-    Output:
-    chi_sq: float
+    Returns
+    -------
+    chi_sq : float
         chi2 = sum (diff_x**2 / xerr**2 + diff_y**2 /yerr**2)
-    chi_sq_red: float
+    chi_sq_red : float
         reduced chi2 = chi2/ degree of freedom
-    deg_freedom: int
+    deg_freedom : int
         degree of freedom
 
     """
@@ -1181,7 +1184,7 @@ def plot_mag_error(tab, save_path=None):
 def plot_mean_residuals_by_epoch(tab):
     """
     Plot mean position and magnitude residuals vs. epoch.
-    Note we are plotting the mean( |dx} ) to see
+    Note we are plotting the ``mean(|dx|)`` to see
     the size of the mean residual.
     """
     # Predicted model positions at each epoch

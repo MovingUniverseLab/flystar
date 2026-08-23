@@ -138,7 +138,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     weights: string (default=None)
         if weights=='both', we use both position error and velocity error in transformed
         starlist and reference starlist as uncertanties. And weights is the reciprocal
-            of this uncertanty.
+        of this uncertanty.
         if weights=='starlist', we only use postion error and velocity error in transformed
         starlist as uncertainty.
         if weights=='reference', we only use position error in reference starlist as uncertainty.
@@ -293,7 +293,7 @@ def align_gc(starFile, refFile, transModel=transforms.PolyTransform, order=1, N_
 
     weights: string (default='both')
         if weights=='both', we use both position error in transformed starlist and
-           reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
+        reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
         if weights=='starlist', we only use postion error in transformed starlist.
         if weights=='reference', we only use position error in reference starlist.
         if weights==None, we don't use weights.
@@ -419,7 +419,7 @@ def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2,
 
     weights: string (default='both')
         if weights=='both', we use both position error in transformed starlist and
-           reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
+        reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
         if weights=='starlist', we only use postion error in transformed starlist.
         if weights=='reference', we only use position error in reference starlist.
         if weights==None, we don't use weights.

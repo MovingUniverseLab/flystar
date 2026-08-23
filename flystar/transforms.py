@@ -363,7 +363,9 @@ class PolyTransform(Transform2D):
         The input/output ordering is set for easy coding using:
 
         for i in range(self.order + 1):
+
             for j in range(i + 1):
+
                 coeff[i-j, j] for term x**(i-j) * y**(j)
 
         But astropy models Polynomial2D has its own special order... we try to 
@@ -889,8 +891,10 @@ class LegTransform(Transform2D):
         Legnedre polynomials as the basis.
 
         Transforms are independent for x and y and of the form:
+
             x' = c0_0 + c1_0 * L_1(x) + c0_1*L_1(y) + ....
             y' = d0_0 + d1_0 * L_1(x) + d0_1*L_1(y) + ....
+
         Note that all input coordinates will be renomalized to be on the interval of [-1:1] before fitting.
         The evaulate function must use the same renormalization procedure.
         """

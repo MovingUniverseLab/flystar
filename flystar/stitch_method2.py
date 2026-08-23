@@ -36,7 +36,7 @@ def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2,
 
     weights: string (default='both')
         if weights=='both', we use both position error in transformed starlist and
-           reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
+        reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
         if weights=='starlist', we only use postion error in transformed starlist.
         if weights=='reference', we only use position error in reference starlist.
         if weights==None, we don't use weights.
