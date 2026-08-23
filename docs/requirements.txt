@@ -1,0 +1,9 @@
+# Documentation build requirements.
+#
+# Note: flystar itself is intentionally NOT installed for the docs build. The
+# API reference is produced by sphinx-autoapi via static analysis, so the
+# science stack (numpy/scipy/astropy/matplotlib) is not needed here.
+sphinx>=7.0
+sphinx-rtd-theme>=2.0
+sphinx-autoapi>=3.0
+myst-nb>=1.0
