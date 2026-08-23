@@ -232,7 +232,14 @@ class MosaicSelfRef(object):
 
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
-            at the end of every iteration. This can be used for plotting or printing state.
+            at the end of every iteration, and once more after the final
+            re-matching pass with an index of `iters` (one past the last
+            iteration), so that last call can be told apart from the end of
+            the last iteration. Useful for plotting or printing state, and for
+            rejecting stars between iterations: the table handed in is the live
+            ref_table, so setting `use_in_trans = False` on a row excludes it
+            from subsequent transformations while keeping the star in the
+            output.
 
         save_path : str, optional
             Directory to save fit results to: PREFIX_input.txt (the fit
@@ -614,7 +621,14 @@ class MosaicSelfRef(object):
         self.ref_table.remove_rows(idx)
 
         if self.iter_callback is not None:
-            self.iter_callback(self.ref_table, nn)
+            # nn + 1, not nn: the loop above already called back with nn at the
+            # end of that iteration, and this call comes after a further stage
+            # (the final re-match and aggregate update). Reusing nn made the
+            # two indistinguishable, so a callback with side effects -- say one
+            # that accumulates outlier rejections -- ran twice for the last
+            # iteration with no way to tell. nn + 1 == self.iters marks "after
+            # the final matching pass".
+            self.iter_callback(self.ref_table, nn + 1)
 
         # Add times into ref_table meta data
         all_epochs = [s.meta['list_time'] for s in self.star_lists]
@@ -2413,7 +2427,14 @@ class MosaicToRef(MosaicSelfRef):
 
         iter_callback : None or function
             A function to call (that accepts a StarTable object and an iteration number)
-            at the end of every iteration. This can be used for plotting or printing state.
+            at the end of every iteration, and once more after the final
+            re-matching pass with an index of `iters` (one past the last
+            iteration), so that last call can be told apart from the end of
+            the last iteration. Useful for plotting or printing state, and for
+            rejecting stars between iterations: the table handed in is the live
+            ref_table, so setting `use_in_trans = False` on a row excludes it
+            from subsequent transformations while keeping the star in the
+            output.
 
         save_path : str, optional
             Directory to save fit results to: PREFIX_input.txt (the fit
@@ -2738,7 +2759,14 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table.remove_rows(idx)
 
         if self.iter_callback is not None:
-            self.iter_callback(self.ref_table, nn)
+            # nn + 1, not nn: the loop above already called back with nn at the
+            # end of that iteration, and this call comes after a further stage
+            # (the final re-match and aggregate update). Reusing nn made the
+            # two indistinguishable, so a callback with side effects -- say one
+            # that accumulates outlier rejections -- ran twice for the last
+            # iteration with no way to tell. nn + 1 == self.iters marks "after
+            # the final matching pass".
+            self.iter_callback(self.ref_table, nn + 1)
 
         # Add times into ref_table meta data
         all_epochs = [s.meta['list_time'] for s in self.star_lists]
@@ -3099,6 +3127,15 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
                 if incoming_width > current_width:
                     ref_table['name_in_list'] = ref_table['name_in_list'].astype(f'U{incoming_width}')
                 ref_table['name_in_list'][idx_ref, idx_epoch] = incoming_names
+            elif np.ndim(ref_table[col_name]) != 2:
+                # Only per-list (2D) columns can take a per-epoch write. A
+                # shared name whose ref_table column is 1D is an aggregate or a
+                # per-star flag -- 'use_in_trans', 'x0', 'n_params' and so on --
+                # and has no epoch axis to index. Writing it here raised
+                # "too many indices for array", so simply supplying a
+                # 'use_in_trans' column on an input starlist crashed the run.
+                # Leave those columns to whoever owns them.
+                continue
             else:
                 ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][idx_lis]
 
