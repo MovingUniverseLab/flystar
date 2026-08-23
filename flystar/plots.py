@@ -1189,7 +1189,7 @@ def plot_mean_residuals_by_epoch(tab):
     """
     # Predicted model positions at each epoch
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
+    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
 
     # Residuals
     dx = tab['x'] - xt_mod
