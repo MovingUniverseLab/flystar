@@ -1,0 +1,4 @@
+# Local documentation development. Read the Docs installs requirements.txt
+# only -- sphinx-autobuild is for `make livehtml` on your own machine.
+-r requirements.txt
+sphinx-autobuild>=2024.2.4

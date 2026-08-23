@@ -66,8 +66,11 @@ napoleon_use_rtype = True
 napoleon_custom_sections = [
     ('Required Parameters', 'Parameters'),
     ('Optional Parameters', 'Parameters'),
+    ('Input', 'Parameters'),
+    ('Inputs', 'Parameters'),
     ('Optional Inputs', 'Parameters'),
     ('Optional Input', 'Parameters'),
+    ('Outputs', 'Returns'),
     ('Optional Keywords', 'Parameters'),
     ('Required table columns (input as keywords)', 'Parameters'),
     ('Optional table columns (input as keywords)', 'Parameters'),
