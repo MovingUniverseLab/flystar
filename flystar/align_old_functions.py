@@ -11,7 +11,7 @@ def transform_from_file(starlist, transFile):
     WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
     TRANSFORMS
     
-    Parameters:
+    Parameters
     ----------
     starlist: astropy table
          Starlist we want to apply the transformation too. Must already
@@ -21,7 +21,7 @@ def transform_from_file(starlist, transFile):
         File with the transformation coefficients. Assumed to be output of
         write_transform, with coefficients specified as code documents
 
-    Output:
+    Output
     ------
     Copy of starlist astropy table with transformed coordinates.
     """
@@ -175,7 +175,7 @@ def transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig, y_orig):
     WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
     TRANSFORMS
 
-    Parameters:
+    Parameters
     ----------
     Xcoeff: Array
         Array with the coefficients of the X pos transformation
@@ -192,7 +192,7 @@ def transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig, y_orig):
     y_orig: array
         Array with the original Y positions
 
-    Output:
+    Output
     ------
     x_new: array
        Transformed X positions
@@ -222,7 +222,7 @@ def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, 
     WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
     TRANSFORMS
 
-    Parameters:
+    Parameters
     ----------
     Xcoeff: Array
         Array with the coefficients of the X pos transformation
@@ -245,7 +245,7 @@ def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, 
     y_orig: array
         Array with the original Y positions
 
-    Output:
+    Output
     ------
     xe_new: array
        Transformed X position errs
@@ -290,7 +290,7 @@ def transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig, vy_orig, x_orig, y_o
     WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
     TRANSFORMS
     
-    Parameters:
+    Parameters
     ----------
     Xcoeff: Array
         Array with the coefficients of the X pos transformation
@@ -313,7 +313,7 @@ def transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig, vy_orig, x_orig, y_o
     y_orig: array
         Array with the original Y positions
 
-    Output:
+    Output
     ------
     vx_new: array
        Transformed X proper motions
@@ -352,7 +352,7 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
     WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
     TRANSFORMS
     
-    Parameters:
+    Parameters
     ----------
     Xcoeff: Array
         Array with the coefficients of the X pos transformation
@@ -387,7 +387,7 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
     y_orig: array
         Array with the original Y positions
 
-    Output:
+    Output
     ------
     vxe_new: array
        Transformed X proper motion errs

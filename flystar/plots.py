@@ -109,7 +109,7 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None,
     in reference list coordinates. Stars used in the transformation are
     highlighted.
 
-    Parameters:
+    Parameters
     ----------
     ref: astropy table
         Reference starlist, with standard column headers
@@ -560,7 +560,7 @@ def vpd(ref, starlist_trans, vxlim, vylim):
     Note: we need velocities in both starlists in order for this
     to work.
 
-    Parameters:
+    Parameters
     ----------
     ref: astropy table
         Reference starlist which contains velocity info. Standard column
@@ -693,7 +693,7 @@ def residual_vpd(ref_mat, starlist_trans_mat, pscale=None):
         If float, convert all values to mas/yr using pscale as the plate scale.
         Assumes pscale is conversion from pixels to milliarcsecs
 
-    Output:
+    Output
     ------
     Creates (reference - transformed) VPD
     """

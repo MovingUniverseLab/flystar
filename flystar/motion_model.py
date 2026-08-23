@@ -119,9 +119,9 @@ def sigma_from_error(xe, ye, weighting='var'):
     should use, based on the requested weighting scheme.
 
     weighting : str, optional
-        'var': sigma = |xe|, |ye|, so a later 1/sigma**2 gives true
-        inverse-variance weighting (w=1/xe**2, 1/ye**2).
-        'std': sigma = sqrt(|xe|), sqrt(|ye|), so the same later
+        'var': sigma = ``abs(xe)``, ``abs(ye)``, so a later 1/sigma**2 gives
+        true inverse-variance weighting (w=1/xe**2, 1/ye**2).
+        'std': sigma = ``sqrt(abs(xe))``, ``sqrt(abs(ye))``, so the same later
         1/sigma**2 instead gives standard-error weighting (w=1/xe, 1/ye).
         By default 'var'.
     """

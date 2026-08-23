@@ -1828,7 +1828,7 @@ class MosaicSelfRef(object):
         std(x_trans) ---> x-direction transformation error (and likewise for y_trans, m_trans)
         std(x0) --> x0e (and same with all proper motion fit parameters)
 
-        Parameters:
+        Parameters
         ----------
         mosaic_object : MosaicToRef object
             MosaicToRef object after the complete match_and_transform process
@@ -1865,7 +1865,7 @@ class MosaicSelfRef(object):
         verbose : boolean, optional
             Print verbose information or not, by default True
 
-        Output:
+        Output
         ------
         New columns will be added to self.ref_table:
         'xe_boot', 2D column: bootstrap x pos uncertainties due to transformation for each epoch
@@ -3363,7 +3363,7 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.PolyTran
     use: specify use in transformation
 
 
-    Parameters:
+    Parameters
     ----------
     -table1: astropy.table
         contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0.
@@ -3383,7 +3383,7 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.PolyTran
     -order: int
          Order of the transformation. Not relevant for 4 parameter or spline fit
 
-    Output:
+    Output
     ------
     Transformation object
 
@@ -3513,7 +3513,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
     verbose: bool (default=True)
         Prints on screen information on the matching
 
-    Output:
+    Output
     ------
     -transformation object
     -number of stars used in transform
@@ -3607,7 +3607,7 @@ def find_transform_new(table1_mat, table2_mat,
     verbose: bool (default=True)
         Prints on screen information on the matching
 
-    Output:
+    Output
     ------
     -transformation object
     -number of stars used in transform
@@ -3669,7 +3669,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
     x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
     y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
 
-    Parameters:
+    Parameters
     ----------
     transform: transformation object
         Transformation object we want to feed into java align
@@ -3705,7 +3705,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
     outFile: string (default: 'outTrans.txt')
         Name of output text file
 
-    Output:
+    Output
     ------
     txt file with the file name outFile
     """
@@ -3783,7 +3783,7 @@ def transform_from_file(starlist, transFile):
 
     WARNING: THIS CODE WORKS FOR POLYTRANSFORM
 
-    Parameters:
+    Parameters
     ----------
     starlist: astropy table
          Starlist we want to apply the transformation too. Must already
@@ -3793,7 +3793,7 @@ def transform_from_file(starlist, transFile):
         File with the transformation coefficients. Assumed to be output of
         write_transform, with coefficients specified as code documents
 
-    Output:
+    Output
     ------
     Copy of starlist astropy table with transformed coordinates.
     """
@@ -3823,7 +3823,7 @@ def transform_from_object(starlist, transform):
     implemented, the motion parameters are set to nan, as we need the full time
     series to refit.
 
-    Parameters:
+    Parameters
     ----------
     starlist: astropy table
          Starlist we want to apply the transformation too. Must already
@@ -3832,7 +3832,7 @@ def transform_from_object(starlist, transform):
 
     transform: transformation object
 
-    Output:
+    Output
     ------
     Copy of starlist astropy table with transformed x0, y0, x0e, y0e,
     vx, vy, vxe, vye, x, y, xe, ye

@@ -49,7 +49,7 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     outFile: string (default = 'outTrans.txt')
         Name of output ascii file which contains the transform parameters.
 
-    Output:
+    Output
     ------
 
     """
@@ -151,7 +151,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     outFile: string (default = 'outTrans.txt')
         Name of output ascii file which contains the transform parameters.
 
-    Output:
+    Output
     ------
     outFile is written containing the tranformation coefficients
 

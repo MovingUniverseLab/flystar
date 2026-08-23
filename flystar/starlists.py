@@ -51,7 +51,7 @@ def restrict_by_area(table1, area, exclude=False):
     indicies of the stars in table1 that fulfill this criteria. Area and table1
     positions must be in consistent units in order for this to work.
 
-    Parameters:
+    Parameters
     ----------
     table1: astropy table
          Starlist to be restricted. Must have standard column headers
@@ -67,7 +67,7 @@ def restrict_by_area(table1, area, exclude=False):
         If true, *exclude* the stars that fall within the given area. If false,
         then only return stars that fall within the given area
 
-    Output:
+    Output
     ------
     array of indicies corresponding to stars which are within the designated
     area.
@@ -163,7 +163,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
 
     Update values in columns of position and velocity
 
-    Parameters:
+    Parameters
     ----------
     labelFile: text file. containing
         col1: name
@@ -190,7 +190,7 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
 
     #OLD# tref: reference epoch that label.dat is converted to.
 
-    Output:
+    Output
     ------
     labelFile: astropy.table.
     containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r0,
@@ -266,7 +266,7 @@ def read_label_accel(labelFile, prop_to_time=None, flipX=True):
 
     Update values in columns of position and velocity
 
-    Parameters:
+    Parameters
     ----------
     labelFile: text file. containing
         col1: name
@@ -297,7 +297,7 @@ def read_label_accel(labelFile, prop_to_time=None, flipX=True):
 
     #OLD# tref: reference epoch that label.dat is converted to.
 
-    Output:
+    Output
     ------
     labelFile: astropy.table.
     containing name, m, x0, y0, x0e, y0e, vx, vy, vxe, vye, t0, use, r0,
@@ -390,7 +390,7 @@ def read_starlist(starlistFile, error=True):
     Assumes the starlist is the reference, so we have time as
     t and don't try to propogate positions to a different time.
 
-    Parameter:
+    Parameter
     ---------
     starlistFile: text file, containing:
         col1: name
@@ -415,7 +415,7 @@ def read_starlist(starlistFile, error=True):
         If true, assumes starlist has error columns. This significantly
         changes the order of the columns.
 
-    Output:
+    Output
     ------
     starlist astropy table.
     containing: name, m, x, y, xe, ye, t
@@ -457,8 +457,8 @@ class StarList(Table):
         """
         A StarList is an astropy.Table with star catalog from a single image.
 
-        Required table columns (input as keywords):
-        -------------------------
+        Required table columns (input as keywords)
+        ------------------------------------------
         name : 1D numpy.array with shape = N_stars
             List of names of the stars in the table.
 
@@ -471,8 +471,8 @@ class StarList(Table):
         m : 1D numpy.array with shape = N_stars
             Magnitudes of N_stars.
 
-        Optional table columns (input as keywords):
-        -------------------------
+        Optional table columns (input as keywords)
+        ------------------------------------------
         xe : 1D numpy.array with shape = N_stars
             Position uncertainties of N_stars in the x dimension.
 
@@ -633,7 +633,7 @@ class StarList(Table):
         Assumes the starlist is the reference, so we have time as
         t and don't try to propogate positions to a different time.
 
-        Parameter:
+        Parameter
         ---------
         starlistFile: text file, containing:
             col1: name
@@ -660,7 +660,7 @@ class StarList(Table):
             If true, assumes starlist has error columns. This significantly
             changes the order of the columns.
 
-        Output:
+        Output
         ------
         starlists.StarList() object (subclass of Astropy Table).
         """
@@ -858,7 +858,7 @@ def write_region(x, y, save_path, frame='image', colors='magenta', shape='circle
     """
     Write a DS9 region file with the given x, y coordinates.
 
-    Parameters:
+    Parameters
     ----------
     x: 1D numpy.array
         X coordinates of the stars to write to the region file.
@@ -878,7 +878,7 @@ def write_region(x, y, save_path, frame='image', colors='magenta', shape='circle
         Dictionary of properties for the shape. For example, for circles, you can specify {'radius': 10}.
         For boxes, you can specify {'width': 20, 'height': 10}.
 
-    Output:
+    Output
     ------
     A DS9 region file will be created at the specified save_path.
     """

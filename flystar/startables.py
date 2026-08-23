@@ -16,8 +16,8 @@ class StarTable(Table):
         """
         A StarTable is an astropy.Table with stars matched from multiple starlists.
 
-        Required table columns (input as keywords):
-        -------------------------
+        Required table columns (input as keywords)
+        ------------------------------------------
         name : 1D numpy.array with shape = N_stars
             List of unique names for each of the stars in the table.
 
@@ -30,8 +30,8 @@ class StarTable(Table):
         m : 2D numpy.array with shape = (N_stars, N_lists)
             Magnitudes of N_stars in each of N_lists.
 
-        Optional table columns (input as keywords):
-        -------------------------
+        Optional table columns (input as keywords)
+        ------------------------------------------
         motion_model : 1D numpy.array with shape = N_stars
             string indicating motion model type for each star
 
@@ -544,13 +544,12 @@ class StarTable(Table):
             chi2 = sum(w * (x - xbar)**2) and dof = n_valid - 1 (one parameter,
             the mean, estimated from the data):
 
-            ==================  ==========================  =========================
-            branch              absolute_sigma=True         absolute_sigma=False
-            ==================  ==========================  =========================
-            weighted            ``sqrt(1/sum(w))``          ``sqrt(1/sum(w)) *
-            (weights_col given)                             sqrt(chi2/dof)``
-            unweighted          ``sqrt(S/(n_valid*dof))``   ``sqrt(S/(n_valid*dof))``
-            ==================  ==========================  =========================
+            ======================  =========================  ============================
+            branch                  absolute_sigma=True        absolute_sigma=False
+            ======================  =========================  ============================
+            weighted (weights_col)  ``sqrt(1/sum(w))``         ``sqrt(1/sum(w)*chi2/dof)``
+            unweighted              ``sqrt(S/(n_valid*dof))``  ``sqrt(S/(n_valid*dof))``
+            ======================  =========================  ============================
 
             True trusts the per-point input errors and propagates them; False
             rescales by the epochs' own disagreement, which is more honest when

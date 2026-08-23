@@ -241,7 +241,7 @@ class four_paramNW(Transform2D):
         """
         Transform positional uncertainties. 
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -406,7 +406,7 @@ class PolyTransform(Transform2D):
         """
         Apply the transformation to a starlist.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The raw x coordinates to be transformed.
@@ -427,7 +427,7 @@ class PolyTransform(Transform2D):
         """
         Transform positional uncertainties. 
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -479,7 +479,7 @@ class PolyTransform(Transform2D):
         """
         Transform velocities.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -523,7 +523,7 @@ class PolyTransform(Transform2D):
         """
         Transform velocities.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -660,7 +660,7 @@ class PolyTransform(Transform2D):
         x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
         y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
     
-        Parameters:
+        Parameters
         ----------
         trans_file : str
             The name of the input file to read in.
@@ -691,7 +691,7 @@ class PolyTransform(Transform2D):
         x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
         y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
     
-        Parameters:
+        Parameters
         ----------
         transform : PolyTransform
             The transformation object containing the coefficients and meta data to save. 
@@ -1085,7 +1085,7 @@ class LegTransform(Transform2D):
         """
         Apply the transformation to a starlist.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The raw x coordinates to be transformed.
@@ -1117,7 +1117,7 @@ class LegTransform(Transform2D):
         """
         Transform positional uncertainties. 
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -1185,7 +1185,7 @@ class LegTransform(Transform2D):
         """
         Transform velocities.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -1239,7 +1239,7 @@ class LegTransform(Transform2D):
         """
         Transform velocities.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
