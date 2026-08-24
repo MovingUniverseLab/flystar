@@ -1344,7 +1344,13 @@ class Parallax(MotionModel):
         Parameters
         ----------
         t_mjd : array-like
-            Time array in mjd
+            Time array in MJD, **in the TDB scale**. parallax_in_direction
+            declares its input TDB without converting, so a UTC MJD would be
+            read as TDB and shift every epoch by ~69 s. Callers converting from
+            decimal years should use
+            ``Time(t, format='decimalyear', scale='tdb').mjd``, which also
+            avoids UTC's leap-second table (and the ErfaWarning that comes with
+            epochs beyond it).
         ra : float or array-like
             Right ascension(s) in degrees
         dec : float or array-like
@@ -1476,7 +1482,7 @@ class Parallax(MotionModel):
         # grid and this reduces to a reshape, same as run_fit does.
         unique_t, inverse_idx = np.unique(t_grid, return_inverse=True)
         inverse_idx = inverse_idx.reshape(t_grid.shape)
-        t_mjd = Time(unique_t, format='decimalyear', scale='utc').mjd
+        t_mjd = Time(unique_t, format='decimalyear', scale='tdb').mjd
         pvec_unique = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation)  # (N_stars, 2, n_unique)
         star_idx = np.arange(N_stars)[:, np.newaxis]
         self.pvec = np.stack(
@@ -1587,7 +1593,7 @@ class Parallax(MotionModel):
         # just that grid and this is a no-op reshape.
         unique_t, inverse_idx = np.unique(t, return_inverse=True)
         inverse_idx = inverse_idx.reshape(t.shape)
-        t_mjd = Time(unique_t, format='decimalyear', scale='utc').mjd
+        t_mjd = Time(unique_t, format='decimalyear', scale='tdb').mjd
         pvec_unique = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation)  # (n_stars, 2, n_unique_times)
         star_idx = np.arange(n_stars)[:, np.newaxis]
         Px = pvec_unique[:, 0, :][star_idx, inverse_idx]  # (n_stars, n_epochs)

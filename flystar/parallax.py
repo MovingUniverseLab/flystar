@@ -31,6 +31,8 @@ def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     Dec : float or array-like
         Declination in degrees. (J2000)
     mjd : float or array-like
+        Modified Julian Date(s), **in the TDB scale**. Not converted; see the
+        note in the body.
         Modified Julian Date.
     obsLocation : str, optional
         Observer location, by default 'earth'.
@@ -48,7 +50,10 @@ def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     dec = np.atleast_1d(dec)
     mjd = np.atleast_1d(mjd)
     pa = np.atleast_1d(pa)
-    times = Time(mjd, format='mjd', scale='tdb')  # convert to TDB
+    # Declares the incoming MJD to be TDB -- it does NOT convert. Callers
+    # must hand over a TDB MJD; passing a UTC one silently shifts every
+    # epoch by TDB-UTC (69.184 s as of 2026).
+    times = Time(mjd, format='mjd', scale='tdb')
     coord = SkyCoord(ra, dec, unit=(units.deg, units.deg))  # Shape (N_stars,)
 
     directions = coord.cartesian.xyz.value.T # Shape (N_stars, 3)

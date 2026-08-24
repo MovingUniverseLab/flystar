@@ -1851,7 +1851,7 @@ class StarTable(Table):
             pa = fixed_params_dict.get('pa', 0.0)
             obsLocation = fixed_params_dict.get('obsLocation', 'earth')
             t_all = self['t'][np.where(~np.any(np.isnan(self['t']), axis=1))[0][0]]
-            t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
+            t_mjd = Time(t_all, format='decimalyear', scale='tdb').mjd
             pvec = Parallax().calc_parallax_vector(t_mjd, ra=ra, dec=dec, pa=pa, obsLocation=obsLocation)
             self['pi'] += delta_pi
             self['x'] += delta_pi*pvec[:, 0, :] # Shape (N_stars, N_times)
@@ -1892,7 +1892,7 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed
         pa = fixed_params_dict.get('pa', 0.0)
         obsLocation = fixed_params_dict.get('obsLocation', 'earth')
         t_all = table['t'][np.where(~np.any(np.isnan(table['t']), axis=1))[0][0]]
-        t_mjd = Time(t_all, format='decimalyear', scale='utc').mjd
+        t_mjd = Time(t_all, format='decimalyear', scale='tdb').mjd
         pvec = Parallax().calc_parallax_vector(t_mjd, ra=ra, dec=dec, pa=pa, obsLocation=obsLocation)
         table['pi'] += delta_pi
         table['x'] += delta_pi*pvec[:, 0, :] # Shape (N_stars, N_times)
