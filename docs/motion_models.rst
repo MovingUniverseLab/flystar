@@ -110,7 +110,7 @@ minimises the covariance between :math:`x_0` and :math:`v_x`.
 
 Fitted parameters land in per-star columns named after the parameter, with
 uncertainties in ``<param>_err`` -- ``vx`` and ``vx_err``, ``pi`` and
-``pi_err``. See :doc:`uncertainties` for how those errors are computed.
+``pi_err``. How those errors are computed is below.
 
 How a model gets chosen
 =======================
@@ -205,6 +205,127 @@ supply the difference:
 .. code-block:: python
 
    x, y, xe, ye = table.infer_positions(2026.5)
+
+.. _uncertainties:
+
+Uncertainties
+=============
+
+Every model reports parameter errors the same way, and it is the way
+:func:`scipy.optimize.curve_fit` does. There is no per-model convention to
+learn.
+
+Weighting
+---------
+
+``weighting`` decides how a per-epoch uncertainty becomes a fit weight, via
+:func:`~flystar.motion_model.sigma_from_error` and then
+:func:`~flystar.motion_model.weight_from_sigma`, which computes
+:math:`w = 1/\sigma^2`:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 28 54
+
+   * - ``weighting``
+     - :math:`\sigma_i` used
+     - Resulting weight
+   * - ``'var'`` (default)
+     - :math:`|\sigma_{x,i}|`
+     - :math:`w_i = 1/\sigma_{x,i}^2` -- true inverse-variance weighting.
+   * - ``'std'``
+     - :math:`\sqrt{|\sigma_{x,i}|}`
+     - :math:`w_i = 1/|\sigma_{x,i}|` -- standard-error weighting, a gentler
+       down-weighting of poorly measured epochs.
+
+Use ``'var'`` unless you have a specific reason: it is the correct choice when
+your input errors are trustworthy, and it minimises the propagated uncertainty.
+
+The ``absolute_sigma`` convention
+---------------------------------
+
+Let :math:`\hat{\sigma}_p` be the formal error on parameter :math:`p` from the
+weighted least-squares covariance, :math:`\chi^2` the weighted sum of squared
+residuals, and :math:`\nu` the degrees of freedom
+(:math:`n_\mathrm{valid} - n_\mathrm{params}`). Then:
+
+.. math::
+
+   \sigma_p =
+   \begin{cases}
+     \hat{\sigma}_p, & \texttt{absolute_sigma=True (default)} \\[4pt]
+     \hat{\sigma}_p \sqrt{\chi^2 / \nu}, & \texttt{absolute_sigma=False}
+   \end{cases}
+
+``True`` takes your input errors at face value and propagates them. ``False``
+rescales by the reduced :math:`\chi^2`, so only the *relative* magnitudes of the
+input errors matter and the result reflects the epochs' own disagreement --
+the more honest choice when the input errors are known to be systematically
+underestimated. When :math:`\nu \le 0` there is nothing to rescale by and the
+error is reported as :math:`\infty` rather than as a 0/0 NaN.
+
+This is exactly ``curve_fit``'s meaning of the flag, and the equivalence is
+enforced rather than asserted. ``flystar/tests/test_motion_model.py`` fits
+``Fixed``, ``Linear`` and ``Acceleration`` against their own ``curve_fit`` call,
+and ``Parallax`` against a joint five-parameter ``curve_fit`` over the stacked
+:math:`[x, y]` data, comparing parameters, parameter errors *and* :math:`\chi^2`
+across both weighting schemes, both ``absolute_sigma`` settings, several epoch
+counts including :math:`\nu = 0`, and nan-padded epochs. Those tests caught a
+real bug: ``Fixed`` had computed :math:`\chi^2` as
+:math:`\mathrm{resid}^2/\sigma_x^2` rather than with the fit's own weights,
+which coincide only for ``weighting='var'``.
+
+The same flag, with the same meaning, applies to
+:meth:`~flystar.startables.StarTable.combine_lists`, which collapses a per-list
+column into a per-star one (``x`` → ``x0``, ``x0_err``). There the reported
+value is always the uncertainty **of the mean**, never the scatter of the
+points. Sigma clipping runs first, so one bad epoch does not drag the average.
+
+Unusable uncertainties get weight zero, not a bad weight
+--------------------------------------------------------
+
+A naive :math:`1/\sigma^2` turns a missing or pathological uncertainty into an
+infinite or NaN weight, corrupting the whole sum rather than excluding one
+point. :func:`~flystar.motion_model.weight_from_sigma` instead assigns
+**exactly zero** whenever :math:`\sigma` is NaN, infinite, exactly zero, or so
+small that squaring it underflows -- and to any epoch marked invalid. Such an
+epoch drops cleanly out of both the fit and the :math:`\chi^2`.
+
+If *every* epoch of a star has weight zero there is no weighted mean to report,
+and FlyStar does not invent one: the value falls back to the unweighted mean
+where one is defined, and the uncertainty is :math:`\infty`. Per-star error
+columns are filled with ``inf``, not ``nan``, precisely so that "we don't know"
+stays distinguishable from "no data" and can never be mistaken for precision.
+
+A degenerate fit is reported, not guessed
+-----------------------------------------
+
+When the normal equations are singular -- every valid epoch at the same time,
+say -- only some combination of the parameters is constrained, not any
+individual one. FlyStar detects this against a scaled determinant tolerance and
+returns ``fill_value`` with :math:`\infty` errors, rather than the arbitrary
+minimum-norm answer a pseudo-inverse would hand back.
+
+Empirical errors by bootstrap
+-----------------------------
+
+The formulae above are analytic and assume the model is right. To get errors
+that make no such assumption, resample:
+
+.. code-block:: python
+
+   table.fit_motion_models(motion_models=['Linear'], bootstrap=100, seed=42)
+
+Each star's epochs are drawn with replacement ``bootstrap`` times, the model is
+refit on each draw, and the spread of the resulting parameters becomes the
+reported error.
+
+At the alignment level,
+:meth:`~flystar.align.MosaicToRef.calc_bootstrap_errors` does the analogous
+thing one level up: it resamples the *reference stars*, re-derives the
+transformations, and takes the scatter of the transformed positions as the
+transformation error -- capturing uncertainty in the frame itself, which the
+per-star fit cannot see.
 
 Fitting: one star or a whole table
 ==================================

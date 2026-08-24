@@ -229,7 +229,7 @@ Motion fitting
 
 These are handed straight to
 :meth:`~flystar.startables.StarTable.fit_motion_models`; see
-:doc:`motion_models` and :doc:`uncertainties`.
+:doc:`motion_models`.
 
 .. list-table::
    :header-rows: 1

@@ -76,17 +76,15 @@ Where to go next
     ``StarTable``, and the column-naming conventions the code dispatches on.
 
 :doc:`motion_models`
-    The per-star motion models, their equations, and how FlyStar picks one per
-    star. Worth reading before the aligner, whose ``motion_models`` argument
-    only makes sense once you know what it is choosing between.
+    The per-star motion models, their equations, how FlyStar picks one per star,
+    and how the reported uncertainties are computed. Worth reading before the
+    aligner, whose ``motion_models`` argument only makes sense once you know
+    what it is choosing between.
+
 
 :doc:`alignment`
     The aligners in depth, parameter by parameter -- matching strategies,
     transformation models, and how to control which stars drive the fit.
-
-:doc:`uncertainties`
-    How weights, parameter errors and ``absolute_sigma`` are actually
-    computed, with the formulae.
 
 .. toctree::
    :hidden:
@@ -102,14 +100,14 @@ Where to go next
    overview
    motion_models
    alignment
-   uncertainties
 
 .. toctree::
    :maxdepth: 2
    :hidden:
    :caption: Examples
 
-   examples/index
+   examples/alignment_example
+   examples/motion_model_example
 
 .. toctree::
    :maxdepth: 2

@@ -113,7 +113,7 @@ The landing page has the end-to-end example. In short: build one
 read the resulting :class:`~flystar.startables.StarTable` off ``ref_table``.
 
 :doc:`alignment` covers the aligners; :doc:`motion_models` covers the per-star
-motion fit; :doc:`uncertainties` covers what the error columns mean.
+motion fit, including what the error columns mean.
 
 Where the pieces live
 =====================
