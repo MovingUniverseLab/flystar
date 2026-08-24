@@ -70,6 +70,34 @@ A missing per-star uncertainty is filled with ``inf``, not ``nan``, and not with
 a fabricated finite number: a star with no uncertainty information reports an
 infinite error rather than a misleadingly precise one.
 
+Epochs are UTC decimal years
+============================
+
+Times -- ``list_time`` on a :class:`~flystar.starlists.StarList`, the ``t``
+column, ``t0`` -- are **decimal years interpreted as UTC**, which is what you
+get by converting an observation timestamp (a FITS ``DATE-OBS``, say) to a
+fraction of a year. Nothing else is expected of you.
+
+Where a uniform timescale is genuinely required, FlyStar converts internally.
+The parallax model needs the Earth's barycentric position, whose ephemeris is
+indexed in TDB, so :class:`~flystar.motion_model.Parallax` does the
+``utc -> tdb`` conversion itself before evaluating
+:func:`~flystar.parallax.parallax_in_direction`.
+
+The distinction is small enough to ignore in practice. TDB and UTC differ by
+69.184 s as of 2026, which is :math:`2.2 \times 10^{-6}` yr -- finer than a
+decimal year written to six places. An epoch quoted as ``2025.0000`` is already
+uncertain by 53 minutes from its own rounding, some 45 times larger. So the
+scale matters for internal correctness, not for how carefully you need to write
+the number down.
+
+One consequence worth knowing: converting out of UTC consults a leap-second
+table, and ERFA warns ``"dubious year"`` for epochs more than about five years
+past the table shipped in the installed ``pyerfa`` (around 2028 for 2.0.1.5).
+Real observations are always inside it. If you evaluate a model at epochs far
+in the future you may see that warning, and it is telling you something true --
+a leap second could still be announced before then.
+
 Putting it together
 ===================
 

@@ -57,7 +57,11 @@ class StarTable(Table):
             List of names, one for each of the starlists.
 
         list_times : list of integers or floats
-            List of times/dates for each starlist.
+            List of times/dates for each starlist, as decimal years in the
+            UTC scale (e.g. 2025.0 for the start of 2025) -- i.e. an
+            observation timestamp expressed as a fraction of a year. Models
+            that need a uniform timescale convert internally; Parallax, for
+            instance, converts UTC -> TDB before evaluating the ephemeris.
 
         ref_list : int
             Specify which list is the reference list (if any).
