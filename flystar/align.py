@@ -4375,13 +4375,22 @@ def trans_initial_guess(
         except Exception as err:
             warnings.warn(f'trans_initial_guess: could not draw the diagnostic plot ({err}).',
                           stacklevel=2)
+        # Only blame ignore_contains when it actually removed something --
+        # otherwise the note points at a cause that isn't one, which is the
+        # same wrong-turn this message exists to prevent.
+        hint = ''
+        if mode == 'name':
+            n_cut = len(star_list) - len(idx_s)
+            if n_cut:
+                hint = (f" Note that ignore_contains={ignore_contains!r} excluded {n_cut} of "
+                        f'{len(star_list)} star_list names from the match; pass '
+                        'ignore_contains=None if those names are stable across epochs.')
+            else:
+                hint = (' ignore_contains excluded nothing, so the lists simply have too few '
+                        'names in common; init_guess_mode=\'miracle\' does not need names.')
         raise AssertionError(
             f'Failed to find more than {n_req_match} (only {len(x1m)}) matches, giving up. '
-            f"mode={mode!r}."
-            + (f" Note that mode='name' discards any star whose name contains "
-               f"ignore_contains={ignore_contains!r}; {len(star_list) - len(idx_s)} of "
-               f'{len(star_list)} star_list entries were dropped that way.'
-               if mode == 'name' else '')
+            f'mode={mode!r}.' + hint
         )
 
     if verbose > 1:
