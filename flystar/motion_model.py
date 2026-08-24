@@ -557,8 +557,6 @@ class Empty(MotionModel):
         chi2_x, chi2_y : ndarray, shape (n_stars,), all nan
         """
         n_stars = t.shape[0]
-        if verbose and n_stars > 0:
-            warnings.warn(f"Empty data cannot be fit. Setting parameters to {fill_value} and uncertainties to np.inf.", OptimizeWarning, stacklevel=2)
         params = np.full((n_stars, self.n_fit_params), fill_value)
         param_errs = np.full((n_stars, self.n_fit_params), np.inf)
         chi2x = np.full(n_stars, np.nan)
