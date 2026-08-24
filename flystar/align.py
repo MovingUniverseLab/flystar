@@ -434,18 +434,40 @@ class MosaicSelfRef(object):
         assert len(self.outlier_tol) == self.iters, f'len(outlier_tol)={len(self.outlier_tol)} != iters={self.iters}'
 
         # Format self.mag_lim to be (N_iters, N_lists, 2) array. If only a single mag_lim is passed in, replicate for all lists.
+        # mag_lim accepts, and is normalized to, (N_iters, N_lists, 2):
+        #   None                     -> no cut anywhere
+        #   [min, max]               -> that cut on every list, every iteration
+        #   (N_lists, 2)             -> per list, same every iteration
+        #   (N_iters, N_lists, 2)    -> fully specified
+        # Note the 2D form indexes STARLISTS, not iterations -- unlike dr_tol,
+        # dm_tol and outlier_tol, whose single axis is iterations. When
+        # N_lists == N_iters the shape alone is ambiguous and it is read as
+        # per-list; pass the 3D form if you mean per-iteration.
         if self.mag_lim is None:
             self.mag_lim = np.array([[None] * len(self.star_lists)] * self.iters)
-        elif (np.ndim(self.mag_lim) == 1) and (len(self.mag_lim) == 2):
-            # 2-element array, replicate for all lists and iterations
-            self.mag_lim = np.array([[self.mag_lim] * len(self.star_lists)] * self.iters)
-        elif (np.ndim(self.mag_lim) == 2) and (len(self.mag_lim) == len(self.star_lists)) and (self.mag_lim.shape[1] == 2):
-            # (N_lists, 2) array, replicate for all iterations
-            self.mag_lim = np.array([self.mag_lim] * self.iters)
-        elif np.ndim(self.mag_lim) == 3:
-            assert np.shape(self.mag_lim) == (self.iters, len(self.star_lists), 2), f"mag_lim must have shape (iters, N_lists, 2) = ({self.iters}, {len(self.star_lists)}, 2), but has shape {np.shape(self.mag_lim)}"
         else:
-            raise ValueError(f"mag_lim must be None, a 2-element array, a (N_lists, 2) array, or a (N_iters, N_lists, 2) array. Got shape {np.shape(self.mag_lim)}")
+            # asarray first: the (N_lists, 2) test below reads .shape[1], which a
+            # plain nested list has not got, so the documented form used to raise
+            # AttributeError unless you passed a numpy array -- while the 1D form
+            # [13, 21] worked fine as a list.
+            self.mag_lim = np.asarray(self.mag_lim)
+
+            if (self.mag_lim.ndim == 1) and (len(self.mag_lim) == 2):
+                # One pair for everything.
+                self.mag_lim = np.array([[self.mag_lim] * len(self.star_lists)] * self.iters)
+            elif (self.mag_lim.ndim == 2) and (self.mag_lim.shape == (len(self.star_lists), 2)):
+                # Per starlist; same for every iteration.
+                self.mag_lim = np.array([self.mag_lim] * self.iters)
+            elif self.mag_lim.ndim == 3:
+                assert self.mag_lim.shape == (self.iters, len(self.star_lists), 2), \
+                    (f'mag_lim must have shape (iters, N_lists, 2) = '
+                     f'({self.iters}, {len(self.star_lists)}, 2), but has shape {self.mag_lim.shape}')
+            else:
+                raise ValueError(
+                    f'mag_lim must be None, a 2-element array, a (N_lists, 2) = '
+                    f'({len(self.star_lists)}, 2) array, or a (N_iters, N_lists, 2) = '
+                    f'({self.iters}, {len(self.star_lists)}, 2) array. Got shape {self.mag_lim.shape}.'
+                )
 
         # Keep a list of trans_args, one per iteration. If only a single dict
         # is passed in, replicate it for every iteration -- this is also why
