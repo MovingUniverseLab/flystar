@@ -173,7 +173,7 @@ Where to go next
 .. toctree::
    :maxdepth: 2
    :hidden:
-   :caption: Reference
+   :caption: API
 
    api/flystar/index
 
