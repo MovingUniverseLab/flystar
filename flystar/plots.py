@@ -25,23 +25,20 @@ def calc_chi2(ref_mat, starlist_mat, transform, errs='both'):
     ref_mat : astropy table
         Reference starlist only containing matched stars that were used in the
         transformation. Standard column headers are assumed.
-
     starlist_mat : astropy table
         Transformed starlist only containing the matched stars used in
         the transformation. Standard column headers are assumed.
-
     transform : transformation object
         Transformation object of final transform. Used in chi-square
         determination
-
-    errs : string; 'both', 'reference', or 'starlist'
+    errs : string; 'both', 'reference', or 'starlist', optional
         If both, add starlist errors in quadrature with reference errors.
 
         If reference, only consider reference errors. This should be used if the starlist
         does not have valid errors
 
         If starlist, only consider starlist errors. This should be used if the reference
-        does not have valid errors
+        does not have valid errors, by default 'both'.
 
     Returns
     -------
@@ -116,34 +113,25 @@ def trans_positions(ref, ref_mat, starlist, starlist_mat, xlim=None, ylim=None,
     ----------
     ref: astropy table
         Reference starlist, with standard column headers
-
     ref_mat: astropy table
         Reference starlist only containing matched stars that were used in the
         transformation. Standard column headers are assumed.
-
     starlist: astropy table
         Transformed starlist with the reference starlist coordinates.
         Standard column headers are assumed
-
     starlist_mat: astropy table
         Transformed starlist only containing the matched stars used in
         the transformation. Standard column headers are assumed.
-
-    xlim: None or list/array [xmin, xmax]
-        If not None, sets the xmin and xmax limit of the plot
-
-    ylim: None or list/array [ymin, ymax]
-        If not None, sets the ymin and ymax limit of the plot
-
-    equal_axis: boolean
+    xlim: None or list/array [xmin, xmax], optional
+        If not None, sets the xmin and xmax limit of the plot, by default None.
+    ylim: None or list/array [ymin, ymax], optional
+        If not None, sets the ymin and ymax limit of the plot, by default None.
+    equal_axis: boolean, optional
         If true, make axes equal. True by default
-
-    save_path: string
+    save_path: string, optional
         Path to save the figure to. Default is None
-
-    show_plot: boolean
+    show_plot: boolean, optional
         If true, show the plot. Default is True
-
     max_points: int, optional
         Each of the four inputs is randomly subsampled to at most this many
         points before plotting, since a diagnostic scatter plot doesn't need
@@ -568,14 +556,11 @@ def vpd(ref, starlist_trans, vxlim, vylim):
     ref: astropy table
         Reference starlist which contains velocity info. Standard column
         names are assumed
-
     starlist_trans: astropy table
         Transformed starlist which also contains velocity info. Standard
         column names are assumed.
-
     vxlim: None or list/array [vxmin, vxmax]
         If not None, sets the vxmin and vxmax limit of the plot
-
     vylim: None or list/array [vymin, vymax]
         If not None, sets the vymin and vymax limit of the plot
     """
@@ -4108,8 +4093,8 @@ def plotly_stars(x, y, m=None, xe=None, ye=None, me=None, star_name=None, custom
 
     Returns
     -------
-    fig : plotly.graph_objects.Figure
-        Figure object
+    fig : plotly.graph_objects.Figure, optional
+        Figure object, by default None.
     """
     import plotly.graph_objects as go
     x = np.asarray(x)

@@ -291,23 +291,18 @@ class PolyTransform(Transform2D):
         ----------
         order : int
             The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
-            
         px : list or array [a0, a1, a2, ...]
             coefficients to transform input x coordinates into output x' coordinates.
-
         py : list or array [b0, b1, b2, ...] 
             coefficients to transform input y coordinates into output y' coordinates.
-
-        pxerr : array or list
+        pxerr : array or list, optional
             array or list of errors of the coefficients to transform input x coordinates 
-            into output x' coordinates.
-        
-        pyerr : array or list
+            into output x' coordinates, by default None.
+        pyerr : array or list, optional
             array or list of errors of the coefficients to transform input y coordinates 
-            into output y' coordinates.
-        
-        mag_offset : float
-            magnitude difference with the reference catalog (mag_ref - mag_cat)
+            into output y' coordinates, by default None.
+        mag_offset : float, optional
+            magnitude difference with the reference catalog (mag_ref - mag_cat), by default 0.0.
             
         """
         self.order = order
@@ -654,13 +649,16 @@ class PolyTransform(Transform2D):
 
     @classmethod
     def from_file(cls, trans_file):
-        """
+        r"""
         Given a transformation coefficients file, read in the coefficients and create
         a PolyTransform object.
     
         Coefficients in the input file should have the following order:
-        x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
-        y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
+
+        .. math::
+
+                    x' &= a_0 + a_1 x + a_2 y + a_3 x^2 + a_4 x y + a_5 y^2 + \dots \\
+                    y' &= b_0 + b_1 x + b_2 y + b_3 x^2 + b_4 x y + b_5 y^2 + \dots
     
         Parameters
         ----------
@@ -685,13 +683,16 @@ class PolyTransform(Transform2D):
         return trans_obj
 
     def to_file(self, transform, outFile):
-        """
+        r"""
         Given a transformation object, write out the coefficients in a text file
         (readable by java align). Outfile name is specified by user.
     
         Coefficients are output in file in the following way:
-        x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
-        y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
+
+        .. math::
+
+                    x' &= a_0 + a_1 x + a_2 y + a_3 x^2 + a_4 x y + a_5 y^2 + \dots \\
+                    y' &= b_0 + b_1 x + b_2 y + b_3 x^2 + b_4 x y + b_5 y^2 + \dots
     
         Parameters
         ----------
@@ -822,13 +823,10 @@ class LegTransform(Transform2D):
         ----------
         order : int
             The order of the transformation.
-
         px : list or array [a0, a1, a2, ...] 
             coefficients to transform input x coordinates into output x' coordinates.
-
         py : list or array [b0, b1, b2, ...] 
             coefficients to transform input y coordinates into output y' coordinates.
-
         x_domain: list or array [xmin, xmax]
         y_domain: list or array [ymin, ymax]
             This is the allowable range of input values and it will be conditioned onto
@@ -840,21 +838,19 @@ class LegTransform(Transform2D):
         
         Optional Inputs
         ---------------
-        pxerr : array or list
+        pxerr : array or list, optional
             array or list of errors of the coefficients to transform input x coordinates 
-            into output x' coordinates.
-        
-        pyerr : array or list
+            into output x' coordinates, by default None.
+        pyerr : array or list, optional
             array or list of errors of the coefficients to transform input y coordinates 
-            into output y' coordinates.
-
-        mag_offset : float
-            Magnitude transformation term... only offset applied (offset = mag_out - mag_in)
-
-        astropy_order : boolean
+            into output y' coordinates, by default None.
+        mag_offset : float, optional
+            Magnitude transformation term... only offset applied (offset = mag_out - mag_in).
+            By default 0.0.
+        astropy_order : boolean, optional
             Use our parameter ordering (if False) where going from order=0 --> 1 keeps
             the lowest order terms in the same order (same for order=1 --> 2). If True,
-            then use the default astropy.models.Legendre2D paramter ordering scheme. 
+            then use the default astropy.models.Legendre2D paramter ordering scheme, by default False.
         """
         if not astropy_order:
             px_dict = LegTransform.make_param_dict(px, order, isY=False)

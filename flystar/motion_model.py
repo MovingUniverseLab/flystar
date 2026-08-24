@@ -33,7 +33,7 @@ def weight_from_sigma(sigma, valid=None):
         safely handled).
     valid : array-like of bool, optional
         If given, points where this is False also get weight 0,
-        regardless of sigma.
+        regardless of sigma, by default None.
 
     Returns
     -------
@@ -686,7 +686,7 @@ class Fixed(MotionModel):
         fixed_params_dict : dict, optional
             Unused -- Fixed has no fixed params -- accepted only so callers
             can call run_fit() uniformly across motion models (e.g.
-            Linear requires fixed_params_dict={'t0': ...}).
+            Linear requires fixed_params_dict={'t0': ...}), by default None.
         weighting : str, optional
             'var' (w=1/xe**2, 1/ye**2) or 'std' (w=1/xe, 1/ye), by default 'var'
         absolute_sigma : bool, optional
@@ -826,8 +826,8 @@ class Linear(MotionModel):
             x0, vx, y0, vy in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
             Uncertainties of fit parameters in shape (N_fit_params,) or (N_stars, N_fit_params), by default None
-        fixed_params_dict : dict
-            t0, shape (1,) or (N_stars,)
+        fixed_params_dict : dict, optional
+            t0, shape (1,) or (N_stars,), by default None.
 
         Returns
         -------
@@ -896,8 +896,8 @@ class Linear(MotionModel):
             placeholders for undetected epochs).
         valid : array-like of bool, shape (n_stars, n_epochs)
             Which entries are usable for each star.
-        fixed_params_dict : dict
-            Must contain 't0', either a scalar or shape (n_stars,).
+        fixed_params_dict : dict, optional
+            Must contain 't0', either a scalar or shape (n_stars,), by default None.
         weighting : str, optional
             'var' (w=1/xe**2, 1/ye**2) or 'std' (w=1/xe, 1/ye), by default 'var'
         absolute_sigma : bool, optional
@@ -1091,8 +1091,8 @@ class Acceleration(MotionModel):
             x0, vx, ax, y0, vy, ay in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
             Fit parameter uncertainties with shape (N_stars, N_fit_params) or (N_fit_params,), by default None
-        fixed_params_dict : dict
-            t0, shape (1,) or (N_stars,)
+        fixed_params_dict : dict, optional
+            t0, shape (1,) or (N_stars,), by default None.
 
         Returns
         -------
@@ -1163,8 +1163,8 @@ class Acceleration(MotionModel):
             placeholders for undetected epochs).
         valid : array-like of bool, shape (n_stars, n_epochs)
             Which entries are usable for each star.
-        fixed_params_dict : dict
-            Must contain 't0', either a scalar or shape (n_stars,).
+        fixed_params_dict : dict, optional
+            Must contain 't0', either a scalar or shape (n_stars,), by default None.
         weighting : str, optional
             'var' (w=1/xe**2, 1/ye**2) or 'std' (w=1/xe, 1/ye), by default 'var'
         absolute_sigma : bool, optional
@@ -1545,9 +1545,9 @@ class Parallax(MotionModel):
             given epoch) -- t[0] is taken as that shared grid.
         valid : array-like of bool, shape (n_stars, n_epochs)
             Which entries are usable for each star.
-        fixed_params_dict : dict
+        fixed_params_dict : dict, optional
             Must contain 't0', 'ra', 'dec' (each scalar or shape
-            (n_stars,)), and optionally 'pa', 'obsLocation'.
+            (n_stars,)), and optionally 'pa', 'obsLocation', by default None.
         weighting : str, optional
             'var' (w=1/xe**2, 1/ye**2) or 'std' (w=1/xe, 1/ye), by default 'var'
         absolute_sigma : bool, optional

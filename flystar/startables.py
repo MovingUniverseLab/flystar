@@ -872,7 +872,8 @@ class StarTable(Table):
         fill_value : float, optional
             Fill value when there is not enough data points to fit, by default np.nan
         art_star : bool, optional
-            Artifical star table or observed star table. If artificial stars, Use the output coordinates for fitting motion models (x[..., 1], y[..., 1])
+            Artifical star table or observed star table. If artificial stars, Use the output coordinates for fitting motion models (x[..., 1], y[..., 1]).
+            By default False.
         processes : int, optional
             Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
         chunksize : int, optional
@@ -1829,13 +1830,13 @@ class StarTable(Table):
         Parameters
         ----------
         delta_vx : float, optional
-            velocity shift in x-direction (as/yr)
+            velocity shift in x-direction (as/yr), by default 0.0.
         delta_vy : float, optional
-            velocity shift in y-direction (as/yr)
+            velocity shift in y-direction (as/yr), by default 0.0.
         delta_pi : float, optional
-            parallax shift (as)
+            parallax shift (as), by default 0.0.
         fixed_params_dict : None or dict, optional
-            Dictionary of fixed parameters to use for prediction: ra, dec, obsLocation, specifically in this case
+            Dictionary of fixed parameters to use for prediction: ra, dec, obsLocation, specifically in this case, by default None.
         """
         if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
             print("No shifts input, reference frame unchanged.")
@@ -1881,11 +1882,11 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed
     Parameters
     ----------
     delta_vx : float, optional
-        velocity shift in x-direction (as/yr)
+        velocity shift in x-direction (as/yr), by default 0.0.
     delta_vy : float, optional
-        velocity shift in y-direction (as/yr)
+        velocity shift in y-direction (as/yr), by default 0.0.
     delta_pi : float, optional
-        parallax shift (as)
+        parallax shift (as), by default 0.0.
     """
     if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
         print("No shifts input, reference frame unchanged.")

@@ -56,21 +56,19 @@ def restrict_by_area(table1, area, exclude=False):
     table1: astropy table
          Starlist to be restricted. Must have standard column headers
          (i.e. x, y)
-
     area: 2x2 array [[x1, x2], [y1, y2]]
         X and Y coordinate range to restric the stars too. Only stars with
         coordinates with x1 < X < x2 and y1 < Y < y2 will be allowed. We
         assume the area is given in same units as the table1 positions.
         i.e., x1 = xmin, x2 = xmax; y1 = ymin, y2 = ymax
-
-    exclude: boolean (default=False)
+    exclude: boolean (default=False), optional
         If true, *exclude* the stars that fall within the given area. If false,
         then only return stars that fall within the given area
 
     Output
     ------
     array of indicies corresponding to stars which are within the designated
-    area.
+    area, by default False.
     """
     # Extract star coordinates
     xpos = table1['x']
@@ -179,11 +177,9 @@ def read_label(labelFile, prop_to_time=None, flipX=True):
         col11: t0
         col12: use
         col13: r0 (arcsec)
-
-    prop_to_time: None or float (default = None)
-        If float, use velocities to propogate positions to defined time.
-
-    flipX: boolean (default = True)
+    prop_to_time: None or float (default = None), optional
+        If float, use velocities to propogate positions to defined time, by default None.
+    flipX: boolean (default = True), optional
          If true, multiply the x positions and velocities by -1.0. This is
          useful when label.dat has +x to the east, while reference starlist
          has +x to the west.
@@ -286,11 +282,9 @@ def read_label_accel(labelFile, prop_to_time=None, flipX=True):
         col11: t0
         col12: use
         col13: r0 (arcsec)
-
-    prop_to_time: None or float (default = None)
-        If float, use velocities to propogate positions to defined time.
-
-    flipX: boolean (default = True)
+    prop_to_time: None or float (default = None), optional
+        If float, use velocities to propogate positions to defined time, by default None.
+    flipX: boolean (default = True), optional
          If true, multiply the x positions and velocities by -1.0. This is
          useful when label.dat has +x to the east, while reference starlist
          has +x to the west.
@@ -872,23 +866,23 @@ def write_region(x, y, save_path, frame='image', colors='magenta', shape='circle
         X coordinates of the stars to write to the region file.
     y: 1D numpy.array
         Y coordinates of the stars to write to the region file.
-    frame: str
+    frame: str, optional
         Frame of reference for the coordinates. Default is 'image'. Other options include 'fk5', 'icrs', 'galactic', 'wcs', etc.
         See https://ds9.si.edu/doc/ref/region.html for more details.
     save_path: str
         Path to the file where the region file will be saved.
-    colors: str or list of str
+    colors: str or list of str, optional
         Color(s) of the regions. If a single string is given, all regions will be that color.
-        If a list of strings is given, it must have the same length as x and y.
-    shape: str
+        If a list of strings is given, it must have the same length as x and y, by default 'magenta'.
+    shape: str, optional
         Shape of the regions. Default is 'circle'. Other options include 'box', 'ellipse', etc.
-    shape_properties: dict
+    shape_properties: dict, optional
         Dictionary of properties for the shape. For example, for circles, you can specify {'radius': 10}.
         For boxes, you can specify {'width': 20, 'height': 10}.
 
     Output
     ------
-    A DS9 region file will be created at the specified save_path.
+    A DS9 region file will be created at the specified save_path, by default {'radius': 10}.
     """
     if isinstance(colors, str):
         colors = [colors] * len(x)

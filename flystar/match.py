@@ -306,10 +306,8 @@ def best_and_runner_up(keys, score, n_keys):
         Group label of every candidate pair -- the catalog-1 index when ranking
         each list star's candidates, the catalog-2 index when ranking each
         reference star's suitors.
-
     score : float array
         The score (chi^2) of every candidate pair. Same length as keys.
-
     n_keys : int
         Size of the catalog the keys index into, so the returned arrays can be
         addressed directly by catalog index.
@@ -319,7 +317,6 @@ def best_and_runner_up(keys, score, n_keys):
     best_pair : int array, length n_keys
         Index into keys/score of each key's best pair, or -1 if the key has no
         candidate pairs at all.
-
     delta : float array, length n_keys
         score(runner-up) - score(best) for each key: how decisively the best
         pair wins. inf when the key has exactly one candidate (nothing to be
@@ -391,24 +388,19 @@ def calibrate_match_scales(pair_i, dx, dy, dm, n_stars, dr_tol, dm_tol,
 
     dx, dy, dm : float array
         Offsets of those pairs.
-
     n_stars : int
         Length of catalog 1.
-
     dr_tol : float
         Match radius, for the tier-3 fallback.
-
     dm_tol : float or None
         Magnitude tolerance. None means magnitudes are not compared at all.
-
-    min_pairs : int
-        Fewest pairs a tier needs before its scatter is trusted.
+    min_pairs : int, optional
+        Fewest pairs a tier needs before its scatter is trusted, by default 10.
 
     Returns
     ----------
     sigma_pos : float
         Per-axis position scatter.
-
     sigma_mag : float or None
         Magnitude scatter, or None to score on position alone.
     """
@@ -457,12 +449,15 @@ def calibrate_match_scales(pair_i, dx, dy, dm, n_stars, dr_tol, dm_tol,
 
 def match_chi2(x1, y1, m1, x2, y2, m2, i2_match, dr_tol, dm_tol,
                dchi2_tol=9.0, sigma_pos=None, sigma_mag=None, verbose=True):
-    """
+    r"""
     Resolve candidate matches by chi^2, keeping only reciprocal best pairs.
 
     Scores every candidate pair as
 
-        chi2 = (dx^2 + dy^2) / sigma_pos^2  +  dm^2 / sigma_mag^2
+    .. math::
+
+        \chi^2 = \frac{\Delta x^2 + \Delta y^2}{\sigma_\mathrm{pos}^2}
+                 + \frac{\Delta m^2}{\sigma_\mathrm{mag}^2}
 
     and matches a pair when it is BOTH stars' lowest-chi^2 candidate and wins
     by at least dchi2_tol over each star's runner-up.
@@ -484,22 +479,20 @@ def match_chi2(x1, y1, m1, x2, y2, m2, i2_match, dr_tol, dm_tol,
     ----------
     x1, y1, m1, x2, y2, m2 : float array
         The two catalogs, already on a common system.
-
     i2_match : list of lists
         Candidate catalog-2 indices within dr_tol of each catalog-1 star, as
         returned by the KD-tree radius query.
 
     dr_tol, dm_tol : float, float or None
         Hard search tolerances, already applied to i2_match for dr.
-
-    dchi2_tol : float
+    dchi2_tol : float, optional
         How much better the best candidate must be than the runner-up, in
         chi^2. The default 9 is a 3-sigma margin. Below it the pair is treated
         as genuinely ambiguous and left unmatched.
 
     sigma_pos, sigma_mag : float or None
         Scales for the chi^2. None (the default) measures them from the
-        unambiguous pairs of these two catalogs -- no error columns needed.
+        unambiguous pairs of these two catalogs -- no error columns needed, by default 9.0.
 
     Returns
     ----------
@@ -608,12 +601,13 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
         and the closest in delta-mag is chosen.
     dm_tol : float or None, optional
         How close in delta-magnitude a match has to be to count as a match.
-        If None, then any delta-magnitude is allowed.
+        If None, then any delta-magnitude is allowed, by default None.
     workers : int, optional
         Number of jobs to schedule for parallel processing. If -1 is given all processors are used. Default: 1.
+        By default 1.
     verbose : bool or int, optional
         Prints on screen information on the matching. Higher verbose values
-        (up to 9) provide more detail.
+        (up to 9) provide more detail, by default True.
     matching : {'legacy', 'chi2'}, optional
         How to resolve a star with more than one candidate, and how to enforce
         one-to-one.
@@ -628,16 +622,17 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
 
         'chi2' scores each candidate as (dr/sigma_pos)^2 + (dm/sigma_mag)^2 and
         keeps reciprocal best pairs that win by dchi2_tol. See match_chi2().
+        By default 'legacy'.
     dchi2_tol : float, optional
         matching='chi2' only. Required chi^2 margin over the runner-up.
-        Default 9.0, a 3-sigma margin.
+        Default 9.0, a 3-sigma margin, by default 9.0.
     sigma_pos : float or None, optional
         matching='chi2' only. Position scale for the chi^2, in the units of
         x1/y1. None (default) measures it from the unambiguous pairs of these
-        two catalogs, so no per-star error columns are needed.
+        two catalogs, so no per-star error columns are needed, by default None.
     sigma_mag : float or None, optional
         matching='chi2' only. Magnitude scale for the chi^2. None (default)
-        measures it the same way.
+        measures it the same way, by default None.
 
     Returns
     -------

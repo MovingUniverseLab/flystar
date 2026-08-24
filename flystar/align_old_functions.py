@@ -16,7 +16,6 @@ def transform_from_file(starlist, transFile):
     starlist: astropy table
          Starlist we want to apply the transformation too. Must already
          have standard column headers
-
     transFile: ascii file
         File with the transformation coefficients. Assumed to be output of
         write_transform, with coefficients specified as code documents
@@ -179,16 +178,12 @@ def transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig, y_orig):
     ----------
     Xcoeff: Array
         Array with the coefficients of the X pos transformation
-
     Ycoeff: Array
         Array with the coefficients of the Y pos transformation
-
     order: int
         Order of transformation
-
     x_orig: array
         Array with the original X positions
-
     y_orig: array
         Array with the original Y positions
 
@@ -196,7 +191,6 @@ def transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig, y_orig):
     ------
     x_new: array
        Transformed X positions
-
     y_new: array
         Transformed Y positions
 
@@ -226,22 +220,16 @@ def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, 
     ----------
     Xcoeff: Array
         Array with the coefficients of the X pos transformation
-
     Ycoeff: Array
         Array with the coefficients of the Y pos transformation
-
     order: int
         Order of transformation
-
     xe_orig: array
         Array with the original X position errs
-
     ye_orig: array
         Array with the original Y position errs
-        
     x_orig: array
         Array with the original X positions
-
     y_orig: array
         Array with the original Y positions
 
@@ -249,7 +237,6 @@ def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, 
     ------
     xe_new: array
        Transformed X position errs
-
     ye_new: array
         Transformed Y position errs
     """
@@ -294,22 +281,16 @@ def transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig, vy_orig, x_orig, y_o
     ----------
     Xcoeff: Array
         Array with the coefficients of the X pos transformation
-
     Ycoeff: Array
         Array with the coefficients of the Y pos transformation
-
     order: int
         Order of transformation
-
     vx_orig: array
         Array with the original X proper motions
-
     vy_orig: array
         Array with the original Y proper motions
-        
     x_orig: array
         Array with the original X positions
-
     y_orig: array
         Array with the original Y positions
 
@@ -317,7 +298,6 @@ def transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig, vy_orig, x_orig, y_o
     ------
     vx_new: array
        Transformed X proper motions
-
     vy_new: array
         Transformed Y proper motions
     """
@@ -356,34 +336,24 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
     ----------
     Xcoeff: Array
         Array with the coefficients of the X pos transformation
-
     Ycoeff: Array
         Array with the coefficients of the Y pos transformation
-
     order: int
         Order of transformation
-
     vxe_orig: array
         Array with the original X proper motion errs
-
     vye_orig: array
         Array with the original Y proper motion errs
-        
     vx_orig: array
         Array with the original X proper motions
-
     vy_orig: array
         Array with the original Y proper motions
-
     xe_orig: array
         Array with the original X position errs
-
     ye_orig: array
         Array with the original Y position errs
-        
     x_orig: array
         Array with the original X positions
-
     y_orig: array
         Array with the original Y positions
 
@@ -391,7 +361,6 @@ def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_ori
     ------
     vxe_new: array
        Transformed X proper motion errs
-
     vye_new: array
         Transformed Y proper motion errs
     """

@@ -60,8 +60,8 @@ class MosaicSelfRef(object):
         """
         Make a mosaic object by passing in a list of starlists and then running fit().
 
-        Required Parameters
-        -------------------
+        Parameters
+        ----------
         list_of_starlists : array of StarList objects
             An array or list of flystar.starlists.StarList objects (which are Astropy Tables).
             There should be one for each starlist and they must contain 'x', 'y', and 'm' columns.
@@ -77,32 +77,24 @@ class MosaicSelfRef(object):
                 star_list['w'] * ref_list['w'] * weight_from_keyword (see the weights parameter)
 
             for those stars not trimmed out by the other criteria.
-
-        Optional Parameters
-        -------------------
-        starlist_vertices : list or array
+        starlist_vertices : list or array, optional
             A list or array of polygon vertices coordinates for each starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
             Shape of (N_lists, N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for each starlist, by default None
-
-        ref_index : int
+        ref_index : int, optional
             The index of the reference epoch. (default = 0). Note that this is the reference
             list only for the first iteration. Subsequent iterations will utilize the sigma-clipped
             mean of the positions from all the starlists.
-
-        iters : int
+        iters : int, optional
             The number of iterations used in the matching and transformation.  TO DO: INNER/OUTER?
-
-        dr_tol : list or array
+        dr_tol : list or array, optional
             The delta-radius (dr) tolerance for matching in units of the reference coordinate system.
-            This is a list of dr values, one for each iteration of matching/transformation.
-
-        dm_tol : list or array
+            This is a list of dr values, one for each iteration of matching/transformation, by default [1.0].
+        dm_tol : list or array, optional
             The delta-magnitude (dm) tolerance for matching in units of the reference coordinate system.
-            This is a list of dm values, one for each iteration of matching/transformation.
-
-        outlier_tol : list or array
+            This is a list of dm values, one for each iteration of matching/transformation, by default [1.0].
+        outlier_tol : list or array, optional
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
-            This is a list of tol values, one for each iteration of matching/transformation.
+            This is a list of tol values, one for each iteration of matching/transformation, by default None.
         matching : str, optional
             How a star with more than one candidate inside the tolerances is
             resolved, and how one-to-one is enforced. 'legacy' (default) keeps
@@ -116,49 +108,46 @@ class MosaicSelfRef(object):
             (dr/sigma_pos)^2 + (dm/sigma_mag)^2, with the scales measured from
             the starlists themselves, and keeps reciprocal best pairs that win
             by dchi2_tol. See match.match_chi2 for the details.
+            By default 'legacy'.
         dchi2_tol : float, optional
             matching='chi2' only. How much better the best candidate must be
             than the runner-up, in chi^2. Default 9.0, a 3-sigma margin. Below
-            it the star is treated as genuinely ambiguous and left unmatched.
+            it the star is treated as genuinely ambiguous and left unmatched, by default 9.0.
         match_sigma_pos : float or None, optional
             matching='chi2' only. Position scale for the chi^2, in reference
             coordinate units. None (default) measures it from the unambiguous
-            pairs of each starlist, so no error columns are required.
+            pairs of each starlist, so no error columns are required, by default None.
         match_sigma_mag : float or None, optional
             matching='chi2' only. Magnitude scale for the chi^2. None (default)
             measures it the same way.
-            If not provided, will be None for each iteration.
-
-        trans_class : transforms.Transform2D object (or subclass)
+            If not provided, will be None for each iteration, by default None.
+        trans_class : transforms.Transform2D object (or subclass), optional
             The transform class that will be used to when deriving the optimal
-            transformation parameters between each list and the reference list.
-
-        trans_args : dict or list of dict
+            transformation parameters between each list and the reference list, by default transforms.PolyTransform.
+        trans_args : dict or list of dict, optional
             A dictionary containing any extra keywords that are needed in the
             transformation object (for instance, "order"), applied to every
             iteration -- or a list of such dictionaries, one per iteration, to
             use a different transformation argument (e.g. increasing order)
             in later iterations. If a list is passed in, its length must
             equal iters. By default {'order': 1}.
-
-        trans_input : array or list of transform objects
-            def = None. If not None, then this should contain an array or list of transform
+        trans_input : array or list of transform objects, optional
+            If not None, then this should contain an array or list of transform
             objects that will be used as the initial guess in the alignment and matching.
-
-        trans_weights : str
+            By default None.
+        trans_weights : str, optional
             Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
             to weight by the positional uncertainties (variances) in the individual starlists, or also with
             the uncertainties in the reference frame itself.  Note weighting only works when there
             are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
-
-        init_order : int
-            The order of the initial transformation used for the first iteration.
-
-        init_guess_mode : string
+            By default None.
+        init_order : int, optional
+            The order of the initial transformation used for the first iteration, by default 1.
+        init_guess_mode : str, optional
             If no initial transformations are passed in via the trans_input keyword, then we have
             to make the initial transformation and matching blindly. We can do this in a couple of
             different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
-
+            By default 'miracle'.
         ignore_contains : str or None, optional
             Only used when init_guess_mode='name'. Names containing this
             substring are left out of the name match. The default 'star'
@@ -167,33 +156,28 @@ class MosaicSelfRef(object):
             per-list detection numbers, not stable identities, so matching
             on them pairs unrelated stars. Genuinely named sources (S0-2,
             irs16NE, ...) mean the same thing in every list.
-
             Pass None to match on every name, which is what you want when
             the names really are stable identifiers across epochs (a
             cross-matched catalog, or synthetic data). '' is rejected
             rather than treated as "off": every name contains the empty
             string, so it would discard everything. By default 'star'.
-
-        briteN : int
+        briteN : int, optional
             If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
             Default is min(50, len(star_list)).
-
-        calc_trans_inverse: boolean
+        calc_trans_inverse: boolean, optional
             If true, then calculate the inverse transformation (from reference to starlist)
             in addition to the normal transformation (from starlist to reference). The inverse
             calculation is calculated by switching the order to the positions in match_and_transform.
             The inverse transformations are saved in self.trans_list_inverse.
-            self.trans_list_inverse doesn't exist if calc_trans_inverse == False
-
-        mag_trans : boolean
+            self.trans_list_inverse doesn't exist if calc_trans_inverse == False, by default False.
+        mag_trans : bool, optional
             If true, this will also calculate and (temporarily) apply a zeropoint offset to
             magnitudes in each list to bring them into a common magnitude system. This is
             essential for matching (with finite dm_tol) starlists of different filters or
             starlists that are not photometrically calibrated. Note that the final_table columns
             of 'm', 'm0', and 'm0_err' will contain the transformed magnitudes while the
             final_table column 'm_orig' will contain the original un-transformed magnitudes.
-            If mag_trans = False, then no such zeropoint offset it applied at any point.
-
+            If mag_trans = False, then no such zeropoint offset it applied at any point, by default True.
         mag_lim : array, optional
             Magnitude range on the starlists used for finding the
             transformations, applied BEFORE the magnitude transformation. Its
@@ -212,25 +196,21 @@ class MosaicSelfRef(object):
             Per-starlist limits are given with the 3D form. Note that the 2D
             form previously meant ``(N_lists, 2)``; it now means
             ``(N_iters, 2)`` so that one axis means the same thing across every
-            schedule argument.
-
+            schedule argument, by default None.
         motion_models : list of MotionModel or str, or str, optional
             Motion models or their names to use for new or unassigned stars. 'Empty' and 'Fixed' will always be added.
             Can be a single string (e.g., 'Linear') or a list of motion models string or class (e.g., ['Linear', 'Parallax'], [Linear, Acceleration])
             Note that the provided motion models have to have different numbers of parameters, otherwise the code will not know which one to use for new stars.
             The most complex motion model will be used for new stars, by default None.
-
         motion_model_for_new_star : str or MotionModel, optional
             Motion model or its name for newly added stars in the ref table. Used in add_rows_for_new_stars().
             If None, the most complex motion model in motion_models will be used, by default None.
-
-        fixed_params_dict : None or dict
+        fixed_params_dict : None or dict, optional
             Dictionary of motion model fixed parameters, e.g., ra, dec, pa, obsLocation, t0, etc. See motion_model classes for details.
-
-        vel_weights : str
+            By default None.
+        vel_weights : str, optional
             Either 'var' (def) or 'std', depending on whether you want to weight the motion model
-            fits by the variance or standard deviation of the position data
-
+            fits by the variance or standard deviation of the position data, by default 'var'.
         absolute_sigma : bool, optional
             Controls how x0_err/y0_err/m0_err (and Linear/Acceleration/
             Parallax's own fit_param_errs) are computed, for every star
@@ -249,7 +229,6 @@ class MosaicSelfRef(object):
             more epochs are added (unlike a true standard-error-of-the-mean).
             See StarTable.combine_lists and MotionModel.run_fit for details.
             By default True.
-
         inherit_n_detect : bool, optional
             If True, and an input starlist already has its own 'n_detect' column
             (e.g. it is itself the output of a previous, lower-level align pass),
@@ -259,8 +238,7 @@ class MosaicSelfRef(object):
             raw detections it represents, however many alignment layers deep.
             Starlists without their own 'n_detect' still contribute 1 per
             detection, same as when this is False. By default True.
-
-        iter_callback : None or function
+        iter_callback : None or function, optional
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration, and once more after the final
             re-matching pass with an index of `iters` (one past the last
@@ -269,8 +247,7 @@ class MosaicSelfRef(object):
             rejecting stars between iterations: the table handed in is the live
             ref_table, so setting `use_in_trans = False` on a row excludes it
             from subsequent transformations while keeping the star in the
-            output.
-
+            output, by default None.
         save_path : str, optional
             Directory to save fit results to: PREFIX_input.txt (the fit
             parameters), PREFIX_ref_table.hdf5 (self.ref_table), and
@@ -279,7 +256,6 @@ class MosaicSelfRef(object):
             calc_trans_inverse is True, PREFIX_trans_list_inverse.pkl
             (self.trans_list_inverse) is also saved. By default None
             (nothing saved).
-
         save_plot : bool, optional
             If save_path is set, also save a transformation diagnostic plot
             for every (starlist, iteration) under
@@ -288,7 +264,6 @@ class MosaicSelfRef(object):
             dpi=300, once per starlist per iteration) -- set to False to
             keep saving results without paying for them. Ignored if
             save_path is None. By default True.
-
         save_object : bool, optional
             If save_path is set, also pickle the entire mosaic object (self)
             to PREFIX.pkl. This is a much heavier, less stable file
@@ -301,18 +276,15 @@ class MosaicSelfRef(object):
             parameter list, rather than having to supply every piece of
             alignment config by hand. Ignored if save_path is None. By
             default True.
-
         prefix_name : str, optional
-            Prefix for the saved file names (see save_path).
-
-        verbose : bool or int (0 to 9, inclusive)
+            Prefix for the saved file names (see save_path), by default 'msr'.
+        verbose : bool or int (0 to 9, inclusive), optional
             Controls the verbosity of print statements. (0 least, 9 most verbose).
             For backwards compatibility, 0 = False, 9 = True.
             (Note: technically right now no checks on whether the number is an integer or not...)
 
         Example
         -------
-
         .. code-block:: python
 
             mtr = align.MosaicToRef(list_of_starlists, iters=1,
@@ -339,7 +311,7 @@ class MosaicSelfRef(object):
             # Overplot the best-fit proper motion.
             times = stars_table['t'][0, :]
             plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
-            plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
+            plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0])), by default True.
         """
         dr_tol = np.atleast_1d(dr_tol)
         self.iters = len(dr_tol)
@@ -1344,17 +1316,15 @@ class MosaicSelfRef(object):
         ----------
         star_list : StarList
             starlist with 'x', 'y'
-
         ref_list : StarList
             starlist with 'x0', 'y0'
-
         outlier_tol : float
             Number of sigma inside which we keep stars and outside of which we
             reject stars as outliers.
 
         Optional Parameters
         --------------------
-        verbose : boolean
+        verbose : boolean, optional
 
         Returns
         ----------
@@ -1404,13 +1374,10 @@ class MosaicSelfRef(object):
         ----------
         keepers : boolean array
             The mask returned by outlier_rejection_indices.
-
         trans_args : dict
             The derive_transform keywords for this iteration.
-
         ii : int
             Index of the starlist being matched, for the warning message.
-
         stage : str
             Which rejection pass this is, for the warning message.
 
@@ -1900,36 +1867,29 @@ class MosaicSelfRef(object):
         ----------
         mosaic_object : MosaicToRef object
             MosaicToRef object after the complete match_and_transform process
-
         n_boot : int, optional
             Number of bootstrap iterations when calculating transformations and the proper motion.
             PM bootstrap is only done for final proper motion calculation
             (e.g., not for each iteration of the starlist for matching), by default 100
-
         seed : int, optional
-            Random seed for reproducible bootstrap results.
-
+            Random seed for reproducible bootstrap results, by default None.
         boot_epochs_min : int, optional
             In order to be included in bootstrap analysis, non-reference stars must be detected in
             at least boot_epochs_min epochs. If boot_epochs_min = -1, then all stars will
             be included in the analysis, regardless of the number of epochs detected.
             For stars that fail boot_epochs_min criteria, np.nan is used, by default -1
-
         calc_vel_in_bootstrap : boolean, optional
            If true, do bootstrap sample w/ replacement over the epochs and calculate
            stellar proper motions, as well as the bootstrap over reference stars
            to calculate positional alignment errors. If false, only
            calculate position alignment errors, by default True
-
-        update_errors : boolean
+        update_errors : boolean, optional
             If True, save the starlist errors as xe_list, bootstrap errors as xe_boot, and their quad sum as xe (and likewise for ye and me). If False (default), leave the starlist errors in place as xe and bootstrap errors as xe_boot.
-
+            By default False.
         processes : int, optional
             Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
-
         chunksize : int, optional
             Chunk size for multiprocessing, by default None (auto)
-
         verbose : boolean, optional
             Print verbose information or not, by default True
 
@@ -3016,9 +2976,9 @@ def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, re
         as the 't0' column in starlist.
     startable : StarTable
         Startable that needs to be inferred.
-    motion_models : list of MotionModel classes or strings
-        The motion models to check for in the startable
-    return_errors : boolean
+    motion_models : list of MotionModel classes or strings, optional
+        The motion models to check for in the startable, by default None.
+    return_errors : boolean, optional
         Whether to return the inferred position errors. If True, then the function returns x, y, xe, ye. If False, then it just returns x, y, by default False.
 
     Returns
@@ -3297,10 +3257,10 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
     idx_list : array or list
         The indices of the non-new stars (those that matched already). The complement
         of this array will be used as the new stars.
-    motion_model_name : str
-        The motion model name to assign to the new stars.
-    fixed_params_dict : dict
-        The default fixed parameters to assign to the new stars.
+    motion_model_name : str, optional
+        The motion model name to assign to the new stars, by default 'Fixed'.
+    fixed_params_dict : dict, optional
+        The default fixed parameters to assign to the new stars, by default None.
 
     Returns
     ----------
@@ -3526,23 +3486,19 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, work
     ----------
     table1 : astropy.table
         contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0.
-
     table2 : astropy.table
         contains name,m,x,y,xe,ye.
         this is the reference template
-
     transform : transformation object
-
-    dr_tol : float (default=1.0)
+    dr_tol : float (default=1.0), optional
         The search radius for the matching algorithm, in the same units as the
-        starlist file positions.
-
-    workers : int (default=1)
+        starlist file positions, by default 1.0.
+    workers : int (default=1), optional
         Number of worker threads for the KDTree neighbor search. -1 uses all
         available CPU cores. See match.match() for details.
-
+        By default 1.
     verbose : bool, optional
-        Prints on screen information on the matching
+        Prints on screen information on the matching, by default True.
 
     Returns
     -------
@@ -3774,41 +3730,34 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
     ----------
     transform: transformation object
         Transformation object we want to feed into java align
-
     starlist: string
         File name of starlist; this is the starlist the transformation should
         be applied to. For output purposes only
-
     reference: string
         File name of reference; this is what the starlist is transformed to.
         For output purposes only
-
     N_trans: int
         Number of stars used in the transformation
-
-    deltaMag: float (default = 0)
+    deltaMag: float (default = 0), optional
         Average magnitude difference between reference and starlist
-        (reference - starlist)
-
-    restrict: boolean (default=False)
+        (reference - starlist), by default 0.
+    restrict: boolean (default=False), optional
         Set to True if transformation restricted to stars with use > 2. Purely
-        for output purposes
-
-    weights: string (default=None)
+        for output purposes, by default False.
+    weights: string (default=None), optional
         if weights=='both', we use both position error and velocity error in transformed
         starlist and reference starlist as uncertanties. And weights is the reciprocal
         of this uncertanty.
         if weights=='starlist', we only use postion error and velocity error in transformed
         starlist as uncertainty.
         if weights=='reference', we only use position error in reference starlist as uncertainty
-        if weights==None, we don't use weights.
-
-    outFile: string (default: 'outTrans.txt')
+        if weights==None, we don't use weights, by default None.
+    outFile: string (default: 'outTrans.txt'), optional
         Name of output text file
 
     Output
     ------
-    txt file with the file name outFile
+    txt file with the file name outFile, by default 'outTrans.txt'.
     """
     # Extract info about transformation
     trans_name = transform.__class__.__name__
@@ -3889,7 +3838,6 @@ def transform_from_file(starlist, transFile):
     starlist: astropy table
          Starlist we want to apply the transformation too. Must already
          have standard column headers
-
     transFile: ascii file
         File with the transformation coefficients. Assumed to be output of
         write_transform, with coefficients specified as code documents
@@ -3930,7 +3878,6 @@ def transform_from_object(starlist, transform):
          Starlist we want to apply the transformation too. Must already
          have standard column headers
          x0, y0, x0e, y0e, vx, vy, vxe, vye, x, y, xe, ye
-
     transform: transformation object
 
     Output
@@ -4549,10 +4496,8 @@ def check_transform_finite(trans, n_stars, context):
     ----------
     trans : Transform2D
         The transformation just derived.
-
     n_stars : int
         Number of stars the fit was given, for the error message.
-
     context : str
         Where this fit came from, for the error message.
 
@@ -4775,42 +4720,43 @@ def generic_match(sl1, sl2, init_mode='triangle',
         starlist used for reference frame
     sl2 : StarList
         starlist transformed
-    init_mode : str
+    init_mode : str, optional
         Initial matching method.
         If 'triangle', uses the blind triangle method.
         If 'match_name', uses match by name
-        If 'load', uses the transformation from a loaded file
-    model : str
-        Transformation model to be used with the 'triangle' initial mode
+        If 'load', uses the transformation from a loaded file, by default 'triangle'.
+    model : str, optional
+        Transformation model to be used with the 'triangle' initial mode, by default transforms.PolyTransform.
     poly_order : int
         Order of the transformation model
-    order_dr : int, float [n, 2]
+    order_dr : int, float [n, 2], optional
         Combinations of polinomial order (first column) and search radius
         (second column) to refine the transformation. Rows are executed in
-        orders
-    dr_final: float
-        Search radius used for the final matching
-    n_bright : int
-        Number of bright stars used in the initial blind triangles matching
-    xy_match : array
+        orders, by default (1, 1.0).
+    dr_final: float, optional
+        Search radius used for the final matching, by default 1.0.
+    n_bright : int, optional
+        Number of bright stars used in the initial blind triangles matching, by default 100.
+    xy_match : array, optional
         Area of the images to remove in the matching [reference catalog min x,
         reference catalog max x, reference catalog min y, reference catalog max y,
         transformed catalog min x, transformed catalog max x,
         transformed catalog min y, transformed catalog max y]. Use None for values not used.
-    m_match : array
+        By default (None, None, None, None, None, None, None, None).
+    m_match : array, optional
         Magnitude limits of matching stars used to find transformations
         [reference catalog min mag, reference catalog max mag, transformed
         catalog min mag, transformed catalog max mag]. Use None for values not
-        used
-    sigma_match : array
+        used, by default (None, None, None, None).
+    sigma_match : array, optional
         Number of Deltap movement sigmas [0] used for sigma-cutting matched
         stars for a number of times [1]. Use None for no sigma-cut. The last
-        polynomial order and search radius in 'order_dr' are used
+        polynomial order and search radius in 'order_dr' are used, by default None.
     transf_file : str
         File name and path of the transformation file used with the 'load'
         init_mode
     verbose : bool, optional
-        Prints on screen information on the matching
+        Prints on screen information on the matching, by default True.
 
     Returns
     -------
