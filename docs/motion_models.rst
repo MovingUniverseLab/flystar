@@ -518,8 +518,18 @@ Measured
 10,000 stars, one fit per cell, wall-clock seconds. ``mm_rework`` is the
 predecessor branch, which fits star by star through
 :func:`scipy.optimize.curve_fit`; ``mm_rework_lingfeng`` is the batched
-implementation described above. Both were run in the same interpreter and
-environment, on the same synthetic data, at default settings.
+implementation described above. Both were run on the same synthetic data in the
+same environment at default settings, one after the other rather than
+concurrently, so that they never competed for cores. The grid starts at three
+epochs because that is the fewest at which every model here has as many data
+points as parameters.
+
+.. image:: _static/motion_model_performance.png
+
+Solid lines are batched, dashed per-star; note the log scale on the left, where
+the two are three orders of magnitude apart. Hollow markers are the one cell
+where the two branches did not fit the same model, so no ratio is drawn for it
+in the right panel -- see the footnote below.
 
 .. list-table:: Seconds for one fit of 10,000 stars: batched / per-star (speed-up)
    :header-rows: 1
@@ -530,73 +540,94 @@ environment, on the same synthetic data, at default settings.
      - ``Linear``
      - ``Acceleration``
      - ``Parallax``
-   * - 2
-     - 0.014 / 16.1 (1164x)
-     - 0.017 / 17.2 (1035x)
-     - 0.013 / 16.1 (1210x) \*
-     - 0.013 / 16.2 (1222x) \*
-   * - 4
-     - 0.017 / 16.1 (930x)
-     - 0.021 / 22.2 (1047x)
-     - 0.038 / 23.0 (604x)
-     - 0.081 / 41.4 (512x)
-   * - 6
-     - 0.018 / 16.1 (913x)
-     - 0.024 / 22.3 (919x)
-     - 0.042 / 23.0 (552x)
-     - 0.052 / 41.5 (793x)
-   * - 8
-     - 0.020 / 16.1 (813x)
-     - 0.025 / 22.5 (894x)
-     - 0.047 / 23.0 (492x)
-     - 0.060 / 47.8 (795x)
-   * - 10
-     - 0.023 / 16.1 (707x)
-     - 0.029 / 22.4 (779x)
-     - 0.046 / 22.9 (494x)
-     - 0.067 / 48.3 (726x)
-   * - 12
-     - 0.025 / 16.1 (638x)
-     - 0.031 / 22.4 (733x)
-     - 0.051 / 22.9 (448x)
-     - 0.064 / 48.4 (752x)
-   * - 14
-     - 0.029 / 16.2 (566x)
-     - 0.034 / 22.5 (659x)
-     - 0.060 / 23.0 (385x)
-     - 0.078 / 48.4 (624x)
-   * - 16
-     - 0.032 / 16.1 (507x)
-     - 0.042 / 22.4 (533x)
-     - 0.053 / 22.9 (429x)
-     - 0.074 / 48.2 (656x)
-   * - 18
-     - 0.031 / 16.1 (529x)
-     - 0.038 / 22.5 (586x)
-     - 0.058 / 23.0 (398x)
-     - 0.086 / 48.4 (562x)
-   * - 20
-     - 0.033 / 16.1 (494x)
-     - 0.041 / 22.6 (550x)
-     - 0.061 / 23.0 (381x)
-     - 0.080 / 48.4 (604x)
+   * - 3
+     - 0.014 / 15.6 (1102x)
+     - 0.018 / 18.2 (1026x)
+     - 0.032 / 15.7 (not comparable) \*
+     - 0.042 / 37.1 (883x)
+   * - 5
+     - 0.016 / 15.6 (973x)
+     - 0.021 / 18.3 (885x)
+     - 0.037 / 19.1 (520x)
+     - 0.045 / 37.1 (828x)
+   * - 7
+     - 0.018 / 15.6 (892x)
+     - 0.023 / 18.3 (797x)
+     - 0.041 / 19.1 (461x)
+     - 0.048 / 37.3 (776x)
+   * - 9
+     - 0.020 / 15.6 (794x)
+     - 0.025 / 18.4 (738x)
+     - 0.042 / 19.1 (454x)
+     - 0.055 / 43.6 (799x)
+   * - 11
+     - 0.022 / 15.7 (715x)
+     - 0.027 / 18.4 (668x)
+     - 0.048 / 19.2 (397x)
+     - 0.058 / 43.6 (756x)
+   * - 13
+     - 0.024 / 15.6 (638x)
+     - 0.030 / 18.3 (606x)
+     - 0.049 / 19.2 (390x)
+     - 0.062 / 43.7 (707x)
+   * - 15
+     - 0.027 / 15.7 (577x)
+     - 0.033 / 18.4 (563x)
+     - 0.052 / 19.2 (369x)
+     - 0.065 / 43.6 (669x)
+   * - 17
+     - 0.030 / 15.6 (525x)
+     - 0.034 / 18.4 (545x)
+     - 0.054 / 19.2 (356x)
+     - 0.069 / 43.6 (636x)
+   * - 19
+     - 0.031 / 15.6 (497x)
+     - 0.038 / 18.4 (487x)
+     - 0.060 / 19.2 (322x)
+     - 0.077 / 43.7 (570x)
 
-\* the requested model had fewer epochs than parameters, so no star received
-it and both branches timed their fallback instead.
+\* At three epochs ``Acceleration`` has exactly as many data points per
+direction as parameters. The batched branch fits it: with no degrees of
+freedom left the model passes exactly through the data, so there is no residual
+to estimate an uncertainty from and the parameter errors come back infinite.
+The predecessor instead requires strictly more epochs than parameters, and
+demotes those stars past ``Linear`` all the way to ``Fixed``. That cell
+therefore times ``Acceleration`` against ``Fixed`` rather than against itself,
+and a ratio of the two would not mean anything.
 
 Two shapes stand out. The per-star branch is **flat in the number of epochs**
 and set almost entirely by the number of stars -- 10,000 Python-level optimizer
-calls cost the same whether each is handed 2 points or 20. The batched branch
-instead grows mildly with epochs, which is the only part of the work that is
-genuinely proportional to the data.
+calls cost the same whether each is handed 3 points or 19. The batched branch
+instead grows mildly with epochs, roughly doubling from 3 to 19, which is the
+only part of the work that is genuinely proportional to the amount of data.
+Between them the speed-up falls from about 1100x at three epochs to 320-570x at
+nineteen -- which is not the batched fit degrading, but the flat cost it is
+measured against staying flat while its own grows.
 
 The batched fit's cost is also nearly independent of how complicated the model
-is: a 5x5 coupled ``Parallax`` solve lands within a small factor of a 1x1
-``Fixed`` weighted average, because both are one vectorized assembly plus one
-batched solve, and neither iterates.
+is: a 5x5 coupled ``Parallax`` solve lands within a factor of three of a
+1x1 ``Fixed`` weighted average, because both are one vectorized assembly plus
+one batched solve, and neither iterates.
 
-Two caveats on reading these numbers. ``Acceleration`` and ``Parallax`` at 2
-epochs have fewer epochs than parameters, so no star is fitted with the
-requested model -- both branches fall back, and those cells time the fallback
-rather than the model named. And ``bootstrap`` is excluded throughout: it is the
-one path still per-star, so it is unaffected by any of this.
+Three caveats on reading these numbers. Each cell is a single run on one
+machine, though a stable one: every per-star series here is flat to better
+than 1% across the whole grid. The one departure large enough to be real is
+per-star ``Parallax``, which steps up once between 7 and 9 epochs and is flat
+either side of it -- reproduced in three separate runs. Second, each model is
+given one throwaway fit on a tiny table before it is timed: the first fit of a
+model in a process pays a one-time set-up that the rest do not, about 0.03 s
+for ``Parallax``, which is most of a batched 10,000-star fit and would
+otherwise land entirely on whichever cell was timed first. Third, the
+comparison is of fitting only -- ``bootstrap`` is excluded throughout, as it is
+the one path still per-star and so is unaffected by any of this.
+
+How it was measured
+-------------------
+
+The script below produced both the table and the figure. Comparing two branches
+needs two checkouts, so it takes the flystar to time as an argument and is run
+once per branch, then once more to plot. The figure is committed, so building
+this documentation runs none of it.
+
+.. literalinclude:: benchmark_motion_models.py
+   :language: python
