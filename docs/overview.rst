@@ -84,12 +84,17 @@ indexed in TDB, so :class:`~flystar.motion_model.Parallax` does the
 ``utc -> tdb`` conversion itself before evaluating
 :func:`~flystar.parallax.parallax_in_direction`.
 
-The distinction is small enough to ignore in practice. TDB and UTC differ by
-69.184 s as of 2026, which is :math:`2.2 \times 10^{-6}` yr -- finer than a
-decimal year written to six places. An epoch quoted as ``2025.0000`` is already
-uncertain by 53 minutes from its own rounding, some 45 times larger. So the
-scale matters for internal correctness, not for how carefully you need to write
-the number down.
+You do not need to keep the distinction in mind, but it is a real one, not a
+rounding artifact: a decimal year derived from a full timestamp is good to
+about a microsecond, so the 69.184 s between TDB and UTC (as of 2026) is far
+above your input's precision. Getting the conversion wrong is a genuine error
+in the epoch, which is why FlyStar does it explicitly.
+
+What makes it safe to not think about is the size of its effect on the answer,
+rather than on the epoch. A 69 s shift moves the parallax factor by about
+:math:`1.3 \times 10^{-5}` of its amplitude; on a fitted parallax that works
+out to roughly 0.07 per cent of the parallax's own uncertainty. Worth getting
+right, never worth worrying about.
 
 One consequence worth knowing: converting out of UTC consults a leap-second
 table, and ERFA warns ``"dubious year"`` for epochs more than about five years
