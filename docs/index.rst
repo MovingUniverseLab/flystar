@@ -81,14 +81,13 @@ Where to go next
     aligner, whose ``motion_models`` argument only makes sense once you know
     what it is choosing between.
 
+:doc:`transformations`
+    The coordinate transformation models, which to pick for a given kind of
+    frame difference, and how to raise the order as the fit converges.
 
 :doc:`alignment`
     The aligners in depth, parameter by parameter -- matching strategies,
     the initial guess, and how to control which stars drive the fit.
-
-:doc:`transformations`
-    The coordinate transformation models, which to pick for a given kind of
-    frame difference, and how to raise the order as the fit converges.
 
 .. toctree::
    :hidden:
@@ -103,8 +102,8 @@ Where to go next
    getting_started
    overview
    motion_models
-   alignment
    transformations
+   alignment
 
 .. toctree::
    :maxdepth: 2
