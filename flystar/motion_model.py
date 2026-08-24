@@ -1790,14 +1790,31 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
     if fixed_params_dict is None:
         fixed_params_dict = {}
 
+    # A fixed parameter counts as available from any of the three places the
+    # rest of the code will actually look it up in: fixed_params_dict, a table
+    # column, or table metadata. Metadata has to be included here or this
+    # function contradicts the lookup it is gating: fit_motion_models stores a
+    # fixed parameter that is uniform across stars in meta (only a per-star one
+    # becomes a column), so after fitting Parallax with a single ra/dec/pa for
+    # the whole table, 'pa' and 'obsLocation' live in meta -- and omitting meta
+    # made Parallax un-selectable, silently demoting those stars to Linear and
+    # dropping the parallax term from infer_positions.
+    meta_keys = set(getattr(startable, 'meta', None) or {})
+
     motion_models_possible = []
     for mm in motion_models:
         required_columns = mm.fit_param_names + mm.fixed_param_names
         req_col_in_table = [col for col in required_columns if (col in startable.colnames)]
         req_col_in_dict = [col for col in required_columns if (col in fixed_params_dict.keys())]
+        req_col_in_meta = [col for col in required_columns
+                           if (col not in startable.colnames)
+                           and (col not in fixed_params_dict.keys())
+                           and (col in meta_keys)]
         req_cols = startable[req_col_in_table]
-        if all((col in startable.colnames) or (col in fixed_params_dict.keys()) for col in required_columns):
-            motion_models_possible.append((mm, req_col_in_table, req_cols, req_col_in_dict))
+        if all((col in startable.colnames) or (col in fixed_params_dict.keys())
+               or (col in meta_keys) for col in required_columns):
+            motion_models_possible.append(
+                (mm, req_col_in_table, req_cols, req_col_in_dict, req_col_in_meta))
 
     # Vectorized replacement for the old per-star Python loop (which called
     # np.isfinite/np.issubdtype once per star per required column -- millions
@@ -1805,21 +1822,30 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
     # the same priority order as before (last-declared model first), compute a
     # whole-table boolean mask of which stars have all of that model's required
     # *numeric* columns finite, then assign that model to every not-yet-assigned
-    # star the mask covers. Whether the fixed_params_dict entries are finite
-    # doesn't depend on the star, so it's checked once per model instead of once
-    # per star. This makes the `processes`/`chunksize` arguments unnecessary for
+    # star the mask covers. Whether the fixed_params_dict/meta entries are
+    # finite doesn't depend on which star is being assigned, so each is checked
+    # once per model instead of once per star. This makes the `processes`/`chunksize` arguments unnecessary for
     # this function; they are kept in the signature for backward compatibility.
     n_stars = len(startable)
     motion_model_used = np.empty(n_stars, dtype=object)
     n_params = np.empty(n_stars, dtype=int)
     assigned = np.zeros(n_stars, dtype=bool)
 
-    for mm, req_col_in_table, req_cols, req_col_in_dict in motion_models_possible[::-1]:
-        fixed_ok = all(
-            np.isfinite(fixed_params_dict[col])
-            for col in req_col_in_dict
-            if np.issubdtype(np.array(fixed_params_dict[col]).dtype, np.number)
-        )
+    for mm, req_col_in_table, req_cols, req_col_in_dict, req_col_in_meta in motion_models_possible[::-1]:
+        # np.all(), not the bare truth value: a fixed parameter may legitimately
+        # be an array of length n_stars (fit_motion_models documents scalars as
+        # applying to every star and arrays as per-star), and np.isfinite() of
+        # an array cannot be used in a boolean context -- which raised
+        # "truth value of an array ... is ambiguous" for exactly the per-star
+        # form the API invites.
+        def _finite(value):
+            arr = np.asarray(value)
+            if not np.issubdtype(arr.dtype, np.number):
+                return True          # strings such as obsLocation: nothing to check
+            return bool(np.all(np.isfinite(arr)))
+
+        fixed_ok = (all(_finite(fixed_params_dict[col]) for col in req_col_in_dict)
+                    and all(_finite(startable.meta[col]) for col in req_col_in_meta))
         if not fixed_ok:
             continue
 

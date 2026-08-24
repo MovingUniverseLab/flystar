@@ -846,3 +846,85 @@ def test_organize_motion_models_accepts_any_case():
         with pytest.raises(AssertionError) as err:
             org(bad)
         assert repr(bad).strip("'") in str(err.value) or bad == ''
+
+
+def _mini_table(n_stars=6, n_epochs=8, varying_radec=True):
+    """A small StarTable with clean Linear motion, for the tests below."""
+    from flystar.startables import StarTable
+    rng = np.random.default_rng(0)
+    t = np.tile(np.linspace(2015., 2025., n_epochs), (n_stars, 1))
+    x = rng.uniform(0, 100, (n_stars, 1)) + rng.normal(0, .05, (n_stars, n_epochs))
+    y = rng.uniform(0, 100, (n_stars, 1)) + rng.normal(0, .05, (n_stars, n_epochs))
+    e = np.full((n_stars, n_epochs), .05)
+    m = np.tile(rng.uniform(12, 19, (n_stars, 1)), (1, n_epochs))
+    tab = StarTable(name=np.array([f'S{i}' for i in range(n_stars)]),
+                    x=x, y=y, m=m, xe=e, ye=e, me=e, t=t)
+    off = np.arange(n_stars) * 0.01 if varying_radec else np.zeros(n_stars)
+    tab['ra'] = 18.0 + off
+    tab['dec'] = -30.0 + off
+    return tab
+
+
+def test_determine_motion_models_reads_meta():
+    """
+    determine_motion_models() must treat table metadata as a source of fixed
+    parameters, like the lookups it gates do.
+
+    fit_motion_models() stores a fixed parameter that is uniform across stars
+    in meta -- only a per-star one becomes a column -- so fitting Parallax with
+    one ra/dec/pa for the whole table leaves 'pa' and 'obsLocation' in meta.
+    Checking only columns and fixed_params_dict made Parallax un-selectable
+    afterwards, so infer_positions silently demoted those stars to Linear and
+    dropped the parallax term: the table said motion_model_used='Parallax' and
+    carried a fitted pi, yet was propagated as if pi were zero.
+    """
+    from flystar.motion_model import determine_motion_models
+
+    tab = _mini_table()
+    tab.fit_motion_models(motion_models=['Parallax'], verbose=False)
+
+    # Precondition: this is the storage split that used to break selection.
+    assert 'pa' in tab.meta and 'pa' not in tab.colnames
+    assert 'Parallax' in np.unique(np.asarray(tab['motion_model_used']).astype(str))
+
+    used = np.unique(np.asarray(determine_motion_models(tab)[0]).astype(str))
+    assert set(used) == {'Parallax'}, f'expected Parallax from meta, got {used}'
+
+    # And it still round-trips through the public entry point.
+    x_pred, y_pred, _, _ = tab.infer_positions(np.array([2030.]))
+    assert np.all(np.isfinite(x_pred)) and np.all(np.isfinite(y_pred))
+
+    # A non-finite fixed parameter must still disqualify the model, whether it
+    # sits in meta or anywhere else -- the fix widens where we look, not what
+    # counts as usable.
+    tab.meta['pa'] = np.nan
+    used_nan = np.unique(np.asarray(determine_motion_models(tab)[0]).astype(str))
+    assert 'Parallax' not in used_nan, f'nan pa should disqualify Parallax, got {used_nan}'
+
+
+def test_infer_positions_accepts_array_fixed_params():
+    """
+    A fixed parameter may be an array of length n_stars.
+
+    fit_motion_models documents scalars as applying to every star and arrays as
+    per-star, but determine_motion_models tested np.isfinite(value) for its
+    truth value, which raises for any array longer than one element -- so the
+    per-star form the API invites crashed on the way into infer_positions.
+    """
+    tab = _mini_table()
+    tab.fit_motion_models(motion_models=['Linear'], verbose=False)
+    n = len(tab)
+
+    t0 = np.asarray(tab['t0']).copy() if 't0' in tab.colnames else np.full(n, 2020.)
+
+    from_column, _, _, _ = tab.infer_positions(np.array([2030.]))
+    from_array, _, _, _ = tab.infer_positions(np.array([2030.]),
+                                              fixed_params_dict={'t0': t0})
+    shifted, _, _, _ = tab.infer_positions(np.array([2030.]),
+                                           fixed_params_dict={'t0': t0 + 100.})
+
+    # Same numbers as reading t0 off the column ...
+    np.testing.assert_allclose(np.asarray(from_column), np.asarray(from_array),
+                               rtol=1e-10, atol=1e-10)
+    # ... and the dict is actually consulted, not silently dropped.
+    assert not np.allclose(np.asarray(from_column), np.asarray(shifted))
