@@ -112,6 +112,73 @@ Fitted parameters land in per-star columns named after the parameter, with
 uncertainties in ``<param>_err`` -- ``vx`` and ``vx_err``, ``pi`` and
 ``pi_err``. How those errors are computed is below.
 
+Where fixed parameters live
+---------------------------
+
+A fixed parameter can come from three places, and both
+:meth:`~flystar.startables.StarTable.fit_motion_models` and
+:meth:`~flystar.startables.StarTable.infer_positions` resolve them in the same
+order:
+
+1. ``fixed_params_dict``, if the key is there
+2. a **table column** of that name
+3. **table metadata** of that name
+
+For a *required* parameter, exhausting all three raises ``KeyError``. An
+*optional* one falls back to the model's default (``pa=0``,
+``obsLocation='earth'``).
+
+The order is worth committing to memory, because the column beats the metadata,
+and ``fixed_params_dict`` beats both. Passing ``fixed_params_dict`` to
+``infer_positions`` therefore overrides whatever the table is carrying, rather
+than being ignored in its favour.
+
+Fitting writes them back, and *where* it writes depends on whether the value
+varies from star to star:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - The value is
+     - Stored as
+   * - the same for every star
+     - ``table.meta['<param>']``, a scalar
+   * - different per star
+     - a column named ``<param>_mm`` -- note the suffix
+
+Storing one number in metadata instead of repeating it down a column of a
+million rows is the point of the split. Both are read back by the resolution
+order above, so a uniform fixed parameter round-trips from a fit into
+``infer_positions`` without being supplied again.
+
+.. warning::
+
+   The per-star case does **not** round-trip. Fitting writes the varying value
+   to ``<param>_mm``, but the lookup above searches for ``<param>``, so the
+   parameter is not found again. The model then fails its availability check
+   and each affected star is quietly assigned a simpler one -- a ``Parallax``
+   fit propagates as ``Linear``, dropping the parallax, while the table still
+   reads ``motion_model_used == 'Parallax'`` and carries a fitted ``pi``.
+
+   Two ways to avoid it, both reliable:
+
+   .. code-block:: python
+
+      # 1. Supply per-star values as plainly-named columns.
+      table['ra'] = ra_per_star
+      table['dec'] = dec_per_star
+      table.fit_motion_models(motion_models=['Parallax'])
+      table.infer_positions(times)                 # finds ra/dec, stays Parallax
+
+      # 2. Or hand them to infer_positions as well.
+      table.infer_positions(times, fixed_params_dict={'ra': ra_per_star,
+                                                      'dec': dec_per_star})
+
+   Naming the column yourself is the better habit: nothing renames it, and it
+   is what a reference catalogue already gives you -- a Gaia list arrives with
+   ``ra`` and ``dec`` columns, so the working path is also the natural one.
+
 How a model gets chosen
 =======================
 
@@ -395,3 +462,152 @@ per-star path exceeds ``mp_star_threshold`` (default 100,000); below that, pool
 startup and pickling the shared arrays cost more than they save, so fitting
 stays serial. Measured break-even was between 20,000 and 100,000 stars on a
 10-core machine.
+
+Performance
+===========
+
+Every motion model in FlyStar is **linear in its fit parameters**. That is the
+fact the whole fitting path is built on, and it is not the same as being linear
+in time: ``Acceleration`` is quadratic in :math:`t` yet still linear in
+:math:`(x_0, v_x, a_x)`, because :math:`t` only ever appears in the *basis*
+:math:`[1, \Delta t, \tfrac{1}{2}\Delta t^2]` that multiplies them. A model
+linear in its parameters has a closed-form weighted least-squares solution --
+the normal equations -- so fitting it needs no iterative optimizer, no initial
+guess, and no convergence check.
+
+Which means the per-star loop was never necessary. The normal equations for
+10,000 stars are 10,000 small independent linear systems, and numpy assembles
+and solves them in a batch:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 10 74
+
+   * - Model
+     - Params
+     - How the batch is solved
+   * - ``Fixed``
+     - 1
+     - A weighted average. The whole batch is a pair of
+       ``.sum(axis=1)`` calls over the epoch axis.
+   * - ``Linear``
+     - 2
+     - A 2x2 system per star. The five weighted sums it needs come from
+       ``.sum(axis=1)`` across the batch, and the 2x2 is inverted by its
+       closed-form adjugate-over-determinant -- rather than building an
+       ``(n_epochs, n_epochs)`` diagonal weight matrix and calling an
+       SVD-based ``pinv`` per star for what is always a 2x2.
+   * - ``Acceleration``
+     - 3
+     - The same, one basis function wider: a 3x3 system solved with a batched
+       ``np.linalg.inv``. Hand-deriving a 3x3 adjugate is error-prone for
+       little gain over LAPACK, which is closed-form too.
+   * - ``Parallax``
+     - 5
+     - Linear once the parallax factors :math:`P_x, P_y` are precomputed from
+       each star's ``ra``/``dec``. Here :math:`x` and :math:`y` are **not**
+       independent -- :math:`\pi` is shared -- so all five parameters are fit
+       jointly from the stacked :math:`[x, y]` data as one coupled 5x5 system,
+       batched the same way. The :math:`(x_0, v_x)` and :math:`(y_0, v_y)`
+       blocks meet only through the shared :math:`\pi` row and column.
+
+.. admonition:: A non-linear model would not fit this pattern
+   :class: important
+
+   The batching above is a consequence of linearity in the parameters, not a
+   general technique. Add a model whose parameters enter non-linearly -- an
+   orbit, a variable-period term, anything needing a starting guess -- and
+   there are no normal equations to assemble: it needs an iterative optimizer,
+   :func:`scipy.optimize.curve_fit` or similar, and it will run one star at a
+   time. Such a model can still live alongside these: only the stars actually
+   assigned to it pay the per-star cost, since the model is chosen per star.
+   But do not expect the timings below to carry over to it.
+
+Measured
+--------
+
+10,000 stars, one fit per cell, wall-clock seconds. ``mm_rework`` is the
+predecessor branch, which fits star by star through
+:func:`scipy.optimize.curve_fit`; ``mm_rework_lingfeng`` is the batched
+implementation described above. Both were run in the same interpreter and
+environment, on the same synthetic data, at default settings.
+
+.. list-table:: Seconds for one fit of 10,000 stars: batched / per-star (speed-up)
+   :header-rows: 1
+   :widths: 10 23 23 23 23
+
+   * - Epochs
+     - ``Fixed``
+     - ``Linear``
+     - ``Acceleration``
+     - ``Parallax``
+   * - 2
+     - 0.014 / 16.1 (1164x)
+     - 0.017 / 17.2 (1035x)
+     - 0.013 / 16.1 (1210x) \*
+     - 0.013 / 16.2 (1222x) \*
+   * - 4
+     - 0.017 / 16.1 (930x)
+     - 0.021 / 22.2 (1047x)
+     - 0.038 / 23.0 (604x)
+     - 0.081 / 41.4 (512x)
+   * - 6
+     - 0.018 / 16.1 (913x)
+     - 0.024 / 22.3 (919x)
+     - 0.042 / 23.0 (552x)
+     - 0.052 / 41.5 (793x)
+   * - 8
+     - 0.020 / 16.1 (813x)
+     - 0.025 / 22.5 (894x)
+     - 0.047 / 23.0 (492x)
+     - 0.060 / 47.8 (795x)
+   * - 10
+     - 0.023 / 16.1 (707x)
+     - 0.029 / 22.4 (779x)
+     - 0.046 / 22.9 (494x)
+     - 0.067 / 48.3 (726x)
+   * - 12
+     - 0.025 / 16.1 (638x)
+     - 0.031 / 22.4 (733x)
+     - 0.051 / 22.9 (448x)
+     - 0.064 / 48.4 (752x)
+   * - 14
+     - 0.029 / 16.2 (566x)
+     - 0.034 / 22.5 (659x)
+     - 0.060 / 23.0 (385x)
+     - 0.078 / 48.4 (624x)
+   * - 16
+     - 0.032 / 16.1 (507x)
+     - 0.042 / 22.4 (533x)
+     - 0.053 / 22.9 (429x)
+     - 0.074 / 48.2 (656x)
+   * - 18
+     - 0.031 / 16.1 (529x)
+     - 0.038 / 22.5 (586x)
+     - 0.058 / 23.0 (398x)
+     - 0.086 / 48.4 (562x)
+   * - 20
+     - 0.033 / 16.1 (494x)
+     - 0.041 / 22.6 (550x)
+     - 0.061 / 23.0 (381x)
+     - 0.080 / 48.4 (604x)
+
+\* the requested model had fewer epochs than parameters, so no star received
+it and both branches timed their fallback instead.
+
+Two shapes stand out. The per-star branch is **flat in the number of epochs**
+and set almost entirely by the number of stars -- 10,000 Python-level optimizer
+calls cost the same whether each is handed 2 points or 20. The batched branch
+instead grows mildly with epochs, which is the only part of the work that is
+genuinely proportional to the data.
+
+The batched fit's cost is also nearly independent of how complicated the model
+is: a 5x5 coupled ``Parallax`` solve lands within a small factor of a 1x1
+``Fixed`` weighted average, because both are one vectorized assembly plus one
+batched solve, and neither iterates.
+
+Two caveats on reading these numbers. ``Acceleration`` and ``Parallax`` at 2
+epochs have fewer epochs than parameters, so no star is fitted with the
+requested model -- both branches fall back, and those cells time the fallback
+rather than the model named. And ``bootstrap`` is excluded throughout: it is the
+one path still per-star, so it is unaffected by any of this.
