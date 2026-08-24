@@ -631,13 +631,113 @@ entirely on whichever cell was timed first. Third, the comparison is of fitting
 only: ``bootstrap`` is excluded throughout, as it is the one path still
 per-star and so is unaffected by any of this.
 
+Against the number of stars
+---------------------------
+
+The same comparison the other way round: the epoch count held at five -- where
+every model is determined, so nothing below is a fallback -- and the number of
+stars swept from 1,000 to 19,000 in ten steps.
+
+.. image:: _static/motion_model_performance_stars.png
+
+Log-log here, unlike the figure above: both branches are strictly linear in the
+number of stars, and a straight line through the origin is only straight on
+log-log.
+
+.. list-table:: Seconds for one fit at 5 epochs: batched / per-star (speed-up)
+   :header-rows: 1
+   :widths: 12 22 22 22 22
+
+   * - Stars
+     - ``Fixed``
+     - ``Linear``
+     - ``Acceleration``
+     - ``Parallax``
+   * - 1,000
+     - 0.003 / 1.6 (488x)
+     - 0.006 / 1.8 (327x)
+     - 0.009 / 1.9 (219x)
+     - 0.009 / 3.7 (402x)
+   * - 3,000
+     - 0.006 / 4.7 (818x)
+     - 0.008 / 5.5 (698x)
+     - 0.014 / 5.7 (416x)
+     - 0.017 / 11.2 (663x)
+   * - 5,000
+     - 0.009 / 7.8 (892x)
+     - 0.011 / 9.1 (814x)
+     - 0.020 / 9.5 (478x)
+     - 0.025 / 18.7 (761x)
+   * - 7,000
+     - 0.011 / 10.9 (955x)
+     - 0.016 / 12.8 (812x)
+     - 0.026 / 13.3 (518x)
+     - 0.031 / 26.1 (846x)
+   * - 9,000
+     - 0.016 / 14.0 (853x)
+     - 0.017 / 16.3 (943x)
+     - 0.032 / 17.1 (528x)
+     - 0.039 / 33.5 (854x)
+   * - 11,000
+     - 0.017 / 17.1 (976x)
+     - 0.021 / 20.0 (960x)
+     - 0.040 / 20.8 (517x)
+     - 0.048 / 41.0 (853x)
+   * - 13,000
+     - 0.020 / 20.2 (1017x)
+     - 0.025 / 23.7 (962x)
+     - 0.046 / 24.7 (536x)
+     - 0.056 / 48.4 (863x)
+   * - 15,000
+     - 0.024 / 23.3 (988x)
+     - 0.028 / 27.3 (992x)
+     - 0.052 / 28.5 (543x)
+     - 0.064 / 56.4 (879x)
+   * - 17,000
+     - 0.026 / 26.4 (1011x)
+     - 0.032 / 30.9 (972x)
+     - 0.060 / 32.2 (535x)
+     - 0.072 / 63.8 (881x)
+   * - 19,000
+     - 0.030 / 29.5 (985x)
+     - 0.036 / 34.6 (951x)
+     - 0.069 / 36.0 (521x)
+     - 0.080 / 70.7 (889x)
+
+The per-star branch is proportional to the star count and nothing else. A
+straight line fits every one of its four series with :math:`R^2 = 0.9999` or
+better, through an intercept of a few milliseconds at most, at 1.56, 1.82, 1.90
+and 3.74 ms per star for ``Fixed``, ``Linear``, ``Acceleration`` and
+``Parallax``. That is the cost of one Python-level ``curve_fit`` call, paid once
+per star, and it is what makes the model's complexity visible: fitting five
+coupled parameters costs a little over twice what fitting one does, per star,
+every star.
+
+The batched branch is linear too, but with a per-star term 570 to 1,100 times
+smaller: 1.5, 1.7, 3.3 and 4.0 *micro*\ seconds per star, on top of a fixed
+overhead of 1.5 to 4.6 ms that does not depend on the star count at all. The
+overhead is the vectorized assembly and the batched solve -- work done once per
+table rather than once per star.
+
+Which flips the trend of the epoch sweep. There the speed-up shrank as epochs
+grew; here it **grows** with the catalogue and then plateaus, from 220-490x at
+1,000 stars to 520-990x at 19,000, because at a thousand stars the batched
+fit's fixed few milliseconds is still a large fraction of its total and by
+nineteen thousand it is not. The batched path is at its best exactly where it
+matters -- the large mosaics -- and its worst case is a catalogue small enough
+to fit in the time it takes to read the file.
+
+The two sweeps overlap at 10,000 stars and 5 epochs, and agree there: the epoch
+table gives ``Fixed`` as 0.016 / 15.6 s, and this one brackets it with 0.016 /
+14.0 at 9,000 stars and 0.017 / 17.1 at 11,000.
+
 How it was measured
 -------------------
 
-The script below produced both the table and the figure. Comparing two branches
-needs two checkouts, so it takes the flystar to time as an argument and is run
-once per branch, then once more to plot. The figure is committed, so building
-this documentation runs none of it.
+The script below produced both tables and both figures. Comparing two branches
+needs two checkouts, so it takes the flystar to time as an argument, and runs
+once per sweep per branch, then once more per figure to plot. The figures are
+committed, so building this documentation runs none of it.
 
 .. literalinclude:: benchmark_motion_models.py
    :language: python

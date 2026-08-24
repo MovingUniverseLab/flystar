@@ -1,23 +1,33 @@
 """
-Time the motion-model fits on both branches and draw the figure used by the
+Time the motion-model fits on both branches and draw the figures used by the
 Performance section of docs/motion_models.rst.
 
+Two sweeps: wall-clock against the number of epochs, at a fixed 10,000 stars,
+and against the number of stars, at a fixed 5 epochs.
+
 The comparison spans two branches, so it needs two checkouts of flystar. Add
-one as a worktree, time each, then plot:
+one as a worktree, time each sweep on each, then plot:
 
     git worktree add /tmp/wt_mmrework mm_rework
 
-    python docs/benchmark_motion_models.py time /tmp/wt_mmrework \\
-        mm_rework /tmp/bench_mmrework.json
-    python docs/benchmark_motion_models.py time . \\
-        mm_rework_lingfeng /tmp/bench_lingfeng.json
+    python docs/benchmark_motion_models.py epochs /tmp/wt_mmrework \\
+        mm_rework /tmp/epochs_per_star.json
+    python docs/benchmark_motion_models.py epochs . \\
+        mm_rework_lingfeng /tmp/epochs_batched.json
 
-    python docs/benchmark_motion_models.py plot \\
-        /tmp/bench_lingfeng.json /tmp/bench_mmrework.json
+    python docs/benchmark_motion_models.py stars /tmp/wt_mmrework \\
+        mm_rework /tmp/stars_per_star.json
+    python docs/benchmark_motion_models.py stars . \\
+        mm_rework_lingfeng /tmp/stars_batched.json
+
+    python docs/benchmark_motion_models.py plot-epochs \\
+        /tmp/epochs_batched.json /tmp/epochs_per_star.json
+    python docs/benchmark_motion_models.py plot-stars \\
+        /tmp/stars_batched.json /tmp/stars_per_star.json
 
 Timing runs are separate processes so that each imports the flystar it is
 timing, and are run one after another rather than concurrently so that they do
-not compete for cores. The figure is committed, so building the documentation
+not compete for cores. The figures are committed, so building the documentation
 never runs any of this.
 """
 import contextlib
@@ -30,10 +40,16 @@ import warnings
 
 import numpy as np
 
-N_STARS = 10_000
-EPOCHS = [2] + list(range(3, 21, 2))
 MODELS = ['Fixed', 'Linear', 'Acceleration', 'Parallax']
 FIXED_PARAMS = {'ra': 18.0, 'dec': -30.0, 'pa': 0.0, 'obsLocation': 'earth'}
+
+# The epoch sweep holds the number of stars fixed, and the star sweep holds the
+# number of epochs fixed at a value where every model here is determined -- so
+# that nothing in that sweep is a fallback.
+EPOCHS = [2] + list(range(3, 21, 2))
+N_STARS = 10_000
+STARS = list(range(1000, 20_000, 2000))
+N_EPOCHS = 5
 
 
 def make_table(n_stars, n_epochs, seed=1):
@@ -57,7 +73,7 @@ def make_table(n_stars, n_epochs, seed=1):
 
 
 def time_one(branch, model, n_epochs, n_stars=N_STARS):
-    """Time a single fit, and report what fraction of stars got `model`."""
+    """Time a single fit, and report which model the stars actually got."""
     from flystar import motion_model as MM
 
     tab = make_table(n_stars, n_epochs)
@@ -87,50 +103,62 @@ def time_one(branch, model, n_epochs, n_stars=N_STARS):
     return elapsed, float(np.mean(used == model)), str(names[counts.argmax()])
 
 
-def run_timings(flystar_dir, branch, out_json):
+def sweep_points(axis):
+    """The (x value, n_stars, n_epochs) of each cell of a sweep."""
+    if axis == 'epochs':
+        return [(n_epochs, N_STARS, n_epochs) for n_epochs in EPOCHS]
+    return [(n_stars, n_stars, N_EPOCHS) for n_stars in STARS]
+
+
+def run_timings(axis, flystar_dir, branch, out_json):
     warnings.filterwarnings('ignore')
     flystar_dir = os.path.abspath(flystar_dir)
     sys.path.insert(0, flystar_dir)
     import flystar
     assert flystar.__path__[0].startswith(flystar_dir), flystar.__path__
 
-    print(f'branch={branch}  flystar={flystar.__path__[0]}', flush=True)
+    print(f'{axis} sweep, branch={branch}, flystar={flystar.__path__[0]}', flush=True)
     results = {}
     for model in MODELS:
         # One throwaway fit on a tiny table first. The first fit of a model in
         # a process pays a one-time set-up the rest do not -- ~0.03 s for
         # Parallax, roughly two thirds of a whole batched 10,000-star fit,
         # which would otherwise land entirely on whichever cell was timed
-        # first. At the widest grid point, so that the model being warmed up
-        # is one the star actually gets: at the narrow end there are fewer
-        # epochs than parameters and the fit falls back to a simpler model,
-        # warming the wrong path.
+        # first. At the widest epoch grid point, so that the model being warmed
+        # up is one the stars actually get: where there are fewer epochs than
+        # parameters the fit falls back, warming the wrong path.
         time_one(branch, model, max(EPOCHS), n_stars=50)
-        for n_epochs in EPOCHS:
-            elapsed, frac, used = time_one(branch, model, n_epochs)
-            results[f'{model}|{n_epochs}'] = {'sec': elapsed, 'frac_used': frac,
-                                              'used_model': used}
-            print(f'  {model:13} {n_epochs:2d} epochs: {elapsed:8.3f}s '
-                  f'({frac*100:.0f}% got {model}, most got {used})', flush=True)
 
-    json.dump({'branch': branch, 'n_stars': N_STARS, 'results': results},
+        for x, n_stars, n_epochs in sweep_points(axis):
+            elapsed, frac, used = time_one(branch, model, n_epochs, n_stars=n_stars)
+            results[f'{model}|{x}'] = {'sec': elapsed, 'frac_used': frac,
+                                       'used_model': used, 'n_stars': n_stars,
+                                       'n_epochs': n_epochs}
+            print(f'  {model:13} {n_stars:6d} stars {n_epochs:2d} epochs: '
+                  f'{elapsed:8.3f}s ({frac*100:.0f}% got {model}, '
+                  f'most got {used})', flush=True)
+
+    json.dump({'branch': branch, 'axis': axis, 'results': results},
               open(out_json, 'w'), indent=1)
     print('wrote', out_json, flush=True)
 
 
-def plot(batched_json, per_star_json, out_png=None):
+def plot(axis, batched_json, per_star_json, out_png=None):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
     if out_png is None:
+        name = ('motion_model_performance.png' if axis == 'epochs'
+                else 'motion_model_performance_stars.png')
         out_png = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               '_static', 'motion_model_performance.png')
+                               '_static', name)
     batched = json.load(open(batched_json))['results']
     per_star = json.load(open(per_star_json))['results']
+    xs = np.array([x for x, _, _ in sweep_points(axis)])
 
     def series(res, model, key='sec'):
-        return np.array([res[f'{model}|{n}'][key] for n in EPOCHS])
+        return np.array([res[f'{model}|{x}'][key] for x in xs])
 
     colors = dict(zip(MODELS, plt.get_cmap('tab10').colors))
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
@@ -140,35 +168,48 @@ def plot(batched_json, per_star_json, out_png=None):
         per, bat = series(per_star, model), series(batched, model)
         # A cell where the requested model was not what the stars actually got
         # timed a fallback instead, so it is not a like-for-like comparison:
-        # draw it hollow, and break the speed-up line rather than quote a ratio
-        # between two different models.
+        # draw it hollow, break the line rather than run it through a model it
+        # did not fit, and quote no ratio between two different models.
         same = ((series(per_star, model, 'frac_used') == 1)
                 & (series(batched, model, 'frac_used') == 1))
 
-        # Lines are drawn over the like-for-like cells only, so a fallback is
-        # not joined into the curve of a model it did not fit; the markers are
-        # still drawn, hollow, so no measurement is hidden.
-        ax1.plot(EPOCHS, np.where(same, per, np.nan), '--', color=c, lw=1.4,
+        ax1.plot(xs, np.where(same, per, np.nan), '--', color=c, lw=1.4,
                  label=f'{model}, per-star')
-        ax1.plot(EPOCHS, np.where(same, bat, np.nan), '-', color=c, lw=1.8,
+        ax1.plot(xs, np.where(same, bat, np.nan), '-', color=c, lw=1.8,
                  label=f'{model}, batched')
         for y in (per, bat):
-            ax1.plot(np.array(EPOCHS)[same], y[same], 'o', color=c, ms=4)
-            ax1.plot(np.array(EPOCHS)[~same], y[~same], 'o', ms=5,
-                     mfc='white', mec=c, mew=1.2)
-        ax2.plot(EPOCHS, np.where(same, per/bat, np.nan), 'o-', color=c,
-                 ms=4, lw=1.8, label=model)
+            ax1.plot(xs[same], y[same], 'o', color=c, ms=4)
+            ax1.plot(xs[~same], y[~same], 'o', ms=5, mfc='white', mec=c, mew=1.2)
+        ax2.plot(xs, np.where(same, per/bat, np.nan), 'o-', color=c, ms=4,
+                 lw=1.8, label=model)
 
-    ax1.set(xlabel='Number of epochs', ylabel='Seconds for one fit',
-            yscale='log', title=f'Fitting {N_STARS:,} stars')
+    if axis == 'epochs':
+        xlabel, held = 'Number of epochs', f'{N_STARS:,} stars'
+        ticks, ticklabels = xs, [str(x) for x in xs]
+    else:
+        xlabel, held = 'Number of stars', f'{N_EPOCHS} epochs'
+        ticks, ticklabels = xs, [f'{x//1000}k' for x in xs]
+
+    ax1.set(xlabel=xlabel, ylabel='Seconds for one fit', yscale='log',
+            title=f'Fitting {held}')
+    if axis == 'stars':
+        # Both branches are linear in the number of stars, which is a straight
+        # line only on log-log; on a log y against a linear x it reads as a
+        # curve, which is the opposite of the point.
+        ax1.set_xscale('log')
+        ax2.set_xscale('log')
     ax1.legend(fontsize=7.5, ncol=2, loc='center right')
-
-    ax2.set(xlabel='Number of epochs', ylabel='Speed-up (per-star / batched)',
+    ax2.set(xlabel=xlabel, ylabel='Speed-up (per-star / batched)',
             title='Batched speed-up')
     ax2.legend(fontsize=8)
 
     for ax in (ax1, ax2):
-        ax.set_xticks(EPOCHS)
+        ax.set_xticks(ticks)
+        # Rotated on the star axis: ten labels bunch up towards the top of a
+        # log scale, and dropping every other one would leave an end unlabelled.
+        ax.set_xticklabels(ticklabels, rotation=45 if axis == 'stars' else 0,
+                           ha='right' if axis == 'stars' else 'center')
+        ax.set_xticks([], minor=True)      # a log axis adds its own otherwise
         ax.grid(alpha=0.25, lw=0.6)
 
     fig.tight_layout()
@@ -177,7 +218,8 @@ def plot(batched_json, per_star_json, out_png=None):
 
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'time':
-        run_timings(*sys.argv[2:5])
+    mode = sys.argv[1]
+    if mode in ('epochs', 'stars'):
+        run_timings(mode, *sys.argv[2:5])
     else:
-        plot(*sys.argv[2:])
+        plot(mode.replace('plot-', ''), *sys.argv[2:])
