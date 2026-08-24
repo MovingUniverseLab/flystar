@@ -2,21 +2,18 @@
 Examples
 ========
 
-These notebooks are rendered from their stored outputs and are not executed at
-documentation build time, so what you see is the output as it was when the
-notebook was last run.
-
 .. toctree::
    :maxdepth: 1
 
    motion_model_example
-   flystar_mosaic_to_gaia/gaia_flystar_example
 
 :doc:`motion_model_example`
-    Fitting each of the motion models, how ``motion_model_input`` and
-    ``motion_model_used`` interact, and predicting positions at new epochs.
+    Fitting each motion model to a single star and to a batch of stars,
+    choosing models per star with ``motion_model_input``, and predicting
+    positions at new epochs. The equations behind each model are in
+    :doc:`../motion_models`; the error formulae are in
+    :doc:`../uncertainties`.
 
-:doc:`flystar_mosaic_to_gaia/gaia_flystar_example`
-    Querying Gaia for a field, preparing the catalog as a FlyStar reference
-    list, and aligning NIRC2 epochs to it with
-    :class:`~flystar.align.MosaicToRef`.
+The notebook is rendered from its stored outputs and is not executed at
+documentation build time, so what you see is the output from its last run
+against this branch.

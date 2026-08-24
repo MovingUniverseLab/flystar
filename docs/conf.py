@@ -37,6 +37,7 @@ extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.doctest',
     'sphinx.ext.intersphinx',
+    'sphinx.ext.mathjax',
     'sphinx.ext.napoleon',
     'sphinx.ext.viewcode',
     'autoapi.extension',
@@ -48,6 +49,9 @@ exclude_patterns = [
     '**.ipynb_checkpoints',
     'Thumbs.db',
     '.DS_Store',
+    # Written against the pre-mm_rework API and needs a live Gaia query.
+    # Kept in the tree, excluded from the build until it is updated.
+    'examples/flystar_mosaic_to_gaia/**',
 ]
 
 highlight_language = 'python3'

@@ -184,6 +184,9 @@ After a relative alignment, :mod:`flystar.analysis` provides the Gaia path:
 :func:`~flystar.analysis.project_gaia` to build the reference list, then
 :meth:`~flystar.startables.StarTable.shift_reference_frame` to apply the
 resulting velocity and parallax offsets to both the fitted motion parameters
-and the time-series astrometry. The
-:doc:`Gaia example notebook <examples/flystar_mosaic_to_gaia/gaia_flystar_example>`
-walks through this end to end.
+and the time-series astrometry.
+
+Note that :func:`~flystar.analysis.query_gaia` contacts the live Gaia TAP
+service and the astroquery version pinned here exposes no timeout, so a slow
+day at ESA will block rather than fail. Cache the catalog once and read it from
+disk in anything automated.

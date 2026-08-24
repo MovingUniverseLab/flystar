@@ -70,31 +70,17 @@ A missing per-star uncertainty is filled with ``inf``, not ``nan``, and not with
 a fabricated finite number: a star with no uncertainty information reports an
 infinite error rather than a misleadingly precise one.
 
-The typical workflow
-====================
+Putting it together
+===================
 
-.. code-block:: python
+The landing page has the end-to-end example. In short: build one
+:class:`~flystar.starlists.StarList` per epoch, hand the list of them to
+:class:`~flystar.align.MosaicSelfRef` (self-defined frame) or
+:class:`~flystar.align.MosaicToRef` (external reference), call ``fit()``, and
+read the resulting :class:`~flystar.startables.StarTable` off ``ref_table``.
 
-   from flystar import align, starlists
-
-   # 1. One StarList per epoch.
-   lists = [starlists.read_starlist(f) for f in my_files]
-
-   # 2. Match and transform them into a common frame.
-   msc = align.MosaicSelfRef(lists, iters=3,
-                             dr_tol=[1.0, 0.5, 0.3],
-                             dm_tol=[2.0, 1.0, 1.0],
-                             motion_models=['Linear'])
-   msc.fit()
-
-   # 3. The result is a StarTable with averaged positions and fitted motions.
-   ref = msc.ref_table
-   ref['x0'], ref['vx'], ref['motion_model_used']
-
-   # 4. Predict where each star was, or will be, at some other time.
-   x, y, xe, ye = ref.infer_positions(2026.5)
-
-Step 2 is covered in :doc:`alignment`; steps 3 and 4 in :doc:`motion_models`.
+:doc:`alignment` covers the aligners; :doc:`motion_models` covers the per-star
+motion fit; :doc:`uncertainties` covers what the error columns mean.
 
 Where the pieces live
 =====================
