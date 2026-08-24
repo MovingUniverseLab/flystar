@@ -194,11 +194,25 @@ class MosaicSelfRef(object):
             final_table column 'm_orig' will contain the original un-transformed magnitudes.
             If mag_trans = False, then no such zeropoint offset it applied at any point.
 
-        mag_lim : array
-            If different from None, it indicates the minimum and maximum magnitude
-            on the starlists for finding the transformations BEFORE mag trans.
-            Note, if you want specify the mag_lim separately for each list,
-            you need to pass in a 2D array that has shape (N_lists, 2).
+        mag_lim : array, optional
+            Magnitude range on the starlists used for finding the
+            transformations, applied BEFORE the magnitude transformation. Its
+            single axis indexes iterations, exactly like dr_tol, dm_tol and
+            outlier_tol:
+
+            =========================  =========================================
+            shape                      meaning
+            =========================  =========================================
+            None                       no limit anywhere (default)
+            ``(2,)``                   one [min, max] everywhere
+            ``(N_iters, 2)``           per iteration, same for every list
+            ``(N_iters, N_lists, 2)``  per iteration and per list
+            =========================  =========================================
+
+            Per-starlist limits are given with the 3D form. Note that the 2D
+            form previously meant ``(N_lists, 2)``; it now means
+            ``(N_iters, 2)`` so that one axis means the same thing across every
+            schedule argument.
 
         motion_models : list of MotionModel or str, or str, optional
             Motion models or their names to use for new or unassigned stars. 'Empty' and 'Fixed' will always be added.
@@ -434,39 +448,43 @@ class MosaicSelfRef(object):
         assert len(self.outlier_tol) == self.iters, f'len(outlier_tol)={len(self.outlier_tol)} != iters={self.iters}'
 
         # Format self.mag_lim to be (N_iters, N_lists, 2) array. If only a single mag_lim is passed in, replicate for all lists.
-        # mag_lim accepts, and is normalized to, (N_iters, N_lists, 2):
+        # mag_lim accepts, and is normalized to, (N_iters, N_lists, 2). Its
+        # single-axis form indexes ITERATIONS, exactly like dr_tol, dm_tol and
+        # outlier_tol:
         #   None                     -> no cut anywhere
         #   [min, max]               -> that cut on every list, every iteration
-        #   (N_lists, 2)             -> per list, same every iteration
+        #   (N_iters, 2)             -> per iteration, same for every list
         #   (N_iters, N_lists, 2)    -> fully specified
-        # Note the 2D form indexes STARLISTS, not iterations -- unlike dr_tol,
-        # dm_tol and outlier_tol, whose single axis is iterations. When
-        # N_lists == N_iters the shape alone is ambiguous and it is read as
-        # per-list; pass the 3D form if you mean per-iteration.
+        # Per-starlist limits are expressed with the 3D form. The 2D form used
+        # to mean (N_lists, 2); it now means (N_iters, 2), so that one axis
+        # means the same thing across every schedule argument.
         if self.mag_lim is None:
             self.mag_lim = np.array([[None] * len(self.star_lists)] * self.iters)
         else:
-            # asarray first: the (N_lists, 2) test below reads .shape[1], which a
-            # plain nested list has not got, so the documented form used to raise
-            # AttributeError unless you passed a numpy array -- while the 1D form
-            # [13, 21] worked fine as a list.
+            # asarray first, so lists work as readily as arrays.
             self.mag_lim = np.asarray(self.mag_lim)
 
             if (self.mag_lim.ndim == 1) and (len(self.mag_lim) == 2):
                 # One pair for everything.
                 self.mag_lim = np.array([[self.mag_lim] * len(self.star_lists)] * self.iters)
-            elif (self.mag_lim.ndim == 2) and (self.mag_lim.shape == (len(self.star_lists), 2)):
-                # Per starlist; same for every iteration.
-                self.mag_lim = np.array([self.mag_lim] * self.iters)
+            elif (self.mag_lim.ndim == 2) and (self.mag_lim.shape == (self.iters, 2)):
+                # Per iteration; same for every starlist.
+                self.mag_lim = np.repeat(self.mag_lim[:, np.newaxis, :],
+                                         len(self.star_lists), axis=1)
             elif self.mag_lim.ndim == 3:
                 assert self.mag_lim.shape == (self.iters, len(self.star_lists), 2), \
                     (f'mag_lim must have shape (iters, N_lists, 2) = '
                      f'({self.iters}, {len(self.star_lists)}, 2), but has shape {self.mag_lim.shape}')
             else:
+                extra = ''
+                if self.mag_lim.ndim == 2 and self.mag_lim.shape == (len(self.star_lists), 2):
+                    extra = (' Note that the 2D form now indexes iterations, not starlists, to match '
+                             'dr_tol/dm_tol/outlier_tol. For per-starlist limits use the 3D form.')
                 raise ValueError(
-                    f'mag_lim must be None, a 2-element array, a (N_lists, 2) = '
-                    f'({len(self.star_lists)}, 2) array, or a (N_iters, N_lists, 2) = '
-                    f'({self.iters}, {len(self.star_lists)}, 2) array. Got shape {self.mag_lim.shape}.'
+                    f'mag_lim must be None, a 2-element array, a (N_iters, 2) = '
+                    f'({self.iters}, 2) array, or a (N_iters, N_lists, 2) = '
+                    f'({self.iters}, {len(self.star_lists)}, 2) array. '
+                    f'Got shape {self.mag_lim.shape}.' + extra
                 )
 
         # Keep a list of trans_args, one per iteration. If only a single dict
@@ -2454,11 +2472,25 @@ class MosaicToRef(MosaicSelfRef):
             final_table column 'm_orig' will contain the original un-transformed magnitudes.
             If mag_trans = False, then no such zeropoint offset it applied at any point.
 
-        mag_lim : array
-            If different from None, it indicates the minimum and maximum magnitude
-            on the starlists for finding the transformations BEFORE mag trans.
-            Note, if you want specify the mag_lim separately for each list,
-            you need to pass in a 2D array that has shape (N_lists, 2).
+        mag_lim : array, optional
+            Magnitude range on the starlists used for finding the
+            transformations, applied BEFORE the magnitude transformation. Its
+            single axis indexes iterations, exactly like dr_tol, dm_tol and
+            outlier_tol:
+
+            =========================  =========================================
+            shape                      meaning
+            =========================  =========================================
+            None                       no limit anywhere (default)
+            ``(2,)``                   one [min, max] everywhere
+            ``(N_iters, 2)``           per iteration, same for every list
+            ``(N_iters, N_lists, 2)``  per iteration and per list
+            =========================  =========================================
+
+            Per-starlist limits are given with the 3D form. Note that the 2D
+            form previously meant ``(N_lists, 2)``; it now means
+            ``(N_iters, 2)`` so that one axis means the same thing across every
+            schedule argument.
 
         ref_mag_lim : array
             If different from None, it indicates the minimum and maximum magnitude

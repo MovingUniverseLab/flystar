@@ -85,6 +85,11 @@ becomes better known.
      - ``{'order': 1}``
      - Arguments to ``trans_class``. A single dict applies to every iteration;
        a list of dicts raises the order as the fit converges.
+   * - ``mag_lim``
+     - ``None``
+     - Magnitude range for deriving the transformation. ``[min, max]`` applies
+       everywhere; ``(N_iters, 2)`` varies by iteration; ``(N_iters, N_lists,
+       2)`` varies by list as well.
 
 Matching
 --------
@@ -192,10 +197,9 @@ Which stars drive the fit
    * - ``mag_lim``
      - ``None``
      - Magnitude range used for deriving transformations, before ``mag_trans``.
-       Accepts ``[min, max]``, ``(N_lists, 2)``, or
-       ``(N_iters, N_lists, 2)``. **Note the 2D form indexes starlists, not
-       iterations** -- unlike ``dr_tol`` and friends. Pass the 3D form when you
-       mean per-iteration.
+       Accepts ``[min, max]``, ``(N_iters, 2)`` for per-iteration limits, or
+       ``(N_iters, N_lists, 2)`` to vary by list as well. The single axis is
+       iterations, like ``dr_tol``.
    * - ``iter_callback``
      - ``None``
      - Called with ``(ref_table, iteration)`` after every iteration, and once
