@@ -243,7 +243,9 @@ These are handed straight to
      - Candidate models. Each star gets the most complex one it has enough
        epochs to support, unless a ``motion_model_input`` column requests
        otherwise. Add ``'Linear'`` if you want proper motions at all -- the
-       default fits none.
+       default fits none. Accepts a single name, a list of names, the
+       :class:`~flystar.motion_model.MotionModel` subclasses themselves, or a
+       mixture; see the note below.
    * - ``fixed_params_dict``
      - ``None``
      - Fixed model parameters, e.g. ``{'ra': ..., 'dec': ...}`` for
@@ -255,6 +257,33 @@ These are handed straight to
    * - ``absolute_sigma``
      - ``True``
      - ``scipy``'s convention for the reported errors.
+
+.. admonition:: Ways to name a motion model
+   :class: note
+
+   ``motion_models`` accepts any of these, and mixes them freely:
+
+   .. code-block:: python
+
+      motion_models='Linear'                      # a single name
+      motion_models=['Linear']                    # a list of names
+      motion_models=['Linear', 'Acceleration']    # several
+      motion_models=[motion_model.Linear]         # the classes themselves
+      motion_models=[motion_model.Linear, 'Acceleration']   # mixed
+
+   The valid names are ``'Empty'``, ``'Fixed'``, ``'Linear'``,
+   ``'Acceleration'`` and ``'Parallax'``, matched case-sensitively -- a
+   misspelling raises rather than being silently ignored. Whatever you pass,
+   ``'Empty'`` and ``'Fixed'`` are always added if absent, and the list is
+   sorted by increasing parameter count, since that ordering is what "the most
+   complex model this star can support" is resolved against. So
+   ``motion_models='Linear'`` becomes ``['Empty', 'Fixed', 'Linear']``, and
+   ``msc.motion_models`` reports the expanded list rather than what you passed.
+
+   ``trans_args`` is similar but per-iteration rather than per-star: a single
+   dict is broadcast to every iteration, so ``trans_args={'order': 1}`` and
+   ``trans_args=[{'order': 1}] * iters`` are equivalent. See
+   :doc:`transformations`.
 
 Output and bookkeeping
 ----------------------
