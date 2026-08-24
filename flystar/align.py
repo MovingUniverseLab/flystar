@@ -1515,9 +1515,7 @@ class MosaicSelfRef(object):
                 vals_orig['n_params'] = self.ref_table['n_params'][keep_orig]
             motion_model_col_names = motion_model.motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
             for mm in motion_model_col_names:
-                if f'{mm}_mm' in self.ref_table.keys():
-                    vals_orig[mm] = self.ref_table[mm][keep_orig]
-                elif mm in self.ref_table.keys():
+                if mm in self.ref_table.keys():
                     vals_orig[mm] = self.ref_table[mm][keep_orig]
             fit_star_idxs = ~keep_orig
         else:

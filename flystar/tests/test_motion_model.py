@@ -928,3 +928,120 @@ def test_infer_positions_accepts_array_fixed_params():
                                rtol=1e-10, atol=1e-10)
     # ... and the dict is actually consulted, not silently dropped.
     assert not np.allclose(np.asarray(from_column), np.asarray(shifted))
+
+
+def test_fixed_params_written_back_under_canonical_name():
+    """
+    Whatever the fit used must be readable back under ``<param>``.
+
+    That is the name infer_positions and determine_motion_models search, so a
+    fixed parameter written anywhere else means the propagation runs with
+    parameters the fit never saw -- either demoting the star to a simpler model
+    (the name is missing) or propagating the requested model with somebody
+    else's values. Previously a per-star value went to ``<param>_mm``, and a
+    uniform value conflicting with an existing column went to meta where that
+    column shadowed it.
+
+    A caller's own values are not destroyed: on a genuine conflict they move to
+    ``<param>_orig``, the convention align.py uses when it replaces x/y/m with
+    transformed values.
+    """
+    from flystar.motion_model import determine_motion_models
+
+    n = 6
+    ra_per_star = 18.0 + np.arange(n) * 0.01
+    dec_per_star = -30.0 + np.arange(n) * 0.01
+    uniform = {'ra': 18.0, 'dec': -30.0, 'pa': 0.0, 'obsLocation': 'earth'}
+    per_star = {'ra': ra_per_star, 'dec': dec_per_star,
+                'pa': 0.0, 'obsLocation': 'earth'}
+
+    def selected(tab):
+        return set(np.unique(np.asarray(determine_motion_models(tab)[0]).astype(str)))
+
+    # No column yet, per-star values -> canonical column, not <param>_mm.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    del tab['ra'], tab['dec']
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=per_star, verbose=False)
+    assert not any(c.endswith('_mm') for c in tab.colnames)
+    np.testing.assert_allclose(np.asarray(tab['ra']), ra_per_star)
+    assert selected(tab) == {'Parallax'}
+
+    # Column conflicts with a UNIFORM value -> column holds what was used, and
+    # meta must NOT be where it went, since the column would shadow it.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    tab['ra'] = np.full(n, 99.0)
+    tab['dec'] = np.full(n, -99.0)
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=uniform, verbose=False)
+    np.testing.assert_allclose(np.asarray(tab['ra']), 18.0)
+    np.testing.assert_allclose(np.asarray(tab['ra_orig']), 99.0)
+    assert 'ra' not in tab.meta
+    assert selected(tab) == {'Parallax'}
+
+    # Column conflicts with PER-STAR values -> same, per-star this time.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    tab['ra'] = np.full(n, 99.0)
+    tab['dec'] = np.full(n, -99.0)
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=per_star, verbose=False)
+    np.testing.assert_allclose(np.asarray(tab['ra']), ra_per_star)
+    np.testing.assert_allclose(np.asarray(tab['ra_orig']), 99.0)
+    assert selected(tab) == {'Parallax'}
+
+    # No conflict -> the column is left completely alone, no _orig churn.
+    tab = _mini_table(n_stars=n)
+    tab.fit_motion_models(motion_models=['Parallax'], verbose=False)
+    assert 'ra_orig' not in tab.colnames
+    assert selected(tab) == {'Parallax'}
+
+    # A second fit with different values must not overwrite the caller's
+    # original with the first fit's substitute.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    tab['ra'] = np.full(n, 99.0)
+    tab['dec'] = np.full(n, -99.0)
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=uniform, verbose=False)
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict={**uniform, 'ra': 55.0, 'dec': -55.0},
+                          verbose=False)
+    np.testing.assert_allclose(np.asarray(tab['ra']), 55.0)
+    np.testing.assert_allclose(np.asarray(tab['ra_orig']), 99.0)
+
+    # A uniform value with NO column of that name still goes to meta -- one
+    # entry instead of the same number down every row.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    del tab['ra'], tab['dec']
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=uniform, verbose=False)
+    assert tab.meta['ra'] == 18.0 and 'ra' not in tab.colnames
+    assert selected(tab) == {'Parallax'}
+
+
+def test_fixed_param_string_column_not_truncated():
+    """
+    obsLocation is a string fixed parameter, so the replacement has to swap the
+    column rather than assign into it -- assigning a longer string into an
+    existing narrower column truncates it to the old itemsize.
+
+    The pre-seeded column is deliberately the SHORT side ('e', itemsize 1) and
+    the value the fit uses is the longer, valid 'earth'. obsLocation names a JPL
+    Horizons body that gets queried over the network and cached on disk, so a
+    test must not invent one: it would fire a live query and write a junk entry
+    into the shared parallax cache. Truncation is exercised by the widening
+    direction, which needs no new body.
+    """
+    n = 6
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    tab['obsLocation'] = np.array(['e'] * n)
+    assert np.asarray(tab['obsLocation']).dtype.itemsize < len('earth') * 4
+
+    tab.fit_motion_models(
+        motion_models=['Parallax'],
+        fixed_params_dict={'ra': 18.0, 'dec': -30.0, 'pa': 0.0,
+                           'obsLocation': 'earth'},
+        verbose=False)
+
+    assert set(np.asarray(tab['obsLocation']).astype(str)) == {'earth'}, \
+        'used value was truncated to the old column width'
+    assert set(np.asarray(tab['obsLocation_orig']).astype(str)) == {'e'}

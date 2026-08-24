@@ -133,51 +133,40 @@ and ``fixed_params_dict`` beats both. Passing ``fixed_params_dict`` to
 ``infer_positions`` therefore overrides whatever the table is carrying, rather
 than being ignored in its favour.
 
-Fitting writes them back, and *where* it writes depends on whether the value
-varies from star to star:
+Fitting writes them back, so a table carries the parameters it was fitted with
+and ``infer_positions`` propagates each star with exactly what its fit used --
+no need to supply them a second time. The single rule is that the values the
+fit used end up under ``<param>``, the name the lookup above searches:
 
 .. list-table::
    :header-rows: 1
-   :widths: 34 66
+   :widths: 40 60
 
-   * - The value is
-     - Stored as
-   * - the same for every star
-     - ``table.meta['<param>']``, a scalar
-   * - different per star
-     - a column named ``<param>_mm`` -- note the suffix
+   * - Situation
+     - Result
+   * - no column of that name, value uniform across stars
+     - ``table.meta['<param>']``, one scalar
+   * - no column of that name, value varies per star
+     - a column ``<param>``
+   * - a column exists and already agrees
+     - left untouched
+   * - a column exists and disagrees
+     - ``<param>`` takes the used values; the ones you supplied move to
+       ``<param>_orig``
 
-Storing one number in metadata instead of repeating it down a column of a
-million rows is the point of the split. Both are read back by the resolution
-order above, so a uniform fixed parameter round-trips from a fit into
-``infer_positions`` without being supplied again.
+Metadata is used only where no column of that name exists, which is what makes
+it safe: a column would shadow it in the resolution order, so a value written to
+metadata underneath one could never be read back. Where that is not a risk, one
+entry in metadata beats the same number repeated down a column of every row.
 
-.. warning::
-
-   The per-star case does **not** round-trip. Fitting writes the varying value
-   to ``<param>_mm``, but the lookup above searches for ``<param>``, so the
-   parameter is not found again. The model then fails its availability check
-   and each affected star is quietly assigned a simpler one -- a ``Parallax``
-   fit propagates as ``Linear``, dropping the parallax, while the table still
-   reads ``motion_model_used == 'Parallax'`` and carries a fitted ``pi``.
-
-   Two ways to avoid it, both reliable:
-
-   .. code-block:: python
-
-      # 1. Supply per-star values as plainly-named columns.
-      table['ra'] = ra_per_star
-      table['dec'] = dec_per_star
-      table.fit_motion_models(motion_models=['Parallax'])
-      table.infer_positions(times)                 # finds ra/dec, stays Parallax
-
-      # 2. Or hand them to infer_positions as well.
-      table.infer_positions(times, fixed_params_dict={'ra': ra_per_star,
-                                                      'dec': dec_per_star})
-
-   Naming the column yourself is the better habit: nothing renames it, and it
-   is what a reference catalogue already gives you -- a Gaia list arrives with
-   ``ra`` and ``dec`` columns, so the working path is also the natural one.
+A column can disagree with the fit because ``fixed_params_dict`` outranks it --
+pass ``fixed_params_dict={'ra': ...}`` for a table that already has an ``ra``
+column and the fit uses the dict. Your column is not overwritten so much as
+moved aside: ``<param>_orig`` keeps it, the same convention
+:class:`~flystar.align.MosaicSelfRef` follows when it replaces ``x``/``y``/``m``
+with transformed values and leaves ``x_orig``/``y_orig``/``m_orig`` behind.
+``<param>_orig`` is written only the first time, so refitting with different
+values cannot overwrite your original with the previous fit's substitute.
 
 How a model gets chosen
 =======================

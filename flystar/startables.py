@@ -1317,6 +1317,13 @@ class StarTable(Table):
             else:
                 coldata = np.full(N_stars, scalar_params[param])
 
+            # Wherever the used values land, they have to be readable back
+            # under `param` itself. That is the name infer_positions and
+            # determine_motion_models search, so putting them anywhere else
+            # means the propagation runs with parameters this fit never saw --
+            # either silently demoting the star to a simpler model (the name is
+            # missing entirely) or, worse, propagating the requested model with
+            # somebody else's values.
             if param in self.colnames:
                 existing = self[param]
 
@@ -1330,15 +1337,36 @@ class StarTable(Table):
                 if same:
                     continue
 
-            # Different (or column does not yet exist)
+                # The column exists and disagrees with what the fit used --
+                # fixed_params_dict wins the resolution order, so the fit used
+                # coldata. Keep the caller's values under `<param>_orig`, the
+                # same convention align.py uses when it replaces x/y/m with
+                # transformed values, and write the used ones into `param`.
+                #
+                # Only on first write: a second fit with a different
+                # fixed_params_dict must not overwrite the caller's original
+                # with the previous fit's substitute.
+                orig_name = f'{param}_orig'
+                if orig_name not in self.colnames:
+                    self.add_column(Column(data=np.array(existing), name=orig_name))
+
+                # replace_column rather than self[param] = coldata: assigning
+                # into an existing string column can truncate to its current
+                # itemsize, and obsLocation is a string parameter.
+                self.replace_column(param, Column(data=coldata, name=param))
+                continue
+
+            # No column of this name exists yet.
             if len(np.unique(coldata)) == 1:
-                # If param is the same for all stars, save it as meta
+                # Uniform across stars: one entry in meta rather than the same
+                # number repeated down every row. Safe only in this branch --
+                # with a column of the same name present, meta would be
+                # shadowed by it in the resolution order and the value written
+                # here could never be read back.
                 self.meta[param] = coldata[0]
             else:
-                self.add_column(
-                    Column(data=coldata, name=f"{param}_mm"),
-                    rename_duplicate=True,
-                )
+                # Per-star: has to be a column, under the canonical name.
+                self.add_column(Column(data=coldata, name=param))
 
         # Add a column to keep track of the number of points used in a fit and number of bootstrap used.
         self.meta['n_bootstrap'] = bootstrap
