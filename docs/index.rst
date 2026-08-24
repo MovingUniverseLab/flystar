@@ -84,7 +84,11 @@ Where to go next
 
 :doc:`alignment`
     The aligners in depth, parameter by parameter -- matching strategies,
-    transformation models, and how to control which stars drive the fit.
+    the initial guess, and how to control which stars drive the fit.
+
+:doc:`transformations`
+    The coordinate transformation models, which to pick for a given kind of
+    frame difference, and how to raise the order as the fit converges.
 
 .. toctree::
    :hidden:
@@ -100,6 +104,7 @@ Where to go next
    overview
    motion_models
    alignment
+   transformations
 
 .. toctree::
    :maxdepth: 2

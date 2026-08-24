@@ -171,7 +171,7 @@ The transformation
      - What it does
    * - ``trans_class``
      - ``PolyTransform``
-     - The transformation model. See the table below.
+     - The transformation model. See :doc:`transformations`.
    * - ``trans_weights``
      - ``None``
      - Which uncertainties weight the transformation fit:
@@ -349,34 +349,6 @@ But it means a catalog whose names happen to contain ``'star'`` gets filtered
 away. Pass ``ignore_contains=None`` when your names are genuinely stable across
 epochs. The filter warns when it excludes anything, and ``''`` is rejected
 rather than treated as "off".
-
-Choosing a transformation
-=========================
-
-``trans_class`` and ``trans_args`` select the transformation model from
-:mod:`flystar.transforms`. The useful ones:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 34 66
-
-   * - Class
-     - Use for
-   * - :class:`~flystar.transforms.Shift`
-     - Translation only.
-   * - :class:`~flystar.transforms.four_paramNW`
-     - Translation, rotation, single scale.
-   * - :class:`~flystar.transforms.PolyTransform`
-     - General polynomial of ``order``; the default (``order=1``).
-   * - :class:`~flystar.transforms.LegTransform`
-     - Legendre basis -- better conditioned than a raw polynomial at high
-       order.
-   * - :class:`~flystar.transforms.PolyClipTransform`,
-       :class:`~flystar.transforms.LegClipTransform`
-     - Clipped variants, for keeping the fit inside a valid domain.
-   * - :class:`~flystar.transforms.SplineTransform`, and the
-       ``*ClipSplineTransform`` variants
-     - Spatially varying distortion that a global polynomial cannot absorb.
 
 Controlling which stars drive the fit
 =====================================

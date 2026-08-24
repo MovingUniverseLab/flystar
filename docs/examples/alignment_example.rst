@@ -97,12 +97,12 @@ the tolerance now that the transformation is better known.
    msc = align.MosaicSelfRef(
        lists,
        iters=3,
-       dr_tol=[60., 10., 5.],               # match radius, pixels, per iteration
-       dm_tol=[1., 1., 1.],                 # match magnitude tolerance
+       dr_tol=[60., 10., 5.],                # match radius, pixels, per iteration
+       dm_tol=[1., 1., 1.],                  # match magnitude tolerance
        trans_class=transforms.PolyTransform,
-       trans_args=[{'order': 1}] * 3,       # order 1 = shift + rotation + scale
-       motion_models=['Linear'],            # fit x0, vx, y0, vy per star
-       init_guess_mode='miracle',           # blind triangle match, no names needed
+       trans_args={'order': 1},              # order 1 = shift + rotation + scale
+       motion_models='Linear',               # fit x0, vx, y0, vy per star
+       init_guess_mode='miracle',            # blind triangle match, no names needed
    )
    msc.fit()
 
@@ -182,13 +182,3 @@ Proper motions recovered to about 20 milli-pixels per year against a 0.05 pixel
 per-epoch measurement error over a six-year baseline -- so the alignment has
 not absorbed the stellar motion into the frame solution, which is the failure
 mode that matters here.
-
-Next
-====
-
-:doc:`motion_model_example`
-    The same machinery seen from the motion-model side: fitting each model,
-    choosing one per star, and predicting positions at new epochs.
-
-:doc:`../alignment`
-    Every aligner argument used above, described.
