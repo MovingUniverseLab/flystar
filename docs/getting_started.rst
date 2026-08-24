@@ -64,13 +64,29 @@ stars go undetected in any given epoch.
    shift_y = np.array([0., -12., 30., -20.])
    angle = np.deg2rad(np.array([0., 0.3, -0.5, 0.7]))
 
-.. admonition:: Do not name your stars ``star_*``
-   :class: warning
+.. admonition:: Why the stars are called ``S000`` and not ``star_000``
+   :class: note
 
-   ``init_guess_mode='name'`` throws away every star whose name contains the
-   value of ``ignore_contains``, which defaults to ``'star'``. Names like
-   ``star_001`` are silently discarded and the initial match then fails. That
-   is why the stars above are called ``S000``.
+   ``init_guess_mode='name'`` leaves out every star whose name contains
+   ``ignore_contains``, which defaults to ``'star'``. That default is
+   deliberate: auto-detected sources are conventionally labelled ``star_1``,
+   ``star_2``, ... per epoch, and those indices are per-list detection numbers
+   rather than stable identities, so matching on them would pair unrelated
+   stars.
+
+   If your names *are* stable across epochs -- a cross-matched catalog, or
+   synthetic data like this -- pass ``ignore_contains=None`` and every name is
+   used:
+
+   .. code-block:: python
+
+      align.MosaicSelfRef(lists, ..., init_guess_mode='name',
+                          ignore_contains=None)
+
+   Either way it is no longer silent: the filter warns when it excludes stars,
+   and says so again in the error if nothing is left to match on. Note that
+   ``''`` is rejected rather than meaning "off" -- every name contains the
+   empty string -- so ``None`` is the off switch.
 
 Building one StarList per epoch
 -------------------------------

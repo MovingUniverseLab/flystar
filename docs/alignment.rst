@@ -92,6 +92,17 @@ a triangle match on the ``briteN`` brightest stars) at order ``init_order``.
 Where the lists only partially overlap, ``starlist_vertices`` restricts the
 initial guess to stars inside the given polygons.
 
+``init_guess_mode='name'`` is the alternative, and is much more robust when
+your star lists already carry consistent names. It has one sharp edge worth
+knowing: ``ignore_contains`` (default ``'star'``) excludes any name containing
+that substring from the match. The default is deliberate -- auto-detected
+sources labelled ``star_1``, ``star_2``, ... carry per-epoch detection indices
+rather than stable identities, so matching on them would pair unrelated stars.
+But it means a catalog whose names happen to contain ``'star'`` gets filtered
+away. Pass ``ignore_contains=None`` when your names are genuinely stable across
+epochs. The filter warns when it excludes anything, and ``''`` is rejected
+rather than treated as "off".
+
 Choosing a transformation
 =========================
 

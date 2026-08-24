@@ -38,6 +38,7 @@ class MosaicSelfRef(object):
             init_order=1,
             init_guess_mode='miracle',
             briteN=None,
+            ignore_contains='star',
             calc_trans_inverse=False,
             # Magnitude parameters
             mag_trans=True,
@@ -157,6 +158,21 @@ class MosaicSelfRef(object):
             If no initial transformations are passed in via the trans_input keyword, then we have
             to make the initial transformation and matching blindly. We can do this in a couple of
             different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
+
+        ignore_contains : str or None, optional
+            Only used when init_guess_mode='name'. Names containing this
+            substring are left out of the name match. The default 'star'
+            is there because auto-detected sources are conventionally
+            labelled star_1, star_2, ... per epoch -- those indices are
+            per-list detection numbers, not stable identities, so matching
+            on them pairs unrelated stars. Genuinely named sources (S0-2,
+            irs16NE, ...) mean the same thing in every list.
+
+            Pass None to match on every name, which is what you want when
+            the names really are stable identifiers across epochs (a
+            cross-matched catalog, or synthetic data). '' is rejected
+            rather than treated as "off": every name contains the empty
+            string, so it would discard everything. By default 'star'.
 
         briteN : int
             If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
@@ -338,6 +354,7 @@ class MosaicSelfRef(object):
         self.fixed_params_dict = fixed_params_dict
         self.init_guess_mode = init_guess_mode
         self.briteN = briteN
+        self.ignore_contains = ignore_contains
         self.iter_callback = iter_callback
         self.save_path = save_path
         self.save_plot = save_plot
@@ -811,6 +828,7 @@ class MosaicSelfRef(object):
                     mode=self.init_guess_mode,
                     order=self.init_order,
                     briteN=self.briteN,
+                    ignore_contains=self.ignore_contains,
                     polygon_reflist=self.reflist_polygon,
                     polygon_starlist=shapely.Polygon(self.starlist_vertices[ii]) if self.starlist_vertices is not None else None,
                     buffer=dr_tol,
@@ -2233,6 +2251,7 @@ class MosaicToRef(MosaicSelfRef):
         init_order=1,
         init_guess_mode='miracle',
         briteN=None,
+        ignore_contains='star',
         calc_trans_inverse=False,
         # Magnitude parameters
         mag_trans=True,
@@ -2377,6 +2396,21 @@ class MosaicToRef(MosaicSelfRef):
             If no initial transformations are passed in via the trans_input keyword, then we have
             to make the initial transformation and matching blindly. We can do this in a couple of
             different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
+
+        ignore_contains : str or None, optional
+            Only used when init_guess_mode='name'. Names containing this
+            substring are left out of the name match. The default 'star'
+            is there because auto-detected sources are conventionally
+            labelled star_1, star_2, ... per epoch -- those indices are
+            per-list detection numbers, not stable identities, so matching
+            on them pairs unrelated stars. Genuinely named sources (S0-2,
+            irs16NE, ...) mean the same thing in every list.
+
+            Pass None to match on every name, which is what you want when
+            the names really are stable identifiers across epochs (a
+            cross-matched catalog, or synthetic data). '' is rejected
+            rather than treated as "off": every name contains the empty
+            string, so it would discard everything. By default 'star'.
 
         briteN : int
             If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
@@ -2535,6 +2569,7 @@ class MosaicToRef(MosaicSelfRef):
             init_order=init_order,
             init_guess_mode=init_guess_mode,
             briteN=briteN,
+            ignore_contains=ignore_contains,
             calc_trans_inverse=calc_trans_inverse,
             # Magnitude parameters
             mag_trans=mag_trans,
@@ -4224,10 +4259,40 @@ def trans_initial_guess(
 
     # Match by name
     if mode == 'name':
-        # First trim the two lists down to only those that don't contain
-        # the "ignore_contains" string.
-        idx_r = np.flatnonzero(np.char.find(ref_list['name'].astype(str), ignore_contains) == -1)
-        idx_s = np.flatnonzero(np.char.find(star_list['name'].astype(str), ignore_contains) == -1)
+        # Trim both lists to names that don't contain the "ignore_contains"
+        # string. The point is to skip auto-detected labels (star_1, star_2,
+        # ... are per-epoch detection indices, so the same label means
+        # different objects in different lists) and match only on genuinely
+        # named sources. ignore_contains=None skips the trim entirely, for
+        # catalogs whose names really are stable across epochs.
+        #
+        # Note '' is not a way to disable it: every name contains the empty
+        # string, so np.char.find returns 0 everywhere and the trim would
+        # discard everything. None is the off switch.
+        if ignore_contains is None:
+            idx_r = np.arange(len(ref_list))
+            idx_s = np.arange(len(star_list))
+        else:
+            if ignore_contains == '':
+                raise ValueError(
+                    "trans_initial_guess: ignore_contains='' would discard every star "
+                    '(every name contains the empty string). Pass None to match on all names.'
+                )
+            idx_r = np.flatnonzero(np.char.find(ref_list['name'].astype(str), ignore_contains) == -1)
+            idx_s = np.flatnonzero(np.char.find(star_list['name'].astype(str), ignore_contains) == -1)
+
+            # Do not drop stars silently: this filter is the reason a name
+            # match "mysteriously" finds nothing when sources are called
+            # star_0, star_1, ...
+            n_cut_s = len(star_list) - len(idx_s)
+            n_cut_r = len(ref_list) - len(idx_r)
+            if n_cut_s or n_cut_r:
+                msg = (f'trans_initial_guess: ignore_contains={ignore_contains!r} excluded '
+                       f'{n_cut_s} of {len(star_list)} star_list and '
+                       f'{n_cut_r} of {len(ref_list)} ref_list names from the name match.')
+                if len(idx_s) == 0 or len(idx_r) == 0:
+                    msg += ' Nothing is left to match on -- pass ignore_contains=None if these names are stable across epochs.'
+                warnings.warn(msg, stacklevel=2)
 
         # Match the star names
         name_matches, ndx_r, ndx_s = np.intersect1d(ref_list['name'][idx_r],
