@@ -631,7 +631,7 @@ def test_scipy_agreement_parallax():
 
                 model = motion_model.Parallax()
                 pvec = model.calc_parallax_vector(
-                    Time(t, format='decimalyear', scale='tdb').mjd,
+                    Time(t, format='decimalyear', scale='utc').tdb.mjd,
                     np.array([ra]), np.array([dec]),
                     pa=np.array([0.0]), obsLocation='earth')
                 Px, Py = pvec[0, 0, :].copy(), pvec[0, 1, :].copy()
