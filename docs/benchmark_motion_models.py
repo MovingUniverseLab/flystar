@@ -31,7 +31,7 @@ import warnings
 import numpy as np
 
 N_STARS = 10_000
-EPOCHS = list(range(3, 21, 2))
+EPOCHS = [2] + list(range(3, 21, 2))
 MODELS = ['Fixed', 'Linear', 'Acceleration', 'Parallax']
 FIXED_PARAMS = {'ra': 18.0, 'dec': -30.0, 'pa': 0.0, 'obsLocation': 'earth'}
 
@@ -79,8 +79,12 @@ def time_one(branch, model, n_epochs, n_stars=N_STARS):
                                show_progress=False, verbose=False)
     elapsed = time.perf_counter() - t0
 
+    # Which model the stars actually got, not just whether it was the one
+    # asked for: too few epochs for the requested model and both branches
+    # quietly fall back, so a cell can time something other than its label.
     used = np.asarray(tab['motion_model_used']).astype(str)
-    return elapsed, float(np.mean(used == model))
+    names, counts = np.unique(used, return_counts=True)
+    return elapsed, float(np.mean(used == model)), str(names[counts.argmax()])
 
 
 def run_timings(flystar_dir, branch, out_json):
@@ -95,14 +99,19 @@ def run_timings(flystar_dir, branch, out_json):
     for model in MODELS:
         # One throwaway fit on a tiny table first. The first fit of a model in
         # a process pays a one-time set-up the rest do not -- ~0.03 s for
-        # Parallax, which is 40% of a batched 10,000-star fit and would land
-        # entirely on whichever cell happened to be timed first.
-        time_one(branch, model, EPOCHS[0], n_stars=50)
+        # Parallax, roughly two thirds of a whole batched 10,000-star fit,
+        # which would otherwise land entirely on whichever cell was timed
+        # first. At the widest grid point, so that the model being warmed up
+        # is one the star actually gets: at the narrow end there are fewer
+        # epochs than parameters and the fit falls back to a simpler model,
+        # warming the wrong path.
+        time_one(branch, model, max(EPOCHS), n_stars=50)
         for n_epochs in EPOCHS:
-            elapsed, frac = time_one(branch, model, n_epochs)
-            results[f'{model}|{n_epochs}'] = {'sec': elapsed, 'frac_used': frac}
+            elapsed, frac, used = time_one(branch, model, n_epochs)
+            results[f'{model}|{n_epochs}'] = {'sec': elapsed, 'frac_used': frac,
+                                              'used_model': used}
             print(f'  {model:13} {n_epochs:2d} epochs: {elapsed:8.3f}s '
-                  f'({frac*100:.0f}% got {model})', flush=True)
+                  f'({frac*100:.0f}% got {model}, most got {used})', flush=True)
 
     json.dump({'branch': branch, 'n_stars': N_STARS, 'results': results},
               open(out_json, 'w'), indent=1)
@@ -136,8 +145,13 @@ def plot(batched_json, per_star_json, out_png=None):
         same = ((series(per_star, model, 'frac_used') == 1)
                 & (series(batched, model, 'frac_used') == 1))
 
-        ax1.plot(EPOCHS, per, '--', color=c, lw=1.4, label=f'{model}, per-star')
-        ax1.plot(EPOCHS, bat, '-', color=c, lw=1.8, label=f'{model}, batched')
+        # Lines are drawn over the like-for-like cells only, so a fallback is
+        # not joined into the curve of a model it did not fit; the markers are
+        # still drawn, hollow, so no measurement is hidden.
+        ax1.plot(EPOCHS, np.where(same, per, np.nan), '--', color=c, lw=1.4,
+                 label=f'{model}, per-star')
+        ax1.plot(EPOCHS, np.where(same, bat, np.nan), '-', color=c, lw=1.8,
+                 label=f'{model}, batched')
         for y in (per, bat):
             ax1.plot(np.array(EPOCHS)[same], y[same], 'o', color=c, ms=4)
             ax1.plot(np.array(EPOCHS)[~same], y[~same], 'o', ms=5,
