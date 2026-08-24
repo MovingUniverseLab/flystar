@@ -4218,6 +4218,10 @@ def trans_initial_guess(
     if motion_models is None:
         motion_models = []
 
+    # Only the 'miracle' branch computes these; the failure diagnostic below
+    # falls back to the reference list's own columns when they are unset.
+    xref = yref = None
+
     # Match by name
     if mode == 'name':
         # First trim the two lists down to only those that don't contain
@@ -4287,13 +4291,33 @@ def trans_initial_guess(
         raise ValueError(f'flystar.align.trans_initial_guess: Unknown mode: {mode}. Must be one of ["name", "miracle"].')
 
     if len(x1m) < n_req_match:
-        fig, ax = plt.subplots()
-        ax.scatter(star_list['x'], star_list['y'], s=1, label='star_list')
-        ax.scatter(xref, yref, s=1, label='ref_list')
-        ax.legend()
-        ax.set_aspect('equal')
-        plt.show()
-        raise AssertionError(f'Failed to find more than {n_req_match} (only {len(x1m)}) matches, giving up.')
+        # Diagnostic plot, best-effort only. xref/yref are computed by the
+        # 'miracle' branch alone, so for mode='name'/'indices' fall back to the
+        # reference list's own columns. Guarded because this block exists to
+        # explain a failure -- it must never replace the AssertionError below
+        # with an error of its own (it used to raise UnboundLocalError on
+        # xref for every non-miracle mode, hiding the real message).
+        try:
+            if xref is None:
+                xref = ref_list['x'] if 'x' in ref_list.colnames else ref_list['x0']
+                yref = ref_list['y'] if 'y' in ref_list.colnames else ref_list['y0']
+            fig, ax = plt.subplots()
+            ax.scatter(star_list['x'], star_list['y'], s=1, label='star_list')
+            ax.scatter(xref, yref, s=1, label='ref_list')
+            ax.legend()
+            ax.set_aspect('equal')
+            plt.show()
+        except Exception as err:
+            warnings.warn(f'trans_initial_guess: could not draw the diagnostic plot ({err}).',
+                          stacklevel=2)
+        raise AssertionError(
+            f'Failed to find more than {n_req_match} (only {len(x1m)}) matches, giving up. '
+            f"mode={mode!r}."
+            + (f" Note that mode='name' discards any star whose name contains "
+               f"ignore_contains={ignore_contains!r}; {len(star_list) - len(idx_s)} of "
+               f'{len(star_list)} star_list entries were dropped that way.'
+               if mode == 'name' else '')
+        )
 
     if verbose > 1:
         print('Initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
