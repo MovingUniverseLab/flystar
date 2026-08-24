@@ -2,7 +2,11 @@
 FlyStar
 =======
 
-**FlyStar measures where stars are and how they move.**
+**FlyStar aligns many star lists into one common frame and fits each star's
+motion there, choosing per star from a set of motion models.**
+
+That one sentence is the whole package: *align the stars, then describe how they
+move.* The rest of this page unpacks it.
 
 Astrometry of a crowded field is never taken in one frame. You have many
 images -- different nights, different instruments, different pointings, each
@@ -71,13 +75,14 @@ Where to go next
     The data model in full: what lives in a ``StarList`` versus a
     ``StarTable``, and the column-naming conventions the code dispatches on.
 
-:doc:`alignment`
-    The aligners in depth -- matching strategies, transformation models, and
-    how to control which stars drive the fit.
-
 :doc:`motion_models`
-    The per-star motion models, their equations, and how FlyStar picks one
-    per star.
+    The per-star motion models, their equations, and how FlyStar picks one per
+    star. Worth reading before the aligner, whose ``motion_models`` argument
+    only makes sense once you know what it is choosing between.
+
+:doc:`alignment`
+    The aligners in depth, parameter by parameter -- matching strategies,
+    transformation models, and how to control which stars drive the fit.
 
 :doc:`uncertainties`
     How weights, parameter errors and ``absolute_sigma`` are actually
@@ -95,8 +100,8 @@ Where to go next
 
    getting_started
    overview
-   alignment
    motion_models
+   alignment
    uncertainties
 
 .. toctree::

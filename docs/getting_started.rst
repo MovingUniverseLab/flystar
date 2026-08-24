@@ -64,29 +64,21 @@ stars go undetected in any given epoch.
    shift_y = np.array([0., -12., 30., -20.])
    angle = np.deg2rad(np.array([0., 0.3, -0.5, 0.7]))
 
-.. admonition:: Why the stars are called ``S000`` and not ``star_000``
+.. admonition:: Names are not needed here
    :class: note
 
-   ``init_guess_mode='name'`` leaves out every star whose name contains
-   ``ignore_contains``, which defaults to ``'star'``. That default is
-   deliberate: auto-detected sources are conventionally labelled ``star_1``,
-   ``star_2``, ... per epoch, and those indices are per-list detection numbers
-   rather than stable identities, so matching on them would pair unrelated
-   stars.
+   ``init_guess_mode='miracle'`` bootstraps the first transformation by
+   *blind triangle matching* on the brightest stars
+   (:func:`~flystar.match.miracle_match_briteN`) -- it uses only positions and
+   magnitudes, so the lists need share no naming scheme at all. That is the
+   realistic case: separate reductions rarely agree on labels.
 
-   If your names *are* stable across epochs -- a cross-matched catalog, or
-   synthetic data like this -- pass ``ignore_contains=None`` and every name is
-   used:
-
-   .. code-block:: python
-
-      align.MosaicSelfRef(lists, ..., init_guess_mode='name',
-                          ignore_contains=None)
-
-   Either way it is no longer silent: the filter warns when it excludes stars,
-   and says so again in the error if nothing is left to match on. Note that
-   ``''`` is rejected rather than meaning "off" -- every name contains the
-   empty string -- so ``None`` is the off switch.
+   If your lists *do* carry consistent names, ``init_guess_mode='name'`` is
+   cheaper and more robust. It has one sharp edge -- ``ignore_contains``,
+   default ``'star'``, excludes any name containing that substring, since
+   auto-detected ``star_1``, ``star_2``, ... are per-epoch detection indices
+   rather than identities. Pass ``ignore_contains=None`` when your names really
+   are stable. See :doc:`alignment`.
 
 Building one StarList per epoch
 -------------------------------
@@ -139,7 +131,7 @@ the tolerance now that the transformation is better known.
        trans_class=transforms.PolyTransform,
        trans_args=[{'order': 1}] * 3,       # order 1 = shift + rotation + scale
        motion_models=['Linear'],            # fit x0, vx, y0, vy per star
-       init_guess_mode='name',              # our stars carry consistent names
+       init_guess_mode='miracle',           # blind triangle match, no names needed
    )
    msc.fit()
 
@@ -227,13 +219,14 @@ Where to go next
     The data model in full, and the column-naming conventions the code
     dispatches on.
 
-:doc:`alignment`
-    The aligners in depth -- matching strategies, transformation models, and
-    how to control which stars drive the fit. If you do not have consistent
-    star names, this is where ``init_guess_mode='miracle'`` is explained.
-
 :doc:`motion_models`
-    The per-star motion models and their equations.
+    The per-star motion models and their equations, and how one is chosen for
+    each star -- read this before the aligner's ``motion_models`` argument.
+
+:doc:`alignment`
+    The aligners in depth, with every constructor argument described --
+    matching strategies, transformation models, and how to control which stars
+    drive the fit.
 
 :doc:`uncertainties`
     How weights and parameter errors are computed, with the formulae.

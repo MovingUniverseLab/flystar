@@ -44,6 +44,249 @@ Note the per-iteration lists. ``dr_tol``, ``dm_tol``, ``outlier_tol`` and
 ``trans_args`` each take one entry per iteration, which is how you tighten
 tolerances and raise the transformation order as the solution converges.
 
+The parameters, group by group
+==============================
+
+Both aligners take the same arguments except where noted; there are a lot, so
+they are grouped by what they control. Only ``list_of_starlists`` (and, for
+:class:`~flystar.align.MosaicToRef`, ``ref_list``) is required.
+
+Per-iteration schedules
+-----------------------
+
+These are the ones that take **one entry per iteration**, and are how the
+solution converges: match loosely at first, then tighten as the transformation
+becomes better known.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 14 64
+
+   * - Parameter
+     - Default
+     - What it does
+   * - ``iters``
+     - ``1``
+     - Number of match/transform/average passes. Sets the length every
+       schedule below must have.
+   * - ``dr_tol``
+     - ``[1.0]``
+     - Match radius per iteration, in reference-frame units. Must be generous
+       enough on the first pass to cover the initial frame offsets.
+   * - ``dm_tol``
+     - ``[1.0]``
+     - Match magnitude tolerance per iteration.
+   * - ``outlier_tol``
+     - ``None``
+     - Sigma clipping on the transformation residuals, per iteration. ``None``
+       in a slot means no rejection that pass. Rejection re-derives the
+       transformation, so the rejected stars stop influencing it.
+   * - ``trans_args``
+     - ``{'order': 1}``
+     - Arguments to ``trans_class``. A single dict applies to every iteration;
+       a list of dicts raises the order as the fit converges.
+
+Matching
+--------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 14 64
+
+   * - Parameter
+     - Default
+     - What it does
+   * - ``matching``
+     - ``'legacy'``
+     - How a star with several candidates inside the tolerances is resolved.
+       See the section above; use ``'chi2'`` in crowded fields.
+   * - ``dchi2_tol``
+     - ``9.0``
+     - ``'chi2'`` only. How much better the winner must be than the runner-up,
+       in :math:`\chi^2`. Below it the star is treated as ambiguous and left
+       unmatched. 9.0 is a 3-sigma margin.
+   * - ``match_sigma_pos``
+     - ``None``
+     - ``'chi2'`` only. Position scale for the :math:`\chi^2`. ``None``
+       measures it from each list's own unambiguous pairs, so no error columns
+       are needed.
+   * - ``match_sigma_mag``
+     - ``None``
+     - ``'chi2'`` only. Magnitude scale, measured the same way.
+
+The initial guess
+-----------------
+
+The first pass has no transformation yet, so one has to be found blind.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 14 64
+
+   * - Parameter
+     - Default
+     - What it does
+   * - ``init_guess_mode``
+     - ``'miracle'``
+     - ``'miracle'`` blind-matches triangles among the brightest stars, using
+       only positions and magnitudes. ``'name'`` intersects the ``name``
+       columns -- cheaper and more robust, but only if your lists share a
+       naming scheme.
+   * - ``init_order``
+     - ``1``
+     - Order of the transformation used for that first guess.
+   * - ``briteN``
+     - ``None``
+     - ``'miracle'`` only. How many of the brightest stars to triangle-match.
+       ``None`` uses ``min(50, len(star_list))``.
+   * - ``ignore_contains``
+     - ``'star'``
+     - ``'name'`` only. Excludes names containing this substring; see the note
+       above. ``None`` matches on every name.
+   * - ``trans_input``
+     - ``None``
+     - A list of ready-made transform objects to start from, one per list. Skips
+       the blind guess entirely.
+   * - ``starlist_vertices``
+     - ``None``
+     - Polygon vertices per list, shape ``(N_lists, N_vertices, 2)``, confining
+       the initial guess to stars inside them. For partially overlapping lists.
+       :class:`~flystar.align.MosaicToRef` also takes ``reflist_vertex`` for the
+       reference.
+
+The transformation
+------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 14 64
+
+   * - Parameter
+     - Default
+     - What it does
+   * - ``trans_class``
+     - ``PolyTransform``
+     - The transformation model. See the table below.
+   * - ``trans_weights``
+     - ``None``
+     - Which uncertainties weight the transformation fit:
+       ``'both,var'``, ``'list,var'``, ``'ref,var'`` (or the ``,std``
+       variants). ``None`` is unweighted. Needs position errors to exist.
+   * - ``calc_trans_inverse``
+     - ``False``
+     - Also derive the inverse transformations, into ``trans_list_inverse``.
+   * - ``mag_trans``
+     - ``True``
+     - Fit a magnitude offset per list alongside the positional transformation.
+
+Which stars drive the fit
+-------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 14 64
+
+   * - Parameter
+     - Default
+     - What it does
+   * - ``mag_lim``
+     - ``None``
+     - Magnitude range used for deriving transformations, before ``mag_trans``.
+       Accepts ``[min, max]``, ``(N_lists, 2)``, or
+       ``(N_iters, N_lists, 2)``. **Note the 2D form indexes starlists, not
+       iterations** -- unlike ``dr_tol`` and friends. Pass the 3D form when you
+       mean per-iteration.
+   * - ``iter_callback``
+     - ``None``
+     - Called with ``(ref_table, iteration)`` after every iteration, and once
+       more with ``iters``. Set ``use_in_trans = False`` on a row to drop that
+       star from later transformations while keeping it in the output.
+   * - ``ref_index``
+     - ``0``
+     - :class:`~flystar.align.MosaicSelfRef` only. Which list seeds the frame on
+       the first pass; later passes use the sigma-clipped mean of all lists.
+   * - ``ref_mag_lim``
+     - ``None``
+     - :class:`~flystar.align.MosaicToRef` only. Magnitude range on the
+       reference list.
+   * - ``use_ref_new``
+     - ``False``
+     - :class:`~flystar.align.MosaicToRef` only. Whether stars newly added to
+       ``ref_table`` are used in subsequent transformations, or merely carried.
+   * - ``update_ref_orig``
+     - ``False``
+     - :class:`~flystar.align.MosaicToRef` only. Whether to update the reference
+       positions and motions as lists are transformed. Keep ``False`` to hold an
+       absolute frame such as Gaia; ``True`` treats the reference as an initial
+       guess.
+
+Motion fitting
+--------------
+
+These are handed straight to
+:meth:`~flystar.startables.StarTable.fit_motion_models`; see
+:doc:`motion_models` and :doc:`uncertainties`.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 16 62
+
+   * - Parameter
+     - Default
+     - What it does
+   * - ``motion_models``
+     - ``['Empty', 'Fixed']``
+     - Candidate models. Each star gets the most complex one it has enough
+       epochs to support, unless a ``motion_model_input`` column requests
+       otherwise. Add ``'Linear'`` if you want proper motions at all -- the
+       default fits none.
+   * - ``fixed_params_dict``
+     - ``None``
+     - Fixed model parameters, e.g. ``{'ra': ..., 'dec': ...}`` for
+       ``Parallax``. ``t0`` is computed per star if omitted.
+   * - ``vel_weights``
+     - ``'var'``
+     - Weighting scheme for the motion fit: ``'var'`` for
+       :math:`1/\sigma^2`, ``'std'`` for :math:`1/|\sigma|`.
+   * - ``absolute_sigma``
+     - ``True``
+     - ``scipy``'s convention for the reported errors.
+
+Output and bookkeeping
+----------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 14 64
+
+   * - Parameter
+     - Default
+     - What it does
+   * - ``save_path``
+     - ``None``
+     - Directory for the results: ``PREFIX_input.txt``,
+       ``PREFIX_ref_table.hdf5``, ``PREFIX_trans_list.pkl``.
+   * - ``prefix_name``
+     - ``'msr'`` / ``'mtr'``
+     - Prefix for those file names.
+   * - ``save_object``
+     - ``True``
+     - Also pickle the whole mosaic object. Heavier and tied to flystar's class
+       definitions, but lets you reload and call methods like
+       ``calc_bootstrap_errors`` later.
+   * - ``save_plot``
+     - ``True``
+     - Also save a transformation diagnostic plot per (list, iteration). Real
+       cost on large lists -- an unthinned scatter at dpi=300 each time.
+   * - ``inherit_n_detect``
+     - ``True``
+     - If an input list carries its own ``n_detect`` (because it is itself the
+       output of an earlier align), add that instead of counting 1, so
+       ``n_detect`` totals raw detections.
+   * - ``verbose``
+     - ``True``
+     - ``0``-``9``, or ``False``/``True`` for least/most.
+
 What ``fit()`` produces
 =======================
 
