@@ -126,6 +126,41 @@ left, each star is measured at four visibly different places, because each
 epoch has its own coordinate system; grey lines join the four measurements of
 a single star. On the right, the same stars after transformation.
 
+``ref_table['x_orig']``/``['y_orig']`` keep each list's *untransformed*
+positions, so plotting them against ``['x']``/``['y']`` is the before-and-after
+directly. Both are ``(N_stars, N_lists)``, one column per epoch. We zoom into a
+corner of the field, since at full scale the offsets are smaller than the point
+spacing:
+
+.. code-block:: python
+
+   import matplotlib.pyplot as plt
+
+   COLORS = ['C0', 'C3', 'C2', 'C4']
+   WIN = (100, 320)                      # a zoomed corner of the 1000-pixel field
+
+   xr, yr = np.asarray(ref['x_orig']), np.asarray(ref['y_orig'])
+   xt, yt = np.asarray(ref['x']), np.asarray(ref['y'])
+   good = np.asarray(ref['n_detect']) == len(YEARS)
+   sel = (good
+          & (np.asarray(ref['x0']) > WIN[0]) & (np.asarray(ref['x0']) < WIN[1])
+          & (np.asarray(ref['y0']) > WIN[0]) & (np.asarray(ref['y0']) < WIN[1]))
+
+   fig, (a1, a2) = plt.subplots(1, 2, figsize=(14, 6))
+   panels = [(a1, xr[sel], yr[sel], 'Before: one star, four frames (grey joins the same star)'),
+             (a2, xt[sel], yt[sel], 'After: all epochs in the common frame')]
+   for ax, X, Y, title in panels:
+       if ax is a1:                       # join each star's four measurements
+           for i in range(X.shape[0]):
+               ax.plot(X[i], Y[i], '-', color='0.7', lw=0.8, zorder=1)
+       for j, yr_lab in enumerate(YEARS):
+           ax.scatter(X[:, j], Y[:, j], s=40, color=COLORS[j],
+                      label=f'{yr_lab:.0f}', zorder=2)
+       ax.set_xlim(*WIN); ax.set_ylim(*WIN)
+       ax.set_xlabel('x (pixels)'); ax.set_ylabel('y (pixels)')
+       ax.set_title(title); ax.legend(title='epoch')
+   plt.tight_layout()
+
 .. image:: ../_static/align_before_after.png
    :alt: Star positions before and after alignment
    :align: center
@@ -148,6 +183,19 @@ measured positions should leave nothing but noise:
 .. code-block:: text
 
    residual scatter: 36.7 / 38.0 mpix
+
+.. code-block:: python
+
+   fig, ax = plt.subplots(figsize=(8, 5))
+   bins = np.linspace(min(dx.min(), dy.min()), max(dx.max(), dy.max()), 60)
+   ax.hist(dx.ravel(), bins=bins, alpha=0.7, color='steelblue', label='x')
+   ax.hist(dy.ravel(), bins=bins, alpha=0.7, color='indianred', label='y')
+   ax.axvline(0, color='k', ls='--', lw=1)
+   ax.set_xlabel('residual from fitted motion (milli-pixels)')
+   ax.set_ylabel('count')
+   ax.set_title(f'Post-alignment residuals  (injected noise {ERR*1000:.0f} mpix)')
+   ax.legend()
+   plt.tight_layout()
 
 .. image:: ../_static/align_residuals.png
    :alt: Post-alignment residual distribution
@@ -173,6 +221,21 @@ that the alignment is right:
 .. code-block:: text
 
    vx recovered to 19.3 mpix/yr
+
+.. code-block:: python
+
+   fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+   for ax, v_true, v_fit, lab in [
+           (axes[0], vx[idx[ok]], np.asarray(ref['vx'])[ok], 'v_x'),
+           (axes[1], vy[idx[ok]], np.asarray(ref['vy'])[ok], 'v_y')]:
+       ax.scatter(v_true, v_fit, s=25, alpha=0.7)
+       lo, hi = min(v_true.min(), v_fit.min()), max(v_true.max(), v_fit.max())
+       ax.plot([lo, hi], [lo, hi], 'k--', lw=1)        # 1:1, not a fit
+       ax.set_xlabel(f'true {lab} (pix/yr)')
+       ax.set_ylabel(f'recovered {lab} (pix/yr)')
+       ax.set_title(f'{lab}:  scatter = {np.std(v_fit - v_true)*1000:.1f} mpix/yr')
+       ax.set_aspect('equal', adjustable='box')
+   plt.tight_layout()
 
 .. image:: ../_static/align_proper_motion.png
    :alt: Recovered versus true proper motion

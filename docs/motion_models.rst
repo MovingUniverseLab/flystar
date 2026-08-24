@@ -253,8 +253,8 @@ residuals, and :math:`\nu` the degrees of freedom
 
    \sigma_p =
    \begin{cases}
-     \hat{\sigma}_p, & \texttt{absolute_sigma=True (default)} \\[4pt]
-     \hat{\sigma}_p \sqrt{\chi^2 / \nu}, & \texttt{absolute_sigma=False}
+     \hat{\sigma}_p, & \texttt{absolute\_sigma=True (default)} \\[4pt]
+     \hat{\sigma}_p \sqrt{\chi^2 / \nu}, & \texttt{absolute\_sigma=False}
    \end{cases}
 
 ``True`` takes your input errors at face value and propagates them. ``False``
