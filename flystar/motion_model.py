@@ -1986,7 +1986,9 @@ def organize_motion_models(motion_models):
     Parameters
     ----------
     motion_models : MotionModel, str, or list of MotionModels/strings.
-        Motion model(s) to organize.
+        Motion model(s) to organize. Names are matched case-insensitively --
+        'linear' and 'Linear' are the same model -- and only the canonical
+        spelling propagates, so the caller's casing never reaches the output.
 
     Returns
     -------
@@ -1995,20 +1997,36 @@ def organize_motion_models(motion_models):
     """
 
     all_mm_map = motion_model_map()
+
+    def class_from_name(name):
+        """
+        Resolve one model name to its class, case-insensitively.
+
+        Every model name is a single word ('Empty', 'Fixed', 'Linear',
+        'Acceleration', 'Parallax'), so str.capitalize() is an exact
+        normalization: it upper-cases the first character and lower-cases the
+        rest, mapping 'linear', 'LINEAR' and 'lInEaR' all onto 'Linear'. Only
+        the canonical name goes any further -- what is returned is the class
+        itself, and the name that reaches the ref_table comes from that class's
+        .name attribute, so nothing downstream ever sees the caller's casing.
+        """
+        canonical = name.capitalize()
+        assert canonical in all_mm_map.keys(), \
+            f"motion_model must be in {list(all_mm_map.keys())}, but got '{name}'"
+        return all_mm_map[canonical]
+
     # Change to list if not
     motion_model_classes = []
     if motion_models is None:
         motion_models = [Empty, Fixed]
     elif isinstance(motion_models, str):
-        assert motion_models in all_mm_map.keys(), f"motion_model must be in {list(all_mm_map.keys())}, but got '{motion_models}'"
-        motion_model_classes = [all_mm_map[motion_models]]
+        motion_model_classes = [class_from_name(motion_models)]
     elif isinstance(motion_models, type) and issubclass(motion_models, MotionModel):
         motion_model_classes = [motion_models]
     elif isinstance(motion_models, (list, tuple, np.ndarray)):
         for mm in motion_models:
             if isinstance(mm, str):
-                assert mm in all_mm_map.keys(), f"motion_model must be in {list(all_mm_map.keys())}, but got '{mm}'"
-                motion_model_classes.append(all_mm_map[mm])
+                motion_model_classes.append(class_from_name(mm))
             else:
                 assert issubclass(mm, MotionModel), f"motion_model must be a string or a MotionModel object, but got {type(mm)}"
                 motion_model_classes.append(mm)

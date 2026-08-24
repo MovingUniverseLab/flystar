@@ -806,3 +806,43 @@ def test_infer_positions_time_shape_contract():
     assert x4.shape == (n,), f'expected (6,) for one time per star, got {x4.shape}'
     for i in range(n):
         assert np.isclose(x4[i], x3[i, i], rtol=1e-10, atol=1e-10)
+
+
+def test_organize_motion_models_accepts_any_case():
+    """
+    organize_motion_models() matches names case-insensitively, and only the
+    canonical spelling propagates.
+
+    Every model name is a single word, so str.capitalize() is an exact
+    normalization. The point of the test is not just that 'linear' is accepted
+    but that nothing downstream can tell how it was spelled: what comes back is
+    the class, and the name reaching a ref_table is that class's .name.
+    """
+    import pytest
+    from flystar.motion_model import organize_motion_models as org
+
+    canonical = ['Empty', 'Fixed', 'Linear']
+
+    # A bare string, in any casing.
+    for spelling in ['Linear', 'linear', 'LINEAR', 'lInEaR']:
+        got = [mm.name for mm in org(spelling)]
+        assert got == canonical, f'{spelling!r} gave {got}'
+
+    # Inside a list, and mixed with the classes themselves.
+    assert [mm.name for mm in org(['linear', 'acceleration'])] == \
+        ['Empty', 'Fixed', 'Linear', 'Acceleration']
+    assert [mm.name for mm in org([motion_model.Linear, 'parallax'])] == \
+        ['Empty', 'Fixed', 'Linear', 'Parallax']
+    assert [mm.name for mm in org(('linear',))] == canonical
+
+    # Every valid name resolves from its lower-case form.
+    for name in ['empty', 'fixed', 'linear', 'acceleration', 'parallax']:
+        assert name.capitalize() in [mm.name for mm in org(name)]
+
+    # A genuine typo still fails -- case-insensitivity must not become
+    # fuzzy matching. The message quotes what the caller wrote, not the
+    # capitalized form, so it is recognizable in a traceback.
+    for bad in ['Quadratic', 'quadratic', 'lineaar', '']:
+        with pytest.raises(AssertionError) as err:
+            org(bad)
+        assert repr(bad).strip("'") in str(err.value) or bad == ''

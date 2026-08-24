@@ -270,13 +270,19 @@ These are handed straight to
       motion_models=['Linear', 'Acceleration']    # several
       motion_models=[motion_model.Linear]         # the classes themselves
       motion_models=[motion_model.Linear, 'Acceleration']   # mixed
+      motion_models='linear'                      # case does not matter
 
    The valid names are ``'Empty'``, ``'Fixed'``, ``'Linear'``,
-   ``'Acceleration'`` and ``'Parallax'``, matched case-sensitively -- a
-   misspelling raises rather than being silently ignored. Whatever you pass,
-   ``'Empty'`` and ``'Fixed'`` are always added if absent, and the list is
-   sorted by increasing parameter count, since that ordering is what "the most
-   complex model this star can support" is resolved against. So
+   ``'Acceleration'`` and ``'Parallax'``, matched case-insensitively, so
+   ``'linear'`` and ``'Linear'`` are the same model. Only the canonical
+   spelling propagates -- ``motion_model_used`` in the output reads ``'Linear'``
+   however you spelled the input -- so there is still exactly one name to
+   compare against downstream. A genuine misspelling raises rather than being
+   silently ignored; the match is case-insensitive, not fuzzy.
+
+   Whatever you pass, ``'Empty'`` and ``'Fixed'`` are always added if absent,
+   and the list is sorted by increasing parameter count, since that ordering is
+   what "the most complex model this star can support" is resolved against. So
    ``motion_models='Linear'`` becomes ``['Empty', 'Fixed', 'Linear']``, and
    ``msc.motion_models`` reports the expanded list rather than what you passed.
 
