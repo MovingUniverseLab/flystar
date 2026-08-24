@@ -3427,26 +3427,22 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.PolyTran
 
     Parameters
     ----------
-    -table1: astropy.table
+    table1: astropy.table
         contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0.
-
-    -table2: astropy.table
+    table2: astropy.table
         contains name,m,x,y,xe,ye.
         this is the reference template
-
-    -briteN: int
-        The number of brightest stars used to match two starlists.
-
-    -transformModel:  transformation model object (class)
+    briteN: int, optional
+        The number of brightest stars used to match two starlists, by default 100.
+    transformModel: flystar.transforms.Transform, optional
         The transformation model class that will be instantiated to find the
         best-fit transformation parameters between matched table1 and table2.
-        eg: transforms.four_paramNW, transforms.PolyTransform
+        eg: transforms.four_paramNW, transforms.PolyTransform, by default transforms.PolyTransform.
+    order: int, optional
+         Order of the transformation. Not relevant for 4 parameter or spline fit, by default 1.
 
-    -order: int
-         Order of the transformation. Not relevant for 4 parameter or spline fit
-
-    Output
-    ------
+    Returns
+    -------
     Transformation object
 
     """
