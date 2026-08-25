@@ -75,19 +75,19 @@ FlyStar is not on PyPI; install it from the repository:
    cd flystar
    pip install -e .
 
-Be aware that ``setup.cfg`` currently declares only ``astropy`` as a
-requirement, while the package imports rather more at module level. Install
-these too, or the first ``import flystar`` will fail:
+That pulls in the whole runtime set -- numpy, scipy, astropy, matplotlib,
+pandas, joblib and tqdm -- all of which the package imports at module level.
+Python 3.7 or newer.
+
+Three further packages are imported lazily, inside the functions that use them,
+so install them only if you want those features: ``shapely``
+(polygon-restricted initial guesses via ``starlist_vertices``), ``astroquery``
+(Gaia queries in :mod:`flystar.analysis`) and ``plotly`` (interactive plots in
+:mod:`flystar.plots`). They are grouped as an extra:
 
 .. code-block:: bash
 
-   pip install numpy scipy astropy matplotlib pandas joblib tqdm
-
-Three further packages are imported lazily, so you only need them for the
-features that use them: ``shapely`` (polygon-restricted initial guesses via
-``starlist_vertices``), ``astroquery`` (Gaia queries in
-:mod:`flystar.analysis`), and ``plotly`` (interactive plots in
-:mod:`flystar.plots`). Python 3.7 or newer.
+   pip install -e '.[optional]'
 
 A first alignment, start to finish
 ----------------------------------
