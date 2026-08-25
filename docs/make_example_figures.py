@@ -1,5 +1,5 @@
 """
-Regenerate the figures used by docs/getting_started.rst.
+Regenerate the figures used by docs/index.rst and docs/examples/alignment_example.rst.
 
 Run from anywhere with flystar importable:
 
