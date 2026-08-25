@@ -835,7 +835,9 @@ class StarTable(Table):
             Dictionary of fixed parameters for motion models, e.g., {'t0': 0., 'ra': np.array([...]), 'dec': np.array([...])}.
             - Scalar values are used for all stars, array values should have length = N_stars.
             - t0 is automatically calculated as np.average(t, weights=1/np.hypot(xe, ye)) if not provided.
-            - The keys should match the fixed parameter names in the motion models. See MotionModel class for details, by default None
+            - The keys should match the fixed parameter names in the motion models. See MotionModel class for details.
+            - Each parameter is resolved in the order fixed_params_dict -> table column -> table metadata, so an entry here outranks a same-named column or metadata entry.
+            - The values actually used are written back under '<param>': to metadata if uniform and no such column exists, otherwise to the column, with a disagreeing caller's column moved aside to '<param>_orig', by default None
         weighting : str, optional
             Uncertainty weighting, 'std' for weight=1/xe(ye) or 'var' for weight=1/xe(ye)**2, by default 'var'
         absolute_sigma : bool, optional
@@ -1211,7 +1213,7 @@ class StarTable(Table):
         for mm in motion_model_used:
             # Check required fixed parameters
             for param in mm.required_fixed_param_names:
-                # Check in the order of fixed_params_dict -> self.meta -> self columns
+                # Check in the order of fixed_params_dict -> self columns -> self.meta
                 if param not in fixed_params_dict:
                     # If not provided in fixed_params_dict, it must be in table columns
                     if param in self.colnames:
@@ -1647,9 +1649,11 @@ class StarTable(Table):
             :func:`~flystar.motion_model.broadcast_times`.
         fixed_params_dict : None or dict, optional
             Dictionary of fixed parameters to use for prediction.
-            If not provided, will try to look for fixed parameters in the meta data then in table columns.
-            If fixed params are found in both the table and the fixed_params_dict, the values in the table will be used and the fixed_params_dict values will be ignored,
-            by default None
+            Each parameter is resolved in the order fixed_params_dict ->
+            table column -> table metadata -> the model's default, so an
+            entry here overrides whatever the table carries rather than
+            being ignored in its favour. Anything absent from all four
+            raises KeyError if the model requires it, by default None
         fill_value : float, optional
             Value to use for missing data, by default np.nan
 

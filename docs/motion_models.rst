@@ -153,11 +153,21 @@ fit used end up under ``<param>``, the name the lookup above searches:
    * - a column exists and disagrees
      - ``<param>`` takes the used values; the ones you supplied move to
        ``<param>_orig``
+   * - no column, but metadata of that name disagrees
+     - ``table.meta['<param>']`` is overwritten, and the old value is **not**
+       kept
 
 Metadata is used only where no column of that name exists, which is what makes
 it safe: a column would shadow it in the resolution order, so a value written to
 metadata underneath one could never be read back. Where that is not a risk, one
 entry in metadata beats the same number repeated down a column of every row.
+
+Note the asymmetry in the last two rows. A conflicting *column* is preserved
+under ``<param>_orig``; a conflicting *metadata* entry is simply overwritten.
+Metadata is a record of what the table was fitted with, and keeping it in step
+with the fit is what lets ``infer_positions`` propagate without being handed the
+parameters again -- but it does mean that if you need the value the table
+carried before the fit, you have to keep it yourself.
 
 A column can disagree with the fit because ``fixed_params_dict`` outranks it --
 pass ``fixed_params_dict={'ra': ...}`` for a table that already has an ``ra``
@@ -741,3 +751,185 @@ committed, so building this documentation runs none of it.
 
 .. literalinclude:: benchmark_motion_models.py
    :language: python
+
+Adding new models
+=================
+
+New motion models are welcome, and adding one does not mean touching the
+fitting machinery. A model is a single class in :mod:`flystar.motion_model`
+that subclasses :class:`~flystar.motion_model.MotionModel`, declares what it
+fits and what it needs held fixed, and implements two methods. There is no
+registry to edit: :func:`~flystar.motion_model.motion_model_map` discovers
+models through ``MotionModel.__subclasses__()``, so the class is selectable by
+name -- ``motion_models=['Wobble']`` -- as soon as the module defining it is
+imported.
+
+.. admonition:: It has to be a *direct* subclass
+   :class: warning
+
+   ``__subclasses__()`` is not recursive. Subclassing ``Linear`` to reuse its
+   parts produces a model that never appears in the map and cannot be selected
+   by name at all. Inherit from ``MotionModel`` and call into ``Linear`` if you
+   want to borrow from it.
+
+What to declare
+---------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Attribute
+     - Meaning
+   * - ``name``
+     - The string users pass. Names are resolved with ``str.capitalize()``, so
+       keep it one capitalised word.
+   * - ``fit_param_names``
+     - Every fitted parameter, x-direction first, then y, with any parameter
+       shared between the two last -- ``Parallax`` is
+       ``['x0', 'vx', 'y0', 'vy', 'pi']``.
+   * - ``n_fit_params``
+     - ``len(fit_param_names)``.
+   * - ``n_params``
+     - Parameters **per direction**, ``int((n_fit_params + 1) / 2)``. It
+       doubles as the fewest distinct epochs the model can be fitted from, and
+       as the sort key that orders models by complexity.
+   * - ``required_fixed_param_names``
+     - Names that must be resolvable from ``fixed_params_dict``, a column or
+       metadata, or fitting raises ``KeyError``.
+   * - ``optional_fixed_params``
+     - ``{name: default}`` for the ones that fall back instead
+       (``Parallax``'s ``{'pa': 0., 'obsLocation': 'earth'}``).
+   * - ``fixed_param_names``
+     - ``required_fixed_param_names + list(optional_fixed_params)``.
+
+What to implement
+-----------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Method
+     - Contract
+   * - ``model_fit``
+     - The bare functional form, ``(dt, *params) -> position``. A house
+       convention rather than a requirement: nothing outside your own class
+       calls it, but every model in the tree has one, and keeping the algebra
+       in a single small method is what makes the rest readable.
+   * - ``model``
+     - ``(t, fit_params, fit_param_errs=None, fixed_params_dict=None)``,
+       returning ``(x, y)`` -- or ``(x, y, xe, ye)`` when errors are passed in.
+       This is what propagation calls, so it must honour the time-argument
+       contract above; use :func:`~flystar.motion_model.broadcast_times`
+       rather than reimplementing it.
+   * - ``run_fit``
+     - ``(t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+       absolute_sigma=True, fill_value=np.nan, verbose=True)``, returning
+       ``(params, param_errs, chi2x, chi2y)`` with shapes
+       ``(n_stars, n_fit_params)``, the same, ``(n_stars,)`` and
+       ``(n_stars,)``. Stars with fewer valid epochs than parameters must come
+       back as ``fill_value`` / ``inf`` / ``nan`` rather than as whatever the
+       arithmetic produced.
+
+The skeleton, then, is::
+
+   class Wobble(MotionModel):
+       name = 'Wobble'
+       fit_param_names = ['x0', 'vx', 'y0', 'vy', 'amp']
+       n_fit_params = len(fit_param_names)
+       n_params = int((n_fit_params + 1) / 2)
+
+       required_fixed_param_names = ['t0', 'period']
+       optional_fixed_params = {'phase': 0.}
+       fixed_param_names = required_fixed_param_names + list(optional_fixed_params)
+
+       def model_fit(self, dt, x0, vx, amp, period, phase):
+           return x0 + vx*dt + amp * np.sin(2*np.pi*dt/period + phase)
+
+       def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+           ...      # broadcast_times(t, ...), then model_fit per direction
+
+       def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, **kw):
+           ...      # whole batch in, (params, param_errs, chi2x, chi2y) out
+
+Pick ``n_params`` with the others in mind
+-----------------------------------------
+
+Which model each star gets is decided by how many distinct epochs it has,
+matched against the candidate models' ``n_params`` with :func:`numpy.digitize`
+-- which needs those values to be **unique** across the models being fitted
+together. They are not unique in the tree already: ``Acceleration`` (6
+parameters, 3 per direction) and ``Parallax`` (5, fitted jointly, also 3)
+collide, so
+
+.. code-block:: python
+
+   table.fit_motion_models(motion_models=['Acceleration', 'Parallax'])
+
+raises ``AssertionError`` rather than guessing. The way to fit two models of
+equal complexity in one pass is a ``motion_model_input`` column naming the
+model per star, which replaces the epoch-count heuristic with your choice and
+lifts the uniqueness requirement.
+
+Non-linear models
+-----------------
+
+Everything in the tree today is linear in its parameters, which is why the fits
+are closed-form and batched (see `Performance`_ above). A model that is not --
+an orbit, a free period, anything needing a starting guess -- does not fit that
+pattern, and does not have to.
+
+``run_fit`` is a *batch interface*, not a promise of a closed form. A model
+whose fit cannot be vectorized satisfies the same signature by looping inside
+it:
+
+.. code-block:: python
+
+   def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, **kw):
+       n_stars, _ = x.shape
+       params = np.full((n_stars, self.n_fit_params), kw.get('fill_value', np.nan))
+       param_errs = np.full((n_stars, self.n_fit_params), np.inf)
+       chi2x = np.full(n_stars, np.nan)
+       chi2y = np.full(n_stars, np.nan)
+
+       for i in range(n_stars):
+           good = valid[i]
+           if good.sum() < self.n_params:
+               continue                       # leave fill_value / inf / nan
+           popt, pcov = curve_fit(...)        # one star at a time
+           params[i], param_errs[i] = popt, np.sqrt(np.diag(pcov))
+           chi2x[i], chi2y[i] = ...
+
+       return params, param_errs, chi2x, chi2y
+
+Two things make that acceptable rather than a regression. The cost is paid only
+by the stars actually assigned to your model, since the model is chosen per
+star and each is fitted with its own. And the measurements above put a number
+on what it costs: a per-star ``curve_fit`` loop runs at roughly 1.6 to 3.7
+milliseconds per star, against 1.5 to 4.0 *micro*\ seconds for a batched fit --
+so a non-linear model over a 10,000-star mosaic should be expected to take tens
+of seconds, and to dominate the runtime of any table it is used on.
+
+If your model is linear in its parameters but you are unsure whether it can be
+batched, it can: assemble the normal equations with ``.sum(axis=1)`` over the
+epoch axis and solve them with a batched :func:`numpy.linalg.inv`, exactly as
+``Acceleration`` does.
+
+Testing a new model
+-------------------
+
+``flystar/tests/test_motion_model.py`` has the patterns worth copying:
+
+* **Agreement with scipy**, star by star -- ``test_scipy_agreement_*`` fit the
+  same synthetic data with :func:`scipy.optimize.curve_fit` and compare
+  parameters, parameter errors *and* :math:`\chi^2`. This is the test that
+  catches an algebra slip in a hand-derived solve, and it is worth writing
+  first.
+* **The time-argument contract** -- ``test_model_time_shape_contract`` checks
+  that each accepted shape of ``t`` gives the documented output shape and that
+  anything else raises.
+* **The fixed-parameter round trip** -- fit, then
+  :meth:`~flystar.startables.StarTable.infer_positions` with nothing passed,
+  and confirm the model is still selected. This is what fails when a new fixed
+  parameter is written somewhere the lookup does not search.
