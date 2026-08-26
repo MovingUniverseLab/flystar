@@ -62,6 +62,12 @@ build-backend = 'setuptools.build_meta'
 
 [tool.setuptools.packages.find]
 include = ["flystar*"]
+# Tests stay in the repository rather than in the installed package.
+# flystar/tests/test_data is 24 MB, 22 MB of it a single FITS catalogue, which
+# would otherwise be 96% of the wheel. The suite also locates its fixtures via
+# flystar.__path__, so shipping the test modules without that data would leave
+# an installed suite that cannot run.
+exclude = ["flystar.tests*"]
 
 [tool.setuptools.package-data]
 flystar = ["data/*"]
