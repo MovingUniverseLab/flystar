@@ -16,7 +16,10 @@ conf = ConfigParser()
 conf.read([os.path.join(os.path.dirname(__file__), '..', 'setup.cfg')])
 setup_cfg = dict(conf.items('metadata'))
 
-project = setup_cfg['name']
+# The distribution is `flystar`, lower case, as pip requires; the documentation
+# calls it FlyStar throughout, and this is what the sidebar's home link and the
+# page titles show.
+project = 'FlyStar'
 author = setup_cfg['author']
 copyright = '{0}, {1}'.format(datetime.datetime.now().year, author)
 

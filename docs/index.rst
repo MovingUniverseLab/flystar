@@ -258,7 +258,6 @@ Where to go next
 .. toctree::
    :hidden:
 
-   self
    Getting started <self>
 
 .. toctree::
