@@ -31,7 +31,10 @@ class MosaicSelfRef(object):
     Construct the object with the alignment settings, then call
     :meth:`fit` to run the alignment. The results are left on the object:
     ``ref_table`` (the combined :class:`~flystar.startables.StarTable`) and
-    ``trans_list`` (one transformation per starlist).
+    ``trans_list`` (one transformation per starlist). The input starlists
+    are kept as ``star_lists``, which is what maps
+    ``ref_table['idx_in_list']`` back to per-list names -- see
+    :func:`names_in_list`.
 
     See :meth:`__init__` for the full list of settings.
 
@@ -45,9 +48,6 @@ class MosaicSelfRef(object):
     trans_list_inverse : list of transforms.Transform2D
         The reference-to-starlist transformations. Only present when the
         object was constructed with ``calc_trans_inverse=True``.
-    star_lists : list of StarList
-        The input starlists. Needed to map ``ref_table['idx_in_list']`` back
-        to per-list names -- see :func:`names_in_list`.
 
     Examples
     --------
