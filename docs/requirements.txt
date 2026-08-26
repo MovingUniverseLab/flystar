@@ -7,3 +7,6 @@ sphinx>=7.0
 sphinx-rtd-theme>=2.0
 sphinx-autoapi>=3.0
 myst-nb>=1.0
+
+# conf.py reads project metadata from pyproject.toml; tomllib is stdlib on 3.11+.
+tomli; python_version < "3.11"

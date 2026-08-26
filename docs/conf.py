@@ -8,19 +8,25 @@
 import os
 import sys
 import datetime
-from configparser import ConfigParser
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 # -- Project information ------------------------------------------------------
 
-conf = ConfigParser()
-conf.read([os.path.join(os.path.dirname(__file__), '..', 'setup.cfg')])
-setup_cfg = dict(conf.items('metadata'))
+# Metadata comes from pyproject.toml, which is the single source for it --
+# setuptools reads [project] in preference to setup.cfg's [metadata], so the
+# latter no longer exists.
+with open(os.path.join(os.path.dirname(__file__), '..', 'pyproject.toml'), 'rb') as _f:
+    _project = tomllib.load(_f)['project']
 
 # The distribution is `flystar`, lower case, as pip requires; the documentation
 # calls it FlyStar throughout, and this is what the sidebar's home link and the
 # page titles show.
 project = 'FlyStar'
-author = setup_cfg['author']
+author = ', '.join(a['name'] for a in _project.get('authors', [])) or 'the FlyStar authors'
 copyright = '{0}, {1}'.format(datetime.datetime.now().year, author)
 
 # The package is deliberately not imported (see above), so take the version from
@@ -148,7 +154,11 @@ html_theme_options = {
 html_static_path = ['_static']
 templates_path = ['_templates']
 
-github_project = setup_cfg.get('github_project', 'MovingUniverseLab/flystar')
+# Derived from the repository URL in pyproject.toml, so there is one place
+# to change it.
+github_project = _project.get('urls', {}).get(
+    'repository', 'https://github.com/MovingUniverseLab/flystar'
+).rstrip('/').removeprefix('https://github.com/')
 html_context = {
     'display_github': True,
     'github_user': github_project.split('/')[0],
