@@ -92,10 +92,15 @@ so install them only if you want those features: ``shapely``
 A first alignment, start to finish
 ----------------------------------
 
-This runs as written -- no data files, no downloads. It builds 250 stars
-observed at four epochs two years apart, gives every epoch its own coordinate
-system, hides 12% of the stars in each, aligns the lot, and checks the proper
-motions it never told FlyStar about:
+This runs as written -- no data files, no downloads.
+
+First the data, which is the stand-in for whatever produces your own star lists:
+250 stars observed at four epochs two years apart, each epoch given its own
+coordinate system -- a shift of up to 40 pixels and a small rotation about the
+field centre -- with 12% of the stars missing from any one epoch and 0.05
+pixels of noise on the rest. That becomes one
+:class:`~flystar.starlists.StarList` per epoch, each tagged with when it was
+taken:
 
 .. code-block:: python
 
@@ -135,6 +140,12 @@ motions it never told FlyStar about:
        )
        sl.meta['list_time'] = yr                  # decimal year, UTC
        lists.append(sl)
+
+The alignment itself is one object and one call. Then the answer is read off
+the ``StarTable`` it built -- here checked against the truth that went in,
+which is the only part of this a real data set would not have:
+
+.. code-block:: python
 
    msc = align.MosaicSelfRef(
        lists,
@@ -248,6 +259,7 @@ Where to go next
    :hidden:
 
    self
+   Getting started <self>
 
 .. toctree::
    :maxdepth: 2
