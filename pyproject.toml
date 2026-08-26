@@ -1,25 +1,67 @@
 [project]
 name = "flystar"
-description = "FlyStar Astromeric Analysis Package"
+description = "FlyStar Astrometric Analysis Package"
 readme = "README.rst"
 authors = [{name="Jessica Lu", email="jlu.astro@berkeley.edu"},
            {name="Matt Hosek", email="mwhosek@astro.ucla.edu"}]
-license = {text="BSD 3-Clause License"}
-dependencies = ["numpy", "astropy>=3.2", "scipy", "matplotlib", "tqdm", "joblib", "pandas", "h5py"]
+license = "BSD-3-Clause"
+license-files = ["licenses/LICENSE.rst"]
 requires-python = ">=3.9"
 dynamic = ["version"]
-#version = "0.1"
+
+# jplephem is required, not optional: astropy reaches for it whenever a
+# solar-system ephemeris is evaluated, which the Parallax motion model does, so
+# without it Parallax raises ModuleNotFoundError at runtime.
+dependencies = [
+    "numpy",
+    "astropy>=3.2",
+    "scipy",
+    "matplotlib",
+    "tqdm",
+    "joblib",
+    "pandas",
+    "h5py",
+    "jplephem",
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
 
 [project.optional-dependencies]
 docs = ["sphinx-astropy"]
 test = ["pytest-astropy"]
+# Imported lazily, inside the functions that need them, so the package works
+# without these -- but the features that use them do not.
+#   shapely    -- polygon footprints for the initial guess (align, match)
+#   astroquery -- Gaia and JPL Horizons queries (analysis, parallax)
+#   plotly     -- interactive diagnostic plots (align, plots)
+optional = ["shapely", "astroquery", "plotly"]
 
 [project.urls]
 homepage = "https://github.com/MovingUniverseLab/flystar"
+repository = "https://github.com/MovingUniverseLab/flystar"
+documentation = "https://flystar.readthedocs.io"
 
 [build-system]
-requires = ["setuptools",
+# setuptools 77 is the first release to accept an SPDX `license` string and
+# `license-files` in [project].
+requires = ["setuptools>=77",
             "setuptools_scm",
             "wheel"]
-
 build-backend = 'setuptools.build_meta'
+
+[tool.setuptools.packages.find]
+include = ["flystar*"]
+
+[tool.setuptools.package-data]
+flystar = ["data/*"]

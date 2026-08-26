@@ -117,3 +117,8 @@ docs/jupyter_execute/
 # committed, so the docs build needs no science stack. Exempt them from the
 # blanket *.png rule above.
 !docs/_static/*.png
+
+# Written at build time by setuptools_scm (see setup.py use_scm_version).
+# Tracking it makes every build dirty the tree, which appends a ".d<date>"
+# suffix to the version -- including on tagged release builds.
+flystar/version.py
