@@ -1486,25 +1486,31 @@ def test_determine_motion_models_vectorized():
 
 def test_update_old_and_new_names():
     """
-    align.update_old_and_new_names() used to find the max existing name length
-    by looping over every row in the reference table. It now reads the length
-    straight off the fixed-width numpy dtype. Check both the "no widening
-    needed" and "widening needed" branches against the original per-row logic.
+    align.update_old_and_new_names() reads each new star's per-list name via
+    the 'idx_in_list' index into the starlist it came from, and widens the
+    'name' column's dtype only when the new names need it. Check both the
+    "no widening needed" and "widening needed" branches against the original
+    per-row logic.
     """
     n_old = 50
     old_names = np.array([f'{i:03d}_star' for i in range(n_old)])  # 8 chars each
-    name_in_list = np.array([f'star_{i}' for i in range(n_old)]).reshape(-1, 1)  # 6-7 chars
+    list_names = np.array([f'star_{i}' for i in range(n_old)])     # 6-7 chars
+    idx_in_list = np.arange(n_old, dtype=np.int32).reshape(-1, 1)
 
-    ref_table = Table({'name': old_names, 'name_in_list': name_in_list})
+    star_list = starlists.StarList(name=list_names,
+                                   x=np.zeros(n_old), y=np.zeros(n_old),
+                                   m=np.zeros(n_old))
+    ref_table = Table({'name': old_names, 'idx_in_list': idx_in_list})
     idx_ref_new = np.array([5, 12, 30])
     list_index = 0
 
-    def _bruteforce_update_old_and_new_names(ref_table, list_index, idx_ref_new):
-        new_names = [f"{list_index:3d}_{name}" for name in ref_table['name_in_list'][idx_ref_new, list_index]]
+    def _bruteforce(ref_table, star_list, list_index, idx_ref_new):
+        names = [star_list['name'][k]
+                 for k in ref_table['idx_in_list'][idx_ref_new, list_index]]
+        new_names = [f"{list_index:3d}_{name}" for name in names]
         new_name_len_max = np.max([len(new_name) for new_name in new_names])
         old_names = ref_table['name']
-        old_name_len = [len(old_name) for old_name in old_names]
-        old_name_len_max = np.max(old_name_len)
+        old_name_len_max = np.max([len(old_name) for old_name in old_names])
         if new_name_len_max > old_name_len_max:
             all_names = old_names.astype('U{0:d}'.format(new_name_len_max))
         else:
@@ -1513,20 +1519,51 @@ def test_update_old_and_new_names():
         return all_names
 
     # Case 1: new names are no longer than existing ones -- no widening needed.
-    got = align.update_old_and_new_names(ref_table.copy(), list_index, idx_ref_new)
-    want = _bruteforce_update_old_and_new_names(ref_table.copy(), list_index, idx_ref_new)
+    got = align.update_old_and_new_names(ref_table.copy(), star_list, list_index, idx_ref_new)
+    want = _bruteforce(ref_table.copy(), star_list, list_index, idx_ref_new)
     assert list(got) == list(want)
 
-    # Case 2: new names are longer than any existing name -- dtype must widen.
-    # Widen name_in_list's dtype explicitly first -- assigning a longer string
-    # into a narrower fixed-width numpy array would silently truncate it.
-    ref_table2 = ref_table.copy()
-    wide_name_in_list = ref_table2['name_in_list'].astype('U40')
-    wide_name_in_list[idx_ref_new[0], 0] = 'a_much_much_longer_star_name'
-    ref_table2.replace_column('name_in_list', wide_name_in_list)
-    got2 = align.update_old_and_new_names(ref_table2.copy(), list_index, idx_ref_new)
-    want2 = _bruteforce_update_old_and_new_names(ref_table2.copy(), list_index, idx_ref_new)
+    # Case 2: one new name is longer than any existing name -- dtype must widen.
+    long_names = list_names.astype('U40')
+    long_names[idx_ref_new[0]] = 'a_much_much_longer_star_name'
+    star_list2 = starlists.StarList(name=long_names,
+                                    x=np.zeros(n_old), y=np.zeros(n_old),
+                                    m=np.zeros(n_old))
+    got2 = align.update_old_and_new_names(ref_table.copy(), star_list2, list_index, idx_ref_new)
+    want2 = _bruteforce(ref_table.copy(), star_list2, list_index, idx_ref_new)
     assert list(got2) == list(want2)
+    assert 'a_much_much_longer_star_name' in got2[idx_ref_new[0]]
+
+
+def test_names_in_list_round_trip():
+    """
+    The per-list identity is stored as an index, so align.names_in_list() has
+    to hand back exactly the names the starlists carry -- and '' wherever a
+    star was not detected in that list.
+    """
+    lists = []
+    for jj in range(3):
+        n = 6
+        lists.append(starlists.StarList(
+            name=np.array([f'L{jj}_star{i}' for i in range(n)]),
+            x=np.arange(n, dtype=float), y=np.arange(n, dtype=float),
+            m=np.zeros(n)))
+
+    ref_table = Table({'idx_in_list': np.array([[0, 2, -1],
+                                                [1, -1, 4],
+                                                [-1, 3, 5]], dtype=np.int32)})
+
+    got = align.names_in_list(ref_table, lists)
+    assert got.shape == (3, 3)
+    assert got[0, 0] == 'L0_star0'
+    assert got[0, 1] == 'L1_star2'
+    assert got[0, 2] == ''          # not detected in list 2
+    assert got[2, 0] == ''
+    assert got[2, 2] == 'L2_star5'
+
+    # Single-list form matches the corresponding column.
+    for jj in range(3):
+        assert list(align.names_in_list(ref_table, lists, list_index=jj)) == list(got[:, jj])
 
 
 if __name__ == '__main__':

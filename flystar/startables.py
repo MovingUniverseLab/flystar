@@ -11,6 +11,13 @@ from pandas.api.types import is_string_dtype
 from collections.abc import Iterable
 from flystar import motion_model
 
+# Widest motion-model name that exists, so motion_model_input/motion_model_used
+# columns can hold any of them (and be written in place) without a fixed U20.
+# Derived rather than hard-coded so a newly added model widens the column.
+_MOTION_MODEL_NAME_WIDTH = max(
+    (len(_n) for _n in motion_model.motion_model_map()), default=20
+)
+
 class StarTable(Table):
     def __init__(self, *args, ref_list=0, copy=True, **kwargs):
         """
@@ -132,7 +139,7 @@ class StarTable(Table):
                 raise TypeError(err_msg)
 
             # Check all the 2D arrays.
-            arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'name_in_list')
+            arg_tab = ('x', 'y', 'm', 'xe', 'ye', 'me', 'idx_in_list')
 
             for arg_test in arg_tab:
                 if arg_test in kwargs:
@@ -189,14 +196,30 @@ class StarTable(Table):
                 if arg in ('name', 'x', 'y', 'm'):
                     continue
                 data = kwargs[arg]
-                if arg in ('name_in_list', 'motion_model_input', 'motion_model_used'):
-                    width = 'U30' if arg == 'name_in_list' else 'U20'
-                    data = np.asarray(data).astype(width, copy=copy)
+                if arg in ('motion_model_input', 'motion_model_used'):
+                    # Wide enough for every motion-model name that exists, so
+                    # the in-place writes elsewhere (e.g. fit_motion_models)
+                    # can never truncate -- but not the flat U20 this used to
+                    # be. At 80 bytes per row, re-paid on every rebuild of the
+                    # table, that was several MB of a large mosaic's reference
+                    # table spent on strings of at most 12 characters.
+                    data = np.asarray(data).astype(f'U{_MOTION_MODEL_NAME_WIDTH}',
+                                                   copy=copy)
                 all_col_names.append(arg)
                 all_col_data.append(data)
 
             super().__init__(tuple(all_col_data), names=tuple(all_col_names), copy=copy)
-            self['name'] = self['name'].astype('U30')
+            # Names get written in place elsewhere (analysis.py assigns label
+            # names into an existing column), so keep the historical U30 of
+            # headroom -- but widen, rather than truncate, when the incoming
+            # names are longer than that. Casting straight to U30 silently
+            # cut off anything longer, which real catalogue identifiers
+            # (Gaia source ids and the like) routinely are.
+            name_width = max(30, self['name'].dtype.itemsize // np.dtype('U1').itemsize)
+            if self['name'].dtype.kind != 'U' or name_width > 30:
+                self['name'] = self['name'].astype(f'U{name_width}')
+            elif self['name'].dtype.itemsize != np.dtype('U30').itemsize:
+                self['name'] = self['name'].astype('U30')
             self.meta = {'n_stars': n_stars, 'n_lists': n_lists, 'ref_list': ref_list}
             self.meta.update(meta_updates)
             #if 'motion_model_input' not in kwargs:
@@ -1191,7 +1214,7 @@ class StarTable(Table):
 
             # Assign motion models to stars
             self['motion_model_used'] = self['motion_model_input']
-            self['motion_model_used'][reassign_mm] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
+            self['motion_model_used'][reassign_mm] = np.array([motion_models[d].name for d in mm_digitized], dtype=f'U{_MOTION_MODEL_NAME_WIDTH}')
 
         else:
             # If motion_model_input column is not provided, use the most complicated model in motion_models with n_fit >= n_params.
@@ -1201,7 +1224,7 @@ class StarTable(Table):
             ) - 1  # Convert to 0-based index
 
             # Assign motion models to stars
-            self['motion_model_used'] = np.array([motion_models[d].name for d in mm_digitized], dtype='U20')
+            self['motion_model_used'] = np.array([motion_models[d].name for d in mm_digitized], dtype=f'U{_MOTION_MODEL_NAME_WIDTH}')
 
         ############################
         # Prepare Fixed Parameters #

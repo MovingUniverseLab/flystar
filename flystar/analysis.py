@@ -445,9 +445,14 @@ def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
     new_tab = copy.deepcopy(tab)
     #new_tab.remove_column('n_fit')
     new_tab.remove_column('n_detect')
-    for col in ['x','y','m','name_in_list','xe','ye','me','t','x_orig','y_orig','m_orig',
-                'xe_orig','ye_orig','me_orig','used_in_trans','xe_boot','ye_boot','me_boot']:
-        new_tab[col] = tab[col][:,idx]
+    for col in ['x','y','m','idx_in_list','name_in_list','xe','ye','me','t',
+                'x_orig','y_orig','m_orig','xe_orig','ye_orig','me_orig',
+                'used_in_trans','xe_boot','ye_boot','me_boot']:
+        # 'idx_in_list'/'name_in_list' are alternatives (the latter only on
+        # tables written before the switch to indices), and several of the
+        # rest are optional, so slice whichever are actually present.
+        if col in tab.colnames:
+            new_tab[col] = tab[col][:,idx]
 
     new_tab.combine_lists('m', weights_col='me', sigma=3, ismag=True)
 

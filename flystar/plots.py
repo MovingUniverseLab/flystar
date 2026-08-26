@@ -3897,7 +3897,13 @@ def plot_sky(stars_tab,
         ye = stars_tab['ye'][:, ee]
 
         mag = stars_tab['m'][:, ee]
-        name_epoch  = stars_tab['name_in_list'][:, ee]
+        # Per-epoch identity. Modern tables carry 'idx_in_list' (a row index
+        # into the starlist); tables written before that change carry
+        # 'name_in_list' (the name itself). Either is fine to label with.
+        if 'idx_in_list' in stars_tab.colnames:
+            name_epoch = stars_tab['idx_in_list'][:, ee]
+        else:
+            name_epoch = stars_tab['name_in_list'][:, ee]
 
         if mag_range is None:
             idx = np.where((x > -1000) & (y > -1000))[0]
@@ -3998,9 +4004,9 @@ class PrintSelected(object):
             data = self.points_info[event.artist]
 
             if self.manual_print:
-                fmt = 'align_name="{:s}",epoch={:f},align_mag={:4.2f},align_x={:10.4f},align_xerr={:7.4f},align_y={:10.4f},align_yerr={:7.4f},name_epoch="{:s}"'
+                fmt = 'align_name="{:s}",epoch={:f},align_mag={:4.2f},align_x={:10.4f},align_xerr={:7.4f},align_y={:10.4f},align_yerr={:7.4f},name_epoch="{}"'
             else:
-                fmt = '{:15s}  t={:10.6f}  m={:5.2f}  x={:10.4f} +/- {:7.4f}  y={:10.4f} +/- {:7.4f}  Epoch name: {:15s}'
+                fmt = '{:15s}  t={:10.6f}  m={:5.2f}  x={:10.4f} +/- {:7.4f}  y={:10.4f} +/- {:7.4f}  Epoch name: {:>15}'
 
             for ii in indices:
                 print(fmt.format(data['name'][ii], data['year'], data['mag'][ii],
@@ -4018,9 +4024,9 @@ class PrintSelected(object):
             data = self.points_info[event.artist]
 
             if self.manual_print:
-                fmt = 'align_name="{:s}",epoch={:f},align_mag={:4.2f},align_x={:10.4f},align_xerr={:7.4f},align_y={:10.4f},align_yerr={:7.4f},name_epoch="{:s}"'
+                fmt = 'align_name="{:s}",epoch={:f},align_mag={:4.2f},align_x={:10.4f},align_xerr={:7.4f},align_y={:10.4f},align_yerr={:7.4f},name_epoch="{}"'
             else:
-                fmt = '{:15s}  t={:10.6f}  m={:5.2f}  x={:10.4f} +/- {:7.4f}  y={:10.4f} +/- {:7.4f}  Epoch name: {:15s}'
+                fmt = '{:15s}  t={:10.6f}  m={:5.2f}  x={:10.4f} +/- {:7.4f}  y={:10.4f} +/- {:7.4f}  Epoch name: {:>15}'
 
             ii =indices[0]
             print(fmt.format(data['name'][ii], data['year'], data['mag'][ii],

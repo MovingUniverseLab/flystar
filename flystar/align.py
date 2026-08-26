@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from flystar import match, transforms, plots, motion_model
 from flystar.starlists import StarList
+from flystar import startables
 from flystar.startables import StarTable
 from astropy.table import Table, Column, vstack
 from astropy.utils.exceptions import AstropyUserWarning
@@ -1150,9 +1151,18 @@ class MosaicSelfRef(object):
         motion_model_col_names = motion_model.all_motion_model_param_names(with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
         for col_name in star_list.colnames:
             if col_name == 'name':
-                # The "name" column will be 1D; but we will also add a "name_in_list" column.
+                # The "name" column is 1D. Per-list identity is carried by
+                # "idx_in_list": the row index this star occupies in each
+                # input starlist (-1 where it wasn't detected). That recovers
+                # the per-list name as star_lists[j]['name'][idx] -- see
+                # names_in_list() -- for 4 bytes an entry instead of the 120
+                # a U30 copy of the name cost. On a mosaic that column is the
+                # single largest thing in the reference table, and it is
+                # rebuilt in full every time the table grows.
                 col_arrays['name'] = star_list[col_name].data
-                new_col_name = "name_in_list"
+                col_arrays['idx_in_list'] = np.arange(
+                    len(star_list), dtype=np.int32)[:, np.newaxis]
+                continue
             elif col_name == 'n_detect' and self.inherit_n_detect:
                 # Don't let this collide with the 1D 'n_detect' aggregate
                 # that update_n_detect() computes -- store this starlist's
@@ -1470,7 +1480,7 @@ class MosaicSelfRef(object):
             self.ref_table['y0'][idx_ref_new] = star_list_T['y'][idx_lis_new]
             self.ref_table['m0'][idx_ref_new] = star_list_T['m'][idx_lis_new]
 
-            self.ref_table['name'] = update_old_and_new_names(self.ref_table, ii, idx_ref_new)
+            self.ref_table['name'] = update_old_and_new_names(self.ref_table, star_list, ii, idx_ref_new)
 
             if self.use_ref_new == True:
                 self.ref_table['use_in_trans'][idx_ref_new] = True
@@ -1631,7 +1641,8 @@ class MosaicSelfRef(object):
             motion_model_used, n_params = determine_motion_models(self.ref_table, self.motion_models, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
 
         # Assign the determined motion models
-        self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
+        self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used',
+                                                     dtype=f'U{startables._MOTION_MODEL_NAME_WIDTH}')
         self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
         # Replace the originals if we are supposed to keep them fixed.
@@ -1775,7 +1786,8 @@ class MosaicSelfRef(object):
             # claiming to be Fixed, with n_params=1. Rows that later get fit are
             # re-classified against self.motion_models after the fit.
             motion_model_used, n_params = determine_motion_models(self.ref_table, None, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
-            self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used', dtype='U20')
+            self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used',
+                                                     dtype=f'U{startables._MOTION_MODEL_NAME_WIDTH}')
             self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
         # Propagation is deliberately NOT restricted to self.motion_models.
@@ -3085,9 +3097,13 @@ def setup_ref_table_from_starlist(star_list, motion_models):
     motion_model_col_names = motion_model.motion_model_param_names(motion_models, with_errors=True)
     for col_name in star_list.colnames:
         if col_name == 'name':
-            # The "name" column will be 1D; but we will also add a "name_in_list" column.
+            # 1D "name", plus "idx_in_list" carrying per-list identity as a
+            # row index rather than a copy of the name. See the method of the
+            # same name on MosaicSelfRef.
             col_arrays['name'] = star_list[col_name].data
-            new_col_name = "name_in_list"
+            col_arrays['idx_in_list'] = np.arange(
+                len(star_list), dtype=np.int32)[:, np.newaxis]
+            continue
         else:
             new_col_name = col_name
 
@@ -3176,17 +3192,11 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
             continue
         if col_name in star_list_T.colnames:
             if col_name == 'name':
-                # name_in_list's dtype width is set once, from whichever
-                # names it saw first (e.g. the reference list's, at
-                # ref_table construction time). Other starlists' names can
-                # be longer, so widen the column here rather than silently
-                # truncating them.
-                incoming_names = star_list_T[col_name][idx_lis]
-                incoming_width = np.asarray(incoming_names).dtype.itemsize // np.dtype('U1').itemsize
-                current_width = ref_table['name_in_list'].dtype.itemsize // np.dtype('U1').itemsize
-                if incoming_width > current_width:
-                    ref_table['name_in_list'] = ref_table['name_in_list'].astype(f'U{incoming_width}')
-                ref_table['name_in_list'][idx_ref, idx_epoch] = incoming_names
+                # Record which row of this starlist each star came from. The
+                # name itself is recoverable from that index, and unlike a
+                # copy of the name it needs no dtype widening as new lists
+                # bring in longer names.
+                ref_table['idx_in_list'][idx_ref, idx_epoch] = idx_lis
             elif np.ndim(ref_table[col_name]) != 2:
                 # Only per-list (2D) columns can take a per-epoch write. A
                 # shared name whose ref_table column is 1D is an aggregate or a
@@ -3272,8 +3282,13 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
     """
     last_star_idx = len(ref_table)
 
-    idx_lis_orig = np.arange(len(star_list))
-    idx_lis_new = np.array(list(set(idx_lis_orig) - set(idx_list)))
+    # Which stars in star_list did NOT match anything in the reference table.
+    # A boolean mask rather than set(range(N)) - set(idx_list): the set form
+    # builds a Python int object per star, which at a million-row starlist is
+    # ~100x slower and allocates far more than the mask does.
+    is_new = np.ones(len(star_list), dtype=bool)
+    is_new[np.asarray(idx_list, dtype=np.intp)] = False
+    idx_lis_new = np.where(is_new)[0]
     N_newstars = len(idx_lis_new)
 
     mm_map = motion_model.motion_model_map()
@@ -4418,11 +4433,53 @@ def trans_initial_guess(
     return trans
 
 
-def update_old_and_new_names(ref_table, list_index, idx_ref_new):
-    # Make new ref_list names for the new stars.
-    new_names = []
+def names_in_list(ref_table, star_lists, list_index=None):
+    """
+    Recover the per-list star names that 'idx_in_list' indexes into.
 
-    new_names = [f"{list_index:3d}_{name}" for name in ref_table['name_in_list'][idx_ref_new, list_index]]
+    The reference table stores each star's identity in each starlist as a row
+    index rather than a copy of the name (see setup_ref_table_from_starlist),
+    so recovering the name needs the starlists that were aligned.
+
+    Parameters
+    ----------
+    ref_table : StarTable
+        A reference table carrying an 'idx_in_list' column.
+    star_lists : list of StarList
+        The starlists that were passed to the aligner, in the same order.
+    list_index : int, optional
+        Return names for this starlist only. By default None, which returns
+        the full (N_stars, N_lists) array.
+
+    Returns
+    -------
+    numpy.ndarray of str
+        Names, with '' wherever the star was not detected in that list.
+    """
+    idx = np.asarray(ref_table['idx_in_list'])
+
+    def _one(jj):
+        col = idx[:, jj]
+        names = np.asarray(star_lists[jj]['name'])
+        out = np.full(len(col), '', dtype=names.dtype)
+        found = col >= 0
+        out[found] = names[col[found].astype(np.intp)]
+        return out
+
+    if list_index is not None:
+        return _one(list_index)
+
+    return np.column_stack([_one(jj) for jj in range(idx.shape[1])])
+
+
+def update_old_and_new_names(ref_table, star_list, list_index, idx_ref_new):
+    # Make new ref_list names for the new stars. Their per-list identity is
+    # stored as an index into star_list, so read the names from there.
+    idx_lis_new = np.asarray(ref_table['idx_in_list'][idx_ref_new, list_index],
+                             dtype=np.intp)
+    src_names = np.asarray(star_list['name'])
+
+    new_names = [f"{list_index:3d}_{name}" for name in src_names[idx_lis_new]]
     new_name_len_max = np.max([len(new_name) for new_name in new_names])
 
     old_names = ref_table['name']
