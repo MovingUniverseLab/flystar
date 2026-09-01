@@ -88,14 +88,22 @@ becomes better known.
      - Magnitude range for deriving the transformation. ``[min, max]`` applies
        everywhere; ``(N_iters, 2)`` varies by iteration; ``(N_iters, N_lists,
        2)`` varies by list as well.
+   * - ``ref_mag_lim``
+     - ``None``
+     - :class:`~flystar.align.MosaicToRef` only. Magnitude range on the
+       reference list. ``[min, max]`` applies everywhere; a sequence of
+       ``iters`` entries (each ``None`` or a ``[min, max]`` pair) varies by
+       iteration. There is exactly one reference list, so unlike ``mag_lim``
+       there is no per-list form.
 
 The number of match/transform/average passes is the length of the longest
 schedule given: ``dr_tol``, ``dm_tol``, ``outlier_tol`` or ``trans_args``.
 Single values are broadcast to it, so ``dr_tol=0.5, dm_tol=[1.0, 0.5]`` is two
 passes at a constant radius, and all single values is a single pass. Two
 schedules of differing length are an error rather than a guess. ``mag_lim``
-does not take part: its ``[min, max]`` form is a pair, not a schedule, so it is
-checked against the number of passes rather than setting it.
+and ``ref_mag_lim`` do not take part: a ``[min, max]`` pair is not itself a
+schedule, so it is checked against the number of passes rather than setting
+it.
 
 .. list-table::
    :header-rows: 1
@@ -244,7 +252,11 @@ Which stars drive the fit
    * - ``ref_mag_lim``
      - ``None``
      - :class:`~flystar.align.MosaicToRef` only. Magnitude range on the
-       reference list.
+       reference list, before ``mag_trans``. Accepts ``[min, max]`` for every
+       iteration, or a sequence of ``iters`` entries (each ``None`` or a
+       ``[min, max]`` pair) to vary by iteration -- the single axis is
+       iterations, like ``mag_lim``, but there is no per-list form since
+       there is exactly one reference list.
    * - ``use_ref_new``
      - ``False``
      - :class:`~flystar.align.MosaicToRef` only. Whether stars newly added to
@@ -425,6 +437,10 @@ without dropping them from the output. In order of increasing specificity:
 
 ``mag_lim``
     A magnitude range per list.
+
+``ref_mag_lim``
+    :class:`~flystar.align.MosaicToRef` only. The same idea, on the single
+    reference list rather than per starlist.
 
 ``outlier_tol``
     Per-iteration sigma clipping on the transformation residuals. Rejection
