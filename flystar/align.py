@@ -480,7 +480,7 @@ class MosaicSelfRef(object):
         """
         Normalize the per-iteration settings into arrays of length ``iters``.
 
-``iters`` is the length of the longest schedule, set in ``__init__``.
+        ``iters`` is the length of the longest schedule, set in ``__init__``.
         ``dr_tol``, ``dm_tol`` and ``outlier_tol`` may each be given as a
         single value (used for every iteration) or as a sequence with one
         entry per iteration; single values are broadcast here and the lengths
