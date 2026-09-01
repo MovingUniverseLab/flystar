@@ -2772,8 +2772,22 @@ class MosaicToRef(MosaicSelfRef):
             schedule argument.
 
         ref_mag_lim : array, optional
-            If different from None, it indicates the minimum and maximum magnitude
-            on the reference catalog for finding the transformations.
+            Magnitude range on the reference catalog for finding the
+            transformations. There is exactly one reference list, so unlike
+            mag_lim there's no per-list axis -- its single-axis form indexes
+            iterations, same as dr_tol/dm_tol/mag_lim:
+
+            =========================  =========================================
+            shape                      meaning
+            =========================  =========================================
+            None                       no limit anywhere (default)
+            ``(2,)``                   one [min, max] every iteration
+            ``(N_iters, 2)``           per iteration
+            =========================  =========================================
+
+            Either side of a pair may itself be None for an open bound, e.g.
+            ``[13, None]``. Entries broadcast/validate the same way as
+            dr_tol/dm_tol/mag_lim -- see fix_ref_mag_lim.
 
         motion_models : list of str or MotionModel objects, optional
             List of motion model names (strings) or MotionModel objects to use
@@ -2941,6 +2955,7 @@ class MosaicToRef(MosaicSelfRef):
         self.starlist_vertices = starlist_vertices
         self.ref_list = StarList(ref_list, copy=True)
         self.ref_mag_lim = ref_mag_lim
+        self.fix_ref_mag_lim()
         self.update_ref_orig = update_ref_orig
         self.use_ref_new = use_ref_new
 
@@ -2979,6 +2994,58 @@ class MosaicToRef(MosaicSelfRef):
 
         return
 
+    def fix_ref_mag_lim(self):
+        """
+        Normalize ref_mag_lim into a length-``iters`` list, one entry per
+        iteration, mirroring fix_iterable_conditions' treatment of
+        dr_tol/dm_tol/mag_lim: a single value broadcasts to every
+        iteration, a sequence must have one entry per iteration, and
+        ``iters`` is the length of the longest schedule set in __init__.
+
+        Unlike mag_lim, there's exactly one reference list, so the
+        per-iteration form is flat -- ``(N_iters, 2)``, not
+        ``(N_iters, N_lists, 2)``.
+
+        A flat ``[min, max]`` pair is told apart from a per-iteration
+        sequence by content, not just length: a pair's two sides are each
+        None or a scalar, where a per-iteration sequence's entries are each
+        None or a pair. So unlike mag_lim's old (N_lists, 2) vs
+        (N_iters, 2) ambiguity, there's no shape collision to worry about
+        here regardless of how many iterations there are.
+
+        Each resolved entry is either ``None`` (no cut that iteration --
+        left as None so apply_mag_lim_via_use_in_trans's own `is not None`
+        check can skip the cut entirely, same as before this method
+        existed) or a ``[min, max]`` pair with any open (None) side
+        resolved to +/-inf, since the comparisons downstream
+        (`ref_list[mcol] < ref_mag_lim[0]`) can't handle a bare None.
+
+        Raises
+        ------
+        AssertionError
+            If a per-iteration sequence's length is not iters.
+        """
+        def is_single_pair(val):
+            if val is None:
+                return True
+            return len(val) == 2 and all(v is None or np.isscalar(v) for v in val)
+
+        if is_single_pair(self.ref_mag_lim):
+            schedule = [self.ref_mag_lim] * self.iters
+        else:
+            schedule = list(self.ref_mag_lim)
+            assert len(schedule) == self.iters, \
+                (f'len(ref_mag_lim)={len(schedule)} != iters={self.iters}. ref_mag_lim must '
+                 f'be None, a 2-element [min, max], or a sequence of those with one entry '
+                 f'per iteration; iters is the longest schedule given.')
+
+        def resolve(lim):
+            if lim is None:
+                return None
+            lo, hi = lim
+            return [lo if lo is not None else -np.inf, hi if hi is not None else np.inf]
+
+        self.ref_mag_lim = [resolve(lim) for lim in schedule]
 
     def fit(self, processes=1, chunksize=None, match_workers=1, mp_star_threshold=100_000):
         """
@@ -3060,10 +3127,6 @@ class MosaicToRef(MosaicSelfRef):
                 for key, value in input_dict.items():
                     file.write(f'{key}:\t{value}\n')
 
-        if self.ref_mag_lim is not None:
-            self.ref_mag_lim[0] = self.ref_mag_lim[0] if self.ref_mag_lim[0] is not None else -np.inf
-            self.ref_mag_lim[1] = self.ref_mag_lim[1] if self.ref_mag_lim[1] is not None else np.inf
-
         ##########
         # Setup a reference table to store data. It will contain:
         #    x0, y0, m0 -- the running average of positions: 1D
@@ -3095,7 +3158,7 @@ class MosaicToRef(MosaicSelfRef):
             # ALL the action is in here. Match and transform the stack of starlists.
             # This updates trans objects and the ref_table.
             self.match_and_transform(
-                self.ref_mag_lim,
+                self.ref_mag_lim[nn],
                 self.dr_tol[nn],
                 self.dm_tol[nn],
                 self.outlier_tol[nn],
