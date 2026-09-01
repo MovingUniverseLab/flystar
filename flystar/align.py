@@ -99,6 +99,7 @@ class MosaicSelfRef(object):
             save_path=None,
             save_plot=True,
             save_object=True,
+            save_format='hdf5',
             prefix_name='msr',
             verbose=True
     ):
@@ -303,12 +304,12 @@ class MosaicSelfRef(object):
             output, by default None.
         save_path : str, optional
             Directory to save fit results to: PREFIX_input.txt (the fit
-            parameters), PREFIX_ref_table.hdf5 (self.ref_table), and
-            PREFIX_trans_list.pkl (self.trans_list -- the derived transform
-            objects, which aren't plain data and so need pickling). If
-            calc_trans_inverse is True, PREFIX_trans_list_inverse.pkl
-            (self.trans_list_inverse) is also saved. By default None
-            (nothing saved).
+            parameters), PREFIX_ref_table.<ext> (self.ref_table, extension
+            set by save_format), and PREFIX_trans_list.pkl (self.trans_list
+            -- the derived transform objects, which aren't plain data and so
+            need pickling). If calc_trans_inverse is True,
+            PREFIX_trans_list_inverse.pkl (self.trans_list_inverse) is also
+            saved. By default None (nothing saved).
         save_plot : bool, optional
             If save_path is set, also save a transformation diagnostic plot
             for every (starlist, iteration) under
@@ -329,6 +330,19 @@ class MosaicSelfRef(object):
             parameter list, rather than having to supply every piece of
             alignment config by hand. Ignored if save_path is None. By
             default True.
+        save_format : {'hdf5', 'fits', 'pkl'}, optional
+            File format for PREFIX_ref_table.<ext>. 'hdf5' (default) stores
+            nan as plain nan and has no header keyword length limit.
+            'fits' round-trips nan through a MaskedColumn on read (silently
+            changing every nan-containing column's dtype), and FITS header
+            keywords are capped at 8 characters, so meta keys longer than
+            that (e.g. 'list_times') are written using the HIERARCH
+            convention -- handled here on a column-sharing copy of
+            ref_table, so self.ref_table's own meta keys are never renamed.
+            'pkl' pickles self.ref_table directly: slower to load and tied
+            to flystar's/astropy's class definitions like save_object, but
+            preserves every column and meta key exactly as-is. Ignored if
+            save_path is None. By default 'hdf5'.
         prefix_name : str, optional
             Prefix for the saved file names (see save_path), by default 'msr'.
         verbose : bool or int (0 to 9, inclusive), optional
@@ -405,6 +419,9 @@ class MosaicSelfRef(object):
         self.save_path = save_path
         self.save_plot = save_plot
         self.save_object = save_object
+        if save_format not in ('hdf5', 'fits', 'pkl'):
+            raise ValueError(f"save_format must be 'hdf5', 'fits', or 'pkl', got {save_format!r}")
+        self.save_format = save_format
         self.prefix_name = prefix_name
         self.verbose = verbose
 
@@ -880,7 +897,7 @@ class MosaicSelfRef(object):
             # (calc_trans_inverse) -- keeping it out of trans_list.pkl means that
             # file's content is always the same shape, rather than sometimes a
             # plain list and sometimes a dict depending on calc_trans_inverse.
-            self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.hdf5'), path='data', overwrite=True)
+            self._write_ref_table(self.save_path, self.prefix_name)
             with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list.pkl'), 'wb') as file:
                 pickle.dump(self.trans_list, file)
             if self.calc_trans_inverse:
@@ -895,6 +912,27 @@ class MosaicSelfRef(object):
             print('========== Done with fit ==========')
             print('===================================')
         return
+
+    def _write_ref_table(self, save_path, prefix_name):
+        """
+        Write self.ref_table to save_path/PREFIX_ref_table.<ext>, in
+        self.save_format.
+
+        'fits' needs meta keys renamed for the HIERARCH convention (see
+        suppress_meta_warnings), which is done on a column-sharing copy so
+        self.ref_table's own meta is never touched -- a later save in a
+        different format, or a plain `self.ref_table.meta['list_times']`
+        lookup, must keep working regardless of what was last written here.
+        """
+        if self.save_format == 'hdf5':
+            self.ref_table.write(os.path.join(save_path, f'{prefix_name}_ref_table.hdf5'), path='data', overwrite=True)
+        elif self.save_format == 'fits':
+            ref_table_out = self.ref_table.copy(copy_data=False)
+            ref_table_out.meta = suppress_meta_warnings(self.ref_table)
+            ref_table_out.write(os.path.join(save_path, f'{prefix_name}_ref_table.fits'), overwrite=True)
+        elif self.save_format == 'pkl':
+            with open(os.path.join(save_path, f'{prefix_name}_ref_table.pkl'), 'wb') as file:
+                pickle.dump(self.ref_table, file)
 
     def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None, processes=1, chunksize=None, match_workers=1, mp_star_threshold=100_000):
         """
@@ -2469,12 +2507,10 @@ class MosaicSelfRef(object):
             print("The same was done for ye and me.")
 
         if self.save_path is not None:
-            suppress_meta_warnings(self.ref_table)
             with open(os.path.join(self.save_path, self.prefix_name+'_bootstrap.pkl'), 'wb') as file:
                 pickle.dump(self, file)
             with open(os.path.join(self.save_path, self.prefix_name+'_ref_table_bootstrap.pkl'), 'wb') as file:
                 pickle.dump(self.ref_table, file)
-            self.save_path = os.path.join(self.save_path, self.prefix_name+'_ref_table_bootstrap.fits')
 
         return
 
@@ -2541,6 +2577,7 @@ class MosaicToRef(MosaicSelfRef):
         save_path=None,
         save_plot=True,
         save_object=True,
+        save_format='hdf5',
         prefix_name='mtr',
         verbose=True
     ):
@@ -2775,12 +2812,12 @@ class MosaicToRef(MosaicSelfRef):
 
         save_path : str, optional
             Directory to save fit results to: PREFIX_input.txt (the fit
-            parameters), PREFIX_ref_table.hdf5 (self.ref_table), and
-            PREFIX_trans_list.pkl (self.trans_list -- the derived transform
-            objects, which aren't plain data and so need pickling). If
-            calc_trans_inverse is True, PREFIX_trans_list_inverse.pkl
-            (self.trans_list_inverse) is also saved. By default None
-            (nothing saved).
+            parameters), PREFIX_ref_table.<ext> (self.ref_table, extension
+            set by save_format), and PREFIX_trans_list.pkl (self.trans_list
+            -- the derived transform objects, which aren't plain data and so
+            need pickling). If calc_trans_inverse is True,
+            PREFIX_trans_list_inverse.pkl (self.trans_list_inverse) is also
+            saved. By default None (nothing saved).
 
         prefix_name : str, optional
             Filename prefix for everything written under ``save_path``, by
@@ -2806,6 +2843,20 @@ class MosaicToRef(MosaicSelfRef):
             parameter list, rather than having to supply every piece of
             alignment config by hand. Ignored if save_path is None. By
             default True.
+
+        save_format : {'hdf5', 'fits', 'pkl'}, optional
+            File format for PREFIX_ref_table.<ext>. 'hdf5' (default) stores
+            nan as plain nan and has no header keyword length limit.
+            'fits' round-trips nan through a MaskedColumn on read (silently
+            changing every nan-containing column's dtype), and FITS header
+            keywords are capped at 8 characters, so meta keys longer than
+            that (e.g. 'list_times') are written using the HIERARCH
+            convention -- handled on a column-sharing copy of ref_table, so
+            self.ref_table's own meta keys are never renamed. 'pkl' pickles
+            self.ref_table directly: slower to load and tied to
+            flystar's/astropy's class definitions like save_object, but
+            preserves every column and meta key exactly as-is. Ignored if
+            save_path is None. By default 'hdf5'.
 
         verbose : bool or int (0 to 9, inclusive), optional
             Controls the verbosity of print statements. (0 least, 9 most verbose).
@@ -2882,6 +2933,7 @@ class MosaicToRef(MosaicSelfRef):
             save_path=save_path,
             save_plot=save_plot,
             save_object=save_object,
+            save_format=save_format,
             prefix_name=prefix_name,
             verbose=verbose
         )
@@ -3226,7 +3278,7 @@ class MosaicToRef(MosaicSelfRef):
             # (calc_trans_inverse) -- keeping it out of trans_list.pkl means that
             # file's content is always the same shape, rather than sometimes a
             # plain list and sometimes a dict depending on calc_trans_inverse.
-            self.ref_table.write(os.path.join(self.save_path, f'{self.prefix_name}_ref_table.hdf5'), path='data', overwrite=True)
+            self._write_ref_table(self.save_path, self.prefix_name)
             with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list.pkl'), 'wb') as file:
                 pickle.dump(self.trans_list, file)
             if self.calc_trans_inverse:
@@ -5617,7 +5669,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
 
 def suppress_meta_warnings(table):
     """
-    Rename over-long meta keys so writing to FITS does not warn.
+    Build a copy of a table's meta dict with over-long keys renamed, so
+    writing it to FITS does not warn.
 
     A FITS header keyword is limited to 8 characters; astropy will write a
     longer one using the HIERARCH convention but warns each time it does.
@@ -5625,17 +5678,25 @@ def suppress_meta_warnings(table):
     explicitly, which suppresses the warning without changing what is
     written.
 
+    This returns a new dict rather than renaming ``table.meta`` in place:
+    the HIERARCH prefix is only meaningful to the FITS writer, so baking it
+    into the table's real meta keys would break plain key lookups (e.g.
+    ``ref_table.meta['list_times']``) for every other consumer -- including
+    a later, unrelated save in a different format.
+
     Parameters
     ----------
     table : astropy.table.Table
-        Table whose ``meta`` is rewritten in place.
+        Table to read ``meta`` from. Not modified.
 
     Returns
     -------
-    None
+    dict
+        A new meta dict with long keys HIERARCH-prefixed, suitable for
+        assigning onto a table (or a copy of one) that is about to be
+        written as FITS.
     """
-    table.meta = {
-        (f'HIERARCH {k}' if len(k) > 8 else k): v 
+    return {
+        (f'HIERARCH {k}' if len(k) > 8 else k): v
         for k, v in table.meta.items()
     }
-    return
