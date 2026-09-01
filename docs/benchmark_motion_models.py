@@ -1,0 +1,225 @@
+"""
+Time the motion-model fits on both branches and draw the figures used by the
+Performance section of docs/motion_models.rst.
+
+Two sweeps: wall-clock against the number of epochs, at a fixed 10,000 stars,
+and against the number of stars, at a fixed 5 epochs.
+
+The comparison spans two branches, so it needs two checkouts of flystar. Add
+one as a worktree, time each sweep on each, then plot:
+
+    git worktree add /tmp/wt_mmrework mm_rework
+
+    python docs/benchmark_motion_models.py epochs /tmp/wt_mmrework \\
+        mm_rework /tmp/epochs_per_star.json
+    python docs/benchmark_motion_models.py epochs . \\
+        mm_rework_lingfeng /tmp/epochs_batched.json
+
+    python docs/benchmark_motion_models.py stars /tmp/wt_mmrework \\
+        mm_rework /tmp/stars_per_star.json
+    python docs/benchmark_motion_models.py stars . \\
+        mm_rework_lingfeng /tmp/stars_batched.json
+
+    python docs/benchmark_motion_models.py plot-epochs \\
+        /tmp/epochs_batched.json /tmp/epochs_per_star.json
+    python docs/benchmark_motion_models.py plot-stars \\
+        /tmp/stars_batched.json /tmp/stars_per_star.json
+
+Timing runs are separate processes so that each imports the flystar it is
+timing, and are run one after another rather than concurrently so that they do
+not compete for cores. The figures are committed, so building the documentation
+never runs any of this.
+"""
+import contextlib
+import io
+import json
+import os
+import sys
+import time
+import warnings
+
+import numpy as np
+
+MODELS = ['Fixed', 'Linear', 'Acceleration', 'Parallax']
+FIXED_PARAMS = {'ra': 18.0, 'dec': -30.0, 'pa': 0.0, 'obsLocation': 'earth'}
+
+# The epoch sweep holds the number of stars fixed, and the star sweep holds the
+# number of epochs fixed at a value where every model here is determined -- so
+# that nothing in that sweep is a fallback.
+EPOCHS = [2] + list(range(3, 21, 2))
+N_STARS = 10_000
+STARS = list(range(1000, 20_000, 2000))
+N_EPOCHS = 5
+
+
+def make_table(n_stars, n_epochs, seed=1):
+    """Build a StarTable of linearly moving stars, observed at every epoch."""
+    from flystar.startables import StarTable
+
+    rng = np.random.default_rng(seed)
+    t = np.tile(np.linspace(2015., 2015. + 2*(n_epochs - 1), n_epochs), (n_stars, 1))
+    x0 = rng.uniform(0, 1000, (n_stars, 1))
+    y0 = rng.uniform(0, 1000, (n_stars, 1))
+    vx = rng.normal(0, 0.3, (n_stars, 1))
+    vy = rng.normal(0, 0.3, (n_stars, 1))
+    dt = t - t.mean()
+    x = x0 + vx*dt + rng.normal(0, 0.05, (n_stars, n_epochs))
+    y = y0 + vy*dt + rng.normal(0, 0.05, (n_stars, n_epochs))
+    m = np.tile(rng.uniform(12, 19, (n_stars, 1)), (1, n_epochs))
+    e = np.full((n_stars, n_epochs), 0.05)
+
+    return StarTable(name=np.array([f'S{i:06d}' for i in range(n_stars)]),
+                     x=x, y=y, m=m, xe=e, ye=e, me=e, t=t)
+
+
+def time_one(branch, model, n_epochs, n_stars=N_STARS):
+    """Time a single fit, and report which model the stars actually got."""
+    from flystar import motion_model as MM
+
+    tab = make_table(n_stars, n_epochs)
+
+    t0 = time.perf_counter()
+    with contextlib.redirect_stdout(io.StringIO()):
+        if branch == 'mm_rework_lingfeng':
+            tab.fit_motion_models(motion_models=[model],
+                                  fixed_params_dict=FIXED_PARAMS, verbose=False)
+        else:
+            # The old API: one model for everything, and Parallax needs an
+            # instance carrying the parameters that are fixed_params_dict now.
+            mmd = ({'Parallax': MM.Parallax(RA=FIXED_PARAMS['ra'],
+                                            Dec=FIXED_PARAMS['dec'],
+                                            PA=FIXED_PARAMS['pa'],
+                                            obsLocation=FIXED_PARAMS['obsLocation'])}
+                   if model == 'Parallax' else {})
+            tab.fit_velocities(default_motion_model=model, motion_model_dict=mmd,
+                               show_progress=False, verbose=False)
+    elapsed = time.perf_counter() - t0
+
+    # Which model the stars actually got, not just whether it was the one
+    # asked for: too few epochs for the requested model and both branches
+    # quietly fall back, so a cell can time something other than its label.
+    used = np.asarray(tab['motion_model_used']).astype(str)
+    names, counts = np.unique(used, return_counts=True)
+    return elapsed, float(np.mean(used == model)), str(names[counts.argmax()])
+
+
+def sweep_points(axis):
+    """The (x value, n_stars, n_epochs) of each cell of a sweep."""
+    if axis == 'epochs':
+        return [(n_epochs, N_STARS, n_epochs) for n_epochs in EPOCHS]
+    return [(n_stars, n_stars, N_EPOCHS) for n_stars in STARS]
+
+
+def run_timings(axis, flystar_dir, branch, out_json):
+    warnings.filterwarnings('ignore')
+    flystar_dir = os.path.abspath(flystar_dir)
+    sys.path.insert(0, flystar_dir)
+    import flystar
+    assert flystar.__path__[0].startswith(flystar_dir), flystar.__path__
+
+    print(f'{axis} sweep, branch={branch}, flystar={flystar.__path__[0]}', flush=True)
+    results = {}
+    for model in MODELS:
+        # One throwaway fit on a tiny table first. The first fit of a model in
+        # a process pays a one-time set-up the rest do not -- ~0.03 s for
+        # Parallax, roughly two thirds of a whole batched 10,000-star fit,
+        # which would otherwise land entirely on whichever cell was timed
+        # first. At the widest epoch grid point, so that the model being warmed
+        # up is one the stars actually get: where there are fewer epochs than
+        # parameters the fit falls back, warming the wrong path.
+        time_one(branch, model, max(EPOCHS), n_stars=50)
+
+        for x, n_stars, n_epochs in sweep_points(axis):
+            elapsed, frac, used = time_one(branch, model, n_epochs, n_stars=n_stars)
+            results[f'{model}|{x}'] = {'sec': elapsed, 'frac_used': frac,
+                                       'used_model': used, 'n_stars': n_stars,
+                                       'n_epochs': n_epochs}
+            print(f'  {model:13} {n_stars:6d} stars {n_epochs:2d} epochs: '
+                  f'{elapsed:8.3f}s ({frac*100:.0f}% got {model}, '
+                  f'most got {used})', flush=True)
+
+    json.dump({'branch': branch, 'axis': axis, 'results': results},
+              open(out_json, 'w'), indent=1)
+    print('wrote', out_json, flush=True)
+
+
+def plot(axis, batched_json, per_star_json, out_png=None):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    if out_png is None:
+        name = ('motion_model_performance.png' if axis == 'epochs'
+                else 'motion_model_performance_stars.png')
+        out_png = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               '_static', name)
+    batched = json.load(open(batched_json))['results']
+    per_star = json.load(open(per_star_json))['results']
+    xs = np.array([x for x, _, _ in sweep_points(axis)])
+
+    def series(res, model, key='sec'):
+        return np.array([res[f'{model}|{x}'][key] for x in xs])
+
+    colors = dict(zip(MODELS, plt.get_cmap('tab10').colors))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+
+    for model in MODELS:
+        c = colors[model]
+        per, bat = series(per_star, model), series(batched, model)
+        # A cell where the requested model was not what the stars actually got
+        # timed a fallback instead, so it is not a like-for-like comparison:
+        # draw it hollow, break the line rather than run it through a model it
+        # did not fit, and quote no ratio between two different models.
+        same = ((series(per_star, model, 'frac_used') == 1)
+                & (series(batched, model, 'frac_used') == 1))
+
+        ax1.plot(xs, np.where(same, per, np.nan), '--', color=c, lw=1.4,
+                 label=f'{model}, per-star')
+        ax1.plot(xs, np.where(same, bat, np.nan), '-', color=c, lw=1.8,
+                 label=f'{model}, batched')
+        for y in (per, bat):
+            ax1.plot(xs[same], y[same], 'o', color=c, ms=4)
+            ax1.plot(xs[~same], y[~same], 'o', ms=5, mfc='white', mec=c, mew=1.2)
+        ax2.plot(xs, np.where(same, per/bat, np.nan), 'o-', color=c, ms=4,
+                 lw=1.8, label=model)
+
+    if axis == 'epochs':
+        xlabel, held = 'Number of epochs', f'{N_STARS:,} stars'
+        ticks, ticklabels = xs, [str(x) for x in xs]
+    else:
+        xlabel, held = 'Number of stars', f'{N_EPOCHS} epochs'
+        ticks, ticklabels = xs, [f'{x//1000}k' for x in xs]
+
+    ax1.set(xlabel=xlabel, ylabel='Seconds for one fit', yscale='log',
+            title=f'Fitting {held}')
+    if axis == 'stars':
+        # Both branches are linear in the number of stars, which is a straight
+        # line only on log-log; on a log y against a linear x it reads as a
+        # curve, which is the opposite of the point.
+        ax1.set_xscale('log')
+        ax2.set_xscale('log')
+    ax1.legend(fontsize=7.5, ncol=2, loc='center right')
+    ax2.set(xlabel=xlabel, ylabel='Speed-up (per-star / batched)',
+            title='Batched speed-up')
+    ax2.legend(fontsize=8)
+
+    for ax in (ax1, ax2):
+        ax.set_xticks(ticks)
+        # Rotated on the star axis: ten labels bunch up towards the top of a
+        # log scale, and dropping every other one would leave an end unlabelled.
+        ax.set_xticklabels(ticklabels, rotation=45 if axis == 'stars' else 0,
+                           ha='right' if axis == 'stars' else 'center')
+        ax.set_xticks([], minor=True)      # a log axis adds its own otherwise
+        ax.grid(alpha=0.25, lw=0.6)
+
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=150)
+    print('wrote', out_png)
+
+
+if __name__ == '__main__':
+    mode = sys.argv[1]
+    if mode in ('epochs', 'stars'):
+        run_timings(mode, *sys.argv[2:5])
+    else:
+        plot(mode.replace('plot-', ''), *sys.argv[2:])

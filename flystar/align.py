@@ -1,40 +1,112 @@
+import os
+import gc
+import pdb
+import copy
+import pickle
+import warnings
+import datetime
 import numpy as np
-from flystar import match
-from flystar import transforms
-from flystar import plots
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+from flystar import match, transforms, plots, motion_model
 from flystar.starlists import StarList
+from flystar import startables
 from flystar.startables import StarTable
 from astropy.table import Table, Column, vstack
-import datetime
-import copy
-import os
-import pdb
-import time
-import warnings
 from astropy.utils.exceptions import AstropyUserWarning
 
-# Keep a list of columns that are "aggregated" motion model terms.
-motion_model_col_names = ['x0', 'x0e', 'y0', 'y0e',
-                          'vx', 'vxe', 'vy', 'vye',
-                          'ax', 'axe', 'ay', 'aye',
-                          't0', 'm0', 'm0e', 'use_in_trans']
 
 class MosaicSelfRef(object):
-    def __init__(self, list_of_starlists, ref_index=0, iters=2,
-                 dr_tol=[1, 1], dm_tol=[2, 1],
-                 outlier_tol=[None, None],
-                 trans_args=[{'order': 2}, {'order': 2}],
-                 init_order=1,
-                 mag_trans=True, mag_lim=None, weights=None,
-                 trans_input=None, trans_class=transforms.PolyTransform,
-                 use_vel=False, calc_trans_inverse=False,
-                 init_guess_mode='miracle', iter_callback=None,
-                 verbose=True):
+    """
+    Align a stack of starlists to a reference frame built from the lists
+    themselves.
 
+    The first iteration uses one of the input lists (``ref_index``) as the
+    reference. Every iteration after that aligns against the sigma-clipped
+    average of all the lists, so the reference frame is progressively defined
+    by the whole stack rather than by any single list. Use
+    :class:`MosaicToRef` instead when the alignment should be tied to an
+    external reference catalog (Gaia, say) that is not one of the starlists.
+
+    Construct the object with the alignment settings, then call
+    :meth:`fit` to run the alignment. The results are left on the object:
+    ``ref_table`` (the combined :class:`~flystar.startables.StarTable`) and
+    ``trans_list`` (one transformation per starlist). The input starlists
+    are kept as ``star_lists``, which is what maps
+    ``ref_table['idx_in_list']`` back to per-list names -- see
+    :func:`names_in_list`.
+
+    See :meth:`__init__` for the full list of settings.
+
+    Attributes
+    ----------
+    ref_table : StarTable
+        The combined table produced by :meth:`fit`, holding both the
+        per-list (2D) quantities and the averaged (1D) ones.
+    trans_list : list of transforms.Transform2D
+        The best-fit transformation for each starlist, in input order.
+    trans_list_inverse : list of transforms.Transform2D
+        The reference-to-starlist transformations. Only present when the
+        object was constructed with ``calc_trans_inverse=True``.
+
+    Examples
+    --------
+
+    .. code-block:: python
+
+        msc = align.MosaicSelfRef(list_of_starlists, dr_tol=[1.0, 0.5],
+                                  ref_index=0, dm_tol=[2.0, 1.0],
+                                  trans_class=transforms.PolyTransform,
+                                  trans_args={'order': 1})
+        msc.fit()
+        msc.ref_table['x0']    # averaged positions
+        msc.trans_list[0].px   # transformation for the first starlist
+    """
+    def __init__(
+            self,
+            list_of_starlists,
+            dr_tol,
+            starlist_vertices=None,
+            # Alignment parameters
+            ref_index=0,
+            dm_tol=None,
+            outlier_tol=None,
+            matching='legacy',
+            dchi2_tol=9.0,
+            match_sigma_pos=None,
+            match_sigma_mag=None,
+            # Transformation parameters
+            trans_class=transforms.PolyTransform,
+            trans_args={'order': 1},
+            trans_input=None,
+            trans_weights=None,
+            init_order=1,
+            init_guess_mode='miracle',
+            briteN=None,
+            ignore_contains='star',
+            calc_trans_inverse=False,
+            # Magnitude parameters
+            mag_trans=True,
+            mag_lim=None,
+            # Motion model parameters
+            motion_models=['Empty', 'Fixed'],
+            fixed_params_dict=None,
+            vel_weights='var',
+            absolute_sigma=True,
+            # Advanced options
+            inherit_n_detect=True,
+            iter_callback=None,
+            save_path=None,
+            save_plot=True,
+            save_object=True,
+            save_format='hdf5',
+            prefix_name='msr',
+            verbose=True
+    ):
         """
-        Make a mosaic object by passing in a list of starlists and then running fit(). 
+        Make a mosaic object by passing in a list of starlists and then running fit().
 
-        Required Parameters
+        Parameters
         ----------
         list_of_starlists : array of StarList objects
             An array or list of flystar.starlists.StarList objects (which are Astropy Tables).
@@ -43,156 +115,352 @@ class MosaicSelfRef(object):
             Note that there is an optional weights column called 'w'. If this column exists
             in any of the lists, it will be queried to determine if an individual star can be
             used to derive the transformations between starlists. This is the most flexible way
-            to allow you to determine, as a function of time and star, which ones are good enough 
-            in the transformation. Note that just because it can be used (i.e. w_in=1), 
-            doesn't meant that it will be used. The mag limits and outliers still take precedence. 
-            Note also that the weights that go into the transformation are 
+            to allow you to determine, as a function of time and star, which ones are good enough
+            in the transformation. Note that just because it can be used (i.e. w_in=1),
+            doesn't meant that it will be used. The mag limits and outliers still take precedence.
+            Note also that the weights that go into the transformation are
 
                 star_list['w'] * ref_list['w'] * weight_from_keyword (see the weights parameter)
 
-            for those stars not trimmed out by the other criteria. 
-
-
-        Optional Parameters
-        ----------
-        ref_index : int
+            for those stars not trimmed out by the other criteria.
+        starlist_vertices : list or array, optional
+            A list or array of polygon vertices coordinates for each starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
+            Shape of (N_lists, N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for each starlist, by default None
+        ref_index : int, optional
             The index of the reference epoch. (default = 0). Note that this is the reference
-            list only for the first iteration. Subsequent iterations will utilize the sigma-clipped 
-            mean of the positions from all the starlists. 
-
-        iters : int
-            The number of iterations used in the matching and transformation.  TO DO: INNER/OUTER? 
-
-        dr_tol : list or array
-            The delta-radius (dr) tolerance for matching in units of the reference coordinate system.
-            This is a list of dr values, one for each iteration of matching/transformation.
-
-        dm_tol : list or array
+            list only for the first iteration. Subsequent iterations will utilize the sigma-clipped
+            mean of the positions from all the starlists.
+        dr_tol : float, list or array
+            The delta-radius (dr) tolerance for matching in units of the reference
+            coordinate system. Required: matching is a radius search, so there is no
+            meaningful default. This is a list of dr values, one for each iteration of
+            matching/transformation, or a single value used for every iteration.
+        dm_tol : float, list or array, or None, optional
             The delta-magnitude (dm) tolerance for matching in units of the reference coordinate system.
-            This is a list of dm values, one for each iteration of matching/transformation. 
+            This is a list of dm values, one for each iteration of matching/transformation,
+            or a single value used for every iteration. None (the default) places
+            no magnitude cut on the match, matching on position alone.
+        outlier_tol : float, list or array, optional
+            The outlier tolerance (in units of sigma) for rejecting outlier stars.
+            This is a list of tol values, one for each iteration of matching/transformation,
+            or a single value used for every iteration, by default None.
 
-        outlier_tol : list or array
-            The outlier tolerance (in units of sigma) for rejecting outlier stars. 
-            This is a list of tol values, one for each iteration of matching/transformation.
-
-        mag_trans : boolean
-            If true, this will also calculate and (temporarily) apply a zeropoint offset to 
-            magnitudes in each list to bring them into a common magnitude system. This is 
-            essential for matching (with finite dm_tol) starlists of different filters or 
-            starlists that are not photometrically calibrated. Note that the final_table columns 
-            of 'm', 'm0', and 'm0e' will contain the transformed magnitudes while the 
-            final_table column 'm_orig' will contain the original un-transformed magnitudes. 
-            If mag_trans = False, then no such zeropoint offset it applied at any point. 
-
-        mag_lim : array
-            If different from None, it indicates the minimum and maximum magnitude
-            on the catalogs for finding the transformations. Note, if you want specify the mag_lim
-            separately for each list and each iteration, you need to pass in a 2D array that
-            has shape (N_lists, 2).
-
-        weights : str
+            The number of iterations is the length of the longest of ``dr_tol``,
+            ``dm_tol``, ``outlier_tol`` and ``trans_args``; single values are
+            broadcast to it, and two sequences of differing length are an error.
+            All single values therefore means a single iteration.
+        matching : str, optional
+            How a star with more than one candidate inside the tolerances is
+            resolved, and how one-to-one is enforced. 'legacy' (default) keeps
+            the historical behavior: a multi-candidate star is matched only if
+            its nearest candidate in position is also its nearest in
+            magnitude. In a crowded field that discards good matches -- a
+            candidate 20x closer loses to one a few hundredths of a magnitude
+            nearer -- and each discarded star then becomes a duplicate
+            reference row that makes the next starlist ambiguous in turn, so
+            one split seeds the next. 'chi2' scores candidates as
+            (dr/sigma_pos)^2 + (dm/sigma_mag)^2, with the scales measured from
+            the starlists themselves, and keeps reciprocal best pairs that win
+            by dchi2_tol. See match.match_chi2 for the details.
+            By default 'legacy'.
+        dchi2_tol : float, optional
+            matching='chi2' only. How much better the best candidate must be
+            than the runner-up, in chi^2. Default 9.0, a 3-sigma margin. Below
+            it the star is treated as genuinely ambiguous and left unmatched, by default 9.0.
+        match_sigma_pos : float or None, optional
+            matching='chi2' only. Position scale for the chi^2, in reference
+            coordinate units. None (default) measures it from the unambiguous
+            pairs of each starlist, so no error columns are required, by default None.
+        match_sigma_mag : float or None, optional
+            matching='chi2' only. Magnitude scale for the chi^2. None (default)
+            measures it the same way.
+            If not provided, will be None for each iteration, by default None.
+        trans_class : transforms.Transform2D object (or subclass), optional
+            The transform class that will be used to when deriving the optimal
+            transformation parameters between each list and the reference list, by default transforms.PolyTransform.
+        trans_args : dict or list of dict, optional
+            A dictionary containing any extra keywords that are needed in the
+            transformation object (for instance, "order"), applied to every
+            iteration -- or a list of such dictionaries, one per iteration, to
+            use a different transformation argument (e.g. increasing order)
+            in later iterations. If a list is passed in, its length must
+            equal the number of iterations. By default {'order': 1}.
+        trans_input : transform object, or array or list of them, optional
+            If not None, then this should contain an array or list of transform
+            objects that will be used as the initial guess in the alignment and matching.
+            There must be one per starlist, in the same order; entries may be
+            None. A single transform object (rather than a sequence) is used as
+            the initial guess for every starlist.
+            By default None.
+        trans_weights : str, optional
             Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
             to weight by the positional uncertainties (variances) in the individual starlists, or also with
             the uncertainties in the reference frame itself.  Note weighting only works when there
             are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
-
-        trans_input : array or list of transform objects
-            def = None. If not None, then this should contain an array or list of transform
-            objects that will be used as the initial guess in the alignment and matching. 
-
-        trans_class : transforms.Transform2D object (or subclass)
-            The transform class that will be used to when deriving the optimal
-            transformation parameters between each list and the reference list. 
-
-        trans_args : dictionary
-            A dictionary (or a list of dictionaries) containing any extra keywords that are needed 
-            in the transformation object. For instance, "order". Note that if a list is passed in, 
-            then the transformation argument (i.e. order) will be changed for every iteration in
-            iters.
-
-        use_vel : boolean
-            If velocities are present in the reference list and use_vel == True, then during
-            each iteration of the alignment, the reference list will be propogated in time
-            using the velocity information. So all transformations will be derived w.r.t. 
-            the propogated positions. See also update_vel.
-
-       calc_trans_inverse: boolean
+            By default None.
+        init_order : int, optional
+            The order of the initial transformation used for the first iteration, by default 1.
+        init_guess_mode : str, optional
+            If no initial transformations are passed in via the trans_input keyword, then we have
+            to make the initial transformation and matching blindly. We can do this in a couple of
+            different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
+            By default 'miracle'.
+        ignore_contains : str or None, optional
+            Only used when init_guess_mode='name'. Names containing this
+            substring are left out of the name match. The default 'star'
+            is there because auto-detected sources are conventionally
+            labelled star_1, star_2, ... per epoch -- those indices are
+            per-list detection numbers, not stable identities, so matching
+            on them pairs unrelated stars. Genuinely named sources (S0-2,
+            irs16NE, ...) mean the same thing in every list.
+            Pass None to match on every name, which is what you want when
+            the names really are stable identifiers across epochs (a
+            cross-matched catalog, or synthetic data). '' is rejected
+            rather than treated as "off": every name contains the empty
+            string, so it would discard everything. By default 'star'.
+        briteN : int, optional
+            If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
+            Default is min(50, len(star_list)).
+        calc_trans_inverse : boolean, optional
             If true, then calculate the inverse transformation (from reference to starlist)
             in addition to the normal transformation (from starlist to reference). The inverse
             calculation is calculated by switching the order to the positions in match_and_transform.
             The inverse transformations are saved in self.trans_list_inverse.
+            self.trans_list_inverse doesn't exist if calc_trans_inverse == False, by default False.
+        mag_trans : bool, optional
+            If true, this will also calculate and (temporarily) apply a zeropoint offset to
+            magnitudes in each list to bring them into a common magnitude system. This is
+            essential for matching (with finite dm_tol) starlists of different filters or
+            starlists that are not photometrically calibrated. Note that the final_table columns
+            of 'm', 'm0', and 'm0_err' will contain the transformed magnitudes while the
+            final_table column 'm_orig' will contain the original un-transformed magnitudes.
+            If mag_trans = False, then no such zeropoint offset it applied at any point, by default True.
+        mag_lim : array, optional
+            Magnitude range on the starlists used for finding the
+            transformations, applied BEFORE the magnitude transformation. Its
+            single axis indexes iterations, exactly like dr_tol, dm_tol and
+            outlier_tol:
 
-            self.trans_list_inverse doesn't exist if calc_trans_inverse == False
+            =========================  =========================================
+            shape                      meaning
+            =========================  =========================================
+            None                       no limit anywhere (default)
+            ``(2,)``                   one [min, max] everywhere
+            ``(N_iters, 2)``           per iteration, same for every list
+            ``(N_iters, N_lists, 2)``  per iteration and per list
+            =========================  =========================================
 
-        init_guess_mode : string
-            If no initial transformations are passed in via the trans_input keyword, then we have
-            to make the initial transformation and matching blindly. We can do this in a couple of 
-            different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
-
-        iter_callback : None or function
+            Per-starlist limits are given with the 3D form. Note that the 2D
+            form previously meant ``(N_lists, 2)``; it now means
+            ``(N_iters, 2)`` so that one axis means the same thing across every
+            schedule argument, by default None.
+        motion_models : list of MotionModel or str, or str, optional
+            Motion models or their names to use for new or unassigned stars. 'Empty' and 'Fixed' will always be added.
+            Can be a single string (e.g., 'Linear') or a list of motion models string or class (e.g., ['Linear', 'Parallax'], [Linear, Acceleration])
+            Note that the provided motion models have to have different numbers of parameters, otherwise the code will not know which one to use for new stars.
+            The most complex motion model will be used for new stars, by default None.
+        fixed_params_dict : None or dict, optional
+            Dictionary of motion model fixed parameters, e.g., ra, dec, pa, obsLocation, t0, etc. See motion_model classes for details.
+            By default None.
+        vel_weights : str, optional
+            Either 'var' (def) or 'std', depending on whether you want to weight the motion model
+            fits by the variance or standard deviation of the position data, by default 'var'.
+        absolute_sigma : bool, optional
+            Controls how x0_err/y0_err/m0_err (and Linear/Acceleration/
+            Parallax's own fit_param_errs) are computed, for every star
+            regardless of which motion model actually ends up fitting it --
+            stars combined via a plain weighted average (Fixed/Empty-eligible
+            stars, via StarTable.combine_lists) and stars fit with
+            Linear/Acceleration/Parallax etc. (via MotionModel.run_fit) both
+            honor this the same way. If True (default), the formal
+            error-propagated uncertainty, trusting the per-epoch input
+            errors (xe/ye/me) as correct. If False, that propagated
+            uncertainty is instead rescaled by sqrt(chi2/dof) (scipy's own
+            absolute_sigma=False convention) -- how much the epochs actually
+            disagree, regardless of what their individual errors claim. More
+            honest than absolute_sigma=True when input errors are
+            systematically underestimated, at the cost of not shrinking as
+            more epochs are added (unlike a true standard-error-of-the-mean).
+            See StarTable.combine_lists and MotionModel.run_fit for details.
+            By default True.
+        inherit_n_detect : bool, optional
+            If True, and an input starlist already has its own 'n_detect' column
+            (e.g. it is itself the output of a previous, lower-level align pass),
+            use that starlist's own n_detect value -- instead of counting 1 --
+            as the contribution from that starlist when computing this mosaic's
+            n_detect. So a star's final n_detect reflects the total number of
+            raw detections it represents, however many alignment layers deep.
+            Starlists without their own 'n_detect' still contribute 1 per
+            detection, same as when this is False. By default True.
+        iter_callback : None or function, optional
             A function to call (that accepts a StarTable object and an iteration number)
-            at the end of every iteration. This can be used for plotting or printing state. 
-
-        verbose : int (0 to 9, inclusive)
+            at the end of every iteration, and once more after the final
+            re-matching pass with an index equal to the number of iterations
+            (one past the last iteration), so that last call can be told apart
+            from the end of the last iteration. Useful for plotting or printing state, and for
+            rejecting stars between iterations: the table handed in is the live
+            ref_table, so setting `use_in_trans = False` on a row excludes it
+            from subsequent transformations while keeping the star in the
+            output, by default None.
+        save_path : str, optional
+            Directory to save fit results to: PREFIX_input.txt (the fit
+            parameters), PREFIX_ref_table.<ext> (self.ref_table, extension
+            set by save_format), and PREFIX_trans_list.pkl (self.trans_list
+            -- the derived transform objects, which aren't plain data and so
+            need pickling). If calc_trans_inverse is True,
+            PREFIX_trans_list_inverse.pkl (self.trans_list_inverse) is also
+            saved. By default None (nothing saved).
+        save_plot : bool, optional
+            If save_path is set, also save a transformation diagnostic plot
+            for every (starlist, iteration) under
+            save_path/transformation_plots/iterN/. These are a real cost on
+            large starlists (an unthinned scatter of every star, saved at
+            dpi=300, once per starlist per iteration) -- set to False to
+            keep saving results without paying for them. Ignored if
+            save_path is None. By default True.
+        save_object : bool, optional
+            If save_path is set, also pickle the entire mosaic object (self)
+            to PREFIX.pkl. This is a much heavier, less stable file
+            than the ref_table.hdf5/trans_list.pkl saved by default (it's
+            tied to flystar's class definitions, so it can break across
+            flystar versions) -- but it lets you reload the whole object
+            later (e.g. `with open(...) as f: msc = pickle.load(f)`) and
+            keep using its normal instance methods (e.g.
+            calc_bootstrap_errors) with their usual, self-contained
+            parameter list, rather than having to supply every piece of
+            alignment config by hand. Ignored if save_path is None. By
+            default True.
+        save_format : {'hdf5', 'fits', 'pkl'}, optional
+            File format for PREFIX_ref_table.<ext>. 'hdf5' (default) stores
+            nan as plain nan and has no header keyword length limit.
+            'fits' round-trips nan through a MaskedColumn on read (silently
+            changing every nan-containing column's dtype), and FITS header
+            keywords are capped at 8 characters, so meta keys longer than
+            that (e.g. 'list_times') are written using the HIERARCH
+            convention -- handled here on a column-sharing copy of
+            ref_table, so self.ref_table's own meta keys are never renamed.
+            'pkl' pickles self.ref_table directly: slower to load and tied
+            to flystar's/astropy's class definitions like save_object, but
+            preserves every column and meta key exactly as-is. Ignored if
+            save_path is None. By default 'hdf5'.
+        prefix_name : str, optional
+            Prefix for the saved file names (see save_path), by default 'msr'.
+        verbose : bool or int (0 to 9, inclusive), optional
             Controls the verbosity of print statements. (0 least, 9 most verbose).
             For backwards compatibility, 0 = False, 9 = True.
             (Note: technically right now no checks on whether the number is an integer or not...)
 
-        Example
-        ----------
-        msc = align.MosaicToRef(list_of_starlists, iters=1,
-                                dr_tol=[0.1], dm_tol=[5],
-                                outlier_tol=[None], mag_lim=[13, 21],
-                                trans_class=transforms.PolyTransform,
-                                trans_args=[{'order': 1}],
-                                weights='both,std',
-                                init_guess_mode='miracle', verbose=False)
-        msc.fit()
+        Examples
+        --------
+        .. code-block:: python
 
-        # Access a list of all the transformation parameters:
-        trans_list = msc.trans_list 
+            mtr = align.MosaicToRef(list_of_starlists,
+                                    dr_tol=0.1, dm_tol=5,
+                                    outlier_tol=[None], mag_lim=[13, 21],
+                                    trans_class=transforms.PolyTransform,
+                                    trans_args=[{'order': 1}],
+                                    weights='both,std',
+                                    init_guess_mode='miracle', verbose=False)
+            mtr.fit()
 
-        # Access the fully-combined reference table.
-        stars_table = msc.ref_table
+            # Access a list of all the transformation parameters:
+            trans_list = mtr.trans_list
 
-        # Plot the magnitude of the first star vs. time:
-        # Overplot the mean magnitude. 
-        plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
-        plt.axhline(stars_table['m0'][0])    
+            # Access the fully-combined reference table.
+            stars_table = mtr.ref_table
 
-        # Plot the X position of the first star vs. time:
-        # Overplot the best-fit proper motion.
-        times = stars_table['t'][0, :]
-        plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
-        plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))   
+            # Plot the magnitude of the first star vs. time:
+            # Overplot the mean magnitude.
+            plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
+            plt.axhline(stars_table['m0'][0])
 
+            # Plot the X position of the first star vs. time:
+            # Overplot the best-fit proper motion.
+            times = stars_table['t'][0, :]
+            plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
+            plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0])), by default True.
         """
+        # The number of iterations is just how long the per-iteration
+        # schedules are. Every one of them gets a vote: whichever is given as
+        # a sequence sets the count, and a single value is broadcast up to it
+        # in fix_iterable_conditions(). dr_tol is required -- matching is a
+        # radius search, so there is no meaningful default -- but it is not
+        # privileged in setting the length, so dr_tol=0.5 with
+        # dm_tol=[1., 0.5] is two passes at a constant radius. Two sequences
+        # that disagree are still an error, raised in
+        # fix_iterable_conditions(); only single values broadcast, so nothing
+        # here can silently paper over a mismatch. mag_lim does not vote: its
+        # [min, max] form is a pair, not a schedule, and would claim two
+        # iterations.
+        self.iters = max(schedule_len(tol)
+                         for tol in (dr_tol, dm_tol, outlier_tol, trans_args))
 
         self.star_lists = list_of_starlists
+        self.starlist_vertices = starlist_vertices
         self.ref_index = ref_index
-        self.iters = iters
         self.dr_tol = dr_tol
         self.dm_tol = dm_tol
-        self.outlier_tol = outlier_tol
         self.trans_args = trans_args
         self.init_order = init_order
         self.mag_trans = mag_trans
         self.mag_lim = mag_lim
-        self.weights = weights
+        self.trans_weighting = trans_weights
+        self.vel_weighting = vel_weights
         self.trans_input = trans_input
         self.trans_class = trans_class
-        self.calc_trans_inverse = calc_trans_inverse        
-        self.use_vel = use_vel
+        self.calc_trans_inverse = calc_trans_inverse
+        self.absolute_sigma = absolute_sigma
+        self.inherit_n_detect = inherit_n_detect
+        self.fixed_params_dict = fixed_params_dict
         self.init_guess_mode = init_guess_mode
+        self.briteN = briteN
+        self.ignore_contains = ignore_contains
         self.iter_callback = iter_callback
+        self.save_path = save_path
+        self.save_plot = save_plot
+        self.save_object = save_object
+        if save_format not in ('hdf5', 'fits', 'pkl'):
+            raise ValueError(f"save_format must be 'hdf5', 'fits', or 'pkl', got {save_format!r}")
+        self.save_format = save_format
+        self.prefix_name = prefix_name
         self.verbose = verbose
 
-        # For backwards compatibility.
-        if self.verbose is True:
-            self.verbose = 9
-        if self.verbose is False:
-            self.verbose = 0
-            
+        if self.starlist_vertices is not None:
+            import shapely
+            self.reflist_polygon = shapely.make_valid(shapely.Polygon(self.starlist_vertices[self.ref_index]))
+        else:
+            self.reflist_polygon = None
+
+        for ii in range(len(self.star_lists)):
+            # Check x and y are 1d
+            if self.star_lists[ii]['x'].ndim != 1 or self.star_lists[ii]['y'].ndim != 1:
+                raise ValueError(f"StarList at index {ii} has x and y that are not 1D. x.ndim={self.star_lists[ii]['x'].ndim}, y.ndim={self.star_lists[ii]['y'].ndim}. Please flatten these columns to be 1D.")
+            # Add list_time to meta if not present
+            if 'list_time' not in self.star_lists[ii].meta:
+                assert 't' in self.star_lists[ii].colnames, f"StarList at index {ii} does not have 'list_time' in meta and does not have 't' column. Please add one of these."
+                unique_t = np.unique(self.star_lists[ii]['t'])
+                assert unique_t.size == 1, f"The time values of starlist at index {ii} are not unique."
+                self.star_lists[ii].meta['list_time'] = unique_t[0]
+
+        if outlier_tol is None:
+            self.outlier_tol = [None] * self.iters
+        else:
+            self.outlier_tol = outlier_tol
+
+        self.matching = matching
+        self.dchi2_tol = dchi2_tol
+        self.match_sigma_pos = match_sigma_pos
+        self.match_sigma_mag = match_sigma_mag
+
+        # Organize motion models into a list of MotionModel classes, sorted by increasing number of parameters.
+        self.motion_models = motion_model.organize_motion_models(motion_models)
+
+        # if motion_model_for_new_star is None:
+        #     self.motion_model_for_new_star = self.motion_models[-1]
+        # elif isinstance(motion_model_for_new_star, str):
+        #     assert motion_model_for_new_star in all_mm_map.keys(), f"motion_model_for_new_star must be in {list(all_mm_map.keys())}"
+        #     self.motion_model_for_new_star = all_mm_map[motion_model_for_new_star]
+
         self.N_lists = len(self.star_lists)
 
         # Hard-coded values:
@@ -202,8 +470,17 @@ class MosaicSelfRef(object):
         ##########
         # Error checking for parameters.
         ##########
-        self.fix_iterable_conditions()  # fix dr_tol, dm_tol, outlier_tol, mag_lim to be iterable.
-        check_iter_tolerances(self.iters, self.dr_tol, self.dm_tol, self.outlier_tol)
+        self.fix_iterable_conditions()  # fix dr_tol, dm_tol, outlier_tol, mag_lim, trans_args to be iterable.
+
+        # A single transformation object means "use this one as the initial
+        # guess for every starlist", so replicate it up to one per list before
+        # anything downstream tries to index or len() it. Note the entries are
+        # the same object, not copies -- the alignment only reads an input
+        # transformation and then replaces it with a derived one, exactly as
+        # trans_args replicates a single dict across iterations.
+        if (self.trans_input is not None) and (not isinstance(self.trans_input, (list, tuple, np.ndarray))):
+            self.trans_input = [self.trans_input] * self.N_lists
+
         check_trans_input(self.star_lists, self.trans_input, self.mag_trans)
 
         ##########
@@ -214,41 +491,118 @@ class MosaicSelfRef(object):
         #       is passed in, replicate for all star lists, all loop iterations.
         ##########
         self.setup_trans_info()
-
         return
 
     def fix_iterable_conditions(self):
-        if not np.iterable(self.dr_tol):
-            self.dr_tol = np.repeat(self.dr_tol, self.iters)
-        assert len(self.dr_tol) == self.iters
+        """
+        Normalize the per-iteration settings into arrays of length ``iters``.
 
-        if not np.iterable(self.dm_tol):
-            self.dm_tol = np.repeat(self.dm_tol, self.iters)
-        assert len(self.dm_tol) == self.iters
+        ``iters`` is the length of the longest schedule, set in ``__init__``.
+        ``dr_tol``, ``dm_tol`` and ``outlier_tol`` may each be given as a
+        single value (used for every iteration) or as a sequence with one
+        entry per iteration; single values are broadcast here and the lengths
+        are checked, so two sequences that disagree are an error.
+        ``trans_args`` is treated the same way, a bare dict being replicated
+        for every iteration.
 
-        if not np.iterable(self.outlier_tol):
-            self.outlier_tol = np.repeat(self.outlier_tol, self.iters)
-        assert len(self.outlier_tol) == self.iters
+        ``mag_lim`` is normalized to shape ``(N_iters, N_lists, 2)``. Its
+        accepted forms are:
 
+        - ``None`` -- no magnitude cut anywhere,
+        - ``[min, max]`` -- that cut on every list, every iteration,
+        - ``(N_iters, 2)`` -- per iteration, the same for every list,
+        - ``(N_iters, N_lists, 2)`` -- fully specified.
+
+        Note that the single-axis form indexes ITERATIONS, matching
+        ``dr_tol``/``dm_tol``/``outlier_tol``, so that one axis means the
+        same thing across every schedule argument. Per-starlist limits must
+        use the 3D form.
+
+        Raises
+        ------
+        AssertionError
+            If a sequence-valued setting has a length other than ``iters``,
+            or ``mag_lim`` has a 3D shape other than
+            ``(iters, N_lists, 2)``.
+        ValueError
+            If ``mag_lim`` has a shape that is not one of the forms above.
+        """
+        for name in ('dr_tol', 'dm_tol', 'outlier_tol'):
+            tol = np.atleast_1d(getattr(self, name))
+            if len(tol) == 1:
+                tol = np.repeat(tol, self.iters)
+            assert len(tol) == self.iters, \
+                (f'len({name})={len(tol)} != iters={self.iters}. The per-iteration '
+                 f'settings must be single values or sequences of the same length; '
+                 f'iters is the longest one given.')
+            setattr(self, name, tol)
+
+        # Format self.mag_lim to be (N_iters, N_lists, 2) array. If only a single mag_lim is passed in, replicate for all lists.
+        # mag_lim accepts, and is normalized to, (N_iters, N_lists, 2). Its
+        # single-axis form indexes ITERATIONS, exactly like dr_tol, dm_tol and
+        # outlier_tol:
+        #   None                     -> no cut anywhere
+        #   [min, max]               -> that cut on every list, every iteration
+        #   (N_iters, 2)             -> per iteration, same for every list
+        #   (N_iters, N_lists, 2)    -> fully specified
+        # Per-starlist limits are expressed with the 3D form. The 2D form used
+        # to mean (N_lists, 2); it now means (N_iters, 2), so that one axis
+        # means the same thing across every schedule argument.
         if self.mag_lim is None:
-            self.mag_lim = np.repeat([[None, None]], len(self.star_lists), axis=0)
-        elif (len(self.mag_lim) == 2):
-            self.mag_lim = np.repeat([self.mag_lim], len(self.star_lists), axis=0)
-        assert len(self.mag_lim) == len(self.star_lists)
+            self.mag_lim = np.array([[None] * len(self.star_lists)] * self.iters)
+        else:
+            # asarray first, so lists work as readily as arrays.
+            self.mag_lim = np.asarray(self.mag_lim)
+
+            if (self.mag_lim.ndim == 1) and (len(self.mag_lim) == 2):
+                # One pair for everything.
+                self.mag_lim = np.array([[self.mag_lim] * len(self.star_lists)] * self.iters)
+            elif (self.mag_lim.ndim == 2) and (self.mag_lim.shape == (self.iters, 2)):
+                # Per iteration; same for every starlist.
+                self.mag_lim = np.repeat(self.mag_lim[:, np.newaxis, :],
+                                         len(self.star_lists), axis=1)
+            elif self.mag_lim.ndim == 3:
+                assert self.mag_lim.shape == (self.iters, len(self.star_lists), 2), \
+                    (f'mag_lim must have shape (iters, N_lists, 2) = '
+                     f'({self.iters}, {len(self.star_lists)}, 2), but has shape {self.mag_lim.shape}')
+            else:
+                extra = ''
+                if self.mag_lim.ndim == 2 and self.mag_lim.shape == (len(self.star_lists), 2):
+                    extra = (' Note that the 2D form now indexes iterations, not starlists, to match '
+                             'dr_tol/dm_tol/outlier_tol. For per-starlist limits use the 3D form.')
+                raise ValueError(
+                    f'mag_lim must be None, a 2-element array, a (N_iters, 2) = '
+                    f'({self.iters}, 2) array, or a (N_iters, N_lists, 2) = '
+                    f'({self.iters}, {len(self.star_lists)}, 2) array. '
+                    f'Got shape {self.mag_lim.shape}.' + extra
+                )
+
+        # Keep a list of trans_args, one per iteration. If only a single dict
+        # is passed in, replicate it for every iteration -- this is also why
+        # the default is a bare dict rather than a length-1 list: a bare dict
+        # stays valid for whatever `iters` is set to, while a list has to be
+        # kept in sync with `iters` by hand.
+        if type(self.trans_args) == dict:
+            tmp = self.trans_args
+            self.trans_args = [tmp for ii in range(self.iters)]
+        assert len(self.trans_args) == self.iters, \
+            (f'len(trans_args)={len(self.trans_args)} != iters={self.iters}. The '
+             f'per-iteration settings must be single values or sequences of the '
+             f'same length; iters is the longest one given.')
 
         return
-        
-    
-    def fit(self):
+
+
+    def fit(self, processes=1, chunksize=None, match_workers=1, mp_star_threshold=100_000):
         """
         Using the current parameter settings, match and transform all the lists
         to a reference position. Note in the first pass, the reference position
         is just the specified input reference starlist. In subsequent iterations,
-        this is updated. 
+        this is updated.
 
         The ultimate outcome is the creation of self.ref_table. This reference
-        table will contain "averaged" quantites as well as a big 2D array of all
-        the matched original and transformed quantities. 
+        table will contain "averaged" quantities as well as a big 2D array of all
+        the matched original and transformed quantities.
 
         Averaged columns on ref_table:
         x0
@@ -257,12 +611,74 @@ class MosaicSelfRef(object):
         x0e
         y0e
         m0e
-        vx  (only if use_vel=True)
-        vy  (only if use_vel=True)
-        vxe (only if use_vel=True)
-        vye (only if use_vel=True)
+        additional motion_model columns
 
+        Parameters
+        ----------
+        processes : int, optional
+            Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
+        chunksize : int, optional
+            Chunk size for multiprocessing, by default None (auto)
+        match_workers : int, optional
+            Number of worker threads scipy uses for the KDTree neighbor search inside
+            match.match(). Default is 1 (single-threaded), which is the safe choice on
+            shared/multi-tenant machines where grabbing all cores would step on other
+            users' jobs. Set to -1 to use all available CPU cores (measurably faster on
+            large starlists, with no change in matching results -- the neighbor lists
+            returned per query point are identical, order included, regardless of thread
+            count), or to a specific positive integer to cap the thread count on a shared
+            machine.
+        mp_star_threshold : int, optional
+            Minimum number of stars needing the per-star motion-model fitting
+            path before a multiprocessing Pool is used for fitting, even if
+            processes > 1. A star needs that path only when bootstrap > 0
+            (bootstrap resampling isn't vectorized across stars). Below this
+            threshold, fitting runs serially instead -- Pool startup/IPC
+            overhead isn't worth it for small workloads. See
+            StarTable.fit_motion_models for details. By default 100_000.
         """
+        # Setup save_path:
+        if self.save_path:
+            if not os.path.exists(os.path.dirname(self.save_path)):
+                os.makedirs(os.path.dirname(self.save_path))
+
+        # Save input params
+        input_filename = f'{self.prefix_name}_input.txt'
+        input_dict = {
+            'ref_index': self.ref_index,
+            'iters': self.iters,
+            'dr_tol': self.dr_tol,
+            'dm_tol': self.dm_tol,
+            'outlier_tol': self.outlier_tol,
+            'matching': self.matching,
+            'dchi2_tol': self.dchi2_tol,
+            'match_sigma_pos': self.match_sigma_pos,
+            'match_sigma_mag': self.match_sigma_mag,
+            'trans_class': self.trans_class,
+            'trans_args': self.trans_args,
+            'trans_input': self.trans_input,
+            'trans_weights': self.trans_weighting,
+            'init_order': self.init_order,
+            'init_guess_mode': self.init_guess_mode,
+            'calc_trans_inverse': self.calc_trans_inverse,
+            'mag_trans': self.mag_trans,
+            'mag_lim': self.mag_lim,
+            'motion_models': self.motion_models,
+            'fixed_params_dict': self.fixed_params_dict,
+            'vel_weights': self.vel_weighting,
+            'absolute_sigma': self.absolute_sigma,
+            'iter_callback': self.iter_callback,
+            'save_path': self.save_path,
+            'prefix_name': self.prefix_name,
+            'verbose': self.verbose
+        }
+        if self.save_path is not None:
+            if not os.path.exists(self.save_path):
+                os.makedirs(self.save_path)
+            with open(os.path.join(self.save_path, input_filename), 'w') as file:
+                for key, value in input_dict.items():
+                    file.write(f'{key}:\t{value}\n')
+
         ##########
         # Setup a reference table to store data. It will contain:
         #    x0, y0, m0 -- the running average of positions: 1D
@@ -270,8 +686,9 @@ class MosaicSelfRef(object):
         #    x_orig, y_orig, m_orig, (opt. errors) -- the transformed errors for the lists: 2D
         #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
         ##########
+        if 't0' in self.star_lists[self.ref_index].colnames: self.t0_provided = True
+        else: self.t0_provided = False
         self.ref_table = self.setup_ref_table_from_starlist(self.star_lists[self.ref_index])
-
         # Save the reference index to the meta data on the reference list.
         self.ref_table.meta['ref_list'] = self.ref_index
 
@@ -281,44 +698,52 @@ class MosaicSelfRef(object):
         #
         ##########
         for nn in range(self.iters):
-            
-            # If we are on subsequent iterations, remove matching results from the 
+
+            # If we are on subsequent iterations, remove matching results from the
             # prior iteration. This leaves aggregated (1D) columns alone.
             if nn > 0:
                 self.reset_ref_values()
 
             if self.verbose > 0:
-                print(" ")
-                print("**********")
+                print("\n**********")
                 print("**********")
                 print('Starting iter {0:d} with ref_table shape:'.format(nn), self.ref_table['x'].shape)
                 print("**********")
                 print("**********")
 
             # ALL the action is in here. Match and transform the stack of starlists.
-            # This updates trans objects and the ref_table. 
-            self.match_and_transform(self.mag_lim[self.ref_index],
-                                     self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
-                                     self.trans_args[nn])
-
+            # This updates trans objects and the ref_table.
+            self.match_and_transform(
+                self.mag_lim[nn][self.ref_index],
+                self.dr_tol[nn],
+                self.dm_tol[nn],
+                self.outlier_tol[nn],
+                self.trans_args[nn],
+                nn,
+                processes=processes,
+                chunksize=chunksize,
+                match_workers=match_workers,
+                mp_star_threshold=mp_star_threshold
+            )
             # Clean up the reference table
             # Find where stars are detected.
-            self.ref_table.detections()
+            self.ref_table.detections(weight_col='n_detect_list' if self.inherit_n_detect else None)
 
             ### Drop all stars that have 0 detections.
-            idx = np.where(self.ref_table['n_detect'] == 0)[0]
-            print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+            idx = np.where((self.ref_table['n_detect'] == 0))[0]
+            if self.verbose:
+                print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
-            if self.iter_callback != None:
+            if self.iter_callback is not None:
                 self.iter_callback(self.ref_table, nn)
-            
+
 
         ##########
         #
         # Re-do all matching given final transformations.
         #        No trimming this time.
-        #        First rest the reference table 2D values. 
+        #        First rest the reference table 2D values.
         ##########
         self.reset_ref_values(exclude=['used_in_trans'])
 
@@ -327,50 +752,253 @@ class MosaicSelfRef(object):
             print("Final Matching")
             print("**********")
 
-        self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
-        self.update_ref_table_aggregates()
+        self.match_lists(self.dr_tol[-1], self.dm_tol[-1], workers=match_workers)
+        # Hard-coded not to keep ref values for MosaicSelfRef
+        self.update_ref_table_aggregates(processes=processes, chunksize=chunksize, mp_star_threshold=mp_star_threshold)
 
         ##########
         # Clean up output table.
-        # 
+        #
         ##########
         # Find where stars are detected.
         if self.verbose > 0:
             print('')
             print('   Preparing the reference table...')
-            
-        self.ref_table.detections()
+
+        self.ref_table.detections(weight_col='n_detect_list' if self.inherit_n_detect else None)
 
         ### Drop all stars that have 0 detections.
-        idx = np.where(self.ref_table['n_detect'] == 0)[0]
-        print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+        idx = np.where((self.ref_table['n_detect'] == 0))[0]
+        if self.verbose:
+            print(f'  *** Getting rid of {len(idx):d} out of {len(self.ref_table):d} junk sources')
         self.ref_table.remove_rows(idx)
 
-        if self.iter_callback != None:
-            self.iter_callback(self.ref_table, nn)
-        
+        if self.iter_callback is not None:
+            # nn + 1, not nn: the loop above already called back with nn at the
+            # end of that iteration, and this call comes after a further stage
+            # (the final re-match and aggregate update). Reusing nn made the
+            # two indistinguishable, so a callback with side effects -- say one
+            # that accumulates outlier rejections -- ran twice for the last
+            # iteration with no way to tell. nn + 1 == self.iters marks "after
+            # the final matching pass".
+            self.iter_callback(self.ref_table, nn + 1)
+
+        # Add times into ref_table meta data
+        all_epochs = [s.meta['list_time'] for s in self.star_lists]
+        self.ref_table.meta['list_times'] = all_epochs
+
+        # Update chi2 values in ref table, as motion_model_used may have changed
+        x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs)
+        # Ensure x_inferred and y_inferred is 2D for chi2 calculation
+        if x_inferred.ndim == 1:
+            x_inferred = x_inferred[:, np.newaxis]
+        if y_inferred.ndim == 1:
+            y_inferred = y_inferred[:, np.newaxis]
+        weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
+        if weighted_xy:
+            chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
+            chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        else:
+            chi2_x_2d = (self.ref_table['x'] - x_inferred)**2
+            chi2_y_2d = (self.ref_table['y'] - y_inferred)**2
+        chi2_x = np.nansum(chi2_x_2d, axis=1)
+        chi2_y = np.nansum(chi2_y_2d, axis=1)
+        chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
+        chi2_y[~np.isfinite(chi2_y_2d).any(axis=1)] = np.nan
+        self.ref_table['chi2_x'] = chi2_x
+        self.ref_table['chi2_y'] = chi2_y
+
+        # Update t0 and n_fit when no fitting is run because all motion_model_input==Fixed.
+        # 't0' may already exist as a column (e.g. supplied by the input
+        # reference list) without being populated for every row -- newly
+        # added stars get a NaN placeholder when their row is created (see
+        # add_rows_for_new_stars), and nothing else ever fills it in for the
+        # all-Fixed case. So the check has to be "which rows still need a
+        # value", not just "does the column exist".
+        needs_t0 = (
+            np.ones(len(self.ref_table), dtype=bool) if 't0' not in self.ref_table.colnames
+            else ~np.isfinite(self.ref_table['t0'])
+        )
+        needs_n_fit = 'n_fit' not in self.ref_table.colnames
+
+        if needs_t0.any() or needs_n_fit:
+            x_data = np.ma.masked_invalid(self.ref_table['x'].data, copy=True)
+            y_data = np.ma.masked_invalid(self.ref_table['y'].data, copy=True)
+            if weighted_xy:
+                xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True)
+                ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True)
+                xe_data.mask[np.isclose(xe_data, 0.)] = True
+                ye_data.mask[np.isclose(ye_data, 0.)] = True
+                fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
+                xe_data[fill_with_one] = 1.
+                ye_data[fill_with_one] = 1.
+            else:
+                xe_data = None
+                ye_data = None
+
+            if np.ndim(x_data) == 1:
+                x_data = x_data[:, np.newaxis]
+            if np.ndim(y_data) == 1:
+                y_data = y_data[:, np.newaxis]
+            if weighted_xy:
+                if np.ndim(xe_data) == 1:
+                    xe_data = xe_data[:, np.newaxis]
+                if np.ndim(ye_data) == 1:
+                    ye_data = ye_data[:, np.newaxis]
+
+            if 't' in self.ref_table.colnames:
+                t_data = copy.deepcopy(self.ref_table['t'].data)
+            else:
+                t_data = np.array(self.ref_table.meta['list_times'])
+                t_data = np.broadcast_to(t_data, xe_data.shape)
+
+            # Update t0, adapted from startables.fit_motion_models. Only the
+            # rows that need it are written -- rows that already have a
+            # valid t0 (e.g. from the input reference list) are left alone.
+            if needs_t0.any():
+                weights = 1. / np.hypot(xe_data, ye_data) if weighted_xy else None
+                # t_data must be masked (not just weights) and np.ma.average
+                # (not plain np.average) must be used here: for the
+                # fill_with_one rows above (no usable xe/ye anywhere at all),
+                # the substitute weight is uniform/unmasked, but t can still
+                # be genuinely NaN in undetected epochs. Plain np.average's
+                # weight-sum denominator doesn't respect t's own mask in that
+                # case, silently corrupting the result. np.ma.average does,
+                # and with a uniform weight that's equivalent to
+                # combine_lists()'s plain (unweighted) mean of just the valid
+                # epochs -- i.e. these stars' t0 still reflects their real
+                # detections, it's just not astrometric-error-weighted.
+                t0_new = np.ma.average(np.ma.masked_invalid(t_data), axis=1, weights=weights).filled(np.nan)
+                if 't0' not in self.ref_table.colnames:
+                    self.ref_table['t0'] = t0_new
+                else:
+                    self.ref_table['t0'][needs_t0] = t0_new[needs_t0]
+
+            # Update n_fit: unique epochs with valid data
+            if needs_n_fit:
+                xy_mask = ~ (x_data.mask | y_data.mask)
+                if weighted_xy:
+                    xy_mask &= ~ (xe_data.mask | ye_data.mask)
+
+                self.ref_table['n_fit'] = np.array([
+                    len(set(t_data[i][xy_mask[i]]))
+                    for i in range(len(self.ref_table))
+                ])
+
+        if self.save_path is not None:
+            # HDF5 (unlike FITS) stores nan as plain nan -- astropy.io.fits.open()
+            # round-trips nan through a MaskedColumn instead, silently changing
+            # every nan-containing column's type on read back -- and it's just
+            # column data, not tied to flystar's class definitions the way a
+            # pickle of self or self.ref_table would be. The transform objects
+            # still need pickling (they're real objects, not plain data), but
+            # that's a much smaller, more stable pickle than the whole self.
+            # trans_list_inverse is saved as its own file, only when requested
+            # (calc_trans_inverse) -- keeping it out of trans_list.pkl means that
+            # file's content is always the same shape, rather than sometimes a
+            # plain list and sometimes a dict depending on calc_trans_inverse.
+            self._write_ref_table(self.save_path, self.prefix_name)
+            with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list.pkl'), 'wb') as file:
+                pickle.dump(self.trans_list, file)
+            if self.calc_trans_inverse:
+                with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list_inverse.pkl'), 'wb') as file:
+                    pickle.dump(self.trans_list_inverse, file)
+            if self.save_object:
+                with open(os.path.join(self.save_path, f'{self.prefix_name}.pkl'), 'wb') as file:
+                    pickle.dump(self, file)
+
+        if self.verbose > 0:
+            print('===================================')
+            print('========== Done with fit ==========')
+            print('===================================')
         return
 
-    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args):
+    def _write_ref_table(self, save_path, prefix_name):
+        """
+        Write self.ref_table to save_path/PREFIX_ref_table.<ext>, in
+        self.save_format.
+
+        'fits' needs meta keys renamed for the HIERARCH convention (see
+        suppress_meta_warnings), which is done on a column-sharing copy so
+        self.ref_table's own meta is never touched -- a later save in a
+        different format, or a plain `self.ref_table.meta['list_times']`
+        lookup, must keep working regardless of what was last written here.
+        """
+        if self.save_format == 'hdf5':
+            self.ref_table.write(os.path.join(save_path, f'{prefix_name}_ref_table.hdf5'), path='data', overwrite=True)
+        elif self.save_format == 'fits':
+            ref_table_out = self.ref_table.copy(copy_data=False)
+            ref_table_out.meta = suppress_meta_warnings(self.ref_table)
+            ref_table_out.write(os.path.join(save_path, f'{prefix_name}_ref_table.fits'), overwrite=True)
+        elif self.save_format == 'pkl':
+            with open(os.path.join(save_path, f'{prefix_name}_ref_table.pkl'), 'wb') as file:
+                pickle.dump(self.ref_table, file)
+
+    def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None, processes=1, chunksize=None, match_workers=1, mp_star_threshold=100_000):
         """
         Given some reference list of positions, loop through all the starlists
         transform and match them.
+
+        One call is one iteration: every starlist is transformed onto the
+        current reference frame, matched against it, and its transformation
+        re-derived from the matches. ``self.trans_list`` and
+        ``self.ref_table`` are both updated in place, the latter growing by
+        the stars that no reference star matched.
+
+        Parameters
+        ----------
+        ref_mag_lim : array or None
+            Magnitude limits applied to the reference list, as [min, max].
+            Stars outside are flagged out of the transformation fit rather
+            than removed. None applies no cut.
+        dr_tol : float
+            Matching radius for this iteration, in reference coordinate units.
+        dm_tol : float
+            Matching magnitude tolerance for this iteration, in magnitudes.
+        outlier_tol : float or None
+            Sigma threshold for rejecting matched stars from the
+            transformation fit. None does no rejection.
+        trans_args : dict
+            Extra keywords for the transformation class this iteration,
+            e.g. {'order': 2}.
+        nn : int, optional
+            Index of the current iteration, used only for progress messages,
+            by default None.
+        processes : int, optional
+            Number of processes for the motion-model fitting, by default 1.
+        chunksize : int, optional
+            Chunk size for that multiprocessing, by default None (auto).
+        match_workers : int, optional
+            Worker threads for the KDTree neighbour search in match.match().
+            See :meth:`fit`, by default 1.
+        mp_star_threshold : int, optional
+            Minimum number of stars before a multiprocessing Pool is used for
+            fitting. See :meth:`fit`, by default 100_000.
+
+        Returns
+        -------
+        None
         """
+        if self.starlist_vertices is not None:
+            import shapely
         for ii in range(len(self.star_lists)):
             if self.verbose > 0:
-                msg  = '   Matching catalog {0} / {1} with {2:d} stars'
-                msg2 = '      {0:8s} < {1:0.3f}'
-                print(" ")
-                print("   **********")
-                print(msg.format((ii + 1), len(self.star_lists), len(self.star_lists[ii])))
-                print(msg2.format('dr', dr_tol))
-                print(msg2.format('|dm|', dm_tol))
-                print('      outlier tol: ', outlier_tol)
-                print('          mag_lim: ', self.mag_lim[ii])
-                print("   **********")
+                print()
+                print("    **********")
+                if nn is not None:
+                    print(f"    Iteration {nn+1} / {self.iters}")
+                print(f'    Matching catalog {ii + 1} / {len(self.star_lists)} with {len(self.star_lists[ii]):d} stars')
+                print(f'     dr  < {dr_tol}')
+                print(f'    |dm| < {dm_tol}')
+                print(f'    outlier tol: {outlier_tol}')
+                print(f'    mag_lim: {self.mag_lim[nn][ii]}')
+                print("    **********")
 
             star_list = self.star_lists[ii]
-            ref_list = self.get_ref_list_from_table(star_list['t'][0])
+
+            list_epoch = star_list.meta['list_time']
+            ref_list = self.get_ref_list_from_table(list_epoch, processes=processes, chunksize=chunksize)
+
             trans = self.trans_list[ii]
 
             # Trim a COPY of the reference and star lists based on magnitude.
@@ -378,87 +1006,146 @@ class MosaicSelfRef(object):
             #       star_list_orig_trim is actually trimmed but not yet transformed.
             #       star_list_T is trimmed and transformed
             self.apply_mag_lim_via_use_in_trans(ref_list, ref_mag_lim)
-            star_list_orig_trim = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, untransformed copy
-            star_list_T = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, will be transformed copy
+            star_list_orig_trim = apply_mag_lim(star_list, self.mag_lim[nn][ii])  # trimmed, untransformed copy
+            star_list_T = StarList(star_list_orig_trim, copy=True)  # trimmed, will be transformed copy
+
+            assert len(star_list_orig_trim) > 0, f"No stars remain after applying mag_lim={self.mag_lim[nn][ii]} to star_list at index {ii}. Please check your mag_lim."
 
             ### Initial match and transform: 1st order (if we haven't already).
             if trans is None:
                 # Only use "use_in_trans" reference stars, even for initial guessing.
-                keepers = np.where(ref_list['use_in_trans'] == True)[0]
-
-                trans = trans_initial_guess(ref_list[keepers], star_list_orig_trim, self.trans_args[0],
-                                            mode=self.init_guess_mode,
-                                            order=self.init_order,
-                                            verbose=self.verbose,
-                                            mag_trans=self.mag_trans)
+                keepers = ref_list['use_in_trans']
+                trans = trans_initial_guess(
+                    ref_list=ref_list[keepers],
+                    star_list=star_list_orig_trim,
+                    trans_args=self.trans_args[0],
+                    mode=self.init_guess_mode,
+                    order=self.init_order,
+                    briteN=self.briteN,
+                    ignore_contains=self.ignore_contains,
+                    polygon_reflist=self.reflist_polygon,
+                    polygon_starlist=shapely.Polygon(self.starlist_vertices[ii]) if self.starlist_vertices is not None else None,
+                    buffer=dr_tol,
+                    motion_models=self.motion_models,
+                    fixed_params_dict=self.fixed_params_dict,
+                    mag_trans=self.mag_trans,
+                    verbose=self.verbose
+                )
+                if np.isnan(trans.px.parameters).any() or np.isnan(trans.py.parameters).any():
+                    raise ValueError(f"Initial transformation contains NaN parameters. trans.px={trans.px.parameters}, trans.py={trans.py.parameters}.")
 
             if self.mag_trans:
                 star_list_T.transform_xym(trans) # trimmed, transformed
             else:
-                star_list_T.transform_xy(trans) 
-                
+                star_list_T.transform_xy(trans)
+
             # Match stars between the transformed, trimmed lists.
-            idx1, idx2, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                             ref_list['x'], ref_list['y'], ref_list['m'],
-                                             dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
+            # Only use stars specified by "use_in_trans" column.
+            use_in_trans = ref_list['use_in_trans']
+            idx1, idx2, dr, dm = match.match(
+                star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
+                dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
+                matching=self.matching, dchi2_tol=self.dchi2_tol,
+                sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag
+            )
+            # Restore idx2 to the full reference list indices
+            idx2 = np.where(use_in_trans)[0][idx2]
+
+            if len(idx1) == 0 or len(idx2) == 0:
+                try:
+                    import plotly.graph_objects as go
+                    fig = go.Figure()
+                    plots.plotly_stars(
+                        x=star_list_T['x'],
+                        y=star_list_T['y'],
+                        color='C0',
+                        label='Transformed Starlist',
+                        fig=fig
+                    )
+                    plots.plotly_stars(
+                        x=ref_list['x'][use_in_trans],
+                        y=ref_list['y'][use_in_trans],
+                        color='C3',
+                        label='Reference List (use_in_trans=True)',
+                        fig=fig
+                    )
+                    fig.show()
+                except ImportError:
+                    fig, ax = plt.subplots()
+                    ax.scatter(star_list_T['x'], star_list_T['y'], s=1, c='C0', alpha=0.5, label='Transformed Starlist')
+                    ax.scatter(ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], s=1, c='C3', alpha=0.5, label='Reference List (use_in_trans=True)')
+                    ax.set_xlabel('X')
+                    ax.set_ylabel('Y')
+                    ax.set_title(f'Matching Results for Catalog {ii + 1}')
+                    ax.legend()
+                    plt.show()
+                raise ValueError(f"align.match_and_transform: No matches found between star_list at index {ii} and the reference list. Check your dr_tol={dr_tol} and dm_tol={dm_tol} values.")
+
             if self.verbose > 1:
                 print( '  Match 1: Found ', len(idx1), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
 
-            # Outlier rejection on ref_stars
-            if outlier_tol != None:
-                keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
-                                                          outlier_tol)
+            # Outlier rejection
+            if outlier_tol is not None:
+                keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2], outlier_tol, verbose=self.verbose)
+                keepers = self.guard_outlier_rejection(keepers, trans_args, ii, 'pre-fit')
                 if self.verbose > 1:
-                    print( '  Rejected ', len(idx1) - len(keepers), ' outliers.' )
-                    
-                idx1 = idx1[keepers]
-                idx2 = idx2[keepers]
+                    print( '  Rejected ', len(idx1) - sum(keepers), ' outliers.' )
 
-            # Only use stars specified by "use_in_trans" column.
-            if 'use_in_trans' in ref_list.colnames:
-                keepers = np.where(ref_list[idx2]['use_in_trans'] == True)[0]
-                
-                if self.verbose > 1:
-                    print( '  Rejected ', len(idx1) - len(keepers), ' with use_in_trans=False.' )
-                    
                 idx1 = idx1[keepers]
                 idx2 = idx2[keepers]
 
             # Determine weights in the fit.
-            weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])            
+            weight = self.get_weights_for_lists(ref_list[idx2], star_list_T[idx1])
 
-            # Derive the best-fit transformation parameters. 
+            # Derive the best-fit transformation parameters.
             if self.verbose > 1:
                 print( '  Using ', len(idx1), ' stars in transformation.' )
-            trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
-                                                      ref_list['x'][idx2], ref_list['y'][idx2],
-                                                      **trans_args,
-                                                      m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
-                                                      weights=weight, mag_trans=self.mag_trans)
+            trans = self.trans_class.derive_transform(
+                star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
+                ref_list['x'][idx2], ref_list['y'][idx2],
+                **trans_args,
+                m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
+                weights=weight, mag_trans=self.mag_trans
+            )
+            check_transform_finite(
+                trans, len(idx1),
+                f'align.match_and_transform: starlist {ii}, '
+                f'order={trans_args.get("order")} fit'
+            )
 
-            # Outlier rejection: ref stars in final transformation, if desired
+            # Outlier rejection: ref stars in final transformation, if desired.
+            # This is a second pass: the transformation derived just above is
+            # applied, residuals are re-measured against it, and if any star is
+            # now an outlier the transformation is derived again without it.
             if outlier_tol != None:
-                # Apply transformation to starlist, run match between starlist and ref_list
-                star_list_T = copy.deepcopy(star_list)
+                # Re-transform the TRIMMED list, not the full star_list: idx1
+                # indexes star_list_orig_trim (mag_lim applied), so building
+                # this from star_list would read the wrong rows whenever
+                # mag_lim actually trimmed something.
+                star_list_T = StarList(star_list_orig_trim, copy=True)
                 if self.mag_trans:
                     star_list_T.transform_xym(trans)
                 else:
                     star_list_T.transform_xy(trans)
 
-                idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                                   ref_list['x'], ref_list['y'], ref_list['m'],
-                                                   dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-                
                 # Let's look at just the ref stars used in the transformation, which are idx1 and idx2
                 keepers =  self.outlier_rejection_indices(star_list_T[idx1], ref_list[idx2],
                                                           outlier_tol)
+                keepers = self.guard_outlier_rejection(keepers, trans_args, ii, 'post-fit')
+
+                # keepers is a boolean MASK over idx2, so len(keepers) is always
+                # len(idx2) -- counting with len() made the message read 0 and
+                # the guard below unsatisfiable, so this whole second pass never
+                # ran. Count the True entries instead.
+                n_keep = np.count_nonzero(keepers)
 
                 if self.verbose > 1:
-                    print( '  Rejected ', len(idx2) - len(keepers), ' outliers, final trans.' )
+                    print( '  Rejected ', len(idx2) - n_keep, ' outliers, final trans.' )
 
                 # If at least 1 ref star was eliminated, redo transformation
-                if len(keepers) < len(idx2):
+                if n_keep < len(idx2):
                     # Return print statment if verbose high enough
                     if self.verbose > 7:
                         print('=========================')
@@ -468,7 +1155,7 @@ class MosaicSelfRef(object):
                         for jj in outlier_names:
                             print('{0}'.format(jj))
                         print('=========================')
-                    
+
                     # Update set of ref stars (indices are idx1, idx2 here, to be compatible downstream)
                     idx1 = idx1[keepers]
                     idx2 = idx2[keepers]
@@ -479,11 +1166,17 @@ class MosaicSelfRef(object):
                     # Redo transformation
                     if self.verbose > 1:
                         print( 'Recalculating trans after outlier reject. Using ', len(idx1), ' stars in transformation.' )
-                    trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1], 
+                    trans = self.trans_class.derive_transform(star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
                                                       ref_list['x'][idx2], ref_list['y'][idx2],
                                                       **trans_args,
                                                       m=star_list_orig_trim['m'][idx1], mref=ref_list['m'][idx2],
                                                       weights=weight, mag_trans=self.mag_trans)
+                    check_transform_finite(
+                        trans, len(idx1),
+                        f'align.match_and_transform: starlist {ii}, '
+                        f'order={trans_args.get("order")} refit after outlier '
+                        f'rejection'
+                    )
 
             # Save the final transformation
             self.trans_list[ii] = trans
@@ -492,22 +1185,25 @@ class MosaicSelfRef(object):
             # NOTE: We will not recalculate weights here
             if self.calc_trans_inverse:
                 if self.verbose > 1:
-                    print('Doing inverse')
-                trans_inv = self.trans_class.derive_transform(ref_list['x'][idx2], ref_list['y'][idx2],
-                                                              star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
-                                                              trans_args['order'], m=ref_list['m'][idx2],
-                                                              mref=star_list_orig_trim['m'][idx1], weights=weight,
-                                                              mag_trans=self.mag_trans)
+                    print('Calculating inverse transformation...')
+
+                trans_inv = self.trans_class.derive_transform(
+                    ref_list['x'][idx2], ref_list['y'][idx2],
+                    star_list_orig_trim['x'][idx1], star_list_orig_trim['y'][idx1],
+                    trans_args['order'], m=ref_list['m'][idx2],
+                    mref=star_list_orig_trim['m'][idx1], weights=weight,
+                    mag_trans=self.mag_trans
+                )
                 self.trans_list_inverse[ii] = trans_inv
 
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
-            star_list_T = copy.deepcopy(star_list)
+            star_list_T = StarList(star_list, copy=True)
             if self.mag_trans:
                 star_list_T.transform_xym(self.trans_list[ii])
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
-                
+
             if self.verbose > 7:
                 hdr = '{nr:20s} {n:s} {xl:9s} {xr:9s} {yl:9s} {yr:9s} {ml:6s} {mr:6s} '
                 hdr += '{dx:7s} {dy:7s} {dm:6s} {xo:9s} {yo:9s} {mo:6s}'
@@ -517,7 +1213,7 @@ class MosaicSelfRef(object):
                                      ml='m_lis_T', mr='m_ref',
                                      dx='dx_mpix', dy='dy_mpix', dm='dm',
                                      xo='x_orig', yo='y_orig', mo='m_orig'))
-                
+
                 fmt = '{nr:20s} {n:s} {xl:9.5f} {xr:9.5f} {yl:9.5f} {yr:9.5f} {ml:6.2f} {mr:6.2f} '
                 fmt += '{dx:7.2f} {dy:7.2f} {dm:6.2f} {xo:9.5f} {yo:9.5f} {mo:6.2f}'
                 for foo in range(len(idx1)):
@@ -527,106 +1223,156 @@ class MosaicSelfRef(object):
                     print(fmt.format(nr=star_r['name'], n=star_s['name'], xl=star_t['x'], xr=star_r['x'],
                                      yl=star_t['y'], yr=star_r['y'],
                                      ml=star_t['m'], mr=star_r['m'],
-                                     dx=(star_t['x'] - star_r['x']) * 1e3, 
+                                     dx=(star_t['x'] - star_r['x']) * 1e3,
                                      dy=(star_t['y'] - star_r['y']) * 1e3,
                                      dm=(star_t['m'] - star_r['m']),
                                      xo=star_s['x'], yo=star_s['y'], mo=star_s['m']))
-                    
-            idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                                   ref_list['x'], ref_list['y'], ref_list['m'],
-                                                   dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
-                
+
+            idx_lis, idx_ref, dr, dm = match.match(
+                star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                ref_list['x'], ref_list['y'], ref_list['m'],
+                dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
+                matching=self.matching, dchi2_tol=self.dchi2_tol,
+                sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag
+            )
+
             if self.verbose > 1:
                 print( '  Match 2: After trans, found ', len(idx_lis), ' matches out of ', len(star_list_T),
                        '. If match count is low, check dr_tol, dm_tol.' )
 
             ## Make plot, if desired
-            plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis],
-                                  fileName='ep{0}'.format(ii))
+            if self.save_path and self.save_plot:
+                plot_path = os.path.join(self.save_path, 'transformation_plots', f'iter{nn}', f"Transformed_Positions_Starlist_{ii}_t_{list_epoch}.png")
+                plots.trans_positions(ref_list, ref_list[idx_ref], star_list_T, star_list_T[idx_lis], save_path=plot_path, show_plot=False)
 
             ### Update the observed (but transformed) values in the reference table.
             self.update_ref_table_from_list(star_list, star_list_T, ii, idx_ref, idx_lis, idx2)
-            
+
             ### Update the "average" values to be used as the reference frame for the next list.
-            if self.update_ref_orig != 'periter':
-                self.update_ref_table_aggregates()
+            keep_ref_orig = (self.update_ref_orig==False) or (self.update_ref_orig=='atend') or (self.update_ref_orig=='periter' and ii<(len(self.star_lists) - 1))
+            if keep_ref_orig and ii < (len(self.star_lists) - 1):
+                keep_orig = self.ref_table['ref_orig'] | (~np.isfinite(self.ref_table['x'][:,ii]))
+            elif keep_ref_orig:
+                keep_orig = self.ref_table['ref_orig']
+            elif ii < (len(self.star_lists) - 1):
+                keep_orig = ~np.isfinite(self.ref_table['x'][:,ii])
+            else:
+                keep_orig=None
+            self.update_ref_table_aggregates(keep_orig=keep_orig, processes=processes, chunksize=chunksize, mp_star_threshold=mp_star_threshold)
+
+            # Update ref list polygon
+            if self.starlist_vertices is not None:
+                self.reflist_polygon = shapely.make_valid(self.reflist_polygon.union(shapely.Polygon(self.starlist_vertices[ii])))
 
             # Print out some metrics
             if self.verbose > 0:
                 msg1 = '    {0:2s} (mean and std) for {1:10s}: {2:8.5f} +/- {3:8.5f}'
-                print('  Residuals: ')
+                print('    Residuals: ')
                 print(msg1.format('dr', 'all stars', dr.mean(), dr.std()))
-                print(msg1.format('dm', 'all stars', dm.mean(), dm.std()))
+                print(msg1.format('dm', 'all stars', dm.mean(), dm.std()))  # ref_list - ref_table
 
                 # Calculate the residuals just for those used in the transformation
-                used = np.where(self.ref_table['used_in_trans'][:, ii] == True)[0]
-                used_good = used[ np.where(np.isin(used, idx_ref) == True)[0] ]
-                
-                dr_u = np.hypot(self.ref_table['x'][used_good, ii] - ref_list['x'][used_good],
-                                self.ref_table['y'][used_good, ii] - ref_list['y'][used_good])
-                dm_u = np.abs(self.ref_table['m'][used_good, ii] - ref_list['m'][used_good])
+                used = np.where(self.ref_table['used_in_trans'][:, ii])[0]
+                used_good = used[np.isin(used, idx_ref)]
+
+                dr_u = np.hypot(ref_list['x'][used_good] - self.ref_table['x'][used_good, ii],
+                                ref_list['y'][used_good] - self.ref_table['y'][used_good, ii])
+                dm_u = ref_list['m'][used_good] - self.ref_table['m'][used_good, ii]
                 print(msg1.format('dr', 'trans stars', dr_u.mean(), dr_u.std()))
                 print(msg1.format('dm', 'trans stars', dm_u.mean(), dm_u.std()))
                 print('    Used {0:d} trans ref stars.'.format(len(used)))
                 print('    Dropped {0:d} matches after transform.'.format(len(used) - len(used_good)))
+            gc.collect()  # clean up memory after each iteration
+
+            # Save ref_table after each iteration
+            # print(f"Saving self after iteration {ii=}")
+            # if self.save_path:
+            #     with open(os.path.join(self.save_path, f"{self.prefix_name}_iter.pkl"), 'wb') as file:
+            #         pickle.dump(self, file)
 
         return
-    
+
     def setup_trans_info(self):
         """ Setup transformation info into a usable format.
 
+        Parameters
+        ----------
         trans_input : list or None
-        trans_args : dict or None
+        trans_args : list of dict
+            Already broadcast/validated by fix_iterable_conditions --
+            one dict per iteration.
         N_lists : int
         iters : int
         """
         trans_input = self.trans_input
-        trans_args = self.trans_args
         N_lists = len(self.star_lists)
-        iters = self.iters
-        
+
         trans_list = [None for ii in range(N_lists)]
-        if trans_input != None:
+        if trans_input is not None:
             trans_list = [trans_input[ii] for ii in range(N_lists)]
 
-        # Keep a list of trans_args, one for each starlist. If only
-        # a single is passed in, replicate for all star lists, all loop iterations.
-        if type(trans_args) == dict:
-            tmp = trans_args
-            trans_args = [tmp for ii in range(iters)]
-
         self.trans_list = trans_list
-        self.trans_args = trans_args
 
         # Add inverse trans list, if desired
         if self.calc_trans_inverse:
-            trans_list_inverse = [None for ii in range(N_lists)]
+            trans_list_inverse = [None] * N_lists
             self.trans_list_inverse = trans_list_inverse
 
         return
 
     def setup_ref_table_from_starlist(self, star_list):
-        """ 
+        """
         Start with the reference list.... this will change and grow
         over time, so make a copy that we will keep updating.
-        The reference table will contain one columne for every named
+        The reference table will contain one column for every named
         array in the original reference star list.
+
+        Parameters
+        ----------
+        star_list : StarList
+            The starlist to seed the reference table with -- for
+            :class:`MosaicSelfRef` this is ``star_lists[ref_index]``.
+
+        Returns
+        -------
+        StarTable
+            The seeded reference table. Per-list quantities get a length-1
+            epoch axis that grows as further starlists are added; motion
+            model parameters stay 1D.
         """
         col_arrays = {}
+
+        motion_model_col_names = motion_model.all_motion_model_param_names(with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
         for col_name in star_list.colnames:
             if col_name == 'name':
-                # The "name" column will be 1D; but we will also add a "name_in_list" column.
+                # The "name" column is 1D. Per-list identity is carried by
+                # "idx_in_list": the row index this star occupies in each
+                # input starlist (-1 where it wasn't detected). That recovers
+                # the per-list name as star_lists[j]['name'][idx] -- see
+                # names_in_list() -- for 4 bytes an entry instead of the 120
+                # a U30 copy of the name cost. On a mosaic that column is the
+                # single largest thing in the reference table, and it is
+                # rebuilt in full every time the table grows.
                 col_arrays['name'] = star_list[col_name].data
-                new_col_name = "name_in_list"
+                col_arrays['idx_in_list'] = np.arange(
+                    len(star_list), dtype=np.int32)[:, np.newaxis]
+                continue
+            elif col_name == 'n_detect' and self.inherit_n_detect:
+                # Don't let this collide with the 1D 'n_detect' aggregate
+                # that update_n_detect() computes -- store this starlist's
+                # own per-star detection count (e.g. from a previous,
+                # lower-level align pass) under its per-list name instead,
+                # same as every other list-column.
+                new_col_name = 'n_detect_list'
             else:
                 new_col_name = col_name
 
-            # Make every column's 2D arrays except "name" and those
+            # Make every column's 2D arrays per star except "name" and those
             # columns used for the motion model.
             if col_name in motion_model_col_names:
                 col_arrays[new_col_name] = star_list[col_name].data
             else:
-                new_col_data = np.array([star_list[col_name].data]).T
+                new_col_data = star_list[col_name].data[:, np.newaxis]
                 col_arrays[new_col_name] = new_col_data
 
         # Use the columns from the ref list to make the ref_table.
@@ -634,11 +1380,9 @@ class MosaicSelfRef(object):
 
         # Make new columns to hold original values. These will be copies
         # of the old columns and will only include x, y, m, xe, ye, me.
-        # The columns we have already created will hold transformed values. 
+        # The columns we have already created will hold transformed values.
         trans_col_names = ['x', 'y', 'm', 'xe', 'ye', 'me', 'w']
-        for tt in range(len(trans_col_names)):
-            old_name = trans_col_names[tt]
-
+        for old_name in trans_col_names:
             if old_name in ref_table.colnames:
                 new_col = ref_table[old_name].copy()
                 new_col.name = old_name + '_orig'
@@ -646,125 +1390,162 @@ class MosaicSelfRef(object):
 
         # Make sure ref_table has the necessary x0, y0, m0 and associated
         # error columns. If they don't exist, then add them as a copy of
-        # the original x,y,m etc columns. 
+        # the original x,y,m etc columns.
         new_cols_arr = ['x0', 'y0', 'm0']
         orig_cols_arr = ['x', 'y', 'm']
         ref_cols = ref_table.keys()
-        for ii in range(len(new_cols_arr)):
-            if not new_cols_arr[ii] in ref_cols:
+        for new_col, orig_col in zip(new_cols_arr, orig_cols_arr):
+            if new_col not in ref_cols:
                 # Some munging to convert data shape from (N,1) to (N,),
                 # since these are all 1D cols
-                vals = np.transpose(np.array(ref_table[orig_cols_arr[ii]]))[0]
+                vals = np.array(ref_table[orig_col]).flatten()
 
                 # Now add to ref_table
-                new_col = Column(vals, name=new_cols_arr[ii])
-                ref_table.add_column(new_col)
+                ref_table.add_column(vals, name=new_col)
 
         # Do the same thing for the x0e, y0e, m0e columns, but
         # ONLY IF THEY ALREADY EXIST IN REF_TABLE! Otherwise,
         # just fill these tables with zeros. We need something
         # in these columns in order for the error propagation to
         # work later on.
-        new_err_cols = ['x0e', 'y0e', 'm0e']
+        new_err_cols = ['x0_err', 'y0_err', 'm0_err']
         orig_err_cols = ['xe', 'ye', 'me']
-        for ii in range(len(new_err_cols)):
+        for new_err_col, orig_err_col in zip(new_err_cols, orig_err_cols):
             # If the orig col name (e.g. xe) is in the ref_table, but the new col name
             # (e.g. x0e) doesn't exist, then add the x0e column as a duplicate of xe.
-            if (orig_err_cols[ii] in ref_cols) & (not new_err_cols[ii] in ref_cols):
+            if (orig_err_col in ref_cols) and (new_err_col not in ref_cols):
                 # Some munging to convert data shape from (N,1) to (N,),
                 # since these are all 1D cols
-                vals = np.transpose(np.array(ref_table[orig_err_cols[ii]]))[0]
-
+                vals = np.transpose(np.array(ref_table[orig_err_col]))[0]
                 # Now add to ref_table
-                new_col = Column(vals, name=new_err_cols[ii])
-                ref_table.add_column(new_col)
-            elif (not orig_err_cols[ii] in ref_cols) & (not new_err_cols[ii] in ref_cols):
+                ref_table.add_column(vals, name=new_err_col)
+            elif (orig_err_col not in ref_cols) and (new_err_col not in ref_cols):
                 # If neither the orig_err_col or new_err_col is in the ref_table, put in the
                 # new_err_cols as an array of zeros
                 vals = np.zeros(len(ref_table))
-                new_col = Column(vals, name=new_err_cols[ii])
-                ref_table.add_column(new_col)                
+                ref_table.add_column(vals, name=new_err_col)
 
         # Final check: ref_table should now have x0, y0, m0, x0e, y0e, and m0e columns
         # This is necessary for later steps, even if the columns are just zeros.
         final_new_cols = np.concatenate((new_cols_arr, new_err_cols))
         for ii in final_new_cols:
-            assert ii in ref_table.keys()
-                
+            assert ii in ref_table.keys(), f"ref_table is missing necessary column {ii}."
+
         # Make sure we have a column to indicate whether each star
         # CAN BE USED in the transformation. This will be 1D
         if 'use_in_trans' not in ref_table.colnames:
-            new_col = Column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
-            ref_table.add_column(new_col)
+            ref_table.add_column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
 
         # Make sure we have a column to indicate whether each star
         # IS USED in the transformation. This will be 2D
         if 'used_in_trans' not in ref_table.colnames:
-            new_col = Column(np.zeros([len(ref_table),1], dtype=bool), name='used_in_trans')
-            ref_table.add_column(new_col)
-            
+            ref_table.add_column(np.zeros([len(ref_table), 1], dtype=bool), name='used_in_trans')
+
         # Keep track of whether this is an original reference star.
-        col_ref_orig = Column(np.ones(len(ref_table), dtype=bool), name='ref_orig')
-        ref_table.add_column(col_ref_orig)
+        ref_table.add_column(np.ones(len(ref_table), dtype=bool), name='ref_orig')
+
+        # Make sure we have a per-list column to track each starlist's
+        # detection-count contribution, even if this particular (seed)
+        # starlist doesn't provide its own 'n_detect' -- a later starlist
+        # in the mosaic still might, and copy_over_values needs somewhere
+        # to write it. Gets reset to invalid below like any other 2D
+        # column, then correctly (re)populated once this starlist goes
+        # through its own match/copy_over_values pass.
+        if self.inherit_n_detect and 'n_detect_list' not in ref_table.colnames:
+            ref_table.add_column(np.zeros((len(ref_table), 1), dtype=int), name='n_detect_list')
 
         # Now reset the original values to invalids... they will be filled in
         # at later times. Preserve content only in the columns: name, x0, y0, m0 (and 0e).
         # Note that these are all the 1D columsn.
         for col_name in ref_table.colnames:
             if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
-                ref_table._set_invalid_list_values(col_name, -1)    
+                if col_name in ['xe', 'ye', 'me']:
+                    ref_table[col_name][:, -1] = np.inf
+                else:
+                    ref_table._set_invalid_list_values(col_name, -1)
+
+        # 'motion_model_input' is deliberately NOT auto-filled here. It used to
+        # be populated with motion_models[-1].name whenever the input starlist
+        # lacked it, which made the column always present and therefore
+        # indistinguishable from a real per-star request -- so propagation,
+        # which honors the column when present (see
+        # determine_motion_models), would have been tied straight back to
+        # the fitting setting: with motion_models=['Fixed'] every row would
+        # read 'Fixed' and a reference carrying real velocities would be frozen
+        # at its catalog epoch. Leaving it absent keeps "present" meaning "the
+        # caller asked for this". Fitting is unaffected: fit_motion_models
+        # already handles the column being absent, and its no-column branch
+        # ("most complex model in motion_models with n_fit >= n_params") is
+        # exactly what the uniformly-auto-filled column used to produce.
+
+        # Add time column if it doesn't exist
+        if 't' not in ref_table.colnames:
+            ref_table.add_column(np.full((len(ref_table), 1), np.nan), name='t')
 
         return ref_table
 
     def apply_mag_lim_via_use_in_trans(self, ref_list, ref_mag_lim):
-        """Set the use_in_trans flag to False for any star in the 
-        star list that falls beyond the magnitude limits. 
+        """Set the use_in_trans flag to False for any star in the
+        star list that falls beyond the magnitude limits.
 
         This should really only be applied to reference star lists.
+
+        Parameters
+        ----------
+        ref_list : StarList
+            The reference list to flag. Modified in place: its
+            'use_in_trans' column is cleared for stars outside the limits.
+            Uses 'm0' if present, otherwise 'm'.
+        ref_mag_lim : array or None
+            The [min, max] magnitudes to keep in the transformation. None
+            leaves every star flagged in.
+
+        Returns
+        -------
+        None
         """
-        if ((ref_mag_lim is not None) and (ref_mag_lim[0] is not None)):
+        if ref_mag_lim is not None:
             # Support 'm0' (primary) or 'm' column name.
             if 'm0' in ref_list.colnames:
                 mcol = 'm0'
             else:
                 mcol = 'm'
 
-            no_use = np.where((ref_list[mcol] < ref_mag_lim[0]) |
-                              (ref_list[mcol] >= ref_mag_lim[1]))
+            # NaN comparisons are always False, so a star with a non-finite
+            # magnitude (e.g. no usable 'me' to weight it by) would otherwise
+            # never get excluded by the range check below and would flood
+            # into use_in_trans with an unknown magnitude.
+            no_use = ~np.isfinite(ref_list[mcol]) | (ref_list[mcol] < ref_mag_lim[0]) | (ref_list[mcol] >= ref_mag_lim[1])
 
             ref_list['use_in_trans'][no_use]  = False
-            
+
         return
 
     def outlier_rejection_indices(self, star_list, ref_list, outlier_tol, verbose=True):
         """
         Determine the outliers based on the residual positions between two different
-        starlists and some threshold (in sigma). Return the indices of the stars 
-        to keep (that shouldn't be rejected as outliers). 
+        starlists and some threshold (in sigma). Return the indices of the stars
+        to keep (that shouldn't be rejected as outliers).
 
         Note that we assume that the star_list and ref_list are already transformed and
-        matched. 
+        matched.
 
         Parameters
         ----------
         star_list : StarList
             starlist with 'x', 'y'
-
         ref_list : StarList
             starlist with 'x0', 'y0'
-
         outlier_tol : float
-            Number of sigma inside which we keep stars and outside of which we 
-            reject stars as outliers. 
+            Number of sigma inside which we keep stars and outside of which we
+            reject stars as outliers.
 
-        Optional Parameters
-        --------------------
-        verbose : boolean
+        verbose : boolean, optional
 
         Returns
-        ----------
-        keepers : nd.array
-            The indicies of the stars to keep. 
+        -------
+        keepers : boolean array
+            The boolean array of the stars to keep.
         """
         # Optionally propogate the reference positions forward in time.
         xref = ref_list['x']
@@ -776,20 +1557,77 @@ class MosaicSelfRef(object):
         resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
 
         threshold = np.median(resid_on_old_trans) + (outlier_tol * resid_on_old_trans.std())
-        keepers = np.where(resid_on_old_trans < threshold)[0]
+
+        # Keep stars sitting exactly AT the threshold. When every residual is
+        # identical the std is 0 and the threshold collapses onto the median,
+        # so a strict '<' rejects all of them -- which is precisely what
+        # happens to the reference list's own starlist under an identity
+        # transform, where the residuals are all exactly 0. Rejecting 100% of
+        # the matches leaves derive_transform with nothing to fit and it
+        # returns NaN coefficients, which only surface much later as
+        # 'x1 does not contain any finite values!' out of match.match.
+        keepers = resid_on_old_trans <= threshold
 
         if verbose:
             msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
-            print(msg.format(len(keepers), len(resid_on_old_trans)))
+            print(msg.format(sum(keepers), len(resid_on_old_trans)))
 
         return keepers
 
+    def guard_outlier_rejection(self, keepers, trans_args, ii, stage):
+        """
+        Refuse an outlier rejection that would starve the transformation fit.
+
+        Outlier rejection is a heuristic; the transformation is the result. If a
+        rejection pass leaves fewer stars than the transformation has free
+        parameters per axis, derive_transform returns NaN coefficients rather
+        than raising, and the NaNs propagate silently into the transformed
+        positions and the reference table. Keeping every matched star -- a
+        transformation fit including some outliers -- is strictly better than a
+        transformation made of NaNs, so drop the rejection and say so.
+
+        Parameters
+        ----------
+        keepers : boolean array
+            The mask returned by outlier_rejection_indices.
+        trans_args : dict
+            The derive_transform keywords for this iteration.
+        ii : int
+            Index of the starlist being matched, for the warning message.
+        stage : str
+            Which rejection pass this is, for the warning message.
+
+        Returns
+        -------
+        keepers : boolean array
+            The input mask, or an all-True mask if the rejection was refused.
+        """
+        n_keep = np.count_nonzero(keepers)
+        n_req = min_stars_for_transform(trans_args)
+
+        if n_keep >= n_req:
+            return keepers
+
+        warnings.warn(
+            f'align.match_and_transform: outlier rejection ({stage}) on starlist '
+            f'{ii} would leave {n_keep} of {len(keepers)} matched stars, fewer '
+            f'than the {n_req} needed for an order={trans_args.get("order")} '
+            f'transformation. Keeping all matched stars instead. This usually '
+            f'means the residuals are nearly all identical -- e.g. a starlist '
+            f'matched against a reference built from itself -- so the '
+            f'median + outlier_tol * sigma threshold has no scatter to work '
+            f'with.',
+            AstropyUserWarning
+        )
+
+        return np.ones(len(keepers), dtype=bool)
+
     def update_ref_table_from_list(self, star_list, star_list_T, ii, idx_ref, idx_lis, idx_ref_in_trans):
         """
-        Inputs
+        Parameters
         ----------
         star_list : StarList
-            The original star list. 
+            The original star list.
 
         star_list_T : StarList
             The original star list now transformed into the reference coordinate system.
@@ -804,113 +1642,268 @@ class MosaicSelfRef(object):
             The indices of the matched targets in the origin starlist (epoch).
 
         idx_ref_in_trans : np.array dtype=int
-            The indices in the reference table (self.ref_table). 
+            The indices in the reference table (self.ref_table).
         """
         ### Update the reference table for matched stars.
         #   Add the matched stars to the reference table.
         #   For every epoch except the reference, we need to add a starlist.
+
         if ((self.ref_table['x'].shape[1] != len(self.star_lists)) and
             (ii != self.ref_index) and
             (ii >= self.ref_table['x'].shape[1])):
-            
-            self.ref_table.add_starlist()
-                
+            # This call only grows the table by one blank list-column --
+            # copy_over_values() below fills in the real x/y/m/etc data for
+            # it. list_times is tracked as per-list meta, not a column, and
+            # add_starlist() has no value for it to give here -- but that's
+            # fine, since fit() unconditionally rebuilds the whole list_times
+            # array from self.star_lists every iteration (a few lines below
+            # match_and_transform's return), superseding whatever this call
+            # would set anyway. Silence the "missing" warning rather than
+            # compute a value here just to have it immediately overwritten.
+            self.ref_table.add_starlist(warn_missing_meta=False)
+
         copy_over_values(self.ref_table, star_list, star_list_T, ii, idx_ref, idx_lis)
         self.ref_table['used_in_trans'][idx_ref_in_trans, ii] = True
 
         ### Add the unmatched stars and grow the size of the reference table.
-        self.ref_table, idx_lis_new, idx_ref_new = add_rows_for_new_stars(self.ref_table, star_list, idx_lis)
+        self.ref_table, idx_lis_new, idx_ref_new = add_rows_for_new_stars(
+            self.ref_table,
+            star_list,
+            idx_lis,
+            # motion_model_name=self.motion_model_for_new_star.name
+            motion_model_name=self.motion_models[-1].name,
+            fixed_params_dict=self.fixed_params_dict
+        )
+
         if len(idx_ref_new) > 0:
             if self.verbose > 0:
                 print('    Adding {0:d} new stars to the reference table.'.format(len(idx_ref_new)))
-                
+
             copy_over_values(self.ref_table, star_list, star_list_T, ii, idx_ref_new, idx_lis_new)
 
             # Copy the single-epoch values to the aggregate (only for new stars).
             self.ref_table['x0'][idx_ref_new] = star_list_T['x'][idx_lis_new]
             self.ref_table['y0'][idx_ref_new] = star_list_T['y'][idx_lis_new]
             self.ref_table['m0'][idx_ref_new] = star_list_T['m'][idx_lis_new]
-            
-            self.ref_table['name'] = update_old_and_new_names(self.ref_table, ii, idx_ref_new)
+
+            self.ref_table['name'] = update_old_and_new_names(self.ref_table, star_list, ii, idx_ref_new)
 
             if self.use_ref_new == True:
                 self.ref_table['use_in_trans'][idx_ref_new] = True
             else:
                 self.ref_table['use_in_trans'][idx_ref_new] = False
-                
+
         return
-    
-    def update_ref_table_aggregates(self, n_boot=0, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True):
-        """
-        Average positions or fit velocities.
+
+    def update_ref_table_aggregates(self, keep_orig=None, n_boot=0, seed=None, processes=1, chunksize=None, mp_star_threshold=100_000):
+        """        Average positions or fit velocities.
         Average magnitudes.
         Calculate bootstrap errors if desired.
 
-        Update the use_in_trans values as needed.
+        Update the use_in_trans values as needed. TODO: ????.
 
         Updates aggregate columns in self.ref_table in place.
+
+
+        Parameters
+        ----------
+        keep_orig : array-like of bool, optional
+            Boolean array indicating which stars to keep original values for, by default None
+        n_boot : int, optional
+            Number of bootstrap iterations, by default 0
+        seed : int, optional
+            Random seed for reproducible bootstrap results, by default None
+        processes : int, optional
+            Number of processes used to fit the motion models, by default 1
+            (no multiprocessing).
+        chunksize : int, optional
+            Chunk size for that multiprocessing, by default None (auto).
+        mp_star_threshold : int, optional
+            Minimum number of stars needing the per-star fitting path before
+            a multiprocessing Pool is used, even when processes > 1. See
+            :meth:`fit`, by default 100_000.
+
+        Returns
+        -------
+        None
         """
         # Keep track of the original reference values.
         # In certain cases, we will NOT update these.
-        if not self.update_ref_orig:
-            ref_orig_idx = np.where(self.ref_table['ref_orig'] == True)[0]
-            x0_orig = self.ref_table['x0'][ref_orig_idx]
-            y0_orig = self.ref_table['y0'][ref_orig_idx]
-            m0_orig = self.ref_table['m0'][ref_orig_idx]
-            x0e_orig = self.ref_table['x0e'][ref_orig_idx]
-            y0e_orig = self.ref_table['y0e'][ref_orig_idx]
-            m0e_orig = self.ref_table['m0e'][ref_orig_idx]
+        if (keep_orig is not None) and (np.count_nonzero(keep_orig) > 0):
+            vals_orig = {}
+            vals_orig['m0'] = self.ref_table['m0'][keep_orig]
+            vals_orig['m0_err'] = self.ref_table['m0_err'][keep_orig]
+            # Collect all motion model parameter names
+            motion_model_class_names = []
+            if 'motion_model_input' in self.ref_table.keys():
+                motion_model_class_names += self.ref_table['motion_model_input'].tolist()
+            if 'motion_model_used' in self.ref_table.keys():
+                motion_model_class_names += self.ref_table['motion_model_used'][keep_orig].tolist()
+                vals_orig['motion_model_used'] = self.ref_table['motion_model_used'][keep_orig]
+                vals_orig['n_params'] = self.ref_table['n_params'][keep_orig]
+            motion_model_col_names = motion_model.motion_model_param_names(motion_model_class_names, with_errors=True, with_fixed=True)
+            for mm in motion_model_col_names:
+                if mm in self.ref_table.keys():
+                    vals_orig[mm] = self.ref_table[mm][keep_orig]
+            fit_star_idxs = ~keep_orig
+        else:
+            fit_star_idxs = None
 
-            if self.use_vel:
-                vx_orig = self.ref_table['vx'][ref_orig_idx]
-                vy_orig = self.ref_table['vy'][ref_orig_idx]
-                vxe_orig = self.ref_table['vxe'][ref_orig_idx]
-                vye_orig = self.ref_table['vye'][ref_orig_idx]
-                t0_orig = self.ref_table['t0'][ref_orig_idx]
-                
-        if self.use_vel:
-            # Combine positions with a velocity fit.
-            self.ref_table.fit_velocities(weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, bootstrap=n_boot, verbose=self.verbose, show_progress=show_progress)
-    
+        weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
+        weighted_m = ('me' in self.ref_table.colnames)
+
+        # Route each star to the fastest applicable fitting path instead of
+        # an all-or-nothing check on the *requested* motion_model_input.
+        #
+        # If Empty/Fixed are the only motion models even possible (nothing
+        # more complex was requested), there's no ambiguity to resolve at
+        # all: every star is guaranteed to end up Empty or Fixed regardless
+        # of how many epochs it has, so route all of them through the fast,
+        # vectorized combine_lists_xym without needing fit_motion_models's
+        # fuller classification. (combine_lists honors absolute_sigma the
+        # same way Fixed.run_fit does, so these stars' errors are computed
+        # consistently either way.)
+        #
+        # Otherwise (Linear/Parallax/etc. are also possible), a star with at
+        # most 1 valid (finite x, y, xe, ye) epoch can still only ever
+        # qualify for Empty or Fixed -- and combine_lists_xym already
+        # produces identical output for both (0 valid epochs -> nan/inf,
+        # matching Empty; >=1 -> weighted average, matching Fixed) -- so
+        # it's safe to route those stars the same way, regardless of
+        # whether *other* stars need something more complex. This is a
+        # conservative (never-wrong) check: the raw count here is always >=
+        # the deduplicated-unique-times count fit_motion_models itself
+        # uses, so a star this flags as "<=1" can never actually qualify
+        # for a model needing more. Only stars with >=2 valid epochs (which
+        # MIGHT qualify for Linear/Parallax/etc.) go through
+        # fit_motion_models's fuller (and more expensive) classification.
+        # Previously, a single star needing something other than Fixed
+        # forced ALL stars -- including a huge Fixed/Empty majority -- through
+        # the slower fit_motion_models.
+        if {mm.name for mm in self.motion_models} <= {'Empty', 'Fixed'}:
+            guaranteed_simple = np.ones(len(self.ref_table), dtype=bool)
+        else:
+            valid_epoch = np.isfinite(self.ref_table['x']) & np.isfinite(self.ref_table['y'])
+            if weighted_xy:
+                valid_epoch &= np.isfinite(self.ref_table['xe']) & np.isfinite(self.ref_table['ye'])
+            guaranteed_simple = valid_epoch.sum(axis=1) <= 1
+
+        if weighted_xy:
+            # fit_motion_models falls back to a unit weight (xe=ye=1) for a
+            # star whose xe/ye are invalid (or ~0) across *every* epoch, so
+            # it still gets a position instead of being dropped -- mirrored
+            # here from startables.py's fill_with_one logic. combine_lists
+            # has no such fallback and would produce nan/inf for these
+            # stars instead of the same weighted-by-1 result, so keep them
+            # out of the "simple" bucket and let fit_motion_models handle
+            # them regardless of how few epochs they have.
+            xe_bad = ~np.isfinite(self.ref_table['xe']) | np.isclose(self.ref_table['xe'], 0)
+            ye_bad = ~np.isfinite(self.ref_table['ye']) | np.isclose(self.ref_table['ye'], 0)
+            needs_error_fallback = xe_bad.all(axis=1) & ye_bad.all(axis=1)
+            guaranteed_simple &= ~needs_error_fallback
+
+        need_update = fit_star_idxs if fit_star_idxs is not None else np.ones(len(self.ref_table), dtype=bool)
+        simple_idxs = guaranteed_simple & need_update
+        complex_idxs = (~guaranteed_simple) & need_update
+
+        if np.any(simple_idxs):
+            # Only (re)average the rows that actually changed this round
+            # (fit_star_idxs) -- for a mosaic that keeps growing across many
+            # starlists, recomputing every already-settled row every time
+            # this is called would make the total cost grow quadratically in
+            # the number of starlists.
+            if self.verbose > 0:
+                print(f'Fixed/Empty motion model: combining lists for {np.count_nonzero(simple_idxs)} stars.')
+            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m, select_stars=simple_idxs,
+                                             absolute_sigma=self.absolute_sigma)
+
+        if np.any(complex_idxs):
+            self.ref_table.fit_motion_models(
+                motion_models=self.motion_models,
+                fixed_params_dict=self.fixed_params_dict,
+                weighting=self.vel_weighting,
+                absolute_sigma=self.absolute_sigma,
+                select_stars=complex_idxs,
+                bootstrap=n_boot,
+                seed=seed,
+                processes=processes,
+                chunksize=chunksize,
+                mp_star_threshold=mp_star_threshold,
+                verbose=self.verbose
+            )
             # Combine (transformed) magnitudes
             if 'me' in self.ref_table.colnames:
-                weights_col = None
-            else:
                 weights_col = 'me'
-                
-            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True)
+            else:
+                weights_col = None
+            self.ref_table.combine_lists('m', weights_col=weights_col, ismag=True, select_stars=complex_idxs,
+                                         absolute_sigma=self.absolute_sigma)
+
+        # if (keep_orig is not None) and (sum(keep_orig) > 0):
+        # Determine motion_model_used for keep_orig stars
+        # Filter possible motion models based on available columns
+        # Only take the selective path if these columns already exist -- on
+        # the very first call they don't, so every row needs a value
+        # regardless of fit_star_idxs.
+        mm_cols_exist = ('motion_model_used' in self.ref_table.colnames) and ('n_params' in self.ref_table.colnames)
+        if (fit_star_idxs is not None) and mm_cols_exist:
+            # As above: only re-classify the rows that changed this round.
+            motion_model_used_new, n_params_new = determine_motion_models(
+                self.ref_table[fit_star_idxs], self.motion_models, self.fixed_params_dict, processes, chunksize, self.verbose > 0
+            )
+            motion_model_used = np.array(self.ref_table['motion_model_used'], dtype=object)
+            n_params = np.array(self.ref_table['n_params'])
+            motion_model_used[fit_star_idxs] = motion_model_used_new
+            n_params[fit_star_idxs] = n_params_new
         else:
-            weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
-            weighted_m = ('me' in self.ref_table.colnames)
-    
-            self.ref_table.combine_lists_xym(weighted_xy=weighted_xy, weighted_m=weighted_m)
+            motion_model_used, n_params = determine_motion_models(self.ref_table, self.motion_models, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
+
+        # Assign the determined motion models
+        self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used',
+                                                     dtype=f'U{startables._MOTION_MODEL_NAME_WIDTH}')
+        self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
         # Replace the originals if we are supposed to keep them fixed.
-        if not self.update_ref_orig:
-            self.ref_table['x0'][ref_orig_idx] = x0_orig
-            self.ref_table['y0'][ref_orig_idx] = y0_orig
-            self.ref_table['m0'][ref_orig_idx] = m0_orig
-            self.ref_table['x0e'][ref_orig_idx] = x0e_orig
-            self.ref_table['y0e'][ref_orig_idx] = y0e_orig
-            self.ref_table['m0e'][ref_orig_idx] = m0e_orig
-
-            if self.use_vel:
-                self.ref_table['vx'][ref_orig_idx] = vx_orig
-                self.ref_table['vy'][ref_orig_idx] = vy_orig
-                self.ref_table['vxe'][ref_orig_idx] = vxe_orig
-                self.ref_table['vye'][ref_orig_idx] = vye_orig
-                self.ref_table['t0'][ref_orig_idx] = t0_orig
+        if (keep_orig is not None) and (np.count_nonzero(keep_orig) > 0):
+            for val in vals_orig.keys():
+                self.ref_table[val][keep_orig] = vals_orig[val]
 
         return
-    
+
     def get_weights_for_lists(self, ref_list, star_list):
+        """
+        Build the per-star weights used when fitting a transformation.
+
+        The scheme is set by the object's ``trans_weights`` setting, which
+        selects whose uncertainties are used (the reference list, the
+        starlist, or both) and whether the weight goes as the inverse
+        variance or the inverse standard deviation. Stars whose weight comes
+        out non-finite (e.g. from a zero uncertainty) are given zero weight.
+
+        Parameters
+        ----------
+        ref_list : StarList
+            The reference stars taking part in the fit, already matched
+            row-for-row with ``star_list``. Uses its 'xe'/'ye' columns if
+            they exist.
+        star_list : StarList
+            The starlist stars taking part in the fit, matched row-for-row
+            with ``ref_list``. Uses its 'xe'/'ye' columns if they exist.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            One weight per matched star, or None when ``trans_weights`` is
+            None or neither list carries uncertainties (in which case the
+            fit is unweighted).
+        """
         if 'xe' in ref_list.colnames:
             var_xref = ref_list['xe']**2
             var_yref = ref_list['ye']**2
         else:
             var_xref = 0.0
             var_yref = 0.0
-            
+
         if 'xe' in star_list.colnames:
             var_xlis = star_list['xe']**2
             var_ylis = star_list['ye']**2
@@ -918,19 +1911,24 @@ class MosaicSelfRef(object):
             var_xlis = 0.0
             var_ylis = 0.0
 
-        if self.weights != None:
-            if self.weights == 'both,var':
-                weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
-            if self.weights == 'both,std':
-                weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
-            if self.weights == 'ref,var':
-                weight = 1.0 / (var_xref + var_yref)
-            if self.weights == 'ref,std':
-                weight = 1.0 / np.sqrt(var_xref + var_yref)
-            if self.weights == 'list,var':
-                weight = 1.0 / (var_xlis + var_ylis)
-            if self.weights == 'list,std':
-                weight = 1.0 / np.sqrt(var_xlis, var_ylis)
+        if self.trans_weighting is not None:
+            # A star with zero variance here (e.g. xe=ye=0) deliberately
+            # produces inf, which the isfinite check right below this block
+            # already catches and zeroes out -- this is expected, not a bug,
+            # so silence the warning numpy would otherwise raise for it.
+            with np.errstate(divide='ignore'):
+                if self.trans_weighting == 'both,var':
+                    weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
+                if self.trans_weighting == 'both,std':
+                    weight = 1.0 / np.sqrt(var_xref + var_xlis + var_yref + var_ylis)
+                if self.trans_weighting == 'ref,var':
+                    weight = 1.0 / (var_xref + var_yref)
+                if self.trans_weighting == 'ref,std':
+                    weight = 1.0 / np.sqrt(var_xref + var_yref)
+                if self.trans_weighting == 'list,var':
+                    weight = 1.0 / (var_xlis + var_ylis)
+                if self.trans_weighting == 'list,std':
+                    weight = 1.0 / np.sqrt(var_xlis + var_ylis)
         else:
             weight = None
 
@@ -940,8 +1938,8 @@ class MosaicSelfRef(object):
             weight = None
 
         if weight is not None:
-            bad = np.where(np.isfinite(weight) == False)[0]
-            if len(bad) == len(weight):
+            bad = np.isfinite(weight) == False
+            if sum(bad) == len(weight):
                 # Catch the case where we had no positional errors at all...
                 # The fit should be unweighted.
                 weight = None
@@ -949,48 +1947,75 @@ class MosaicSelfRef(object):
                 # Fix bad weights:
                 weight[bad] = 0.0
 
+        if weight is not None and np.all(weight == 0.0):
+            # Catch the case where all weights were bad.
+            weight = None
+
         return weight
 
-    
-    def match_lists(self, dr_tol, dm_tol):
+
+    def match_lists(self, dr_tol, dm_tol, workers=1):
         """
         Using the existing trans objects, match all the starlists to the
-        reference starlist (self.ref_table), propogated to the appropriate epoch. 
+        reference starlist (self.ref_table), propogated to the appropriate epoch.
 
         No trimming of stars.
-        No new transformations derived. 
+        No new transformations derived.
 
         The resulting matched values will be used to update self.ref_table
+
+        Parameters
+        ----------
+        dr_tol : float
+            Matching radius, in reference coordinate units.
+        dm_tol : float
+            Matching magnitude tolerance, in magnitudes.
+        workers : int, optional
+            Number of worker threads scipy uses for the KDTree neighbor search
+            inside match.match(). By default 1. See MosaicSelfRef.fit for details.
+
+        Returns
+        -------
+        None
         """
         for ii in range(self.N_lists):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
-            star_list_T = copy.deepcopy(self.star_lists[ii])
+            star_list_T = StarList(self.star_lists[ii], copy=True)
             if self.mag_trans:
                 star_list_T.transform_xym(self.trans_list[ii])
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
-            
-            xref, yref = get_pos_at_time(star_list_T['t'][0], self.ref_table, use_vel=self.use_vel)  # optional velocity propogation.
+
+            xref, yref, _, _ = self.ref_table.infer_positions(
+                star_list_T.meta['list_time'],
+                fixed_params_dict=self.fixed_params_dict
+            )
             mref = self.ref_table['m0']
 
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    xref, yref, mref,
-                                                   dr_tol=dr_tol, dm_tol=dm_tol, verbose=self.verbose)
+                                                   dr_tol=dr_tol, dm_tol=dm_tol, workers=workers,
+                                                   verbose=self.verbose,
+                                                   matching=self.matching, dchi2_tol=self.dchi2_tol,
+                                                   sigma_pos=self.match_sigma_pos,
+                                                   sigma_mag=self.match_sigma_mag)
+
             if self.verbose > 0:
-                fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} +/- {4:6.4f}, dm = {5:5.2f} +/- {6:4.2f}'
+                fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} ± {4:6.4f}, dm = {5:5.2f} ± {6:4.2f}]'
                 print(fmt.format(len(idx_lis), len(star_list_T), ii, dr.mean(), dr.std(), dm.mean(), dm.std()))
 
             copy_over_values(self.ref_table, self.star_lists[ii], star_list_T, ii, idx_ref, idx_lis)
 
         return
 
-    def get_ref_list_from_table(self, epoch):
+    def get_ref_list_from_table(self, epoch, processes=1, chunksize=None):
         """
         Convert the averaged quantites in self.ref_table into a StarList object
-        appropriate for the specified epoch. 
+        appropriate for the specified epoch.
 
         Columns in resulting reference list will include:
+
             name
             x
             y
@@ -999,40 +2024,61 @@ class MosaicSelfRef(object):
             ye (optional)
             me (optional)
             use_in_trans (optional)
+
+        Parameters
+        ----------
+        epoch : float
+            The time to propagate the reference stars to, in the same units
+            as the table's 't0' column (usually decimal years).
+        processes : int, optional
+            Number of processes used if the motion models still need to be
+            determined, by default 1.
+        chunksize : int, optional
+            Chunk size for that multiprocessing, by default None (auto).
+
+        Returns
+        -------
+        StarList
+            The reference stars at ``epoch``, ready to be matched against a
+            transformed starlist.
         """
-        # Reference stars will be named. 
+        # Reference stars will be named.
         name = self.ref_table['name']
+        # Calculate x, y, xe, ye
 
-        if self.use_vel and ('vx' in self.ref_table.colnames):
-            # First check if we should use velocities and if they exist.
-            dt = epoch - self.ref_table['t0']
-            x = self.ref_table['x0'] + (self.ref_table['vx'] * dt)
-            y = self.ref_table['y0'] + (self.ref_table['vy'] * dt)
-            
-            xe = np.hypot(self.ref_table['x0e'], self.ref_table['vxe']*dt)
-            ye = np.hypot(self.ref_table['y0e'], self.ref_table['vye']*dt)
+        if 'motion_model_used' not in self.ref_table.colnames:
+            # motion_models=None, not self.motion_models: nothing has been fit
+            # yet at this point, so the only truthful thing this column can say
+            # is which model the row's own parameters constitute. Restricting to
+            # the fitting configuration would label a reference star carrying
+            # catalog vx/vy as 'Fixed' -- a row holding Linear parameters while
+            # claiming to be Fixed, with n_params=1. Rows that later get fit are
+            # re-classified against self.motion_models after the fit.
+            motion_model_used, n_params = determine_motion_models(self.ref_table, None, self.fixed_params_dict, processes, chunksize, self.verbose > 0)
+            self.ref_table['motion_model_used'] = Column(motion_model_used, name='motion_model_used',
+                                                     dtype=f'U{startables._MOTION_MODEL_NAME_WIDTH}')
+            self.ref_table['n_params'] = Column(n_params, name='n_params', dtype=int)
 
-            idx = np.where(np.isfinite(self.ref_table['vx']) == False)[0]
-            x[idx] = self.ref_table['x0'][idx]
-            y[idx] = self.ref_table['y0'][idx]
-            xe[idx] = self.ref_table['x0e'][idx]
-            ye[idx] = self.ref_table['y0e'][idx]
-        else:
-            # No velocities... just used average positions.
-            x = self.ref_table['x0']
-            y = self.ref_table['y0']
-            
-            if 'x0e' in self.ref_table.colnames:
-                xe = self.ref_table['x0e']
-                ye = self.ref_table['y0e']
-            else:
-                xe = None
-                ye = None
+        # Propagation is deliberately NOT restricted to self.motion_models.
+        # That setting says which models to FIT for the observed stars; how far
+        # a star should be moved to reach this epoch is a separate question,
+        # answered by the parameters that star actually has. A reference star
+        # imported from an external catalog (Gaia, say) may carry vx/vy/t0 that
+        # were never fit here, and must still move with Linear even when
+        # motion_models=['Fixed'] -- otherwise its velocity sits unused in the
+        # table and the reference is silently frozen at its catalog epoch.
+        # infer_positions decides per star which model moves it: a
+        # 'motion_model_input' request where usable, else the most complex model
+        # that star's own parameters support. Deliberately not restricted to
+        # self.motion_models, which governs fitting only.
+        x, y, xe, ye = self.ref_table.infer_positions(
+            epoch, fixed_params_dict=self.fixed_params_dict
+        )
 
         m = self.ref_table['m0']
-        
-        if 'm0e' in self.ref_table.colnames:
-            me = self.ref_table['m0e']
+
+        if 'm0_err' in self.ref_table.colnames:
+            me = self.ref_table['m0_err']
         else:
             me = None
 
@@ -1060,190 +2106,228 @@ class MosaicSelfRef(object):
         """
         Reset all the 2D arrays in the reference table. This is the action
         we take at the beginning of each new iteration. We don't preserve matching
-        results from the prior iterations. 
+        results from the prior iterations.
+
+        Parameters
+        ----------
+        exclude : list of str, optional
+            Column names to leave untouched, e.g. ['used_in_trans'] when the
+            record of which stars fed the transformations has to survive into
+            the final matching pass. By default None, which resets every 2D
+            column.
+
+        Returns
+        -------
+        None
         """
         # All 2D columns should be reset.
         for col_name in self.ref_table.colnames:
-            if (exclude != None) and (col_name in exclude):
+            if (exclude is not None) and (col_name in exclude):
                 continue
-            
+
             if len(self.ref_table[col_name].data.shape) == 2:      # Find the 2D columns
                 # Loop through epochs for this array.
                 for cc in range(self.ref_table[col_name].shape[1]):
                     self.ref_table._set_invalid_list_values(col_name, cc)
 
         return
-    
-    def calc_bootstrap_errors(self, n_boot=100, boot_epochs_min=-1, calc_vel_in_bootstrap=True, weighting='var', use_scipy=True, absolute_sigma=False, show_progress=True):
+
+    def calc_bootstrap_errors(self, n_boot=100, seed=None, boot_epochs_min=-1, calc_vel_in_bootstrap=True, update_errors=False, processes=1, chunksize=None, mp_star_threshold=100_000, verbose=True):
         """
         Function to calculate bootstrap errors for the transformations as well
         as the proper motions. For each iteration, this will:
 
-        1) Draw full-size bootstrap w/replacement sample from reference stars in 
-        ref_table and re-calculate the transformations for each epoch
+        1) Draw full-size bootstrap w/replacement sample from reference stars in
+           ref_table and re-calculate the transformations for each epoch
         2) Apply transformation to all stars in each epoch
-        If calc_vel_in_bootstraps:
-            3) For each star, draw full-size boostrap sample w/replacement from epochs
-            4) Calculate proper motion for each star using resampled epochs
-    
+        3) If calc_vel_in_bootstrap, for each star draw a full-size bootstrap
+           sample w/replacement from epochs
+        4) If calc_vel_in_bootstrap, calculate proper motion for each star
+           using the resampled epochs
+
         The saved outputs will be: x_trans, y_trans, m_trans (transformed postions/mags),
         as well as the proper motion fit parameters.
 
         Final calculated errors:
-        std(x_trans) ---> x-direction transformation error (and likewise for y_trans, m_trans)
-        std(x0) --> x0e (and same with all proper motion fit parameters)
 
-        Parameters:
+        - ``std(x_trans)`` -> x-direction transformation error (and likewise
+          for y_trans, m_trans)
+        - ``std(x0)`` -> x0e (and same with all proper motion fit parameters)
+
+        Parameters
         ----------
-        mosaic_object: MosaicToRef object
-            MosaicToRef object after the complete match_and_transform process
-
-       n_boot: int, must be greater than 0
-            Number of bootstrap iterations when calculating transformations and the proper motion. 
-            PM bootstrap is only done for final proper motion
-            calculation (e.g., not for each iteration of the starlist for matching)
-
-        boot_epochs_min: int or -1
-            In order to be included in bootstrap analysis, non-reference stars must be detected in 
-            at least boot_epochs_min epochs. If boot_epochs_min = -1, then all stars will 
+        n_boot : int, optional
+            Number of bootstrap iterations when calculating transformations and the proper motion.
+            PM bootstrap is only done for final proper motion calculation
+            (e.g., not for each iteration of the starlist for matching), by default 100
+        seed : int, optional
+            Random seed for reproducible bootstrap results, by default None.
+        mp_star_threshold : int, optional
+            Minimum number of stars needing the per-star fitting path before a
+            multiprocessing Pool is used, even when processes > 1. See
+            :meth:`fit`, by default 100_000.
+        boot_epochs_min : int, optional
+            In order to be included in bootstrap analysis, non-reference stars must be detected in
+            at least boot_epochs_min epochs. If boot_epochs_min = -1, then all stars will
             be included in the analysis, regardless of the number of epochs detected.
-            For stars that fail boot_epochs_min criteria, np.nan is used
-
-        calc_vel_in_bootstrap: boolean
-           If true, do bootstrap sample w/ replacement over the epochs and calculate 
+            For stars that fail boot_epochs_min criteria, np.nan is used, by default -1
+        calc_vel_in_bootstrap : boolean, optional
+           If true, do bootstrap sample w/ replacement over the epochs and calculate
            stellar proper motions, as well as the bootstrap over reference stars
-           to calculate positional alignment errors. If false, only 
-           calculate position alignment errors.
-        
-        weighting: str
-            'var' or 'std' weighting for velocity fitting, by default 'var'. If 'var', use the variance of the residuals to weight the fit.
-            If 'std', use the standard deviation of the residuals to weight the fit.
-        
-        use_scipy: boolean
-            If True, use scipy.optimize.curve_fit to fit the velocity. If False, use flystar.fit_velocity.linear_fit, by default True.
-        
-        absolute_sigma: boolean
-            If True, use the absolute sigma in the velocity fitting. If False, use the relative sigma, by default False.
-        
-            
-        Output:
-        ------
-        Seven new columns will be added to self.ref_table:
+           to calculate positional alignment errors. If false, only
+           calculate position alignment errors, by default True
+        update_errors : boolean, optional
+            If True, save the starlist errors as xe_list, bootstrap errors as xe_boot, and their quad sum as xe (and likewise for ye and me). If False (default), leave the starlist errors in place as xe and bootstrap errors as xe_boot.
+            By default False.
+        processes : int, optional
+            Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
+        chunksize : int, optional
+            Chunk size for multiprocessing, by default None (auto)
+        verbose : boolean, optional
+            Print verbose information or not, by default True
+
+        Returns
+        -------
+        New columns will be added to self.ref_table:
         'xe_boot', 2D column: bootstrap x pos uncertainties due to transformation for each epoch
         'ye_boot', 2D column: bootstrap y pos uncertainties due to transformation for each epoch
         'me_boot', 2D column: bootstrap mag uncertainties due to transformation for each epoch
-        
+
         If calc_vel_in_bootstrap:
-        'x0e_boot', 1D column: bootstrap uncertainties in x0 for PM fit
-        'y0e_boot', 1D column: bootstrap uncertainties in y0 for PM fit
-        'vxe_boot', 1D column: bootstrap uncertainties in vx for PM fit
-        'vye_boot', 1D column: bootstrap uncertainties in vy for PM fit
+        '<param>_err_boot', 1D column: bootstrap uncertainties in <param> for motion model fit
 
         For stars that fail boot_epochs_min criteria, np.nan is used
         """
         # First, assert than n_boot > 0
-        assert n_boot > 0
+        assert n_boot > 0, f'{n_boot=} is not possive!'
 
-        ref_table = copy.deepcopy(self.ref_table)
+        ref_table = StarTable(self.ref_table, copy=True)
         n_epochs = len(ref_table['x'][0])
-        t_arr = get_all_epochs(ref_table)
-        #t_arr = ref_table['t'][np.where(ref_table['n_detect'] == np.max(ref_table['n_detect']))[0][0]]
+        t_arr = np.array(ref_table.meta['list_times'])
         t0_arr = ref_table['t0']
 
         # Identify reference stars. If desired, trim ref_table to only stars to only
         # reference stars and those that pass boot_epochs_min criteria
         if boot_epochs_min > 0:
-            idx_good = np.where( (ref_table['n_detect'] >= boot_epochs_min) | (ref_table['use_in_trans']) )
+            idx_good = (ref_table['n_detect'] >= boot_epochs_min) | (ref_table['use_in_trans'])
             ref_table = ref_table[idx_good]
             t0_arr = t0_arr[idx_good]
         else:
-            idx_good = np.arange(0, len(ref_table), 1)
-        idx_ref = np.where(ref_table['use_in_trans'] == True)
+            idx_good = np.ones(len(ref_table), dtype=bool)
 
-        # Initialize output arrays
-        x_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        y_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        m_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        xe_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        ye_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
-        me_trans_arr = np.ones((len(ref_table['x']), n_boot, n_epochs)) * -999
+        # Initialize sums for output
+        x_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        x2_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        y_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        y2_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        m_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+        m2_boot_sum = np.zeros((len(ref_table['x']), n_epochs))
+
+        # Set up motion model parameters
+        if 'motion_model_used' in ref_table.keys():
+            motion_model_list = np.unique(ref_table['motion_model_used']).tolist()
+        elif 'motion_model_input' in ref_table.keys():
+            motion_model_list = np.unique(ref_table['motion_model_input']).tolist()
+
+        if 'Empty' not in motion_model_list:
+            motion_model_list.append('Empty')
+        if 'Fixed' not in motion_model_list:
+            motion_model_list.append('Fixed')
+
+        motion_col_list = motion_model.motion_model_param_names(motion_model_list, with_errors=False, with_fixed=False)
         if calc_vel_in_bootstrap:
-            x0_arr = np.ones((len(ref_table['x']), n_boot)) * -999
-            y0_arr = np.ones((len(ref_table['x']), n_boot)) * -999
-            vx_arr = np.ones((len(ref_table['x']), n_boot)) * -999
-            vy_arr = np.ones((len(ref_table['x']), n_boot)) * -999
+            motion_boot_sum = {}
+            motion2_boot_sum = {}
+            for col in motion_col_list:
+                motion_boot_sum[col] = np.zeros((len(ref_table['x'])))
+                motion2_boot_sum[col] = np.zeros((len(ref_table['x'])))
+
+        all_mm_map = motion_model.motion_model_map()
+        motion_model_list = [all_mm_map[mm_name] for mm_name in motion_model_list]
+        motion_boot_min_epochs = np.max([mm.n_params for mm in motion_model_list])
 
         ### IF MEMORY PROBLEMS HERE:
         ### DEFINE MEAN, STD VARIABLES AND BUILD THEM RATHER THAN SAVING FULL ARRAY
         ### DECREASE PRECISION ON ARRAYS (32 bit instead of 64: dtype=np.float32)
         ### AT SOME POINT, NEED TO CONVERT BACK (LOOK UP HOW TO DO THIS CAREFULLY)
-        t1 = time.time()
-        for ii in range(n_boot):
+        rng = np.random.default_rng(seed)
+        for ii in tqdm(range(n_boot), desc='Bootstrap iterations', disable=not verbose):
             # Recalculate transformations using bootstrap sample of
             # reference stars. Use a loop for each epoch here, so we
             # can handle case where different reference stars are used
             # in different epochs
+
+            # Initialize data arrays
+            x_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            y_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            m_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            xe_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            ye_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+            me_trans_arr = np.ones((len(ref_table['x']), n_epochs)) * -999
+
             for jj in range(n_epochs):
-                # Extract bootstrap sample of matched reference stars, using only ref stars
-                # used in this epoch
-                good = np.where( (ref_table['used_in_trans'][idx_ref][:,jj] == True) &
-                                     (~np.isnan(ref_table['x_orig'][idx_ref][:,jj])) )
-                #good = np.where(~np.isnan(ref_table['x_orig'][idx_ref][:,jj]))
-                samp_idx = np.random.choice(good[0], len(good[0]), replace=True)
-                
+                # Extract bootstrap sample of matched reference stars for this epoch
+                good = np.where((ref_table['used_in_trans'][:,jj] == True) & (~np.isnan(ref_table['x_orig'][:,jj])))[0]
+                samp_idx = rng.choice(good, len(good), replace=True)
+
                 # Get reference star positions in particular epoch from ref_list.
                 t_epoch = t_arr[jj]
-                ref_orig = self.get_ref_list_from_table(t_epoch)
+                ref_orig = self.get_ref_list_from_table(t_epoch, processes=processes, chunksize=chunksize)[idx_good]
 
-                # Get idx of reference stars in bootstrap sample in the ref_orig.
-                # Then, use these to build reference starlist for the alignment
-                idx_tmp = []
-                for ff in range(len(samp_idx)):
-                    name_tmp = ref_table['name'][samp_idx[ff]]
-                    foo = np.where(ref_orig['name'] == name_tmp)[0][0]
-                    idx_tmp.append(foo)
+                ## Get idx of reference stars in bootstrap sample in the ref_orig.
+                ## Then, use these to build reference starlist for the alignment
+                #idx_tmp = []
+                #for ff in range(len(samp_idx)):
+                #    name_tmp = ref_table['name'][idx_ref][samp_idx[ff]]
+                #    foo = np.where(ref_orig['name'] == name_tmp)[0][0]
+                #    idx_tmp.append(foo)
 
-                ref_boot = StarList(name=ref_orig['name'][idx_tmp],
-                                       x=ref_orig['x'][idx_tmp],
-                                       y=ref_orig['y'][idx_tmp],
-                                       m=ref_orig['m'][idx_tmp],
-                                       xe=ref_orig['xe'][idx_tmp],
-                                       ye=ref_orig['ye'][idx_tmp],
-                                       me=ref_orig['me'][idx_tmp])
+                ref_boot = StarList(name=ref_orig['name'][samp_idx],
+                                       x=ref_orig['x'][samp_idx],
+                                       y=ref_orig['y'][samp_idx],
+                                       m=ref_orig['m'][samp_idx],
+                                       xe=ref_orig['xe'][samp_idx],
+                                       ye=ref_orig['ye'][samp_idx],
+                                       me=ref_orig['me'][samp_idx])
 
                 # Now build star list with original positions of the reference stars
                 # in the bootstrap sample
-                starlist_boot = StarList(name=ref_table['name'][idx_ref][samp_idx],
-                                         x=ref_table['x_orig'][:,jj][idx_ref][samp_idx],
-                                         y=ref_table['y_orig'][:,jj][idx_ref][samp_idx],
-                                         m=ref_table['m_orig'][:,jj][idx_ref][samp_idx],
-                                         xe=ref_table['xe_orig'][:,jj][idx_ref][samp_idx],
-                                         ye=ref_table['ye_orig'][:,jj][idx_ref][samp_idx],
-                                         me=ref_table['me_orig'][:,jj][idx_ref][samp_idx])
-            
+                starlist_boot = StarList(name=ref_table['name'][samp_idx],
+                                         x=ref_table['x_orig'][:,jj][samp_idx],
+                                         y=ref_table['y_orig'][:,jj][samp_idx],
+                                         m=ref_table['m_orig'][:,jj][samp_idx],
+                                         xe=ref_table['xe_orig'][:,jj][samp_idx],
+                                         ye=ref_table['ye_orig'][:,jj][samp_idx],
+                                         me=ref_table['me_orig'][:,jj][samp_idx])
+
+                # Sanity check: makes sure names match between ref_boot and starlist_boot,
+                # since they need to line up
+                assert np.all(ref_boot['name'] == starlist_boot['name'])
+
                 # Calculate weights based on weights keyword. If weights desired, will need to
                 # make starlist objects for this
-                if self.weights != None:
+                if self.trans_weighting is not None:
                     # In order for weights calculation to work, we need to apply a transformation
                     # to the star_list_T so it is in the same units as ref_boot. So, we'll apply
                     # the final transformation for the epoch to get close enough for the
                     # purposes of the bootstrap calculation
-                    starlist_boot_T = copy.deepcopy(starlist_boot)
+                    starlist_boot_T = StarList(starlist_boot, copy=True)
                     if self.mag_trans:
                         starlist_boot_T.transform_xym(self.trans_list[jj])
                     else:
                         starlist_boot_T.transform_xy(self.trans_list[jj])
-                        
+
                     weight = self.get_weights_for_lists(ref_boot, starlist_boot_T)
                 else:
                     weight = None
-            
+
                 # Recalculate transformation
                 trans = self.trans_class.derive_transform(starlist_boot['x'], starlist_boot['y'],
                                                                    ref_boot['x'], ref_boot['y'],
                                                                    self.trans_args[0]['order'],
                                                                    m=starlist_boot['m'], mref=ref_boot['m'],
                                                                    weights=weight, mag_trans=self.mag_trans)
+                #print(jj)
 
                 # Apply transformation to *all* orig positions in this epoch. Need to make a new
                 # FLYSTAR starlist object with the original positions for this. We don't
@@ -1255,54 +2339,80 @@ class MosaicSelfRef(object):
                                                xe=ref_table['xe_orig'][:,jj],
                                                ye=ref_table['ye_orig'][:,jj],
                                                me=ref_table['me_orig'][:,jj])
-                starlist_T = copy.deepcopy(starlist)
+                starlist_T = StarList(starlist, copy=True)
                 if self.mag_trans:
                     starlist_T.transform_xym(trans)
                 else:
                     starlist_T.transform_xy(trans)
-                    
+
                 # Add output to pos arrays
-                x_trans_arr[:,ii,jj] = starlist_T['x']
-                y_trans_arr[:,ii,jj] = starlist_T['y']
-                m_trans_arr[:,ii,jj] = starlist_T['m']
-                xe_trans_arr[:,ii,jj] = starlist_T['xe']
-                ye_trans_arr[:,ii,jj] = starlist_T['ye']
-                me_trans_arr[:,ii,jj] = starlist_T['me']
- 
-            t2 = time.time()
+                x_trans_arr[:,jj] = starlist_T['x']
+                y_trans_arr[:,jj] = starlist_T['y']
+                m_trans_arr[:,jj] = starlist_T['m']
+                xe_trans_arr[:,jj] = starlist_T['xe']
+                ye_trans_arr[:,jj] = starlist_T['ye']
+                me_trans_arr[:,jj] = starlist_T['me']
+
+            x_boot_sum += x_trans_arr
+            x2_boot_sum += x_trans_arr**2
+            y_boot_sum += y_trans_arr
+            y2_boot_sum += y_trans_arr**2
+            if self.mag_trans:
+                m_boot_sum += m_trans_arr
+                m2_boot_sum += m_trans_arr**2
+
+            # t2 = time.time()
             #print('=================================================')
             #print('Time to do {0} epochs: {1}s'.format(n_epochs,  t2-t1))
             #print('=================================================')
-            
+
             # Finally, calculate proper motions for this bootstrap iteration
             # for each star, if desired. Draw a full-sample bootstrap over the epochs
             # for each star, and then run it through the startable fit_velocities machinery
             if calc_vel_in_bootstrap:
-                boot_idx = np.random.choice(np.arange(0, n_epochs, 1), size=n_epochs)
+                boot_idx = rng.choice(np.arange(0, n_epochs, 1), size=n_epochs)
+                while len(np.unique(boot_idx)) < motion_boot_min_epochs:
+                    boot_idx = rng.choice(np.arange(0, n_epochs, 1), size=n_epochs)
                 t_boot = t_arr[boot_idx]
-            
+
                 star_table = StarTable(name=ref_table['name'],
-                                        x=x_trans_arr[:,ii,boot_idx],
-                                        y=y_trans_arr[:,ii,boot_idx],
-                                        m=m_trans_arr[:,ii,boot_idx],
-                                        xe=xe_trans_arr[:,ii,boot_idx],
-                                        ye=ye_trans_arr[:,ii,boot_idx],
-                                        me=me_trans_arr[:,ii,boot_idx],
-                                        t=np.tile(t_boot, (len(ref_table),1)) )
+                                        x=x_trans_arr[:,boot_idx],
+                                        y=y_trans_arr[:,boot_idx],
+                                        m=m_trans_arr[:,boot_idx],
+                                        xe=xe_trans_arr[:,boot_idx],
+                                        ye=ye_trans_arr[:,boot_idx],
+                                        me=me_trans_arr[:,boot_idx],
+                                        t=np.tile(t_boot, (len(ref_table),1)))
+                if 'motion_model_used' in ref_table.columns:
+                    star_table['motion_model_input'] = ref_table['motion_model_used']
 
                 # Now, do proper motion calculation, making sure to fix t0 to the
                 # orig value (so we can get a reasonable error on x0, y0)
-                star_table.fit_velocities(weighting=weighting, use_scipy=use_scipy, absolute_sigma=absolute_sigma, fixed_t0=t0_arr, show_progress=show_progress)
+                if self.fixed_params_dict is None:
+                    fixed_params_dict = {'t0': t0_arr}
+                elif 't0' not in self.fixed_params_dict.keys():
+                    fixed_params_dict = self.fixed_params_dict.copy()
+                    fixed_params_dict['t0'] = t0_arr
+
+                star_table.fit_motion_models(
+                    motion_models=self.motion_models,
+                    fixed_params_dict=fixed_params_dict,
+                    weighting=self.vel_weighting,
+                    absolute_sigma=self.absolute_sigma,
+                    processes=processes,
+                    chunksize=chunksize,
+                    mp_star_threshold=mp_star_threshold,
+                    verbose=False
+                )
 
                 # Save proper motion fit results to output arrays
-                x0_arr[:,ii] = star_table['x0']
-                y0_arr[:,ii] = star_table['y0']
-                vx_arr[:,ii] = star_table['vx']
-                vy_arr[:,ii] = star_table['vy']
+                for col in motion_col_list:
+                    motion_boot_sum[col] += star_table[col]
+                    motion2_boot_sum[col] += star_table[col]**2
 
                 # Quick check to make sure bootstrap calc was valid: output t0 should be
                 # same as input t0_arr, since we used fixed_t0 option
-                assert np.sum(abs(star_table['t0'] - t0_arr) == 0)
+                np.testing.assert_array_equal(star_table['t0'], t0_arr)
 
                 #t3 = time.time()
                 #print('=================================================')
@@ -1310,75 +2420,176 @@ class MosaicSelfRef(object):
                 #print('=================================================')
 
         # Calculate the bootstrap error values.
-        x_err_b = np.std(x_trans_arr, ddof=1, axis=1)
-        y_err_b = np.std(y_trans_arr, ddof=1, axis=1)
-        m_err_b = np.std(m_trans_arr, ddof=1, axis=1)
+        x_boot_mean = x_boot_sum/n_boot
+        x_err_b = np.sqrt((x2_boot_sum - 2*x_boot_mean*x_boot_sum + n_boot*x_boot_mean**2)/n_boot)
+        y_boot_mean = y_boot_sum/n_boot
+        y_err_b = np.sqrt((y2_boot_sum - 2*y_boot_mean*y_boot_sum + n_boot*y_boot_mean**2)/n_boot)
+        m_boot_mean = m_boot_sum/n_boot
+        m_err_b = np.sqrt((m2_boot_sum - 2*m_boot_mean*m_boot_sum + n_boot*m_boot_mean**2)/n_boot)
 
+        motion_data_err = {}
         if calc_vel_in_bootstrap:
-            x0_err_b = np.std(x0_arr, ddof=1, axis=1)
-            y0_err_b = np.std(y0_arr, ddof=1, axis=1)
-            vx_err_b = np.std(vx_arr, ddof=1, axis=1)
-            vy_err_b = np.std(vy_arr, ddof=1, axis=1)
+            for col in motion_col_list:
+                mot_boot_mean = motion_boot_sum[col]/n_boot
+                motion_data_err[col] = np.sqrt((motion2_boot_sum[col] -
+                    2*mot_boot_mean*motion_boot_sum[col] + n_boot*mot_boot_mean**2)/n_boot)
         else:
-            x0_err_b = np.nan
-            y0_err_b = np.nan
-            vx_err_b = np.nan
-            vy_err_b = np.nan
+            for col in motion_col_list:
+                motion_data_err[col] = np.nan
 
         # Add summary statistics to *original* ref_table, i.e. ref_table
         # hanging off of mosaic object.
         col_heads_2D = ['xe_boot', 'ye_boot', 'me_boot']
-        data_dict = {'xe_boot': x_err_b, 'ye_boot': y_err_b, 'me_boot': m_err_b,
-                         'x0e_boot': x0_err_b, 'y0e_boot': y0_err_b,
-                         'vxe_boot': vx_err_b, 'vye_boot': vy_err_b}
-            
+        data_dict = {'xe_boot': x_err_b, 'ye_boot': y_err_b, 'me_boot': m_err_b}
+        for col in motion_col_list:
+            data_dict[col+'_err_boot'] = motion_data_err[col]
+
         for ff in col_heads_2D:
             col = Column(np.ones((len(self.ref_table), n_epochs)), name=ff)
             col.fill(np.nan)
-            
+
             col[idx_good] = data_dict[ff]
+            self.ref_table.add_column(col)
+
+        # # Calculate chi^2 with bootstrap positional errors
+        # # Determine which motion model to use:
+        # motion_model_list = sorted(motion_model_list, key=lambda mm: mm.n_params)
+        # mm_n_params = np.sort([mm.n_params for mm in motion_model_list])
+
+        # required_params = [all_mm_map[mm_name].n_params for mm_name in self.ref_table['motion_model_input']]
+        # mm_digitized = np.digitize(
+        #     x=np.minimum(np.array(self.ref_table['n_detect']), required_params),
+        #     bins=mm_n_params
+        # ) - 1
+        # self.ref_table['motion_model_used'] = np.array([motion_model_list[d].name for d in mm_digitized], dtype='U20')
+
+
+        x_pred, y_pred, _, _ = self.ref_table.infer_positions(t_arr, fixed_params_dict=self.fixed_params_dict)
+        if np.ndim(x_pred) == 1:
+            x_pred = x_pred[:, np.newaxis]
+        if np.ndim(y_pred) == 1:
+            y_pred = y_pred[:, np.newaxis]
+        xe_comb = np.hypot(self.ref_table['xe'], self.ref_table['xe_boot'])
+        ye_comb = np.hypot(self.ref_table['ye'], self.ref_table['ye_boot'])
+        data_dict['chi2_x_boot'] = np.nansum((self.ref_table['x'] - x_pred)**2 / xe_comb**2, axis=1)
+        data_dict['chi2_y_boot'] = np.nansum((self.ref_table['y'] - y_pred)**2 / ye_comb**2, axis=1)
+        for ff in ['chi2_x_boot', 'chi2_y_boot']:
+            col = Column(np.ones(len(self.ref_table)), name=ff)
+            col.fill(np.nan)
+
+            col[idx_good] = data_dict[ff][idx_good]
             self.ref_table.add_column(col)
 
         # Now handle the velocities, if they were calculated
         if calc_vel_in_bootstrap:
-            col_heads_1D = [ 'x0e_boot', 'y0e_boot', 'vxe_boot', 'vye_boot']
-            
+            col_heads_1D = [col+'_err_boot' for col in motion_col_list]
+
             for ff in col_heads_1D:
                 col = Column(np.ones(len(self.ref_table)), name=ff)
                 col.fill(np.nan)
-                
+
                 col[idx_good] = data_dict[ff]
                 self.ref_table.add_column(col)
 
-        print('===============================')
-        print('Done with bootstrap')
-        print('===============================')
-        
+        if verbose:
+            print('===================================')
+            print('======= Done with bootstrap =======')
+            print('===================================')
+
+        if update_errors:
+            self.ref_table['xe_list'] = self.ref_table['xe']
+            self.ref_table['ye_list'] = self.ref_table['ye']
+            self.ref_table['me_list'] = self.ref_table['me']
+            self.ref_table['xe'] = np.hypot(self.ref_table['xe_list'], self.ref_table['xe_boot'])
+            self.ref_table['ye'] = np.hypot(self.ref_table['ye_list'], self.ref_table['ye_boot'])
+            self.ref_table['me'] = np.hypot(self.ref_table['me_list'], self.ref_table['me_boot'])
+            print("Saved starlist errors to xe_list and added xe_boot to xe in quadrature.")
+            print("The same was done for ye and me.")
+
+        if self.save_path is not None:
+            with open(os.path.join(self.save_path, self.prefix_name+'_bootstrap.pkl'), 'wb') as file:
+                pickle.dump(self, file)
+            with open(os.path.join(self.save_path, self.prefix_name+'_ref_table_bootstrap.pkl'), 'wb') as file:
+                pickle.dump(self.ref_table, file)
+
         return
-    
+
 
 class MosaicToRef(MosaicSelfRef):
-    def __init__(self, ref_list, list_of_starlists, iters=2,
-                 dr_tol=[1, 1], dm_tol=[2, 1],
-                 outlier_tol=[None, None],
-                 trans_args=[{'order': 2}, {'order': 2}],
-                 init_order=1,
-                 mag_trans=True, mag_lim=None, ref_mag_lim=None,
-                 weights=None,
-                 trans_input=None,
-                 trans_class=transforms.PolyTransform,
-                 calc_trans_inverse=False,
-                 use_ref_new=False,
-                 use_vel=False, update_ref_orig=False,
-                 init_guess_mode='miracle',
-                 iter_callback=None,
-                 verbose=True):
+    """
+    Align a stack of starlists to an external reference list.
+
+    Same machinery as :class:`MosaicSelfRef`, except that the reference frame
+    is anchored by a catalog passed in separately (``ref_list``) rather than
+    being built from the starlists. That reference list is not one of the
+    aligned lists: it supplies the coordinate system, and may carry its own
+    motion-model parameters (proper motions, parallax) so that it can be
+    propagated to each starlist's epoch.
+
+    Whether stars found only in the starlists are allowed to join the
+    reference frame, and whether the reference stars' own positions are
+    updated by the fit, are controlled by ``use_ref_new`` and
+    ``update_ref_orig``. Set both to False to hold the input catalog fixed
+    and simply transform everything onto it.
+
+    See :meth:`__init__` for the full list of settings, and
+    :class:`MosaicSelfRef` for the attributes left behind by :meth:`fit`.
+    """
+    def __init__(
+        self,
+        ref_list,
+        list_of_starlists,
+        dr_tol,
+        reflist_vertex=None,
+        starlist_vertices=None,
+        # Alignment parameters
+        dm_tol=None,
+        outlier_tol=None,
+        matching='legacy',
+        dchi2_tol=9.0,
+        match_sigma_pos=None,
+        match_sigma_mag=None,
+        # Reference behavior (MosiacToRef specific)
+        use_ref_new=False,
+        update_ref_orig=False,
+        # Transformation parameters
+        trans_class=transforms.PolyTransform,
+        trans_args={'order': 1},
+        trans_input=None,
+        trans_weights=None,
+        init_order=1,
+        init_guess_mode='miracle',
+        briteN=None,
+        ignore_contains='star',
+        calc_trans_inverse=False,
+        # Magnitude parameters
+        mag_trans=True,
+        mag_lim=None,
+        ref_mag_lim=None,
+        # Motion model parameters
+        motion_models=['Empty', 'Fixed'],
+        fixed_params_dict=None,
+        vel_weights='var',
+        absolute_sigma=True,
+        # Advanced options
+        inherit_n_detect=True,
+        iter_callback=None,
+        save_path=None,
+        save_plot=True,
+        save_object=True,
+        save_format='hdf5',
+        prefix_name='mtr',
+        verbose=True
+    ):
 
         """
-        Required Parameters
+        Parameters
         ----------
         ref_list : StarList object
-            Can optionally have velocities. All starlists will be aligned to this one. 
+            All starlists will be aligned to this one.
+            Must have columns (x, y, m, xe, ye, me) or (x0, y0, m0, x0_err, y0_err, m0_err).
+            May have t or t0 columns.
+            May have motion model parameters
 
         list_of_starlists : array of StarList objects
             An array or list of flystar.starlists.StarList objects (which are Astropy Tables).
@@ -1387,89 +2598,83 @@ class MosaicToRef(MosaicSelfRef):
             Note that there is an optional weights column called 'w'. If this column exists
             in any of the lists, it will be queried to determine if an individual star can be
             used to derive the transformations between starlists. This is the most flexible way
-            to allow you to determine, as a function of time and star, which ones are good enough 
-            in the transformation. Note that just because it can be used (i.e. w_in=1), 
-            doesn't meant that it will be used. The mag limits and outliers still take precedence. 
-            Note also that the weights that go into the transformation are 
+            to allow you to determine, as a function of time and star, which ones are good enough
+            in the transformation. Note that just because it can be used (i.e. w_in=1),
+            doesn't meant that it will be used. The mag limits and outliers still take precedence.
+            Note also that the weights that go into the transformation are
 
                 star_list['w'] * ref_list['w'] * weight_from_keyword (see the weights parameter)
 
-            for those stars not trimmed out by the other criteria. 
+            for those stars not trimmed out by the other criteria.
 
 
-        Optional Parameters
-        ----------
-        iters : int
-            The number of iterations used in the matching and transformation.  TO DO: INNER/OUTER? 
+        reflist_vertex : array, optional
+            An array of polygon vertices coordinates for the reference starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
+            Shape of (N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for the reference starlist, by default None
 
-        dr_tol : list or array
-            The delta-radius (dr) tolerance for matching in units of the reference coordinate system.
-            This is a list of dr values, one for each iteration of matching/transformation.
+        starlist_vertices : list or array, optional
+            A list or array of polygon vertices coordinates for each starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
+            Shape of (N_lists, N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for each starlist, by default None
 
-        dm_tol : list or array
+
+        dr_tol : float, list or array
+            The delta-radius (dr) tolerance for matching in units of the reference
+            coordinate system. Required: matching is a radius search, so there is no
+            meaningful default. This is a list of dr values, one for each iteration of
+            matching/transformation, or a single value used for every iteration.
+
+        dm_tol : float, list or array, or None, optional
             The delta-magnitude (dm) tolerance for matching in units of the reference coordinate system.
-            This is a list of dm values, one for each iteration of matching/transformation. 
+            This is a list of dm values, one for each iteration of matching/transformation,
+            or a single value used for every iteration. None (the default) places
+            no magnitude cut on the match, matching on position alone.
 
-        outlier_tol : list or array
-            The outlier tolerance (in units of sigma) for rejecting outlier stars. 
-            This is a list of tol values, one for each iteration of matching/transformation.
+        outlier_tol : float, list or array, optional
+            The outlier tolerance (in units of sigma) for rejecting outlier stars.
+            This is a list of tol values, one for each iteration of matching/transformation,
+            or a single value used for every iteration.
 
-        mag_trans : boolean
-            If true, this will also calculate and (temporarily) apply a zeropoint offset to 
-            magnitudes in each list to bring them into a common magnitude system. This is 
-            essential for matching (with finite dm_tol) starlists of different filters or 
-            starlists that are not photometrically calibrated. Note that the final_table columns 
-            of 'm', 'm0', and 'm0e' will contain the transformed magnitudes while the 
-            final_table column 'm_orig' will contain the original un-transformed magnitudes. 
-            If mag_trans = False, then no such zeropoint offset it applied at any point. 
+            The number of iterations is the length of the longest of ``dr_tol``,
+            ``dm_tol``, ``outlier_tol`` and ``trans_args``; single values are
+            broadcast to it, and two sequences of differing length are an error.
+            All single values therefore means a single iteration.
+        matching : str, optional
+            How a star with more than one candidate inside the tolerances is
+            resolved, and how one-to-one is enforced. 'legacy' (default) keeps
+            the historical behavior: a multi-candidate star is matched only if
+            its nearest candidate in position is also its nearest in
+            magnitude. In a crowded field that discards good matches -- a
+            candidate 20x closer loses to one a few hundredths of a magnitude
+            nearer -- and each discarded star then becomes a duplicate
+            reference row that makes the next starlist ambiguous in turn, so
+            one split seeds the next. 'chi2' scores candidates as
+            (dr/sigma_pos)^2 + (dm/sigma_mag)^2, with the scales measured from
+            the starlists themselves, and keeps reciprocal best pairs that win
+            by dchi2_tol. See match.match_chi2 for the details.
+        dchi2_tol : float, optional
+            matching='chi2' only. How much better the best candidate must be
+            than the runner-up, in chi^2. Default 9.0, a 3-sigma margin. Below
+            it the star is treated as genuinely ambiguous and left unmatched.
+        match_sigma_pos : float or None, optional
+            matching='chi2' only. Position scale for the chi^2, in reference
+            coordinate units. None (default) measures it from the unambiguous
+            pairs of each starlist, so no error columns are required.
+        match_sigma_mag : float or None, optional
+            matching='chi2' only. Magnitude scale for the chi^2. None (default)
+            measures it the same way.
 
-        mag_lim : array
-            If different from None, it indicates the minimum and maximum magnitude
-            on the catalogs for finding the transformations. Note, if you want specify the mag_lim
-            separately for each list and each iteration, you need to pass in a 2D array that
-            has shape (N_lists, 2).
+        use_ref_new : boolean, optional
+            Each pass, new stars are matched and added to the ref_table. However, we don't
+            necessarily want to use these in the reference frame in subsequent passes.
+            If True, then the new stars will be used in later passes/iterations.
+            If False, then the new stars will be carried, but not used in the transformation.
+            We determine which stars to use through setting a boolean use_in_trans flag.
 
-        ref_mag_lim : array
-            If different from None, it indicates the minimum and maximum magnitude
-            on the reference catalog for finding the transformations.
-
-        weights : str
-            Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
-            to weight by the positional uncertainties (variances) in the individual starlists, or also with
-            the uncertainties in the reference frame itself.  Note weighting only works when there
-            are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
-
-        trans_input : array or list of transform objects
-            def = None. If not None, then this should contain an array or list of transform
-            objects that will be used as the initial guess in the alignment and matching. 
-
-        trans_class : transforms.Transform2D object (or subclass)
-            The transform class that will be used to when deriving the optimal
-            transformation parameters between each list and the reference list. 
-
-        trans_args : dictionary
-            A dictionary (or a list of dictionaries) containing any extra keywords that are needed 
-            in the transformation object. For instance, "order". Note that if a list is passed in, 
-            then the transformation argument (i.e. order) will be changed for every iteration in
-            iters.
-
-        init_order: int
-            Polynomial transformation order to use for initial guess transformation.
-            Order=1 should be used in most cases, but sometimes higher order is needed
-
-        calc_trans_inverse: boolean
-            If true, then calculate the inverse transformation (from reference to starlist)
-            in addition to the normal transformation (from starlist to reference). The inverse
-            calculation is calculated by switching the order to the positions in match_and_transform.
-            The inverse transformations are saved in self.trans_list_inverse.
-
-            self.trans_list_inverse doesn't exist if calc_trans_inverse == False
-
-        update_ref_orig : boolean or str
+        update_ref_orig : boolean or str, optional
             Should we update the reference values (position, velocity, t0) after each starlist
-            is transformed in each iteration? 
+            is transformed in each iteration?
 
-                False if you want to get into an absolute reference frame and are using Gaia data. 
+                False if you want to get into an absolute reference frame and are using Gaia data.
                 True if you want to use the reference list as more of an initial guess.
                 'periter' if you want to align all the starlists, then calculate the velocity.
 
@@ -1477,103 +2682,381 @@ class MosaicToRef(MosaicSelfRef):
             newly identified stars that end up in ref_table will always be updated; but not always
             used for transformation fitting.
 
-        use_ref_new : boolean
-            Each pass, new stars are matched and added to the ref_table. However, we don't 
-            necessarily want to use these in the reference frame in subsequent passes. 
-            If True, then the new stars will be used in later passes/iterations.
-            If False, then the new stars will be carried, but not used in the transformation.
-            We determine which stars to use through setting a boolean use_in_trans flag. 
+        trans_class : transforms.Transform2D object (or subclass), optional
+            The transform class that will be used to when deriving the optimal
+            transformation parameters between each list and the reference list.
 
-        use_vel : boolean
-            If velocities are present in the reference list and use_vel == True, then during
-            each iteration of the alignment, the reference list will be propogated in time
-            using the velocity information. So all transformations will be derived w.r.t. 
-            the propogated positions. See also update_vel.
+        trans_args : dict or list of dict, optional
+            A dictionary containing any extra keywords that are needed in the
+            transformation object (for instance, "order"), applied to every
+            iteration -- or a list of such dictionaries, one per iteration, to
+            use a different transformation argument (e.g. increasing order)
+            in later iterations. If a list is passed in, its length must
+            equal the number of iterations. By default {'order': 1}.
 
-        init_guess_mode : string
+        trans_input : transform object, or array or list of them, optional
+            def = None. If not None, then this should contain an array or list of transform
+            objects that will be used as the initial guess in the alignment and matching.
+            There must be one per starlist, in the same order; entries may be
+            None. A single transform object (rather than a sequence) is used as
+            the initial guess for every starlist.
+
+        trans_weights : str, optional
+            Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
+            to weight by the positional uncertainties (variances) in the individual starlists, or also with
+            the uncertainties in the reference frame itself.  Note weighting only works when there
+            are positional uncertainties availabe. Other options include 'both,std', 'list,std', 'list,var'.
+
+        init_order : int, optional
+            Polynomial transformation order to use for initial guess transformation.
+            Order=1 should be used in most cases, but sometimes higher order is needed
+
+        init_guess_mode : string, optional
             If no initial transformations are passed in via the trans_input keyword, then we have
-            to make the initial transformation and matching blindly. We can do this in a couple of 
+            to make the initial transformation and matching blindly. We can do this in a couple of
             different ways. Options are 'miracle' or 'name' (see trans_initial_guess() for more details).
 
-        iter_callback : None or function
+        ignore_contains : str or None, optional
+            Only used when init_guess_mode='name'. Names containing this
+            substring are left out of the name match. The default 'star'
+            is there because auto-detected sources are conventionally
+            labelled star_1, star_2, ... per epoch -- those indices are
+            per-list detection numbers, not stable identities, so matching
+            on them pairs unrelated stars. Genuinely named sources (S0-2,
+            irs16NE, ...) mean the same thing in every list.
+
+            Pass None to match on every name, which is what you want when
+            the names really are stable identifiers across epochs (a
+            cross-matched catalog, or synthetic data). '' is rejected
+            rather than treated as "off": every name contains the empty
+            string, so it would discard everything. By default 'star'.
+
+        briteN : int, optional
+            If init_guess_mode is 'miracle', this is the number of brightest stars to use in the miracle match.
+            Default is min(50, len(star_list)).
+
+        calc_trans_inverse : boolean, optional
+            If true, then calculate the inverse transformation (from reference to starlist)
+            in addition to the normal transformation (from starlist to reference). The inverse
+            calculation is calculated by switching the order to the positions in match_and_transform.
+            The inverse transformations are saved in self.trans_list_inverse.
+            self.trans_list_inverse doesn't exist if calc_trans_inverse == False
+
+        mag_trans : boolean, optional
+            If true, this will also calculate and (temporarily) apply a zeropoint offset to
+            magnitudes in each list to bring them into a common magnitude system. This is
+            essential for matching (with finite dm_tol) starlists of different filters or
+            starlists that are not photometrically calibrated. Note that the final_table columns
+            of 'm', 'm0', and 'm0_err' will contain the transformed magnitudes while the
+            final_table column 'm_orig' will contain the original un-transformed magnitudes.
+            If mag_trans = False, then no such zeropoint offset it applied at any point.
+
+        mag_lim : array, optional
+            Magnitude range on the starlists used for finding the
+            transformations, applied BEFORE the magnitude transformation. Its
+            single axis indexes iterations, exactly like dr_tol, dm_tol and
+            outlier_tol:
+
+            =========================  =========================================
+            shape                      meaning
+            =========================  =========================================
+            None                       no limit anywhere (default)
+            ``(2,)``                   one [min, max] everywhere
+            ``(N_iters, 2)``           per iteration, same for every list
+            ``(N_iters, N_lists, 2)``  per iteration and per list
+            =========================  =========================================
+
+            Per-starlist limits are given with the 3D form. Note that the 2D
+            form previously meant ``(N_lists, 2)``; it now means
+            ``(N_iters, 2)`` so that one axis means the same thing across every
+            schedule argument.
+
+        ref_mag_lim : array, optional
+            Magnitude range on the reference catalog for finding the
+            transformations. There is exactly one reference list, so unlike
+            mag_lim there's no per-list axis -- its single-axis form indexes
+            iterations, same as dr_tol/dm_tol/mag_lim:
+
+            =========================  =========================================
+            shape                      meaning
+            =========================  =========================================
+            None                       no limit anywhere (default)
+            ``(2,)``                   one [min, max] every iteration
+            ``(N_iters, 2)``           per iteration
+            =========================  =========================================
+
+            Either side of a pair may itself be None for an open bound, e.g.
+            ``[13, None]``. Entries broadcast/validate the same way as
+            dr_tol/dm_tol/mag_lim -- see fix_ref_mag_lim.
+
+        motion_models : list of str or MotionModel objects, optional
+            List of motion model names (strings) or MotionModel objects to use
+
+
+        fixed_params_dict : None or dict, optional
+            Dictionary of fixed parameters for motion models
+
+        vel_weights : str, optional
+            Either 'var' (def) or 'std', depending on whether you want to weight the motion model
+            fits by the variance or standard deviation of the position data
+
+        absolute_sigma : bool, optional
+            If True, the velocity fit will use absolute errors in the data. If False, relative errors will be used, by default False.
+
+        inherit_n_detect : bool, optional
+            If True, and an input starlist already has its own 'n_detect' column
+            (e.g. it is itself the output of a previous, lower-level align pass),
+            use that starlist's own n_detect value -- instead of counting 1 --
+            as the contribution from that starlist when computing this mosaic's
+            n_detect. So a star's final n_detect reflects the total number of
+            raw detections it represents, however many alignment layers deep.
+            Starlists without their own 'n_detect' still contribute 1 per
+            detection, same as when this is False. By default True.
+
+        iter_callback : None or function, optional
             A function to call (that accepts a StarTable object and an iteration number)
-            at the end of every iteration. This can be used for plotting or printing state. 
+            at the end of every iteration, and once more after the final
+            re-matching pass with an index equal to the number of iterations
+            (one past the last iteration), so that last call can be told apart
+            from the end of the last iteration. Useful for plotting or printing state, and for
+            rejecting stars between iterations: the table handed in is the live
+            ref_table, so setting `use_in_trans = False` on a row excludes it
+            from subsequent transformations while keeping the star in the
+            output.
 
-        Example
-        ----------
-        msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
-                                dr_tol=[0.1], dm_tol=[5],
-                                outlier_tol=[None], mag_lim=[13, 21],
-                                trans_class=transforms.PolyTransform,
-                                trans_args=[{'order': 1}],
-                                use_vel=True,
-                                use_ref_new=False,
-                                update_ref_orig=False,
-                                mag_trans=False,
-                                weights='both,std',
-                                init_guess_mode='miracle', verbose=False)
-        msc.fit()
+        save_path : str, optional
+            Directory to save fit results to: PREFIX_input.txt (the fit
+            parameters), PREFIX_ref_table.<ext> (self.ref_table, extension
+            set by save_format), and PREFIX_trans_list.pkl (self.trans_list
+            -- the derived transform objects, which aren't plain data and so
+            need pickling). If calc_trans_inverse is True,
+            PREFIX_trans_list_inverse.pkl (self.trans_list_inverse) is also
+            saved. By default None (nothing saved).
 
-        # Access a list of all the transformation parameters:
-        trans_list = msc.trans_list 
+        prefix_name : str, optional
+            Filename prefix for everything written under ``save_path``, by
+            default 'mtr'.
+        save_plot : bool, optional
+            If save_path is set, also save a transformation diagnostic plot
+            for every (starlist, iteration) under
+            save_path/transformation_plots/iterN/. These are a real cost on
+            large starlists (an unthinned scatter of every star, saved at
+            dpi=300, once per starlist per iteration) -- set to False to
+            keep saving results without paying for them. Ignored if
+            save_path is None. By default True.
 
-        # Access the fully-combined reference table.
-        stars_table = msc.ref_table
+        save_object : bool, optional
+            If save_path is set, also pickle the entire mosaic object (self)
+            to PREFIX.pkl. This is a much heavier, less stable file
+            than the ref_table.hdf5/trans_list.pkl saved by default (it's
+            tied to flystar's class definitions, so it can break across
+            flystar versions) -- but it lets you reload the whole object
+            later (e.g. `with open(...) as f: mtr = pickle.load(f)`) and
+            keep using its normal instance methods (e.g.
+            calc_bootstrap_errors) with their usual, self-contained
+            parameter list, rather than having to supply every piece of
+            alignment config by hand. Ignored if save_path is None. By
+            default True.
 
-        # Plot the magnitude of the first star vs. time:
-        # Overplot the mean magnitude. 
-        plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
-        plt.axhline(stars_table['m0'][0])    
+        save_format : {'hdf5', 'fits', 'pkl'}, optional
+            File format for PREFIX_ref_table.<ext>. 'hdf5' (default) stores
+            nan as plain nan and has no header keyword length limit.
+            'fits' round-trips nan through a MaskedColumn on read (silently
+            changing every nan-containing column's dtype), and FITS header
+            keywords are capped at 8 characters, so meta keys longer than
+            that (e.g. 'list_times') are written using the HIERARCH
+            convention -- handled on a column-sharing copy of ref_table, so
+            self.ref_table's own meta keys are never renamed. 'pkl' pickles
+            self.ref_table directly: slower to load and tied to
+            flystar's/astropy's class definitions like save_object, but
+            preserves every column and meta key exactly as-is. Ignored if
+            save_path is None. By default 'hdf5'.
 
-        # Plot the X position of the first star vs. time:
-        # Overplot the best-fit proper motion.
-        times = stars_table['t'][0, :]
-        plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
-        plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))   
+        verbose : bool or int (0 to 9, inclusive), optional
+            Controls the verbosity of print statements. (0 least, 9 most verbose).
+            For backwards compatibility, 0 = False, 9 = True.
+            (Note: technically right now no checks on whether the number is an integer or not...)
+
+        Examples
+        --------
+
+        .. code-block:: python
+
+            mtr = align.MosaicToRef(my_gaia, list_of_starlists,
+                                    dr_tol=0.1, dm_tol=5,
+                                    outlier_tol=[None], mag_lim=[13, 21],
+                                    trans_class=transforms.PolyTransform,
+                                    trans_args=[{'order': 1}],
+                                    use_ref_new=False,
+                                    update_ref_orig=False,
+                                    mag_trans=False,
+                                    weights='both,std',
+                                    init_guess_mode='miracle', verbose=False)
+            mtr.fit()
+
+            # Access a list of all the transformation parameters:
+            trans_list = mtr.trans_list
+
+            # Access the fully-combined reference table.
+            stars_table = mtr.ref_table
+
+            # Plot the magnitude of the first star vs. time:
+            # Overplot the mean magnitude.
+            plt.plot(stars_table['t'][0, :], stars_table['m'][0, :], 'k.')
+            plt.axhline(stars_table['m0'][0])
+
+            # Plot the X position of the first star vs. time:
+            # Overplot the best-fit proper motion.
+            times = stars_table['t'][0, :]
+            plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
+            plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0]))
         """
-        super().__init__(list_of_starlists, ref_index=-1, iters=iters,
-                         dr_tol=dr_tol, dm_tol=dm_tol,
-                         outlier_tol=outlier_tol, trans_args=trans_args,
-                         init_order=init_order,
-                         mag_trans=mag_trans, mag_lim=mag_lim, weights=weights,
-                         trans_input=trans_input, trans_class=trans_class,
-                         calc_trans_inverse=calc_trans_inverse, use_vel=use_vel,
-                         init_guess_mode=init_guess_mode,
-                         iter_callback=iter_callback,
-                         verbose=verbose)
-        
-        self.ref_list = copy.deepcopy(ref_list)
+        super().__init__(
+            list_of_starlists,
+            # Alignment parameters
+            ref_index=-1,
+            dr_tol=dr_tol,
+            dm_tol=dm_tol,
+            outlier_tol=outlier_tol,
+            matching=matching,
+            dchi2_tol=dchi2_tol,
+            match_sigma_pos=match_sigma_pos,
+            match_sigma_mag=match_sigma_mag,
+            # Transformation parameters
+            trans_class=trans_class,
+            trans_args=trans_args,
+            trans_input=trans_input,
+            trans_weights=trans_weights,
+            init_order=init_order,
+            init_guess_mode=init_guess_mode,
+            briteN=briteN,
+            ignore_contains=ignore_contains,
+            calc_trans_inverse=calc_trans_inverse,
+            # Magnitude parameters
+            mag_trans=mag_trans,
+            mag_lim=mag_lim,
+            # Motion model parameters
+            motion_models=motion_models,
+            # motion_model_for_new_star=motion_model_for_new_star,
+            fixed_params_dict=fixed_params_dict,
+            vel_weights=vel_weights,
+            absolute_sigma=absolute_sigma,
+            # Advanced options
+            inherit_n_detect=inherit_n_detect,
+            iter_callback=iter_callback,
+            save_path=save_path,
+            save_plot=save_plot,
+            save_object=save_object,
+            save_format=save_format,
+            prefix_name=prefix_name,
+            verbose=verbose
+        )
+
+        self.starlist_vertices = starlist_vertices
+        self.ref_list = StarList(ref_list, copy=True)
         self.ref_mag_lim = ref_mag_lim
+        self.fix_ref_mag_lim()
         self.update_ref_orig = update_ref_orig
         self.use_ref_new = use_ref_new
+
+        if reflist_vertex is not None:
+            import shapely
+            self.reflist_polygon = shapely.make_valid(shapely.Polygon(reflist_vertex))
+        else:
+            self.reflist_polygon = None
+
+        # If motion_model_used in columns but params columns are missing, raise a warning and remove motion_model_used column to avoid confusion.
+        # if 'motion_model_used' in self.ref_list.colnames:
+        #     motion_model_params = motion_model.motion_model_param_names(np.unique(self.ref_list['motion_model_used']), with_errors=False, with_fixed=True)
+        #     missing_params = [param for param in motion_model_params if (param not in self.ref_list.colnames) and (f'{param}_err' not in self.ref_list.colnames) and (param not in self.fixed_params_dict.keys())]
+        #     if len(missing_params) > 0:
+        #         warnings.warn("Warning: 'motion_model_used' column found in ref_list, but the following motion model parameter columns are missing: " + ", ".join(missing_params) + ". Removing 'motion_model_used' column to avoid confusion.")
+        #         self.ref_list.remove_column('motion_model_used')
+
+        # If motion_model_used in columns, remove it and raise a warning, since it will only be determined after the fit.
+        if 'motion_model_used' in self.ref_list.colnames:
+            warnings.warn("Warning: 'motion_model_used' column found in ref_list. This column will be determined after the fit, so it is being removed from the input ref_list to avoid confusion.")
+            self.ref_list.remove_column('motion_model_used')
 
         # Do some temporary clean up of the reference list.
         if ('x' not in self.ref_list.colnames) and ('x0' in self.ref_list.colnames):
             self.ref_list['x'] = self.ref_list['x0']
             self.ref_list['y'] = self.ref_list['y0']
-        if ('xe' not in self.ref_list.colnames) and ('x0e' in self.ref_list.colnames):
-            self.ref_list['xe'] = self.ref_list['x0e']
-            self.ref_list['ye'] = self.ref_list['y0e']
+        if ('xe' not in self.ref_list.colnames) and ('x0_err' in self.ref_list.colnames):
+            self.ref_list['xe'] = self.ref_list['x0_err']
+            self.ref_list['ye'] = self.ref_list['y0_err']
         if ('m' not in self.ref_list.colnames) and ('m0' in self.ref_list.colnames):
             self.ref_list['m'] = self.ref_list['m0']
-        if ('me' not in self.ref_list.colnames) and ('m0e' in self.ref_list.colnames):
-            self.ref_list['me'] = self.ref_list['m0e']
+        if ('me' not in self.ref_list.colnames) and ('m0_err' in self.ref_list.colnames):
+            self.ref_list['me'] = self.ref_list['m0_err']
         if ('t' not in self.ref_list.colnames) and ('t0' in self.ref_list.colnames):
             self.ref_list['t'] = self.ref_list['t0']
 
         return
 
-    
-    def fit(self):
+    def fix_ref_mag_lim(self):
+        """
+        Normalize ref_mag_lim into a length-``iters`` list, one entry per
+        iteration, mirroring fix_iterable_conditions' treatment of
+        dr_tol/dm_tol/mag_lim: a single value broadcasts to every
+        iteration, a sequence must have one entry per iteration, and
+        ``iters`` is the length of the longest schedule set in __init__.
+
+        Unlike mag_lim, there's exactly one reference list, so the
+        per-iteration form is flat -- ``(N_iters, 2)``, not
+        ``(N_iters, N_lists, 2)``.
+
+        A flat ``[min, max]`` pair is told apart from a per-iteration
+        sequence by content, not just length: a pair's two sides are each
+        None or a scalar, where a per-iteration sequence's entries are each
+        None or a pair. So unlike mag_lim's old (N_lists, 2) vs
+        (N_iters, 2) ambiguity, there's no shape collision to worry about
+        here regardless of how many iterations there are.
+
+        Each resolved entry is either ``None`` (no cut that iteration --
+        left as None so apply_mag_lim_via_use_in_trans's own `is not None`
+        check can skip the cut entirely, same as before this method
+        existed) or a ``[min, max]`` pair with any open (None) side
+        resolved to +/-inf, since the comparisons downstream
+        (`ref_list[mcol] < ref_mag_lim[0]`) can't handle a bare None.
+
+        Raises
+        ------
+        AssertionError
+            If a per-iteration sequence's length is not iters.
+        """
+        def is_single_pair(val):
+            if val is None:
+                return True
+            return len(val) == 2 and all(v is None or np.isscalar(v) for v in val)
+
+        if is_single_pair(self.ref_mag_lim):
+            schedule = [self.ref_mag_lim] * self.iters
+        else:
+            schedule = list(self.ref_mag_lim)
+            assert len(schedule) == self.iters, \
+                (f'len(ref_mag_lim)={len(schedule)} != iters={self.iters}. ref_mag_lim must '
+                 f'be None, a 2-element [min, max], or a sequence of those with one entry '
+                 f'per iteration; iters is the longest schedule given.')
+
+        def resolve(lim):
+            if lim is None:
+                return None
+            lo, hi = lim
+            return [lo if lo is not None else -np.inf, hi if hi is not None else np.inf]
+
+        self.ref_mag_lim = [resolve(lim) for lim in schedule]
+
+    def fit(self, processes=1, chunksize=None, match_workers=1, mp_star_threshold=100_000):
         """
         Using the current parameter settings, match and transform all the lists
         to a reference position. Note in the first pass, the reference position
         is just the specified input reference starlist. In subsequent iterations,
-        this is (optionally) updated. 
+        this is (optionally) updated.
 
         The ultimate outcome is the creation of self.ref_table. This reference
-        table will contain "averaged" quantites as well as a big 2D array of all
-        the matched original and transformed quantities. 
+        table will contain "averaged" quantities as well as a big 2D array of all
+        the matched original and transformed quantities.
 
         Averaged columns on ref_table:
         x0
@@ -1582,34 +3065,67 @@ class MosaicToRef(MosaicSelfRef):
         x0e
         y0e
         m0e
-        vx  (only if use_vel=True)
-        vy  (only if use_vel=True)
-        vxe (only if use_vel=True)
-        vye (only if use_vel=True)
+        addl. motion_model parameters
 
+        Parameters
+        ----------
+        processes : int, optional
+            Number of processes to use for parallel processing, maximum os.cpu_count(), by default 1 (no multiprocessing)
+        chunksize : int, optional
+            Chunk size for multiprocessing, by default None (auto)
+        match_workers : int, optional
+            Number of worker threads scipy uses for the KDTree neighbor search inside
+            match.match(). Default is 1 (single-threaded), which is the safe choice on
+            shared/multi-tenant machines where grabbing all cores would step on other
+            users' jobs. Set to -1 to use all available CPU cores (measurably faster on
+            large starlists, with no change in matching results). See MosaicSelfRef.fit
+            for details.
+        mp_star_threshold : int, optional
+            Minimum number of stars actually requiring the per-star motion-model
+            fitting path before a multiprocessing Pool is used for fitting, even
+            if processes > 1. See StarTable.fit_motion_models for details.
+            By default 100_000.
         """
         # Create a log file of the parameters used in the fit.
-        with open('MosaicToRef_input_params.log', 'w',) as _log:
-            logger(_log, 'Parameters used for fit: ', self.verbose)
-            logger(_log, '------------------------- ', self.verbose)
-            logger(_log, '  dr_tol = ' + str(self.dr_tol), self.verbose)
-            logger(_log, '  dm_tol = ' + str(self.dm_tol), self.verbose)
-            logger(_log, '  outlier_tol = ' + str(self.outlier_tol), self.verbose)
-            logger(_log, '  trans_args = ' + str(self.trans_args), self.verbose)
-            logger(_log, '  mag_trans = ' + str(self.mag_trans), self.verbose)
-            logger(_log, '  mag_lim = ' + str(self.mag_lim), self.verbose)
-            logger(_log, '  ref_mag_lim = ' + str(self.ref_mag_lim), self.verbose)
-            logger(_log, '  weights = ' + str(self.weights), self.verbose)
-            logger(_log, '  trans_input = ' + str(self.trans_input), self.verbose)
-            logger(_log, '  trans_class = ' + str(self.trans_class), self.verbose)
-            logger(_log, '  calc_trans_inverse = ' + str(self.calc_trans_inverse), self.verbose)
-            logger(_log, '  use_ref_new = ' + str(self.use_ref_new), self.verbose)
-            logger(_log, '  use_vel = ' + str(self.use_vel), self.verbose)
-            logger(_log, '  update_ref_orig = ' + str(self.update_ref_orig), self.verbose)
-            logger(_log, '  init_guess_mode = ' + str(self.init_guess_mode), self.verbose)
-            logger(_log, '  iter_callback = ' + str(self.iter_callback), self.verbose)
-            logger(_log, '-------------------------\n', self.verbose)
+        # Setup save_path:
+        if self.save_path:
+            if not os.path.exists(os.path.dirname(self.save_path)):
+                os.makedirs(os.path.dirname(self.save_path))
 
+        # Save input params
+        input_filename = f'{self.prefix_name}_input.txt'
+        input_dict = {
+            'iters': self.iters,
+            'dr_tol': self.dr_tol,
+            'dm_tol': self.dm_tol,
+            'outlier_tol': self.outlier_tol,
+            'use_ref_new': self.use_ref_new,
+            'update_ref_orig': self.update_ref_orig,
+            'trans_class': self.trans_class,
+            'trans_args': self.trans_args,
+            'trans_input': self.trans_input,
+            'trans_weights': self.trans_weighting,
+            'init_order': self.init_order,
+            'init_guess_mode': self.init_guess_mode,
+            'calc_trans_inverse': self.calc_trans_inverse,
+            'mag_trans': self.mag_trans,
+            'mag_lim': self.mag_lim,
+            'ref_mag_lim': self.ref_mag_lim,
+            'motion_models': self.motion_models,
+            'fixed_params_dict': self.fixed_params_dict,
+            'vel_weights': self.vel_weighting,
+            'absolute_sigma': self.absolute_sigma,
+            'iter_callback': self.iter_callback,
+            'save_path': self.save_path,
+            'prefix_name': self.prefix_name,
+            'verbose': self.verbose
+        }
+        if self.save_path is not None:
+            if not os.path.exists(self.save_path):
+                os.makedirs(self.save_path)
+            with open(os.path.join(self.save_path, input_filename), 'w') as file:
+                for key, value in input_dict.items():
+                    file.write(f'{key}:\t{value}\n')
 
         ##########
         # Setup a reference table to store data. It will contain:
@@ -1618,26 +3134,15 @@ class MosaicToRef(MosaicSelfRef):
         #    x_orig, y_orig, m_orig, (opt. errors) -- the transformed errors for the lists: 2D
         #    w, w_orig (optiona) -- the input and output weights of stars in transform: 2D
         ##########
+        if 't0' in self.ref_list.colnames: self.t0_provided = True
+        else: self.t0_provided = False
         self.ref_table = self.setup_ref_table_from_starlist(self.ref_list)
-        
-        # copy over velocities if they exist in the reference list
-        if 'vx' in self.ref_list.colnames:
-            self.ref_table['vx'] = self.ref_list['vx']
-            self.ref_table['vy'] = self.ref_list['vy']
-            self.ref_table['t0'] = self.ref_list['t0']
-        if 'vxe' in self.ref_list.colnames:
-            self.ref_table['vxe'] = self.ref_list['vxe']
-            self.ref_table['vye'] = self.ref_list['vye']
-
 
         ##########
-        #
         # Repeat transform + match of all the starlists several times.
-        #
         ##########
         for nn in range(self.iters):
-            
-            # If we are on subsequent iterations, remove matching results from the 
+            # If we are on subsequent iterations, remove matching results from the
             # prior iteration. This leaves aggregated (1D) columns alone.
             if nn > 0:
                 self.reset_ref_values()
@@ -1649,70 +3154,373 @@ class MosaicToRef(MosaicSelfRef):
                 print('Starting iter {0:d} with ref_table shape:'.format(nn), self.ref_table['x'].shape)
                 print("**********")
                 print("**********")
-                
+
             # ALL the action is in here. Match and transform the stack of starlists.
-            # This updates trans objects and the ref_table. 
-            self.match_and_transform(self.ref_mag_lim,
-                                     self.dr_tol[nn], self.dm_tol[nn], self.outlier_tol[nn],
-                                     self.trans_args[nn])
+            # This updates trans objects and the ref_table.
+            self.match_and_transform(
+                self.ref_mag_lim[nn],
+                self.dr_tol[nn],
+                self.dm_tol[nn],
+                self.outlier_tol[nn],
+                self.trans_args[nn],
+                nn,
+                processes=processes,
+                chunksize=chunksize,
+                match_workers=match_workers,
+                mp_star_threshold=mp_star_threshold
+            )
 
             # Clean up the reference table
             # Find where stars are detected.
-            self.ref_table.detections()
+            self.ref_table.detections(weight_col='n_detect_list' if self.inherit_n_detect else None)
 
             ### Drop all stars that have 0 detections.
-            idx = np.where((self.ref_table['n_detect'] == 0) & (self.ref_table['ref_orig'] == False))[0]
+            idx = np.where((self.ref_table['n_detect'] == 0))[0] # & (self.ref_table['ref_orig'] == False))[0]
             if self.verbose > 0:
-                print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+                print('    *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
             self.ref_table.remove_rows(idx)
 
-            if self.iter_callback != None:
+            if self.iter_callback is not None:
                 self.iter_callback(self.ref_table, nn)
 
         ##########
-        #
         # Re-do all matching given final transformations.
-        #        No trimming this time.
-        #        First rest the reference table 2D values. 
+        # No trimming this time.
+        # First reset the reference table 2D values.
         ##########
         self.reset_ref_values(exclude=['used_in_trans'])
-        
+
         if self.verbose > 0:
             print("**********")
             print("Final Matching")
             print("**********")
 
-        self.match_lists(self.dr_tol[-1], self.dm_tol[-1])
-        self.update_ref_table_aggregates()
+        self.match_lists(self.dr_tol[-1], self.dm_tol[-1], workers=match_workers)
+        if self.update_ref_orig:
+            keep_orig=None
+        else:
+            keep_orig = self.ref_table['ref_orig']
+        self.update_ref_table_aggregates(keep_orig=keep_orig, processes=processes, chunksize=chunksize, mp_star_threshold=mp_star_threshold)
 
         ##########
         # Clean up output table.
-        # 
         ##########
         # Find where stars are detected.
         if self.verbose > 0:
-            print('')
-            print('   Preparing the reference table...')
-            
-        self.ref_table.detections()
+            print('    Preparing the reference table...')
+
+        self.ref_table.detections(weight_col='n_detect_list' if self.inherit_n_detect else None)
 
         ### Drop all stars that have 0 detections.
-        idx = np.where(self.ref_table['n_detect'] == 0)[0]
-        print('  *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
+        idx = np.where((self.ref_table['n_detect'] == 0))[0] # & (self.ref_table['ref_orig'] == False))[0]
+        if self.verbose:
+            print('    *** Getting rid of {0:d} out of {1:d} junk sources'.format(len(idx), len(self.ref_table)))
         self.ref_table.remove_rows(idx)
 
-        if self.iter_callback != None:
-            self.iter_callback(self.ref_table, nn)
+        if self.iter_callback is not None:
+            # nn + 1, not nn: the loop above already called back with nn at the
+            # end of that iteration, and this call comes after a further stage
+            # (the final re-match and aggregate update). Reusing nn made the
+            # two indistinguishable, so a callback with side effects -- say one
+            # that accumulates outlier rejections -- ran twice for the last
+            # iteration with no way to tell. nn + 1 == self.iters marks "after
+            # the final matching pass".
+            self.iter_callback(self.ref_table, nn + 1)
 
+        # Add times into ref_table meta data
+        all_epochs = [s.meta['list_time'] for s in self.star_lists]
+        self.ref_table.meta['list_times'] = all_epochs
+
+        # Update chi2 values in ref table, as motion_model_used may have changed
+        x_inferred, y_inferred, _, _ = self.ref_table.infer_positions(all_epochs, fixed_params_dict=self.fixed_params_dict)
+        # Convert x_inferred and y_inferred to 2D arrays if they are 1D (i.e. if only one epoch), so that the chi2 calculation works correctly.
+        if x_inferred.ndim == 1:
+            x_inferred = x_inferred[:, np.newaxis]
+        if y_inferred.ndim == 1:
+            y_inferred = y_inferred[:, np.newaxis]
+        weighted_xy = ('xe' in self.ref_table.colnames) and ('ye' in self.ref_table.colnames)
+        if weighted_xy:
+            chi2_x_2d = ((self.ref_table['x'] - x_inferred) / self.ref_table['xe'])**2
+            chi2_y_2d = ((self.ref_table['y'] - y_inferred) / self.ref_table['ye'])**2
+        else:
+            chi2_x_2d = (self.ref_table['x'] - x_inferred)**2
+            chi2_y_2d = (self.ref_table['y'] - y_inferred)**2
+        chi2_x = np.nansum(chi2_x_2d, axis=1)
+        chi2_y = np.nansum(chi2_y_2d, axis=1)
+        chi2_x[~np.isfinite(chi2_x_2d).any(axis=1)] = np.nan
+        chi2_y[~np.isfinite(chi2_y_2d).any(axis=1)] = np.nan
+        self.ref_table['chi2_x'] = chi2_x
+        self.ref_table['chi2_y'] = chi2_y
+
+        # Update t0 and n_fit when no fitting is run because all motion_model_input==Fixed.
+        # 't0' may already exist as a column (e.g. supplied by the input
+        # reference list) without being populated for every row -- newly
+        # added stars get a NaN placeholder when their row is created (see
+        # add_rows_for_new_stars), and nothing else ever fills it in for the
+        # all-Fixed case. So the check has to be "which rows still need a
+        # value", not just "does the column exist".
+        needs_t0 = (
+            np.ones(len(self.ref_table), dtype=bool) if 't0' not in self.ref_table.colnames
+            else ~np.isfinite(self.ref_table['t0'])
+        )
+        needs_n_fit = 'n_fit' not in self.ref_table.colnames
+
+        if needs_t0.any() or needs_n_fit:
+            x_data = np.ma.masked_invalid(self.ref_table['x'].data, copy=True)
+            y_data = np.ma.masked_invalid(self.ref_table['y'].data, copy=True)
+            if weighted_xy:
+                xe_data = np.ma.masked_invalid(self.ref_table['xe'].data, copy=True)
+                ye_data = np.ma.masked_invalid(self.ref_table['ye'].data, copy=True)
+                xe_data.mask[np.isclose(xe_data, 0.)] = True
+                ye_data.mask[np.isclose(ye_data, 0.)] = True
+                fill_with_one = np.all(xe_data.mask, axis=1) & np.all(ye_data.mask, axis=1)
+                xe_data[fill_with_one] = 1.
+                ye_data[fill_with_one] = 1.
+            else:
+                xe_data = None
+                ye_data = None
+
+            if np.ndim(x_data) == 1:
+                x_data = x_data[:, np.newaxis]
+            if np.ndim(y_data) == 1:
+                y_data = y_data[:, np.newaxis]
+            if weighted_xy:
+                if np.ndim(xe_data) == 1:
+                    xe_data = xe_data[:, np.newaxis]
+                if np.ndim(ye_data) == 1:
+                    ye_data = ye_data[:, np.newaxis]
+
+            if 't' in self.ref_table.colnames:
+                t_data = self.ref_table['t'].data
+            else:
+                t_data = np.array(self.ref_table.meta['list_times'])
+                t_data = np.broadcast_to(t_data, xe_data.shape)
+
+            # Update t0, adapted from startables.fit_motion_models. Only the
+            # rows that need it are written -- rows that already have a
+            # valid t0 (e.g. from the input reference list) are left alone.
+            if needs_t0.any():
+                weights = 1. / np.hypot(xe_data, ye_data) if weighted_xy else None
+                # t_data must be masked (not just weights) and np.ma.average
+                # (not plain np.average) must be used here: for the
+                # fill_with_one rows above (no usable xe/ye anywhere at all),
+                # the substitute weight is uniform/unmasked, but t can still
+                # be genuinely NaN in undetected epochs. Plain np.average's
+                # weight-sum denominator doesn't respect t's own mask in that
+                # case, silently corrupting the result. np.ma.average does,
+                # and with a uniform weight that's equivalent to
+                # combine_lists()'s plain (unweighted) mean of just the valid
+                # epochs -- i.e. these stars' t0 still reflects their real
+                # detections, it's just not astrometric-error-weighted.
+                t0_new = np.ma.average(np.ma.masked_invalid(t_data), axis=1, weights=weights).filled(np.nan)
+                if 't0' not in self.ref_table.colnames:
+                    self.ref_table['t0'] = t0_new
+                else:
+                    self.ref_table['t0'][needs_t0] = t0_new[needs_t0]
+
+            # Update n_fit: unique epochs with valid data
+            if needs_n_fit:
+                xy_mask = ~ (x_data.mask | y_data.mask)
+                if weighted_xy:
+                    xy_mask &= ~ (xe_data.mask | ye_data.mask)
+
+                self.ref_table['n_fit'] = np.array([
+                    len(set(t_data[i][xy_mask[i]]))
+                    for i in range(len(self.ref_table))
+                ])
+
+        if self.save_path is not None:
+            # HDF5 (unlike FITS) stores nan as plain nan -- astropy.io.fits.open()
+            # round-trips nan through a MaskedColumn instead, silently changing
+            # every nan-containing column's type on read back -- and it's just
+            # column data, not tied to flystar's class definitions the way a
+            # pickle of self or self.ref_table would be. The transform objects
+            # still need pickling (they're real objects, not plain data), but
+            # that's a much smaller, more stable pickle than the whole self.
+            # trans_list_inverse is saved as its own file, only when requested
+            # (calc_trans_inverse) -- keeping it out of trans_list.pkl means that
+            # file's content is always the same shape, rather than sometimes a
+            # plain list and sometimes a dict depending on calc_trans_inverse.
+            self._write_ref_table(self.save_path, self.prefix_name)
+            with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list.pkl'), 'wb') as file:
+                pickle.dump(self.trans_list, file)
+            if self.calc_trans_inverse:
+                with open(os.path.join(self.save_path, f'{self.prefix_name}_trans_list_inverse.pkl'), 'wb') as file:
+                    pickle.dump(self.trans_list_inverse, file)
+            if self.save_object:
+                with open(os.path.join(self.save_path, f'{self.prefix_name}.pkl'), 'wb') as file:
+                    pickle.dump(self, file)
+
+        if self.verbose > 0:
+            print('===================================')
+            print('========== Done with fit ==========')
+            print('===================================')
         return
+
+def schedule_len(value):
+    """
+    The number of iterations a per-iteration setting asks for.
+
+    A single value -- a scalar, None, or a bare dict of transformation
+    arguments -- asks for one, and is broadcast to however many iterations
+    the other settings call for. A sequence asks for one iteration per
+    entry.
+
+    Parameters
+    ----------
+    value : scalar, None, dict, or sequence
+        A schedule argument: ``dr_tol``, ``dm_tol``, ``outlier_tol`` or
+        ``trans_args``.
+
+    Returns
+    -------
+    int
+        ``len(value)`` for a sequence, 1 otherwise.
+    """
+    if (value is None) or isinstance(value, dict) or (not np.iterable(value)):
+        return 1
+
+    return len(value)
+
+
+# TODO: This is sometimes run on a startable, not a starlist, at least as currently used
+def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, return_errors=False):
+    """
+    Take a startable, check to see if it has motion/velocity columns.
+    If it does, then propagate the positions forward in time
+    to the desired epoch. If no motion/velocities exist, then just
+    use ['x0', 'y0'] or ['x', 'y']
+
+    Parameters
+    ----------
+    t : float
+        The time to propagate to. Usually in decimal years;
+        but it should be in the same units
+        as the 't0' column in starlist.
+    startable : StarTable
+        Startable that needs to be inferred.
+    motion_models : list of MotionModel classes or strings, optional
+        The motion models to check for in the startable, by default None.
+    fixed_params_dict : dict, optional
+        Values for motion-model parameters that are held fixed rather than
+        fit (e.g. 't0', 'obsLocation'). Takes precedence over columns of the
+        same name on the startable, by default None.
+    return_errors : boolean, optional
+        Whether to return the inferred position errors. If True, then the function returns x, y, xe, ye. If False, then it just returns x, y, by default False.
+
+    Returns
+    -------
+    x, y, (xe, ye) : tuple
+        Inferred position (and errors) at time t
+    """
+    if ('motion_model_used' in startable.colnames):
+        x, y, xe, ye = startable.infer_positions(t, fixed_params_dict=fixed_params_dict)
+        if return_errors:
+            return x, y, xe, ye
+        else:
+            return x, y
+
+    # Convert motion_models from strings to MotionModel classes if needed.
+    if motion_models is None:
+        # Setting the default to None to avoid mutable default argument issue
+        # See https://stackoverflow.com/questions/15189245/assigning-class-variable-as-default-value-to-class-method-argument
+        motion_models = [motion_model.Empty, motion_model.Fixed]
+    all_mm_map = motion_model.motion_model_map()
+    if all(isinstance(mm, str) for mm in motion_models):
+        mm_names = motion_models
+        motion_models = [all_mm_map[mm] for mm in motion_models]
+    else:
+        mm_names = [mm.name for mm in motion_models]
+
+    # Always add Empty and Fixed in motion models
+    if 'Fixed' not in mm_names:
+        motion_models.insert(0, motion_model.Fixed)
+    if 'Empty' not in mm_names:
+        motion_models.insert(0, motion_model.Empty)
+
+    # Otherwise, infer positions using the most complex motion model with the existing columns, until it reaches Fixed or Empty
+    # Sort motion models inversely by mm.n_params
+    motion_models = sorted(motion_models, key=lambda mm: mm.n_params, reverse=True)
+    for mm in motion_models:
+        if mm.name == 'Empty':
+            x = startable['x']
+            y = startable['y']
+            return x, y
+
+        required_columns = mm.fit_param_names + mm.fixed_param_names
+        if all([param in startable.colnames for param in required_columns]):
+            # Check if the values are finite for non-string columns in the required columns for this motion model. If not, skip to the next motion model.
+            if not all([np.isfinite(startable[param]).all() for param in required_columns if startable[param].dtype.kind in 'if']):
+                continue
+
+            # If we have error columns for all fit parameters, then use them in the model inference. Otherwise, just use the fit parameters without errors.
+            x, y = mm().model(
+                t=t,
+                fit_params=np.array([startable[param] for param in mm.fit_param_names]).T,
+                fixed_params_dict={param: startable[param] for param in mm.fixed_param_names}
+            )
+            break
+
+    return x, y
+
+
+def determine_motion_models(startable, motion_models=None, fixed_params_dict=None, processes=1, chunksize=None, verbose=True):
+    """Determine, per star, which motion model to use.
+
+    Thin wrapper kept for backward compatibility -- the implementation lives in
+    motion_model.determine_motion_models, so that startables (which align
+    imports) can use it too. See there for the precedence rules.
+
+    The `processes`/`chunksize` arguments are unused; the implementation is
+    vectorized. They are accepted so existing calls keep working.
+
+    Parameters
+    ----------
+    startable : StarTable
+        The table whose stars are to be classified.
+    motion_models : list of MotionModel classes or strings, optional
+        The models a star may be assigned. None lets each star take the most
+        complex model its own parameters support, by default None.
+    fixed_params_dict : dict, optional
+        Motion-model parameters supplied by the caller rather than read from
+        the table, by default None.
+    processes : int, optional
+        Unused; accepted for backward compatibility, by default 1.
+    chunksize : int, optional
+        Unused; accepted for backward compatibility, by default None.
+    verbose : bool, optional
+        Unused; accepted for backward compatibility, by default True.
+
+    Returns
+    -------
+    motion_model_used : numpy.ndarray of str
+        The chosen model name for each star.
+    n_params : numpy.ndarray of int
+        The number of fitted parameters that model implies, per star.
+    """
+    return motion_model.determine_motion_models(
+        startable, motion_models=motion_models, fixed_params_dict=fixed_params_dict
+    )
+
 
 def get_all_epochs(t):
     """
     Helper function to get times of all epochs from a ref table.
-    This is required because our previous approach 
-    of simply taking the time array of the star with the most detections 
-    fails for mosaicked catalogs, because it is then possible that 
+    This is required because our previous approach
+    of simply taking the time array of the star with the most detections
+    fails for mosaicked catalogs, because it is then possible that
     no star is detected in all fields.
+
+    Parameters
+    ----------
+    t : numpy.ndarray
+        The table's 2D 't' column, shape (N_stars, N_lists). Undetected
+        entries are non-finite.
+
+    Returns
+    -------
+    numpy.ndarray
+        One time per list, taken from whichever star was detected in it.
     """
     nepochs = len(t['t'][0])
 
@@ -1728,24 +3536,44 @@ def get_all_epochs(t):
 
     all_epochs = np.array(all_epochs)
     return all_epochs
-    
 
-def setup_ref_table_from_starlist(star_list):
-    """ 
+
+def setup_ref_table_from_starlist(star_list, motion_models):
+    """
     Start with the reference list.... this will change and grow
     over time, so make a copy that we will keep updating.
-    The reference table will contain one columne for every named
+    The reference table will contain one column for every named
     array in the original reference star list.
+
+    Parameters
+    ----------
+    star_list : StarList
+        The starlist to seed the reference table with.
+    motion_models : list of MotionModel classes or strings
+        Which motion models are in play. Their parameter columns are kept
+        1D (one value per star) rather than being given a per-list axis.
+
+    Returns
+    -------
+    StarTable
+        The seeded reference table, with one per-list column filled in from
+        ``star_list`` and matching '<col>_orig' columns for the
+        untransformed values.
     """
     col_arrays = {}
+    motion_model_col_names = motion_model.motion_model_param_names(motion_models, with_errors=True)
     for col_name in star_list.colnames:
         if col_name == 'name':
-            # The "name" column will be 1D; but we will also add a "name_in_list" column.
+            # 1D "name", plus "idx_in_list" carrying per-list identity as a
+            # row index rather than a copy of the name. See the method of the
+            # same name on MosaicSelfRef.
             col_arrays['name'] = star_list[col_name].data
-            new_col_name = "name_in_list"
+            col_arrays['idx_in_list'] = np.arange(
+                len(star_list), dtype=np.int32)[:, np.newaxis]
+            continue
         else:
             new_col_name = col_name
-            
+
         # Make every column's 2D arrays except "name" and those
         # columns used for the motion model.
         if col_name in motion_model_col_names:
@@ -1759,7 +3587,7 @@ def setup_ref_table_from_starlist(star_list):
 
     # Make new columns to hold original values. These will be copies
     # of the old columns and will only include x, y, m, xe, ye, me.
-    # The columns we have already created will hold transformed values. 
+    # The columns we have already created will hold transformed values.
     trans_col_names = ['x', 'y', 'm', 'xe', 'ye', 'me', 'w']
     for tt in range(len(trans_col_names)):
         old_name = trans_col_names[tt]
@@ -1771,32 +3599,30 @@ def setup_ref_table_from_starlist(star_list):
 
     # Make sure ref_table has the necessary x0, y0, m0 and associated
     # error columns. If they don't exist, then add them as a copy of
-    # the original x,y,m etc columns. 
-    new_cols_arr = ['x0', 'x0e', 'y0', 'y0e', 'm0', 'm0e']
+    # the original x,y,m etc columns.
+    new_cols_arr = ['x0', 'x0_err', 'y0', 'y0_err', 'm0', 'm0_err']
     orig_cols_arr = ['x', 'xe', 'y', 'ye', 'm', 'me']
     assert len(new_cols_arr) == len(orig_cols_arr)
     ref_cols = ref_table.keys()
 
-    for ii in range(len(new_cols_arr)):
-        if not new_cols_arr[ii] in ref_cols:
+    for new_col, orig_col in zip(new_cols_arr, orig_cols_arr):
+        if new_col not in ref_cols:
             # Some munging to convert data shape from (N,1) to (N,),
             # since these are all 1D cols
-            vals = np.transpose(np.array(ref_table[orig_cols_arr[ii]]))[0]
+            vals = np.array(ref_table[orig_col]).flatten()
 
             # Now add to ref_table
-            new_col = Column(vals, name=new_cols_arr[ii])
-            ref_table.add_column(new_col)
-    
+            ref_table.add_column(vals, name=new_col)
+
     if 'use_in_trans' not in ref_table.colnames:
-        new_col = Column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
-        ref_table.add_column(new_col)
+        ref_table.add_column(np.ones(len(ref_table), dtype=bool), name='use_in_trans')
 
     # Now reset the original values to invalids... they will be filled in
     # at later times. Preserve content only in the columns: name, x0, y0, m0 (and 0e).
-    # Note that these are all the 1D columsn.
+    # Note that these are all the 1D columns.
     for col_name in ref_table.colnames:
-        if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
-            ref_table._set_invalid_list_values(col_name, -1)    
+        if np.ndim(ref_table[col_name].data) == 2:      # Find the 2D columns
+            ref_table._set_invalid_list_values(col_name, -1)
 
     return ref_table
 
@@ -1806,33 +3632,77 @@ def copy_over_values(ref_table, star_list, star_list_T, idx_epoch, idx_ref, idx_
     into the reference table we carry around and that is the final output product.
     Copy only those values for stars that match.
 
-    Copy all columns that are in both ref_table and star_list_T. 
+    Copy all columns that are in both ref_table and star_list_T.
     Copy all columns that are also in star_list but copy them into <col>_orig.
 
     Parameters
     ----------
     ref_table : StarTable
         The table we will be copying values into. Note the columns with the appropriate
-        names and dimensions must already exist. 
+        names and dimensions must already exist.
     star_list : StarList
         The astropy table to copy values from. These should be untransformed (orig) values.
     star_list_T : StarList
         The astropy table to copy values from. These should be transformed values.
+    idx_epoch : int
+        Which per-list (2D) column to write into, i.e. the position of this
+        starlist in the stack.
     idx_ref : list or array
         The indices into the ref_table where values are copied to.
     idx_lis : list or array
-        The indices into the star_list or star_lsit_T where values are copied from.
+        The indices into the star_list or star_list_T where values are copied from.
     """
+    idx_lis = np.array(idx_lis)
     for col_name in ref_table.colnames:
+        if col_name == 'n_detect':
+            # 'n_detect' in ref_table is the 1D aggregate computed by
+            # detections()/update_n_detect(), not a per-list column -- a
+            # starlist's own 'n_detect' (used by inherit_n_detect) is
+            # handled separately below via 'n_detect_list', never here.
+            continue
         if col_name in star_list_T.colnames:
             if col_name == 'name':
-                ref_table['name_in_list'][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]
+                # Record which row of this starlist each star came from. The
+                # name itself is recoverable from that index, and unlike a
+                # copy of the name it needs no dtype widening as new lists
+                # bring in longer names.
+                ref_table['idx_in_list'][idx_ref, idx_epoch] = idx_lis
+            elif np.ndim(ref_table[col_name]) != 2:
+                # Only per-list (2D) columns can take a per-epoch write. A
+                # shared name whose ref_table column is 1D is an aggregate or a
+                # per-star flag -- 'use_in_trans', 'x0', 'n_params' and so on --
+                # and has no epoch axis to index. Writing it here raised
+                # "too many indices for array", so simply supplying a
+                # 'use_in_trans' column on an input starlist crashed the run.
+                # Leave those columns to whoever owns them.
+                continue
             else:
-                ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][list(idx_lis)]
+                ref_table[col_name][idx_ref, idx_epoch] = star_list_T[col_name][idx_lis]
 
             orig_col_name = col_name + '_orig'
             if orig_col_name in ref_table.colnames:
-                ref_table[orig_col_name][idx_ref, idx_epoch] = star_list[col_name][list(idx_lis)]
+                ref_table[orig_col_name][idx_ref, idx_epoch] = star_list[col_name][idx_lis]
+
+    # Special case for n_detect_list (used by inherit_n_detect): the source
+    # column is named 'n_detect' (not 'n_detect_list'), so the by-name loop
+    # above never touches it -- copy it explicitly here. A starlist that's
+    # itself the output of a previous, lower-level align pass has its own
+    # 'n_detect'; one without it still contributes a weight of 1 per
+    # detection.
+    if 'n_detect_list' in ref_table.colnames:
+        if 'n_detect' in star_list.colnames:
+            ref_table['n_detect_list'][idx_ref, idx_epoch] = star_list['n_detect'][idx_lis]
+        else:
+            ref_table['n_detect_list'][idx_ref, idx_epoch] = 1
+
+    # Special case for list_time
+    if 't' not in star_list.colnames:
+        ref_table['t'][idx_ref, idx_epoch] = star_list.meta['list_time']
+    # Add list_times in meta
+    if 'list_times' not in ref_table.meta:
+        ref_table.meta['list_times'] = [star_list.meta['list_time']]
+    else:
+        ref_table.meta['list_times'].append(star_list.meta['list_time'])
 
     return
 
@@ -1840,453 +3710,180 @@ def reset_ref_values(ref_table):
     """
     Reset all the 2D arrays in the reference table. This is the action
     we take at the beginning of each new iteration. We don't preserve matching
-    results from the prior iterations. 
+    results from the prior iterations.
+
+    Parameters
+    ----------
+    ref_table : StarTable
+        The reference table to clear. Modified in place; only the per-list
+        (2D) columns are touched, so the aggregated 1D columns survive.
+
+    Returns
+    -------
+    None
     """
     # All 2D columns should be reset.
     for col_name in ref_table.colnames:
-        if len(ref_table[col_name].data.shape) == 2:      # Find the 2D columns
+        if np.ndim(ref_table[col_name].data) == 2:      # Find the 2D columns
             # Loop through epochs for this array.
             for cc in range(ref_table[col_name].shape[1]):
                 ref_table._set_invalid_list_values(col_name, cc)
-                
+
     return
 
-def add_rows_for_new_stars(ref_table, star_list, idx_lis):
+def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fixed', fixed_params_dict=None):
     """
-    For each star that is in star_list and NOT in idx_list, make a 
-    new row in the reference table. The values will be empty (None, NAN, etc.). 
+    For each star that is in star_list and NOT in idx_list, make a
+    new row in the reference table. The values will be empty (None, NAN, etc.).
 
     Parameters
     ----------
     ref_table : StarTable
         The reference table that the rows will be added to.
-
     star_list : StarList
         The starlist that will be used to estimate how many new stars there are.
-
-    idx_lis : array or list
+    idx_list : array or list
         The indices of the non-new stars (those that matched already). The complement
         of this array will be used as the new stars.
+    motion_model_name : str, optional
+        The motion model name to assign to the new stars, by default 'Fixed'.
+    fixed_params_dict : dict, optional
+        The default fixed parameters to assign to the new stars, by default None.
 
     Returns
-    ----------
+    -------
     ref_table : StarTable
         The reference table with rows added into.
     idx_lis_new : list
         The list of indices into the star_list object for the "new" stars.
     idx_ref_new : list
-        The list of indices into the ref_table object for the "new" stars. 
+        The list of indices into the ref_table object for the "new" stars.
 
     """
     last_star_idx = len(ref_table)
 
-    idx_lis_orig = np.arange(len(star_list))
-    idx_lis_new = np.array(list(set(idx_lis_orig) - set(idx_lis)))
+    # Which stars in star_list did NOT match anything in the reference table.
+    # A boolean mask rather than set(range(N)) - set(idx_list): the set form
+    # builds a Python int object per star, which at a million-row starlist is
+    # ~100x slower and allocates far more than the mask does.
+    is_new = np.ones(len(star_list), dtype=bool)
+    is_new[np.asarray(idx_list, dtype=np.intp)] = False
+    idx_lis_new = np.where(is_new)[0]
+    N_newstars = len(idx_lis_new)
 
-    if len(idx_lis_new) > 0:
-        col_arrays = {}
+    mm_map = motion_model.motion_model_map()
+    mm = mm_map[motion_model_name]
 
-        for col_name in ref_table.colnames:
-            new_col_name = col_name
+    # Add optional fixed params default values into fixed params dict, prioritizing values in fixed_params_dict
+    if fixed_params_dict is not None:
+        fixed_params_dict.update({k: v for k, v in mm.optional_fixed_params.items() if k not in fixed_params_dict})
+    else:
+        fixed_params_dict = mm.optional_fixed_params.copy()
 
-            if ref_table[col_name].dtype == np.dtype('float'):
+    if N_newstars > 0:
+        # Build each column's new rows and concatenate them onto the
+        # existing column data one column at a time, dropping the old
+        # column's reference immediately afterward -- instead of building a
+        # whole parallel StarTable for the new rows and then vstack()-ing
+        # it onto ref_table, which transiently holds the old table, the new
+        # (parallel) table, AND vstack's own freshly-concatenated result all
+        # in memory simultaneously (every column, all at once). That
+        # transient roughly doubles peak memory on every single "add new
+        # stars" step, which dominates total memory use for a mosaic that
+        # grows into the millions of rows across many starlists. Building
+        # concatenated arrays directly (and letting each old column's array
+        # be freed as soon as it's replaced) avoids ever needing a second
+        # full copy of the whole table at once.
+        colnames = list(ref_table.colnames)
+        new_col_arrays = {}
+        for col_name in colnames:
+            old_col = ref_table[col_name]
+            dtype = old_col.dtype
+
+            if col_name in fixed_params_dict.keys():
+                new_col_empty = fixed_params_dict[col_name]
+            elif col_name=='n_params':
+                new_col_empty = mm.n_params
+            elif col_name=='motion_model_input':
+                new_col_empty = motion_model_name
+            elif col_name=='motion_model_used':
+                new_col_empty = 'Empty'
+            elif col_name == 'n_detect_list':
+                # Unlike other int columns, 0 (not -1) is the correct "no
+                # data" value here -- it lets n_detect (the aggregate) be
+                # computed as a direct sum(n_detect_list, axis=1) instead of
+                # a masked sum against x/y.
+                new_col_empty = 0
+            elif col_name in ['xe', 'ye', 'me'] or col_name.endswith('_err'):
+                new_col_empty = np.inf
+            elif dtype.kind == 'f':
                 new_col_empty = np.nan
-            elif ref_table[col_name].dtype == np.dtype('int'):
+            elif dtype.kind in 'iu':
                 new_col_empty = -1
-            elif ref_table[col_name].dtype == np.dtype('bool'):
+            elif dtype.kind == 'b':
                 new_col_empty = False
+            elif dtype.kind in 'US':
+                new_col_empty = ''
             else:
                 new_col_empty = np.nan
-            
-            if len(ref_table[col_name].shape) == 1:
-                new_col_shape = len(idx_lis_new)
+
+            if np.ndim(old_col.data) == 1:
+                new_col_shape = N_newstars
             else:
-                new_col_shape = [len(idx_lis_new), ref_table[col_name].shape[1]]
+                new_col_shape = (N_newstars, old_col.shape[1])
 
-            new_col_data = Column(data=np.tile(new_col_empty, new_col_shape),
-                                  name=col_name, dtype=ref_table[col_name].dtype)
-            col_arrays[new_col_name] = new_col_data
+            new_rows = np.full(new_col_shape, new_col_empty, dtype=dtype)
+            new_col_arrays[col_name] = np.concatenate([old_col.data, new_rows], axis=0)
 
-        ref_table_new = StarTable(**col_arrays)
-        ref_table_nstars = ref_table.meta['n_stars'] + ref_table_new.meta['n_stars']
-        ref_table.meta['n_stars'] = ref_table_nstars
-        ref_table_new.meta['n_stars'] = ref_table_nstars
-        ref_table_new.meta['ref_list'] = ref_table.meta['ref_list']
-        ref_table = vstack([ref_table, ref_table_new])
+            # Drop ref_table's reference to the old column now, before
+            # moving on to the next one, so it can be freed immediately
+            # rather than staying alive until every column has been
+            # processed.
+            del ref_table[col_name]
+            del old_col, new_rows
+
+        ref_table_nstars = ref_table.meta['n_stars'] + N_newstars
+        ref_table_meta = dict(ref_table.meta)
+        ref_table_meta['n_stars'] = ref_table_nstars
+        del ref_table
+
+        # Build the new table directly from the already-concatenated,
+        # already-correctly-shaped/typed arrays with copy=False, so
+        # StarTable.__init__ uses them as-is instead of silently copying
+        # the whole (now full-size) table all over again right at the end.
+        ref_table = StarTable(**new_col_arrays, copy=False)
+        ref_table.meta.update(ref_table_meta)
 
     idx_ref_new = np.arange(last_star_idx, len(ref_table))
-    
+
     return ref_table, idx_lis_new, idx_ref_new
 
-
-def run_align_iter(catalog, trans_order=1, poly_deg=1, ref_mag_lim=19, ref_radius_lim=300):
-    # Load up data with matched stars.
-    d = Table.read(catalog)
-
-    # Determine how many epochs there are.
-    N_epochs = len([n for n, c in enumerate(d.colnames) if c.startswith('name')])
-
-    # Determine how many stars there are. 
-    N_stars = len(d)
-
-    # Determine the reference epoch
-    ref = d.meta['L_REF']
-
-    # Figure out the number of free parameters for the specified
-    # poly2d order.
-    poly2d = models.Polynomial2D(trans_order)
-    N_par_trans_per_epoch = 2.0 * poly2d.get_num_coeff(2)  # one poly2d for each dimension (X, Y)
-    N_par_trans = N_par_trans_per_epoch * N_epochs
-
-    ##########
-    # First iteration -- align everything to REF epoch with zero velocities. 
-    ##########
-    print('ALIGN_EPOCHS: run_align_iter() -- PASS 1')
-    ee_ref = d.meta['L_REF']
-
-    target_name = 'OB120169'
-
-    trans1, used1 = calc_transform_ref_epoch(d, target_name, ee_ref, ref_mag_lim, ref_radius_lim)
-
-    ##########
-    # Derive the velocity of each stars using the round 1 transforms. 
-    ##########
-    calc_polyfit_all_stars(d, poly_deg, init_fig_idx=0)
-
-    calc_mag_avg_all_stars(d)
-    
-    tdx = np.where((d['name_0'] == 'OB120169') | (d['name_0'] == 'OB120169_L'))[0]
-    print(d[tdx]['name_0', 't0', 'mag', 'x0', 'vx', 'x0e', 'vxe', 'chi2x', 'y0', 'vy', 'y0e', 'vye', 'chi2y', 'dof'])
-
-    ##########
-    # Second iteration -- align everything to reference positions derived from iteration 1
-    ##########
-    print('ALIGN_EPOCHS: run_align_iter() -- PASS 2')
-    target_name = 'OB120169'
-
-    trans2, used2 = calc_transform_ref_poly(d, target_name, poly_deg, ref_mag_lim, ref_radius_lim)
-    
-    ##########
-    # Derive the velocity of each stars using the round 1 transforms. 
-    ##########
-    calc_polyfit_all_stars(d, poly_deg, init_fig_idx=4)
-
-    ##########
-    # Save output
-    ##########
-    d.write(catalog.replace('.fits', '_aln.fits'), overwrite=True)
-    
-    return
-
-def calc_transform_ref_epoch(d, target_name, ee_ref, ref_mag_lim, ref_radius_lim):
-    # Determine how many epochs there are.
-    N_epochs = len([n for n, c in enumerate(d.colnames) if c.startswith('name')])
-
-    # output array
-    trans = []
-    used = []
-
-    # Find the target
-    tdx = np.where(d['name_0'] == 'OB120169')[0][0]
-
-    # Reference values
-    t_ref = d['t_{0:d}'.format(ee_ref)]
-    m_ref = d['m_{0:d}'.format(ee_ref)]
-    x_ref = d['x_{0:d}'.format(ee_ref)]
-    y_ref = d['y_{0:d}'.format(ee_ref)]
-    xe_ref = d['xe_{0:d}'.format(ee_ref)]
-    ye_ref = d['ye_{0:d}'.format(ee_ref)]
-    
-    # Calculate some quanitites we use for selecting reference stars.
-    r_ref = np.hypot(x_ref - x_ref[tdx], y_ref - y_ref[tdx])
-
-    # Loop through and align each epoch to the reference epoch.
-    for ee in range(N_epochs):
-        # Pull out the X, Y positions (and errors) for the two
-        # starlists we are going to align.
-        x_epo = d['x_{0:d}'.format(ee)]
-        y_epo = d['y_{0:d}'.format(ee)]
-        t_epo = d['t_{0:d}'.format(ee)]
-        xe_epo = d['xe_{0:d}'.format(ee)]
-        ye_epo = d['ye_{0:d}'.format(ee)]
-
-        # Figure out the set of stars detected in both epochs.
-        idx = np.where((t_ref != 0) & (t_epo != 0) & (xe_ref != 0) & (xe_epo != 0))[0]
-
-        # Find those in both epochs AND reference stars. This is [idx][rdx]
-        rdx = np.where((r_ref[idx] < ref_radius_lim) & (m_ref[idx] < ref_mag_lim))[0]
-        
-        # Average the positional errors together to get one weight per star.
-        xye_ref = (xe_ref + ye_ref) / 2.0
-        xye_epo = (xe_epo + ye_epo) / 2.0
-        xye_wgt = (xye_ref**2 + xye_epo**2)**0.5
-        
-        # Calculate transform based on the matched stars    
-        trans_tmp = transforms.PolyTransform(x_epo[idx][rdx], y_epo[idx][rdx], x_ref[idx][rdx], y_ref[idx][rdx],
-                                                 weights=xye_wgt[idx][rdx], order=2)
-
-        trans.append(trans_tmp)
-
-
-        # Apply thte transformation to the stars positions and errors:
-        xt_epo = np.zeros(len(d), dtype=float)
-        yt_epo = np.zeros(len(d), dtype=float)
-        xet_epo = np.zeros(len(d), dtype=float)
-        yet_epo = np.zeros(len(d), dtype=float)
-        
-        xt_epo[idx], xet_epo[idx], yt_epo[idx], yet_epo[idx] = trans_tmp.evaluate_errors(x_epo[idx], xe_epo[idx],
-                                                                                         y_epo[idx], ye_epo[idx],
-                                                                                         nsim=100)
-
-        d['xt_{0:d}'.format(ee)] = xt_epo
-        d['yt_{0:d}'.format(ee)] = yt_epo
-        d['xet_{0:d}'.format(ee)] = xet_epo
-        d['yet_{0:d}'.format(ee)] = yet_epo
-
-        # Record which stars we used in the transform.
-        used_tmp = np.zeros(len(d), dtype=bool)
-        used_tmp[idx[rdx]] = True
-
-        used.append(used_tmp)
-
-        if True:
-            plot_quiver_residuals(xt_epo, yt_epo, x_ref, y_ref, idx, rdx, 'Epoch: ' + str(ee))
-            
-    used = np.array(used)
-    
-    return trans, used
-
-
-def calc_transform_ref_poly(d, target_name, poly_deg, ref_mag_lim, ref_radius_lim):
-    # Determine how many epochs there are.
-    N_epochs = len([n for n, c in enumerate(d.colnames) if c.startswith('name')])
-
-    # output array
-    trans = []
-    used = []
-
-    # Find the target
-    tdx = np.where(d['name_0'] == 'OB120169')[0][0]
-
-    # Temporary Reference values
-    t_ref = d['t0']
-    m_ref = d['mag']
-    x_ref = d['x0']
-    y_ref = d['y0']
-    xe_ref = d['x0e']
-    ye_ref = d['y0e']    
-    
-    # Calculate some quanitites we use for selecting reference stars.
-    r_ref = np.hypot(x_ref - x_ref[tdx], y_ref - y_ref[tdx])
-
-    for ee in range(N_epochs):
-        # Pull out the X, Y positions (and errors) for the two
-        # starlists we are going to align.
-        x_epo = d['x_{0:d}'.format(ee)]
-        y_epo = d['y_{0:d}'.format(ee)]
-        t_epo = d['t_{0:d}'.format(ee)]
-        xe_epo = d['xe_{0:d}'.format(ee)]
-        ye_epo = d['ye_{0:d}'.format(ee)]
-
-        # Shift the reference position by the polyfit for each star.
-        dt = t_epo - t_ref
-        if poly_deg >= 0:
-            x_ref_ee = x_ref
-            y_ref_ee = y_ref
-            xe_ref_ee = x_ref
-            ye_ref_ee = y_ref
-            
-        if poly_deg >= 1:
-            x_ref_ee += d['vx'] * dt
-            y_ref_ee += d['vy'] * dt
-            xe_ref_ee = np.hypot(xe_ref_ee, d['vxe'] * dt)
-            ye_ref_ee = np.hypot(ye_ref_ee, d['vye'] * dt)
-
-        if poly_deg >= 2:
-            x_ref_ee += d['ax'] * dt
-            y_ref_ee += d['ay'] * dt
-            xe_ref_ee = np.hypot(xe_ref_ee, d['axe'] * dt)
-            ye_ref_ee = np.hypot(ye_ref_ee, d['aye'] * dt)
-            
-        # Figure out the set of stars detected in both.
-        idx = np.where((t_ref != 0) & (t_epo != 0) & (xe_ref != 0) & (xe_epo != 0))[0]
-
-        # Find those in both AND reference stars. This is [idx][rdx]
-        rdx = np.where((r_ref[idx] < ref_radius_lim) & (m_ref[idx] < ref_mag_lim))[0]
-        
-        # Average the positional errors together to get one weight per star.
-        xye_ref = (xe_ref_ee + ye_ref_ee) / 2.0
-        xye_epo = (xe_epo + ye_epo) / 2.0
-        xye_wgt = (xye_ref**2 + xye_epo**2)**0.5
-        
-        # Calculate transform based on the matched stars    
-        trans_tmp = transforms.PolyTransform(x_epo[idx][rdx], y_epo[idx][rdx], x_ref_ee[idx][rdx], y_ref_ee[idx][rdx],
-                                                 weights=xye_wgt[idx][rdx], order=2)
-        trans.append(trans_tmp)
-
-        # Apply thte transformation to the stars positions and errors:
-        xt_epo = np.zeros(len(d), dtype=float)
-        yt_epo = np.zeros(len(d), dtype=float)
-        xet_epo = np.zeros(len(d), dtype=float)
-        yet_epo = np.zeros(len(d), dtype=float)
-        
-        xt_epo[idx], xet_epo[idx], yt_epo[idx], yet_epo[idx] = trans_tmp.evaluate_errors(x_epo[idx], xe_epo[idx],
-                                                                                         y_epo[idx], ye_epo[idx],
-                                                                                         nsim=100)
-        d['xt_{0:d}'.format(ee)] = xt_epo
-        d['yt_{0:d}'.format(ee)] = yt_epo
-        d['xet_{0:d}'.format(ee)] = xet_epo
-        d['yet_{0:d}'.format(ee)] = yet_epo
-
-        # Record which stars we used in the transform.
-        used_tmp = np.zeros(len(d), dtype=bool)
-        used_tmp[idx[rdx]] = True
-
-        used.append(used_tmp)
-
-        if True:
-            plot_quiver_residuals(xt_epo, yt_epo, x_ref_ee, y_ref_ee, idx, rdx, 'Epoch: ' + str(ee))
-
-    used = np.array(used)
-    
-    return trans, used
-
-def calc_polyfit_all_stars(d, poly_deg, init_fig_idx=0):
-    # Determine how many stars there are. 
-    N_stars = len(d)
-
-    # Determine how many epochs there are.
-    N_epochs = len([n for n, c in enumerate(d.colnames) if c.startswith('name')])
-    
-    # Setup some variables to save the results
-    t0_all = []
-    px_all = []
-    py_all = []
-    pxe_all = []
-    pye_all = []
-    chi2x_all = []
-    chi2y_all = []
-    dof_all = []
-
-    # Get the time array, which is the same for all stars.
-    # Also, sort the time indices.
-    t = np.array([d['t_{0:d}'.format(ee)][0] for ee in range(N_epochs)])
-    tdx = t.argsort()
-    t_sorted = t[tdx]
-    
-    # Run polyfit on each star.
-    for ss in range(N_stars):
-        # Get the x, y, xe, ye, and t arrays for this star.
-        xt = np.array([d['xt_{0:d}'.format(ee)][ss] for ee in range(N_epochs)])
-        yt = np.array([d['yt_{0:d}'.format(ee)][ss] for ee in range(N_epochs)])
-        xet = np.array([d['xet_{0:d}'.format(ee)][ss] for ee in range(N_epochs)])
-        yet = np.array([d['yet_{0:d}'.format(ee)][ss] for ee in range(N_epochs)])
-        t_tmp = np.array([d['t_{0:d}'.format(ee)][ss] for ee in range(N_epochs)])
-
-        # Sort these arrays.
-        xt_sorted = xt[tdx]
-        yt_sorted = yt[tdx]
-        xet_sorted = xet[tdx]
-        yet_sorted = yet[tdx]
-        t_tmp_sorted = t_tmp[tdx]
-
-        # Get only the detected epochs.
-        edx = np.where(t_tmp_sorted != 0)[0]
-
-        # Calculate the weighted t0 (using the transformed errors).
-        weight_for_t0 = 1.0 / np.hypot(xet_sorted, yet_sorted)
-        t0 = np.average(t_sorted[edx], weights=weight_for_t0[edx])
-
-        # for ee in edx:
-        #     print('{0:8.3f}  {1:10.5f}  {2:10.5f}  {3:8.5f}  {4:8.5f}'.format(t[ee], xt[ee], yt[ee], xet[ee], yet[ee]))
-        # pdb.set_trace()
-
-        # Run polyfit
-        dt = t_sorted - t0
-        px, covx = np.polyfit(dt[edx], xt_sorted[edx], poly_deg, w=1./xet_sorted[edx], cov=True)
-        py, covy = np.polyfit(dt[edx], yt_sorted[edx], poly_deg, w=1./yet_sorted[edx], cov=True)
-
-        pxe = np.sqrt(np.diag(covx))
-        pye = np.sqrt(np.diag(covy))
-
-
-        x_mod = np.polyval(px, dt[edx])
-        y_mod = np.polyval(py, dt[edx])
-        chi2x = np.sum( ((x_mod - xt_sorted[edx]) / xet_sorted[edx])**2 )
-        chi2y = np.sum( ((y_mod - yt_sorted[edx]) / yet_sorted[edx])**2 )
-        dof = len(edx) - (poly_deg + 1)
-
-        # Save results:
-        t0_all.append(t0)
-        px_all.append(px)
-        py_all.append(py)
-        pxe_all.append(pxe)
-        pye_all.append(pye)
-        chi2x_all.append(chi2x)
-        chi2y_all.append(chi2y)
-        dof_all.append(dof)
-
-        if d[ss]['name_0'] in ['OB120169', 'OB120169_L']:
-            gs = GridSpec(3, 2) # 3 rows, 1 column
-            fig = plt.figure(ss + 1 + init_fig_idx, figsize=(12, 8))
-            a0 = fig.add_subplot(gs[0:2, 0])
-            a1 = fig.add_subplot(gs[2, 0])
-            a2 = fig.add_subplot(gs[0:2, 1])
-            a3 = fig.add_subplot(gs[2, 1])
-            
-            a0.errorbar(t_sorted[edx], xt_sorted[edx], yerr=xet_sorted[edx], fmt='ro')
-            a0.plot(t_sorted[edx], x_mod, 'k-')
-            a0.set_title(d[ss]['name_0'] + ' X')
-            a1.errorbar(t_sorted[edx], xt_sorted[edx] - x_mod, yerr=xet_sorted[edx], fmt='ro')
-            a1.axhline(0, linestyle='--')
-            a1.set_xlabel('Time (yrs)')
-            a2.errorbar(t_sorted[edx], yt_sorted[edx], yerr=yet_sorted[edx], fmt='ro')
-            a2.plot(t_sorted[edx], y_mod, 'k-')
-            a2.set_title(d[ss]['name_0'] + ' Y')
-            a3.errorbar(t_sorted[edx], yt_sorted[edx] - y_mod, yerr=yet_sorted[edx], fmt='ro')
-            a3.axhline(0, linestyle='--')
-            a3.set_xlabel('Time (yrs)')
-
-            
-
-    t0_all = np.array(t0_all)
-    px_all = np.array(px_all)
-    py_all = np.array(py_all)
-    pxe_all = np.array(pxe_all)
-    pye_all = np.array(pye_all)
-    chi2x_all = np.array(chi2x_all)
-    chi2y_all = np.array(chi2y_all)
-    dof_all = np.array(dof_all)
-        
-    # Done with all the stars... recast as numpy arrays and save to output table.
-    d['t0'] = t0_all
-    d['chi2x'] = chi2x_all
-    d['chi2y'] = chi2y_all
-    d['dof'] = dof_all
-    if poly_deg >= 0:
-        d['x0'] = px_all[:, -1]
-        d['y0'] = py_all[:, -1]
-        d['x0e'] = pxe_all[:, -1]
-        d['y0e'] = pye_all[:, -1]
-        
-    if poly_deg >= 1:
-        d['vx'] = px_all[:, -2]
-        d['vy'] = py_all[:, -2]
-        d['vxe'] = pxe_all[:, -2]
-        d['vye'] = pye_all[:, -2]
-
-    if poly_deg >= 2:
-        d['ax'] = px_all[:, -3]
-        d['ay'] = py_all[:, -3]
-        d['axe'] = pxe_all[:, -3]
-        d['aye'] = pye_all[:, -3]
-
-    pdb.set_trace()
-        
-    return
+"""
+Functions specific to OB120169 moved to align_old_functions,py
+"""
 
 def calc_mag_avg_all_stars(d):
-    # Determine how many stars there are. 
+    """
+    Add a flux-averaged magnitude column to a table of per-epoch magnitudes.
+
+    Magnitudes are converted to fluxes, averaged over the epochs in which the
+    star was detected, and converted back. Averaging in flux rather than in
+    magnitude is what makes the result the mean brightness rather than the
+    mean of a logarithm. Entries equal to 0 are treated as "not detected" and
+    are left out of the average.
+
+    Parameters
+    ----------
+    d : astropy.table.Table
+        Table with one 'm_<epoch>' column per epoch, and a matching set of
+        'name<...>' columns from which the number of epochs is counted.
+
+    Returns
+    -------
+    None
+        ``d`` is modified in place, gaining a 'mag' column.
+    """
+    # Determine how many stars there are.
     N_stars = len(d)
 
     # Determine how many epochs there are.
@@ -2310,8 +3907,7 @@ def calc_mag_avg_all_stars(d):
 
 
 
-def initial_align(table1, table2, briteN=100,
-                      transformModel=transforms.PolyTransform, order=1, req_match=5):
+def initial_align(table1, table2, briteN=100, transformModel=transforms.PolyTransform, order=1):
     """
     Calculates an initial (unweighted) transformation from table1 starlist into
     table2 starlist (i.e., table2 is the reference starlist). Matching is done using
@@ -2328,7 +3924,7 @@ def initial_align(table1, table2, briteN=100,
     y: y position
     xe: error in x position
     ye: error in y position
-    
+
     vx: proper motion in x direction
     vy proper motion in y direction
     vxe: error in x proper motion
@@ -2336,39 +3932,32 @@ def initial_align(table1, table2, briteN=100,
 
     m: magnitude
     me: magnitude error
-    
+
     t0: linear motion time zero point
 
     use: specify use in transformation
-    
 
-    Parameters:
+
+    Parameters
     ----------
-    -table1: astropy.table
+    table1 : astropy.table
         contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0.
-
-    -table2: astropy.table
+    table2 : astropy.table
         contains name,m,x,y,xe,ye.
         this is the reference template
-
-    -briteN: int
-        The number of brightest stars used to match two starlists.
-
-    -transformModel:  transformation model object (class)
+    briteN : int, optional
+        The number of brightest stars used to match two starlists, by default 100.
+    transformModel : flystar.transforms.Transform, optional
         The transformation model class that will be instantiated to find the
         best-fit transformation parameters between matched table1 and table2.
-        eg: transforms.four_paramNW, transforms.PolyTransform
+        eg : transforms.four_paramNW, transforms.PolyTransform, by default transforms.PolyTransform.
+    order : int, optional
+         Order of the transformation. Not relevant for 4 parameter or spline fit, by default 1.
 
-    -order: int
-         Order of the transformation. Not relevant for 4 parameter or spline fit
-
-    -req_match: int
-         Number of required matches of the input catalog to the total reference
-
-    Output:
-    ------
+    Returns
+    -------
     Transformation object
-    
+
     """
     # Extract necessary information from tables (x, y, m)
     x1 = table1['x']
@@ -2394,7 +3983,7 @@ def initial_align(table1, table2, briteN=100,
 
 
 
-def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, verbose=True):
+def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, workers=1, verbose=True):
     """
     apply transformation to starlist1 and
     match stars to given radius and magnitude tolerance.
@@ -2402,29 +3991,34 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, verb
     Starlists must be astropy tables with standard columns names as specified
     in initial_align.
 
-    Parameters:
-   -----------
-    -table1: astropy.table
+    Parameters
+    ----------
+    table1 : astropy.table
         contains name,m,x,y,xe,ye,vx,vy,vxe,vye,t0.
-
-    -table2: astropy.table
+    table2 : astropy.table
         contains name,m,x,y,xe,ye.
         this is the reference template
-
-    -dr_tol: float (default=1.0)
+    transform : transforms.Transform2D
+        The transformation applied to table1 before matching.
+    dr_tol : float (default=1.0), optional
         The search radius for the matching algorithm, in the same units as the
-        starlist file positions.
+        starlist file positions, by default 1.0.
+    dm_tol : float or None, optional
+        Magnitude tolerance for a match, in magnitudes. None accepts a match
+        regardless of the brightness difference, by default None.
+    workers : int (default=1), optional
+        Number of worker threads for the KDTree neighbor search. -1 uses all
+        available CPU cores. See match.match() for details.
+        By default 1.
+    verbose : bool, optional
+        Prints on screen information on the matching, by default True.
 
-    -transform: transformation object
-    
-    -verbose: bool, optional
-        Prints on screen information on the matching
-
-
-    Output:
+    Returns
     -------
-    -idx1: indicies of matched stars from table1
-    -idx2: indicies of matched stars from tabel2
+    idx1 : numpy.ndarray of int
+        Indices of the matched stars in table1.
+    idx2 : numpy.ndarray of int
+        Indices of the matched stars in table2, in the same order.
     """
 
     # Extract necessary information from tables (x, y, m)
@@ -2435,12 +4029,11 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, verb
     y2 = table2['y']
     m2 = table2['m']
 
-
     # Transform x, y coordinates from starlist 1 into starlist 2
     x1t, y1t = transform.evaluate(x1, y1)
 
     # Match starlist 1 and 2
-    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol, verbose=verbose)
+    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol, workers=workers, verbose=verbose)
 
     if verbose:
         print(( '{0} of {1} stars matched'.format(len(idx1), len(x1t))))
@@ -2454,48 +4047,52 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
     Given a matched starlist, derive a new transform. This transformation is
     calculated for starlist 1 into starlist 2
 
-    Parameters:
-    -----------
-    table1: astropy table
+    Parameters
+    ----------
+    table1 : astropy table
         Table which we have calculated the transformation for, trimmed to only
         stars which match with table2. Original coords, not transformed into
         reference frame.
 
-    table1_trans: astropy table
+    table1_trans : astropy table
         Table which we calculated the transformation fo, trimmed to only
         stars which match with table2. Contains transformed coords. Only
         used when calculating weights.
 
-    table2: astropy table
+    table2 : astropy table
         Table with the reference starlist. Trimmed to only stars which
         match table1.
 
-    trans: transformation object
-        Transformation used to transform table1 coords in transform_and_match
-        in order to do the star matching.
+    transModel : transformation class, optional
+        Desired transform to apply to matched stars, e.g. four_paramNW or
+        PolyTransform. If PolyTransform is selected, ``order`` defines the
+        order of polynomial used. By default transforms.PolyTransform.
 
-    transModel: transformation class (default: transform.four_paramNW)
-        Desired transform to apply to matched stars, e.g. four_paramNW or PolyTransform.
-        If PolyTransform is selected, order defines the order of polynomial used
-
-    order: int (default=1)
+    order : int, optional
         Order of polynomial to use in the transformation. Only active if
-        PolyTransform is selected
+        PolyTransform is selected, by default 1.
 
-    weights: string (default=None)
-        if weights=='both', we use both position error in transformed starlist and
-        reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
-        if weights=='starlist', we only use postion error in transformed starlist.
-        if weights=='reference', we only use position error in reference starlist.
-        if weights==None, we don't use weights.
-    
-    verbose: bool (default=True)
-        Prints on screen information on the matching
+    weights : str or None, optional
+        Which uncertainties to weight the fit by:
 
-    Output:
-    ------
-    -transformation object
-    -number of stars used in transform
+        - 'both' -- position errors from both the transformed starlist and
+          the reference starlist; the weight is the reciprocal of the
+          combined uncertainty.
+        - 'starlist' -- position errors from the transformed starlist only.
+        - 'reference' -- position errors from the reference starlist only.
+        - None -- unweighted.
+
+        By default None.
+
+    verbose : bool, optional
+        Prints on screen information on the matching, by default True.
+
+    Returns
+    -------
+    transform : transforms.Transform2D
+        The derived transformation, taking table1 onto table2.
+    N_trans : int
+        Number of stars used to derive it.
     """
     # First, check that desired transform is supported
     if ( (transModel != transforms.four_paramNW) &
@@ -2504,7 +4101,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
          (transModel != transforms.LegTransform) ):
         print(( '{0} not supported yet!'.format(transModel)))
         return
-    
+
     # Extract *untransformed* coordinates from starlist 1
     # and the matching coordinates from starlist 2
     x1 = table1['x']
@@ -2516,7 +4113,7 @@ def find_transform(table1, table1_trans, table2, transModel=transforms.PolyTrans
 
     # calculate weights from *transformed* coords. This is where we use the
     # transformation object
-    if (table1_trans != None) and ('xe' in table1_trans.colnames):
+    if (table1_trans is not None) and ('xe' in table1_trans.colnames):
         x1e = table1_trans['xe']
         y1e = table1_trans['ye']
 
@@ -2552,50 +4149,58 @@ def find_transform_new(table1_mat, table2_mat,
     Given a matched starlist, derive a new transform. This transformation is
     calculated for starlist 1 into starlist 2
 
-    Parameters:
-    -----------
-    table1_mat: astropy table
+    Parameters
+    ----------
+    table1_mat : astropy table
         Table with matched stars from starlist 1, with original positions
         (not transformed into starlist 2 frame)
 
-    table2_mat: astropy table
+    table2_mat : astropy table
         Table with matched stars from starlist 2, in starlist 2 frame.
 
-    transModel: transformation class (default: transform.four_paramNW)
+    transModel : transformation class, optional
         Specify desired transform, e.g. four_paramNW or PolyTransform. If
-        PolyTransform is selected, order defines the order of polynomial used
+        PolyTransform is selected, ``order`` defines the order of polynomial
+        used. By default transforms.four_paramNW.
 
-    order: int (default=1)
+    order : int, optional
         Order of polynomial to use in the transformation. Only active if
-        PolyTransform is selected
+        PolyTransform is selected, by default 1.
 
-    weights: string (default=None)
-        if weights=='both', we use position error  in transformed
-        starlist and reference starlist as uncertanties. And weights is the reciprocal
-            of this uncertanty.
-        if weights=='starlist', we only use postion error and velocity error in transformed
-        starlist as uncertainty.
-        if weights=='reference', we only use position error in reference starlist as uncertainty.
-        if weights==None, we don't use weights.
+    weights : str or None, optional
+        Which uncertainties to weight the fit by:
 
-    transInit: Transform Object (default=None)
-        if weights = 'both' or 'starlist' then the positions in table 1 are first transformed
-        using the transInit object. This is necessary if the plate scales are very different
-        between the table 1 and the reference list.
-    
-    verbose: bool (default=True)
-        Prints on screen information on the matching
+        - 'both' -- position errors from both the transformed starlist and
+          the reference starlist; the weight is the reciprocal of the
+          combined uncertainty.
+        - 'starlist' -- position and velocity errors from the transformed
+          starlist only.
+        - 'reference' -- position errors from the reference starlist only.
+        - None -- unweighted.
 
-    Output:
-    ------
-    -transformation object
-    -number of stars used in transform
+        By default None.
+
+    transInit : transforms.Transform2D, optional
+        If ``weights`` is 'both' or 'starlist', the positions in table1 are
+        first transformed using this object. This is necessary when the plate
+        scales of table1 and the reference list differ greatly, since the
+        uncertainties have to be compared in a common frame. By default None.
+
+    verbose : bool, optional
+        Prints on screen information on the matching, by default True.
+
+    Returns
+    -------
+    transform : transforms.Transform2D
+        The derived transformation, taking table1_mat onto table2_mat.
+    N_trans : int
+        Number of stars used to derive it.
     """
     # First, check that desired transform is supported
     if ( (transModel != transforms.four_paramNW) & (transModel != transforms.PolyTransform) ):
         print(( '{0} not supported yet!'.format(transModel)))
         return
-    
+
     # Extract *untransformed* coordinates from starlist 1
     # and the matching coordinates from starlist 2
     x1 = table1_mat['x']
@@ -2604,18 +4209,18 @@ def find_transform_new(table1_mat, table2_mat,
     y2 = table2_mat['y']
 
     # Get the uncertainties (if needed) and calculate the weights.
-    if weights != None:
+    if weights is not None:
         x1e = table1_mat['xe']
         y1e = table1_mat['ye']
         x2e = table2_mat['xe']
         y2e = table2_mat['ye']
 
-        if transInit != None:
+        if transInit is not None:
             table1T_mat = table1_mat.copy()
-            table1T_mat = transform_by_object(table1T_mat, transInit)
+            table1T_mat = transform_from_object(table1T_mat, transInit)
 
-            x1e = table1T_mag['xe']
-            y1e = table1T_mag['ye']
+            x1e = table1T_mat['xe']
+            y1e = table1T_mat['ye']
 
         # Calculate weights as to user specification
         if weights == 'both':
@@ -2648,50 +4253,43 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
     x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
     y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
 
-    Parameters:
+    Parameters
     ----------
-    transform: transformation object
+    transform : transformation object
         Transformation object we want to feed into java align
-
-    starlist: string
+    starlist : string
         File name of starlist; this is the starlist the transformation should
         be applied to. For output purposes only
-
-    reference: string
+    reference : string
         File name of reference; this is what the starlist is transformed to.
         For output purposes only
-
-    N_trans: int
+    N_trans : int
         Number of stars used in the transformation
-
-    deltaMag: float (default = 0)
+    deltaMag : float (default = 0), optional
         Average magnitude difference between reference and starlist
-        (reference - starlist)
-
-    restrict: boolean (default=False)
+        (reference - starlist), by default 0.
+    restrict : boolean (default=False), optional
         Set to True if transformation restricted to stars with use > 2. Purely
-        for output purposes
-
-    weights: string (default=None)
+        for output purposes, by default False.
+    weights : string (default=None), optional
         if weights=='both', we use both position error and velocity error in transformed
         starlist and reference starlist as uncertanties. And weights is the reciprocal
-            of this uncertanty.
+        of this uncertanty.
         if weights=='starlist', we only use postion error and velocity error in transformed
         starlist as uncertainty.
         if weights=='reference', we only use position error in reference starlist as uncertainty
-        if weights==None, we don't use weights.
-
-    outFile: string (default: 'outTrans.txt')
+        if weights==None, we don't use weights, by default None.
+    outFile : string (default: 'outTrans.txt'), optional
         Name of output text file
-        
-    Output:
-    ------
-    txt file with the file name outFile
+
+    Returns
+    -------
+    txt file with the file name outFile, by default 'outTrans.txt'.
     """
     # Extract info about transformation
     trans_name = transform.__class__.__name__
     trans_order = transform.order
-    
+
     # Extract X, Y coefficients from transform
     if trans_name == 'four_paramNW':
         Xcoeff = transform.px
@@ -2700,12 +4298,11 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
         Xcoeff = transform.px.parameters
         Ycoeff = transform.py.parameters
     else:
-        print(( '{0} not yet supported!'.format(transType)))
-        return
-        
+        raise Exception(f'{trans_name} not yet supported!')
+
     # Write output
     _out = open(outFile, 'w')
-    
+
     # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
     _out.write('## Date: {0}\n'.format(datetime.date.today()) )
     _out.write('## File: {0}, Reference: {1}\n'.format(starlist, reference) )
@@ -2718,7 +4315,7 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
     _out.write('## N_trans: {0}\n'.format(N_trans))
     _out.write('## Delta Mag: {0}\n'.format(deltaMag))
     _out.write('{0:16s} {1:16s}\n'.format('# Xcoeff', 'Ycoeff'))
-    
+
     # Write the coefficients such that the orders are together as defined in
     # documentation. This is a pain because PolyTransform output is weird.
     # (see astropy Polynomial2D documentation)
@@ -2729,12 +4326,12 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
         # CODE TO GET INDICIES
         N = trans_order - 1
         idx_list = list()
-        
+
         # when trans_order=1, N=0
         idx_list.append(0)
         idx_list.append(1)
         idx_list.append(N+2)
-        
+
         if trans_order >= 2:
             for k in range(2, N+2):
                 idx_list.append(k)
@@ -2743,22 +4340,17 @@ def write_transform(transform, starlist, reference, N_trans, deltaMag=0, restric
                     idx_list.append(int(2*N +2 +j + (2*N+2-i)*(i-1)/2.))
                 idx_list.append(N+1+k)
 
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[0], Ycoeff[0]) )
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[1], Ycoeff[1]) )
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[3], Ycoeff[3]) )
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[2], Ycoeff[2]) )
-        #_out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[5], Ycoeff[5]) )
-        #_out.write('{0:16.6e}  {1:16.6e}'.format(Xcoeff[4], Ycoeff[4]) )
-
         for i in idx_list:
             _out.write('{0:16.6e}  {1:16.6e}\n'.format(Xcoeff[i], Ycoeff[i]) )
 
 
     _out.close()
-    
+
     return
 
 
+# Transform_from_file original version moved to align_old_functions.py
+# This version makes the transFile an object and uses transform_from_object
 def transform_from_file(starlist, transFile):
     """
     Apply transformation from transFile to starlist. Returns astropy table with
@@ -2766,196 +4358,84 @@ def transform_from_file(starlist, transFile):
     positions/position errors, plus velocities and velocity errors if they
     are present in starlist.
 
-    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
-    TRANSFORMS
-    
-    Parameters:
+    WARNING: THIS CODE WORKS FOR POLYTRANSFORM
+
+    Parameters
     ----------
-    starlist: astropy table
+    starlist : astropy table
          Starlist we want to apply the transformation too. Must already
          have standard column headers
-
-    transFile: ascii file
+    transFile : ascii file
         File with the transformation coefficients. Assumed to be output of
         write_transform, with coefficients specified as code documents
 
-    Output:
-    ------
+    Returns
+    -------
     Copy of starlist astropy table with transformed coordinates.
     """
-    # Make a copy of starlist. This is what we will eventually modify with
-    # the transformed coordinates
-    starlist_f = copy.deepcopy(starlist)
-    
-    # Check to see if velocities are present in starlist. If so, we will
-    # need to transform these as well as positions
-    vel = False
-    keys = list(starlist.keys())
-    if 'vx' in keys:
-        vel = True
-    
-    # Extract needed information from starlist
-    x_orig = starlist['x']
-    y_orig = starlist['y']
-    xe_orig = starlist['xe']
-    ye_orig = starlist['ye']
-
-    if vel:
-        x0_orig = starlist['x0']
-        y0_orig = starlist['y0']
-        x0e_orig = starlist['x0e']
-        y0e_orig = starlist['y0e']
-        
-        vx_orig = starlist['vx']
-        vy_orig = starlist['vy']
-        vxe_orig = starlist['vxe']
-        vye_orig = starlist['vye']
-    
-    # Read transFile
-    trans = Table.read(transFile, format='ascii.commented_header', header_start=-1)
-    Xcoeff = trans['Xcoeff']
-    Ycoeff = trans['Ycoeff']
-
-    #-----------------------------------------------#
-    # General equation for applying the transform
-    #-----------------------------------------------#
-    #"""
+    # Make transform object
+    trans_table = Table.read(transFile, format='ascii.commented_header', header_start=-1)
+    Xcoeff = trans_table['Xcoeff']
+    Ycoeff = trans_table['Ycoeff']
     # First determine the order based on the number of terms
     # Comes from Nterms = (N+1)*(N+2) / 2.
     order = (np.sqrt(1 + 8*len(Xcoeff)) - 3) / 2.
-
     if order%1 != 0:
         print( 'Incorrect number of coefficients for polynomial')
         print( 'Stopping')
         return
     order = int(order)
+    # Do transform
+    transform = transforms.PolyTransform(order, Xcoeff, Ycoeff)
+    return transform_from_object(starlist, transform)
 
-    # Position transformation
-    x_new, y_new = transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig,
-                                           y_orig)
-    
-    if vel:
-        x0_new, y0_new = transform_pos_from_file(Xcoeff, Ycoeff, order, x0_orig,
-                                             y0_orig)
-
-    # Position error transformation
-    xe_new, ye_new = transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig,
-                                                ye_orig, x_orig, y_orig)
-
-    if vel:
-        x0e_new, y0e_new = transform_poserr_from_file(Xcoeff, Ycoeff, order, x0e_orig,
-                                                y0e_orig, x0_orig, y0_orig)
-
-    if vel:
-        # Velocity transformation
-        vx_new, vy_new = transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig,
-                                                 vy_orig, x_orig, y_orig)
-            
-        # Velocity error transformation
-        vxe_new, vye_new = transform_velerr_from_file(Xcoeff, Ycoeff, order,
-                                                      vxe_orig, vye_orig,
-                                                      vx_orig, vy_orig,
-                                                      xe_orig, ye_orig,
-                                                      x_orig, y_orig)
-
-    #----------------------------------------#
-    # Hard coded example: old but functional
-    #----------------------------------------#
-    """
-    # How the transformation is applied depends on the type of transform.
-    # This can be determined by the length of Xcoeff, Ycoeff
-    if len(Xcoeff) == 3:
-        x_new = Xcoeff[0] + Xcoeff[1] * x_orig + Xcoeff[2] * y_orig
-        y_new = Ycoeff[0] + Ycoeff[1] * x_orig + Ycoeff[2] * y_orig
-        xe_new = np.sqrt( (Xcoeff[1] * xe_orig)**2 + (Xcoeff[2] * ye_orig)**2 )
-        ye_new = np.sqrt( (Ycoeff[1] * xe_orig)**2 + (Ycoeff[2] * ye_orig)**2 )
-
-        if vel:
-            vx_new = Xcoeff[1] * vx_orig + Xcoeff[2] * vy_orig
-            vy_new = Ycoeff[1] * vx_orig + Ycoeff[2] * vy_orig
-            vxe_new = np.sqrt( (Xcoeff[1] * vxe_orig)**2 + (Xcoeff[2] * vye_orig)**2 )
-            vye_new = np.sqrt( (Ycoeff[1] * vxe_orig)**2 + (Ycoeff[2] * vye_orig)**2 )
-
-    elif len(Xcoeff) == 6:
-        x_new = Xcoeff[0] + Xcoeff[1]*x_orig + Xcoeff[3]*x_orig**2 + Xcoeff[2]*y_orig + \
-                Xcoeff[5]*y_orig**2. + Xcoeff[4]*x_orig*y_orig
-          
-        y_new = Ycoeff[0] + Ycoeff[1]*x_orig + Ycoeff[3]*x_orig**2 + Ycoeff[2]*y_orig + \
-                Ycoeff[5]*y_orig**2. + Ycoeff[4]*x_orig*y_orig
-          
-        xe_new = np.sqrt( (Xcoeff[1] + 2*Xcoeff[3]*x_orig + Xcoeff[4]*y_orig)**2 * xe_orig**2 + \
-                          (Xcoeff[2] + 2*Xcoeff[5]*y_orig + Xcoeff[4]*x_orig)**2 * ye_orig**2 )
-          
-        ye_new = np.sqrt( (Ycoeff[1] + 2*Ycoeff[3]*x_orig + Ycoeff[4]*y_orig)**2 * xe_orig**2 + \
-                          (Ycoeff[2] + 2*Ycoeff[5]*y_orig + Ycoeff[4]*x_orig)**2 * ye_orig**2 )
-
-        if vel:
-            vx_new = Xcoeff[1]*vx_orig + 2*Xcoeff[3]*x_orig*vx_orig + Xcoeff[2]*vy_orig + \
-                    2.*Xcoeff[5]*y_orig*vy_orig + Xcoeff[4]*(x_orig*vy_orig + vx_orig*y_orig)
-          
-            vy_new = Ycoeff[1]*vx_orig + 2*Ycoeff[3]*x_orig*vx_orig + Ycoeff[2]*vy_orig + \
-                    2.*Ycoeff[5]*y_orig*vy_orig + Ycoeff[4]*(x_orig*vy_orig + vx_orig*y_orig)
-          
-            vxe_new = np.sqrt( (Xcoeff[1] + 2*Xcoeff[3]*x_orig + Xcoeff[4]*y_orig)**2 * vxe_orig**2 + \
-                               (Xcoeff[2] + 2*Xcoeff[5]*y_orig + Xcoeff[4]*x_orig)**2 * vye_orig**2 + \
-                               (2*Xcoeff[3]*vx_orig + Xcoeff[4]*vy_orig)**2 * xe_orig**2 + \
-                               (2*Xcoeff[5]*vy_orig + Xcoeff[4]*vx_orig)**2 * ye_orig**2 )
-                               
-            vye_new = np.sqrt( (Ycoeff[1] + 2*Ycoeff[3]*x_orig + Ycoeff[4]*y_orig)**2 * vxe_orig**2 + \
-                               (Ycoeff[2] + 2*Ycoeff[5]*y_orig + Ycoeff[4]*x_orig)**2 * vye_orig**2 + \
-                               (2*Ycoeff[3]*vx_orig + Ycoeff[4]*vy_orig)**2 * xe_orig**2 + \
-                               (2*Ycoeff[5]*vy_orig + Ycoeff[4]*vx_orig)**2 * ye_orig**2 )
-    """
-    #Update transformed coords to copy of astropy table
-    starlist_f['x'] = x_new
-    starlist_f['y'] = y_new
-    starlist_f['xe'] = xe_new
-    starlist_f['ye'] = ye_new
-    
-    if vel:
-        starlist_f['x0'] = x0_new
-        starlist_f['y0'] = y0_new
-        starlist_f['x0e'] = x0e_new
-        starlist_f['y0e'] = y0e_new
-        starlist_f['vx'] = vx_new
-        starlist_f['vy'] = vy_new
-        starlist_f['vxe'] = vxe_new
-        starlist_f['vye'] = vye_new
-
-    return starlist_f
 
 
 def transform_from_object(starlist, transform):
     """
     Apply transformation to starlist. Returns astropy table with
     transformed positions/position errors, velocities and velocity errors
-    if they are present in starlits
-    
-    Parameters:
+    if they are present in starlits. If a more complex motion_model is
+    implemented, the motion parameters are set to nan, as we need the full time
+    series to refit.
+
+    Parameters
     ----------
-    starlist: astropy table
+    starlist : astropy table
          Starlist we want to apply the transformation too. Must already
          have standard column headers
          x0, y0, x0e, y0e, vx, vy, vxe, vye, x, y, xe, ye
+    transform : transformation object
 
-    transform: transformation object
-
-    Output:
-    ------
+    Returns
+    -------
     Copy of starlist astropy table with transformed x0, y0, x0e, y0e,
     vx, vy, vxe, vye, x, y, xe, ye
 
     """
     # Make a copy of starlist. This is what we will eventually modify with
     # the transformed coordinates
-    starlist_f = copy.deepcopy(starlist)
+    starlist_f = StarList(starlist, copy=True)
     keys = list(starlist.keys())
 
-    # Check to see if velocities are present in starlist. If so, we will
-    # need to transform these as well as positions
-    vel = 'vx' in keys
+    # Check to see if velocities or motion_model are present in starlist.
+    vel = ('vx' in keys) and ("motion_model_input" not in keys)
+    mot = ("motion_model_input" in keys)
+    # If the only motion models used are Fixed and Linear, we can still transform velocities.
+    if mot:
+        motion_models_unique = list(np.unique(starlist_f['motion_model_input']))
+        if 'Linear' in motion_models_unique:
+            motion_models_unique.remove('Linear')
+        if 'Fixed' in motion_models_unique:
+            motion_models_unique.remove('Fixed')
+        if len(motion_models_unique)==0:
+            vel=True
+            mot=False
+
+    # Prior code before motion_model implementation
+    # Can still be used as shortcut for Linear+Fixed motion_model only
     err = 'xe' in keys
-    
+
     # Extract needed information from starlist
     x = starlist_f['x']
     y = starlist_f['y']
@@ -2963,49 +4443,50 @@ def transform_from_object(starlist, transform):
     if err:
         xe = starlist_f['xe']
         ye = starlist_f['ye']
+    else:
+        xe = np.zeros(len(starlist_f))
+        ye = np.zeros(len(starlist_f))
 
     if vel:
         x0 = starlist_f['x0']
         y0 = starlist_f['y0']
-        x0e = starlist_f['x0e']
-        y0e = starlist_f['y0e']
+        x0e = starlist_f['x0_err']
+        y0e = starlist_f['y0_err']
         vx = starlist_f['vx']
         vy = starlist_f['vy']
-        vxe = starlist_f['vxe']
-        vye = starlist_f['vye']
-    
-    # calculate the transformed position and velocity
-    
-    # (x_new, y_new, xe_new, ye_new) in (x,y)
-    x_new, y_new, xe_new, ye_new = position_transform_from_object(x, y, xe, ye, transform)
+        vxe = starlist_f['vx_err']
+        vye = starlist_f['vy_err']
 
-    
-    if vel:
-        # (x0_new,  y0_new, x0e_new, y0e_new) in (x0, y0, x0e, y0e)
-        x0_new, y0_new, x0e_new, y0e_new = position_transform_from_object(x0, y0, x0e, y0e, transform)
-        # (vx_new, vy_new, vxe_new, vye_new) in (x0, y0, x0e, y0e, vx, vy, vxe, vye)
-        vx_new, vy_new, vxe_new, vye_new = velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
+    # calculate the transformed position and velocity
+    x_new, y_new, xe_new, ye_new = position_transform_from_object(x, y, xe, ye, transform)
 
     # update transformed coords to copy of astropy table
     starlist_f['x'] = x_new
     starlist_f['y'] = y_new
     starlist_f['xe'] = xe_new
     starlist_f['ye'] = ye_new
-    
+
     if vel:
+        x0_new, y0_new, x0e_new, y0e_new = position_transform_from_object(x0, y0, x0e, y0e, transform)
+        vx_new, vy_new, vxe_new, vye_new = velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform)
         starlist_f['x0'] = x0_new
         starlist_f['y0'] = y0_new
-        starlist_f['x0e'] = x0e_new
-        starlist_f['y0e'] = y0e_new
+        starlist_f['x0_err'] = x0e_new
+        starlist_f['y0_err'] = y0e_new
         starlist_f['vx'] = vx_new
         starlist_f['vy'] = vy_new
-        starlist_f['vxe'] = vxe_new
-        starlist_f['vye'] = vye_new
-        
+        starlist_f['vx_err'] = vxe_new
+        starlist_f['vy_err'] = vye_new
+
+    # For more complicated motion_models,
+    #  we can't easily transform them, set the values to nans and refit later.
+    if mot:
+        motion_model_params = motion_model.motion_model_param_names()
+        for param in motion_model_params:
+            if param in keys:
+                starlist_f[param] = np.nan
+
     return starlist_f
-
-
-
 
 
 def position_transform_from_object(x, y, xe, ye, transform):
@@ -3013,14 +4494,23 @@ def position_transform_from_object(x, y, xe, ye, transform):
     given the orginal position and position error, calculate the transformed
     position and position error based on transformation object from
     astropy.modeling.models.polynomial2D.
-    Input:
-        - x, y: original position
-        - xe, ye: original position error
-        - transform: transformation object from astropy.modeling.models.polynomial2D
-        
-    Outpus:
-        - x_new, y_new: transformed position
-        - xe_new, ye_new: transformed position error
+
+    Parameters
+    ----------
+    x, y : array-like
+        Original positions.
+    xe, ye : array-like
+        Uncertainties on the original positions.
+    transform : transforms.Transform2D
+        The transformation to apply. Its polynomial coefficients are
+        differentiated to propagate the uncertainties.
+
+    Returns
+    -------
+    x_new, y_new : numpy.ndarray
+        Transformed positions.
+    xe_new, ye_new : numpy.ndarray
+        Transformed position uncertainties.
     """
 
     # Read transformation: Extract X, Y coefficients from transform
@@ -3034,8 +4524,8 @@ def position_transform_from_object(x, y, xe, ye, transform):
         order = transform.order
     else:
         txt = 'Transform not yet supported by position_transform_from_object'
-        raise StandardError(txt)
-        
+        raise Exception(txt)
+
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
     N = order - 1
@@ -3060,9 +4550,8 @@ def position_transform_from_object(x, y, xe, ye, transform):
             sub = int(2*N + 2 + j + (2*N+2-i) * (i-1)/2.)
             y_new += Ycoeff[sub] * (x**i) * (y**j)
 
-            
     """
-    THIS IS WRONG BELOW!
+    THIS IS WRONG BELOW! - NOTE: I don't think this is wrong any more
 
     Currently doing:
     ((A + B + C) * xe)**2
@@ -3070,7 +4559,7 @@ def position_transform_from_object(x, y, xe, ye, transform):
     Should be doing:
     ((A**2 + B**2 + C**2) * xe**2)
     """
-            
+
     # xe_new & ye_new in (x,y,xe,ye)
     xe_new = 0
     temp1 = 0
@@ -3113,16 +4602,35 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
     """
     given the orginal position & position error & velocity & veolicty error,
     calculat the transformed velocity and velocity error based on transformation
-    from astropy.modling.models.polynomial2D.
-    Input:
-        - x0, y0, x0e, y0e: original position and position error
-        - vx, vy, vxe, vye: original velocity and velocity error
-        - transform: transformation object from astropy.modeling.models.polynomial2D
-        
-    Outpus:
-        - vx_new, vy_new, vxe_new, vye_new: transformed velocity and velocity error
+    from astropy.modeling.models.polynomial2D.
+
+    The transformation is in general position dependent, so the velocity at a
+    star's own position is transformed using the local derivative of the
+    polynomial there -- hence the positions are needed as well as the
+    velocities.
+
+    Parameters
+    ----------
+    x0, y0 : array-like
+        Original positions, at which the transformation's local derivative
+        is evaluated.
+    x0e, y0e : array-like
+        Uncertainties on the original positions.
+    vx, vy : array-like
+        Original velocities.
+    vxe, vye : array-like
+        Uncertainties on the original velocities.
+    transform : transforms.Transform2D
+        The transformation to apply.
+
+    Returns
+    -------
+    vx_new, vy_new : numpy.ndarray
+        Transformed velocities.
+    vxe_new, vye_new : numpy.ndarray
+        Transformed velocity uncertainties.
     """
- 
+
     # Read transformation: Extract X, Y coefficients from transform
     if transform.__class__.__name__ == 'four_paramNW':
         Xcoeff = transform.px
@@ -3134,8 +4642,8 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
         order = transform.order
     else:
         txt = 'Transform not yet supported by velocity_transform_from_object'
-        raise StandardError(txt)
-        
+        raise Exception(txt)
+
     # How the transformation is applied depends on the type of transform.
     # This can be determined by the length of Xcoeff, Ycoeff
     N = order - 1
@@ -3196,7 +4704,7 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp3 += i * Xcoeff[int(sub)] * (x0**(i-1)) * (y0**j) 
+            temp3 += i * Xcoeff[int(sub)] * (x0**(i-1)) * (y0**j)
 
     for j in range(1, N+2):
         temp4 += j * Xcoeff[N+1+j] * (y0**(j-1))
@@ -3206,7 +4714,6 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
             temp4 += j * Xcoeff[int(sub)] * (x0**i) * (y0**(j-1))
 
     vxe_new = np.sqrt((temp1*x0e)**2 + (temp2*y0e)**2 + (temp3*vxe)**2 + (temp4*vye)**2)
-
 
     vye_new = 0
     temp1 = 0
@@ -3240,7 +4747,7 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
     for i in range(1, N+1):
         for j in range(1, N+2-i):
             sub = 2*N + 2 + j + (2*N+2-i) * (i-1)/2.
-            temp3 += i * Ycoeff[int(sub)] * (x0**(i-1)) * (y0**j) 
+            temp3 += i * Ycoeff[int(sub)] * (x0**(i-1)) * (y0**j)
 
     for j in range(1, N+2):
         temp4 += j * Ycoeff[N+1+j] * (y0**(j-1))
@@ -3254,344 +4761,206 @@ def velocity_transform_from_object(x0, y0, x0e, y0e, vx, vy, vxe, vye, transform
     return vx_new, vy_new, vxe_new, vye_new
 
 
-def transform_pos_from_file(Xcoeff, Ycoeff, order, x_orig, y_orig):
-    """
-    Given the read-in coefficients from transform_from_file, apply the
-    transformation to the observed positions. This is generalized to
-    work with any order polynomial transform.
-
-    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
-    TRANSFORMS
-
-    Parameters:
-    ----------
-    Xcoeff: Array
-        Array with the coefficients of the X pos transformation
-
-    Ycoeff: Array
-        Array with the coefficients of the Y pos transformation
-
-    order: int
-        Order of transformation
-
-    x_orig: array
-        Array with the original X positions
-
-    y_orig: array
-        Array with the original Y positions
-
-    Output:
-    ------
-    x_new: array
-       Transformed X positions
-
-    y_new: array
-        Transformed Y positions
-
-    """
-    idx = 0 # coeff index
-    x_new = 0.0
-    y_new = 0.0
-    for i in range(order+1):
-        for j in range(i+1):
-            x_new += Xcoeff[idx] * x_orig**(i-j) * y_orig**j
-            y_new += Ycoeff[idx] * x_orig**(i-j) * y_orig**j
-
-            idx += 1
-
-    return x_new, y_new
-
-def transform_poserr_from_file(Xcoeff, Ycoeff, order, xe_orig, ye_orig, x_orig, y_orig):
-    """
-    Given the read-in coefficients from transform_from_file, apply the
-    transformation to the observed position errors. This is generalized to
-    work with any order transform.
-
-    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
-    TRANSFORMS
-
-    Parameters:
-    ----------
-    Xcoeff: Array
-        Array with the coefficients of the X pos transformation
-
-    Ycoeff: Array
-        Array with the coefficients of the Y pos transformation
-
-    order: int
-        Order of transformation
-
-    xe_orig: array
-        Array with the original X position errs
-
-    ye_orig: array
-        Array with the original Y position errs
-        
-    x_orig: array
-        Array with the original X positions
-
-    y_orig: array
-        Array with the original Y positions
-
-    Output:
-    ------
-    xe_new: array
-       Transformed X position errs
-
-    ye_new: array
-        Transformed Y position errs
-    """
-    idx = 0 # coeff index
-    xe_new_tmp1 = 0.0
-    ye_new_tmp1 = 0.0
-    xe_new_tmp2 = 0.0
-    ye_new_tmp2 = 0.0
-    
-    # First loop: dx'/dx
-    for i in range(order+1):
-        for j in range(i+1):
-            xe_new_tmp1 += Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j
-            ye_new_tmp1 += Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j
-
-            idx += 1
-            
-    # Second loop: dy'/dy
-    idx = 0 # coeff index
-    for i in range(order+1):
-        for j in range(i+1):
-            xe_new_tmp2 += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1)
-            ye_new_tmp2 += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1)
-
-            idx += 1
-    # Take square root for xe/ye_new
-    xe_new = np.sqrt((xe_new_tmp1 * xe_orig)**2 + (xe_new_tmp2 * ye_orig)**2)
-    ye_new = np.sqrt((ye_new_tmp1 * ye_orig)**2 + (ye_new_tmp2 * ye_orig)**2)
-
-    return xe_new, ye_new
-
-def transform_vel_from_file(Xcoeff, Ycoeff, order, vx_orig, vy_orig, x_orig, y_orig):
-    """
-    Given the read-in coefficients from transform_from_file, apply the
-    transformation to the observed proper motions. This is generalized to
-    work with any order transform.
-
-    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
-    TRANSFORMS
-    
-    Parameters:
-    ----------
-    Xcoeff: Array
-        Array with the coefficients of the X pos transformation
-
-    Ycoeff: Array
-        Array with the coefficients of the Y pos transformation
-
-    order: int
-        Order of transformation
-
-    vx_orig: array
-        Array with the original X proper motions
-
-    vy_orig: array
-        Array with the original Y proper motions
-        
-    x_orig: array
-        Array with the original X positions
-
-    y_orig: array
-        Array with the original Y positions
-
-    Output:
-    ------
-    vx_new: array
-       Transformed X proper motions
-
-    vy_new: array
-        Transformed Y proper motions
-    """
-    idx = 0 # coeff index
-    vx_new = 0.0
-    vy_new = 0.0
-    # First loop: dx'/dx
-    for i in range(order+1):
-        for j in range(i+1):
-            vx_new += Xcoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j * vx_orig
-            vy_new += Ycoeff[idx] * (i - j) * x_orig**(i-j-1) * y_orig**j * vx_orig
-            
-            idx += 1
-    # Second loop: dy'/dy
-    idx = 0 # coeff index
-    for i in range(order+1):
-        for j in range(i+1):
-            vx_new += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig
-            vy_new += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1) * vy_orig
-
-            idx += 1
-
-    return vx_new, vy_new
-
-def transform_velerr_from_file(Xcoeff, Ycoeff, order, vxe_orig, vye_orig, vx_orig,
-                                vy_orig, xe_orig, ye_orig, x_orig, y_orig):
-    """
-    Given the read-in coefficients from transform_from_file, apply the
-    transformation to the observed proper motion errors. This is generalized to
-    work with any order transform.
-
-    WARNING: THIS CODE WILL NOT WORK FOR LEGENDRE POLYNOMIAL
-    TRANSFORMS
-    
-    Parameters:
-    ----------
-    Xcoeff: Array
-        Array with the coefficients of the X pos transformation
-
-    Ycoeff: Array
-        Array with the coefficients of the Y pos transformation
-
-    order: int
-        Order of transformation
-
-    vxe_orig: array
-        Array with the original X proper motion errs
-
-    vye_orig: array
-        Array with the original Y proper motion errs
-        
-    vx_orig: array
-        Array with the original X proper motions
-
-    vy_orig: array
-        Array with the original Y proper motions
-
-    xe_orig: array
-        Array with the original X position errs
-
-    ye_orig: array
-        Array with the original Y position errs
-        
-    x_orig: array
-        Array with the original X positions
-
-    y_orig: array
-        Array with the original Y positions
-
-    Output:
-    ------
-    vxe_new: array
-       Transformed X proper motion errs
-
-    vye_new: array
-        Transformed Y proper motion errs
-    """
-    idx = 0
-    vxe_new_tmp1 = 0.0
-    vye_new_tmp1 = 0.0
-    vxe_new_tmp2 = 0.0
-    vye_new_tmp2 = 0.0
-    vxe_new_tmp3 = 0.0
-    vye_new_tmp3 = 0.0
-    vxe_new_tmp4 = 0.0
-    vye_new_tmp4 = 0.0
-
-    
-    # First loop: dvx' / dx
-    for i in range(order+1):
-        for j in range(i+1):
-            vxe_new_tmp1 += Xcoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig
-            vxe_new_tmp1 += Xcoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig
-            vye_new_tmp1 += Ycoeff[idx] * (i-j) * (i-j-1) * x_orig**(i-j-2) * y_orig**j * vx_orig
-            vye_new_tmp1 += Ycoeff[idx] * (j) * (i-j) * x_orig**(i-j-1) * y_orig**(j-1) * vy_orig
-
-            idx += 1
-
-    # Second loop: dvx' / dy
-    idx = 0
-    for i in range(order+1):
-        for j in range(i+1):
-            vxe_new_tmp2 += Xcoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig
-            vxe_new_tmp2 += Xcoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig
-            vye_new_tmp2 += Ycoeff[idx] * (i-j) * (j) * x_orig**(i-j-1) * y_orig**(j-1) * vx_orig
-            vye_new_tmp2 += Ycoeff[idx] * (j) * (j-1) * x_orig**(i-j-1) * y_orig**(j-2) * vy_orig
-
-            idx += 1
-
-    # Third loop: dvx' / dvx
-    idx = 0
-    for i in range(order+1):
-        for j in range(i+1):
-            vxe_new_tmp3 += Xcoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j
-            vye_new_tmp3 += Ycoeff[idx] * (i-j) * x_orig**(i-j-1) * y_orig**j
-
-            idx += 1
-
-    # Fourth loop: dvx' / dvy
-    idx = 0
-    for i in range(order+1):
-        for j in range(i+1):
-            vxe_new_tmp4 += Xcoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1)
-            vye_new_tmp4 += Ycoeff[idx] * (j) * x_orig**(i-j) * y_orig**(j-1)
-
-            idx += 1
-
-    vxe_new = np.sqrt((vxe_new_tmp1 * xe_orig)**2 + (vxe_new_tmp2 * ye_orig)**2 + \
-                      (vxe_new_tmp3 * vxe_orig)**2 + (vxe_new_tmp4 * vye_orig)**2)
-    vye_new = np.sqrt((vye_new_tmp1 * xe_orig)**2 + (vye_new_tmp2 * ye_orig)**2 + \
-                      (vye_new_tmp3 * vxe_orig)**2 + (vye_new_tmp4 * vye_orig)**2)
-
-    return vxe_new, vye_new
-
-
-def check_iter_tolerances(iters, dr_tol, dm_tol, outlier_tol):
-    # iteration tolerances must match the number of iterations requested.
-    assert iters == len(dr_tol)
-    assert iters == len(dm_tol)
-    assert iters == len(outlier_tol)
-
-    return
-
 def check_trans_input(list_of_starlists, trans_input, mag_trans):
+    """
+    Validate initial transformations supplied by the caller.
+
+    Checks that there is one transformation per starlist and, when magnitudes
+    are being transformed, that each one carries a ``mag_offset``. A
+    transformation missing that attribute has it set to 0.0 rather than
+    raising, since a purely positional transformation is a reasonable thing
+    to pass in.
+
+    Parameters
+    ----------
+    list_of_starlists : list of StarList
+        The starlists the transformations correspond to.
+    trans_input : list of transforms.Transform2D or None
+        One initial transformation per starlist, in the same order. Entries
+        may be None. Nothing is checked when this is None.
+    mag_trans : bool
+        Whether magnitudes are being transformed too, which is what makes
+        ``mag_offset`` required.
+
+    Returns
+    -------
+    None
+        ``trans_input`` may be modified in place, gaining ``mag_offset``
+        attributes where they were missing.
+
+    Raises
+    ------
+    AssertionError
+        If ``trans_input`` is not the same length as ``list_of_starlists``.
+    """
     # Check trans_input
     # If we are transforming magnitudes and their are input transformations,
     # then they need to have a mag_offset on them.
-    if trans_input != None:
-        assert len(trans_input) == len(list_of_starlists)
+    if trans_input is not None:
+        assert len(trans_input) == len(list_of_starlists), f'trans_input (len={len(trans_input)}) must have the same length as list_of_starlists (len={len(list_of_starlists)})!'
 
-        if mag_trans: 
-            for ii in range(len(trans_input)):
-                if trans_input[ii] != None:
-                    try:
-                        trans_input[ii].mag_offset
-                    except NameError:
-                        print('Missing trans.mag_offset on trans_input[{0:d}].'.format(ii))
-                        print('Setting mag_offset = 0 and dm_tol[0] = 100 and hoping for the best!!')
-                        trans_input[ii].mag_offset = 0.0
-                
+        if mag_trans:
+            for ii, trans in enumerate(trans_input):
+                if (trans is not None) and (not hasattr(trans, 'mag_offset')):
+                    print('Missing trans.mag_offset on trans_input[{0:d}], setting to 0.'.format(ii))
+                    trans.mag_offset = 0.0
+
     return
 
-def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
-                        ignore_contains='star', verbose=True, n_req_match=3,
-                            mag_trans=True, order=1):
+def trans_initial_guess(
+    ref_list,
+    star_list,
+    trans_args,
+    mode='miracle',
+    indices=None,
+    order=1,
+    briteN=None,
+    n_req_match=3,
+    polygon_reflist=None,
+    polygon_starlist=None,
+    buffer=0,
+    motion_models=None,
+    fixed_params_dict=None,
+    ignore_contains='star',
+    mag_trans=True,
+    verbose=True
+):
     """
     Take two starlists and perform an initial matching and transformation.
 
-    This function will grow with time to handle difference types of initial
-    guess transformations (triangle matching, match by name, etc.). For now it
-    is just blind triangle matching on the brightest 50 stars. 
+    This is the bootstrap step: before any transformation is known, the two
+    lists have to be matched by something other than position agreement.
+    Which "something" is chosen by ``mode``.
+
+    Parameters
+    ----------
+    ref_list : StarList
+        The reference stars, in the reference coordinate system. Needs 'x',
+        'y' and 'm' (or 'x0'/'y0'/'m0'), and 'name' for mode='name'.
+    star_list : StarList
+        The starlist to be brought onto the reference frame.
+    trans_args : dict
+        Extra keywords for the transformation class, e.g. {'order': 1}.
+        Only 'order' is consulted here, and only as a fallback for ``order``.
+    mode : str, optional
+        How to make the initial match:
+
+        - 'miracle' (default) -- blind triangle matching on the brightest
+          ``briteN`` stars. Needs no names, but needs enough overlap.
+        - 'name' -- match stars that share a name. Cheap and exact when the
+          names are stable identifiers across lists; see ``ignore_contains``.
+        - 'indices' -- the caller already knows the correspondence and
+          passes it in via ``indices``.
+
+    indices : tuple of array, optional
+        ``(idx_ref, idx_star)``, the already-known correspondence. Required
+        for mode='indices' and ignored otherwise, by default None.
+    order : int, optional
+        Polynomial order of the initial transformation, by default 1.
+    briteN : int, optional
+        mode='miracle' only. How many of the brightest stars to attempt the
+        triangle match on. By default min(50, len(star_list)).
+    n_req_match : int, optional
+        Minimum number of matched stars required before a transformation is
+        derived. Below this the function raises rather than fitting to noise,
+        by default 3.
+    polygon_reflist : shapely.Polygon, optional
+        mode='miracle' only. Restricts the reference stars considered to
+        those inside this footprint, by default None.
+    polygon_starlist : shapely.Polygon, optional
+        mode='miracle' only. Restricts the starlist stars considered to those
+        inside this footprint. Combined with ``polygon_reflist`` this limits
+        the blind match to the region the two lists actually share, which is
+        what makes it tractable on a mosaic, by default None.
+    buffer : float, optional
+        Slack, in reference coordinate units, allowed when testing the
+        polygon footprints, by default 0.
+    motion_models : list of MotionModel classes or strings, optional
+        mode='miracle' only. Used to propagate the reference stars to the
+        starlist's epoch before matching, by default None.
+    fixed_params_dict : dict, optional
+        Motion-model parameters held fixed during that propagation, by
+        default None.
+    ignore_contains : str or None, optional
+        mode='name' only. Names containing this substring are left out of the
+        name match, because auto-detected sources are conventionally labelled
+        star_1, star_2, ... per list -- those indices are per-list detection
+        numbers, not stable identities. Pass None to match on every name.
+        '' is rejected rather than treated as "off", since every name
+        contains the empty string. By default 'star'.
+    mag_trans : bool, optional
+        Whether to also solve for a magnitude zeropoint offset, by default
+        True.
+    verbose : bool or int, optional
+        Print diagnostics about the match, by default True.
+
+    Returns
+    -------
+    transforms.PolyTransform
+        The initial transformation taking ``star_list`` onto ``ref_list``.
+
+    Raises
+    ------
+    AssertionError
+        If fewer than ``n_req_match`` stars could be matched. A diagnostic
+        scatter plot of the two lists is drawn first, on a best-effort basis,
+        to show why.
+    ValueError
+        If ``mode`` is not one of the values above, if ``ignore_contains``
+        is '', or if mode='miracle' and the starlist has neither a 't'
+        column nor a 'list_time' meta key.
     """
     warnings.filterwarnings('ignore', category=AstropyUserWarning)
-    
+    if motion_models is None:
+        motion_models = []
+
+    # Only the 'miracle' branch computes these; the failure diagnostic below
+    # falls back to the reference list's own columns when they are unset.
+    xref = yref = None
+
+    # Match by name
     if mode == 'name':
-        # First trim the two lists down to only those that don't contain
-        # the "ignore_contains" string.
-        idx_r = np.flatnonzero(np.char.find(ref_list['name'], ignore_contains) == -1)
-        idx_s = np.flatnonzero(np.char.find(star_list['name'], ignore_contains) == -1)
+        # Trim both lists to names that don't contain the "ignore_contains"
+        # string. The point is to skip auto-detected labels (star_1, star_2,
+        # ... are per-epoch detection indices, so the same label means
+        # different objects in different lists) and match only on genuinely
+        # named sources. ignore_contains=None skips the trim entirely, for
+        # catalogs whose names really are stable across epochs.
+        #
+        # Note '' is not a way to disable it: every name contains the empty
+        # string, so np.char.find returns 0 everywhere and the trim would
+        # discard everything. None is the off switch.
+        if ignore_contains is None:
+            idx_r = np.arange(len(ref_list))
+            idx_s = np.arange(len(star_list))
+        else:
+            if ignore_contains == '':
+                raise ValueError(
+                    "trans_initial_guess: ignore_contains='' would discard every star "
+                    '(every name contains the empty string). Pass None to match on all names.'
+                )
+            idx_r = np.flatnonzero(np.char.find(ref_list['name'].astype(str), ignore_contains) == -1)
+            idx_s = np.flatnonzero(np.char.find(star_list['name'].astype(str), ignore_contains) == -1)
+
+            # Do not drop stars silently: this filter is the reason a name
+            # match "mysteriously" finds nothing when sources are called
+            # star_0, star_1, ...
+            n_cut_s = len(star_list) - len(idx_s)
+            n_cut_r = len(ref_list) - len(idx_r)
+            if n_cut_s or n_cut_r:
+                msg = (f'trans_initial_guess: ignore_contains={ignore_contains!r} excluded '
+                       f'{n_cut_s} of {len(star_list)} star_list and '
+                       f'{n_cut_r} of {len(ref_list)} ref_list names from the name match.')
+                if len(idx_s) == 0 or len(idx_r) == 0:
+                    msg += ' Nothing is left to match on -- pass ignore_contains=None if these names are stable across epochs.'
+                warnings.warn(msg, stacklevel=2)
 
         # Match the star names
         name_matches, ndx_r, ndx_s = np.intersect1d(ref_list['name'][idx_r],
                                                     star_list['name'][idx_s],
                                                     assume_unique=True,
                                                     return_indices=True)
-        
+
         x1m = star_list['x'][idx_s][ndx_s]
         y1m = star_list['y'][idx_s][ndx_s]
         m1m = star_list['m'][idx_s][ndx_s]
@@ -3600,31 +4969,93 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         m2m = ref_list['m'][idx_r][ndx_r]
         N = len(x1m)
 
-    else:
-        # Default is miracle match.
-        briteN = min(50, len(star_list))
+    # Default is miracle match.
+    elif mode == 'miracle':
+        if briteN is None:
+            briteN = min(50, len(star_list))
+        else:
+            assert (type(briteN) == int) and (briteN > 0), f'briteN must be a positive integer, but got {briteN}.'
 
         # If there are velocities in the reference list, use them.
         # We assume velocities are in the same units as the positions.
-        xref, yref = get_pos_at_time(star_list['t'][0], ref_list)
+        if 't' in ref_list.colnames:
+            epoch = star_list['t'][0]
+        elif 'list_time' in star_list.meta:
+            epoch = star_list.meta['list_time']
+        else:
+            raise ValueError('star_list must have either a "t" column or a "list_time" meta key to use miracle matching.')
+
+        xref, yref = infer_positions(epoch, ref_list, motion_models, fixed_params_dict=fixed_params_dict)
         if 'm' in ref_list.colnames:
             mref = ref_list['m']
         else:
             mref = ref_list['m0']
-            
-        N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(star_list['x'],
-                                                                     star_list['y'],
-                                                                     star_list['m'],
-                                                                     xref,
-                                                                     yref,
-                                                                     mref,
-                                                                     briteN)
-        
-    err_msg = 'Failed to find more than '+str(n_req_match)
-    err_msg += ' (only ' + str(len(x1m)) + ') matches, giving up.'
-    assert len(x1m) >= n_req_match, err_msg
+
+        N, x1m, y1m, m1m, x2m, y2m, m2m = match.miracle_match_briteN(
+            star_list['x'],
+            star_list['y'],
+            star_list['m'],
+            xref,
+            yref,
+            mref,
+            briteN,
+            polygon_reflist,
+            polygon_starlist,
+            buffer=buffer
+        )
+    elif mode == 'indices':
+        idx_r, idx_s = indices
+        x1m = star_list['x'][idx_s]
+        y1m = star_list['y'][idx_s]
+        m1m = star_list['m'][idx_s]
+        x2m = ref_list['x'][idx_r]
+        y2m = ref_list['y'][idx_r]
+        m2m = ref_list['m'][idx_r]
+        N = len(indices)
+
+    else:
+        raise ValueError(f'flystar.align.trans_initial_guess: Unknown mode: {mode}. Must be one of ["name", "miracle"].')
+
+    if len(x1m) < n_req_match:
+        # Diagnostic plot, best-effort only. xref/yref are computed by the
+        # 'miracle' branch alone, so for mode='name'/'indices' fall back to the
+        # reference list's own columns. Guarded because this block exists to
+        # explain a failure -- it must never replace the AssertionError below
+        # with an error of its own (it used to raise UnboundLocalError on
+        # xref for every non-miracle mode, hiding the real message).
+        try:
+            if xref is None:
+                xref = ref_list['x'] if 'x' in ref_list.colnames else ref_list['x0']
+                yref = ref_list['y'] if 'y' in ref_list.colnames else ref_list['y0']
+            fig, ax = plt.subplots()
+            ax.scatter(star_list['x'], star_list['y'], s=1, label='star_list')
+            ax.scatter(xref, yref, s=1, label='ref_list')
+            ax.legend()
+            ax.set_aspect('equal')
+            plt.show()
+        except Exception as err:
+            warnings.warn(f'trans_initial_guess: could not draw the diagnostic plot ({err}).',
+                          stacklevel=2)
+        # Only blame ignore_contains when it actually removed something --
+        # otherwise the note points at a cause that isn't one, which is the
+        # same wrong-turn this message exists to prevent.
+        hint = ''
+        if mode == 'name':
+            n_cut = len(star_list) - len(idx_s)
+            if n_cut:
+                hint = (f" Note that ignore_contains={ignore_contains!r} excluded {n_cut} of "
+                        f'{len(star_list)} star_list names from the match; pass '
+                        'ignore_contains=None if those names are stable across epochs.')
+            else:
+                hint = (' ignore_contains excluded nothing, so the lists simply have too few '
+                        'names in common; init_guess_mode=\'miracle\' does not need names.')
+        raise AssertionError(
+            f'Failed to find more than {n_req_match} (only {len(x1m)}) matches, giving up. '
+            f'mode={mode!r}.' + hint
+        )
+
     if verbose > 1:
-        print('initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
+        print('Initial_guess: {0:d} stars matched between starlist and reference list'.format(N))
 
     # Calculate position transformation based on matches
     if ('order' in trans_args) and (trans_args['order'] == 0):
@@ -3641,45 +5072,119 @@ def trans_initial_guess(ref_list, star_list, trans_args, mode='miracle',
         trans.mag_offset = np.mean(m2m - m1m)
     else:
         trans.mag_offset = 0
-        
+
     if verbose > 1:
-        print('init guess: ', trans.px.parameters, trans.py.parameters)
+        print('Initial guess:')
+        print(f'{trans.px.parameters=}')
+        print(f'{trans.py.parameters=}')
+        print(f'{trans.mag_offset=}')
 
     warnings.filterwarnings('default', category=AstropyUserWarning)
-        
+
     return trans
 
 
-def update_old_and_new_names(ref_table, list_index, idx_ref_new):
-    # Make new ref_list names for the new stars.
-    new_names = []
-    new_name_len_max = 0
+def names_in_list(ref_table, star_lists, list_index=None):
+    """
+    Recover the per-list star names that 'idx_in_list' indexes into.
 
-    for ss in idx_ref_new:
-        new_name = '{0:3d}_{1:s}'.format(list_index, ref_table['name_in_list'][ss, list_index])
-        new_names.append(new_name)
-        new_name_len_max = max(new_name_len_max, len(new_name))
+    The reference table stores each star's identity in each starlist as a row
+    index rather than a copy of the name (see setup_ref_table_from_starlist),
+    so recovering the name needs the starlists that were aligned.
+
+    Parameters
+    ----------
+    ref_table : StarTable
+        A reference table carrying an 'idx_in_list' column.
+    star_lists : list of StarList
+        The starlists that were passed to the aligner, in the same order.
+    list_index : int, optional
+        Return names for this starlist only. By default None, which returns
+        the full (N_stars, N_lists) array.
+
+    Returns
+    -------
+    numpy.ndarray of str
+        Names, with '' wherever the star was not detected in that list.
+    """
+    idx = np.asarray(ref_table['idx_in_list'])
+
+    def _one(jj):
+        col = idx[:, jj]
+        names = np.asarray(star_lists[jj]['name'])
+        out = np.full(len(col), '', dtype=names.dtype)
+        found = col >= 0
+        out[found] = names[col[found].astype(np.intp)]
+        return out
+
+    if list_index is not None:
+        return _one(list_index)
+
+    return np.column_stack([_one(jj) for jj in range(idx.shape[1])])
+
+
+def update_old_and_new_names(ref_table, star_list, list_index, idx_ref_new):
+    """
+    Name the stars that a starlist has just added to the reference table.
+
+    New stars are named ``"<list_index>_<name in that starlist>"``, so a
+    star's name records which list first contributed it. The per-list
+    identity is stored in the table as an index rather than a copy of the
+    name (see :func:`names_in_list`), so the names are read out of
+    ``star_list`` here.
+
+    The 'name' column's dtype is widened when, and only when, the incoming
+    names are longer than it can hold, so that nothing is silently truncated.
+
+    Parameters
+    ----------
+    ref_table : StarTable
+        The reference table being grown. Read-only here; the caller assigns
+        the returned array back onto it.
+    star_list : StarList
+        The starlist the new stars came from, supplying their names.
+    list_index : int
+        Index of that starlist, used as the name prefix.
+    idx_ref_new : array of int
+        Rows of ``ref_table`` holding the newly added stars.
+
+    Returns
+    -------
+    numpy.ndarray of str
+        The full 'name' column, with the new rows filled in -- widened to a
+        larger unicode dtype if the new names required it.
+    """
+    # Make new ref_list names for the new stars. Their per-list identity is
+    # stored as an index into star_list, so read the names from there.
+    idx_lis_new = np.asarray(ref_table['idx_in_list'][idx_ref_new, list_index],
+                             dtype=np.intp)
+    src_names = np.asarray(star_list['name'])
+
+    new_names = [f"{list_index:3d}_{name}" for name in src_names[idx_lis_new]]
+    new_name_len_max = np.max([len(new_name) for new_name in new_names])
 
     old_names = ref_table['name']
-    old_name_len = [len(old_name) for old_name in old_names]
-    old_name_len_max = np.max(old_name_len)
+    # old_names is a fixed-width numpy unicode array, so its dtype already
+    # encodes the longest string it can hold without truncation -- no need to
+    # loop over every element (up to millions of rows) to find the max length.
+    old_name_len_max = old_names.dtype.itemsize // np.dtype('U1').itemsize
 
     if new_name_len_max > old_name_len_max:
         all_names = old_names.astype('U{0:d}'.format(new_name_len_max))
     else:
         all_names = old_names
-    
+
     all_names[idx_ref_new] = new_names
-    
+
     return all_names
 
 def copy_and_rename_for_ref(star_list):
     """
     Make a deep copy of the starlist and rename the columns to include
-    "0". This only applies to x, y, m and xe, ye, me (if they exist) 
+    "0". This only applies to x, y, m and xe, ye, me (if they exist)
     columns.
 
-    Input
+    Parameters
     ----------
     star_list : StarList
         The starlist to copy.
@@ -3689,81 +5194,176 @@ def copy_and_rename_for_ref(star_list):
 
     if 'xe' in star_list.colnames:
         old_cols += ['xe']
-        new_cols += ['x0e']
+        new_cols += ['x0_err']
     if 'ye' in star_list.colnames:
         old_cols += ['ye']
-        new_cols += ['y0e']
+        new_cols += ['y0_err']
     if 'me' in star_list.colnames:
         old_cols += ['me']
-        new_cols += ['m0e']
+        new_cols += ['m0_err']
     if 'w' in star_list.colnames:
         old_cols += ['w']
         new_cols += ['w']
-        
-    ref_list = copy.deepcopy(star_list)
+
+    ref_list = StarList(star_list, copy=True)
 
     for ii in range(len(old_cols)):
         ref_list.rename_column(old_cols[ii], new_cols[ii])
 
     return ref_list
 
-def outlier_rejection_indices(star_list, ref_list, outlier_tol, verbose=True):
+def check_transform_finite(trans, n_stars, context):
+    """
+    Raise if a freshly derived transformation contains non-finite parameters.
+
+    derive_transform / find_transform run a least-squares fit that returns NaN
+    coefficients instead of raising when it is underdetermined -- most often
+    because it was handed fewer stars than the transformation has free
+    parameters, or none at all. The NaNs then propagate into transformed
+    positions and only announce themselves much later, and far from the cause,
+    as 'x1 does not contain any finite values!' out of match.match. Check here
+    so the error names the fit that actually failed.
+
+    Parameters
+    ----------
+    trans : Transform2D
+        The transformation just derived.
+    n_stars : int
+        Number of stars the fit was given, for the error message.
+    context : str
+        Where this fit came from, for the error message.
+
+    Raises
+    ------
+    ValueError
+        If any x or y parameter of the transformation is not finite.
+    """
+    bad_x = not np.isfinite(np.asarray(trans.px.parameters)).all()
+    bad_y = not np.isfinite(np.asarray(trans.py.parameters)).all()
+
+    if not (bad_x or bad_y):
+        return
+
+    raise ValueError(
+        f'{context}: the derived transformation has non-finite parameters '
+        f'(px={np.asarray(trans.px.parameters)}, '
+        f'py={np.asarray(trans.py.parameters)}) after being fit to '
+        f'{n_stars} star(s). The fit was underdetermined -- with too few '
+        f'matched stars for the transformation order, the least-squares '
+        f'solve returns NaN rather than raising. Loosen dr_tol / dm_tol, '
+        f'widen mag_lim, or lower the transformation order.'
+    )
+
+
+def min_stars_for_transform(trans_args):
+    """
+    The minimum number of matched stars needed to constrain a transformation.
+
+    A 2D polynomial (or Legendre) transformation of a given order has
+    (order+1)(order+2)/2 free coefficients per axis -- 3 for order 1, 6 for
+    order 2 -- and order 0 is the special case of a pure shift, 1 coefficient
+    per axis. Handed fewer stars than that, derive_transform runs a degenerate
+    least-squares fit and returns NaN coefficients without raising.
+
+    Parameters
+    ----------
+    trans_args : dict
+        The keyword arguments passed to trans_class.derive_transform for this
+        iteration. Only 'order' is consulted; if it is absent we assume the
+        linear case, the smallest order with more than one free parameter.
+
+    Returns
+    -------
+    n_req : int
+        The minimum usable number of stars.
+    """
+    order = trans_args.get('order', 1) if trans_args is not None else 1
+
+    if order == 0:
+        return 1
+
+    return (order + 1) * (order + 2) // 2
+
+
+def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, fixed_params_dict=None, verbose=True):
     """
     Determine the outliers based on the residual positions between two different
-    starlists and some threshold (in sigma). Return the indices of the stars 
-    to keep (that shouldn't be rejected as outliers). 
+    starlists and some threshold (in sigma). Return the indices of the stars
+    to keep (that shouldn't be rejected as outliers).
 
     Note that we assume that the star_list and ref_list are already transformed and
-    matched. 
+    matched.
 
     Parameters
     ----------
     star_list : StarList
         starlist with 'x', 'y'
-
     ref_list : StarList
         starlist with 'x0', 'y0'
-
     outlier_tol : float
-        Number of sigma inside which we keep stars and outside of which we 
-        reject stars as outliers. 
-
-    Optional Parameters
-    --------------------
-    verbose : boolean
+        Number of sigma inside which we keep stars and outside of which we
+        reject stars as outliers.
+    motion_models : list of motion_model objects
+        The motion models to use in the star_list
+    fixed_params_dict : dict or None, optional
+        Dictionary of fixed parameters for motion models, by default None
+    verbose : bool, optional
+        If True, print information about the outlier rejection process, by default True
 
     Returns
-    ----------
-    keepers : nd.array
-        The indicies of the stars to keep. 
+    -------
+    keepers : bool array
+        The boolean array of the stars to keep.
     """
     # Optionally propogate the reference positions forward in time.
-    xref, yref = get_pos_in_time(star_list['t'][0], ref_list)
-    
+    xref, yref = infer_positions(star_list['t'][0], ref_list, motion_models, fixed_params_dict=fixed_params_dict)
+
     # Residuals
     x_resid_on_old_trans = star_list['x'] - xref
     y_resid_on_old_trans = star_list['y'] - yref
     resid_on_old_trans = np.hypot(x_resid_on_old_trans, y_resid_on_old_trans)
 
-    threshold = outlier_tol * resid_on_old_trans.std()
-    keepers = np.where(resid_on_old_trans < threshold)[0]
+    # Centre the threshold on the median residual, as
+    # MosaicSelfRef.outlier_rejection_indices does. Without the median term a
+    # tight cluster of residuals around a nonzero offset is rejected wholesale,
+    # and the '<' rejects everything when the std is 0 (all residuals equal).
+    threshold = np.median(resid_on_old_trans) + (outlier_tol * resid_on_old_trans.std())
+    keepers = resid_on_old_trans <= threshold
 
     if verbose > 0:
         msg = '  Outlier Rejection: Keeping {0:d} of {1:d}'
-        print(msg.format(len(keepers), len(resid_on_old_trans)))
-        
+        print(msg.format(sum(keepers), len(resid_on_old_trans)))
+
     return keepers
 
 def setup_trans_info(trans_input, trans_args, N_lists, iters):
-    """ Setup transformation info into a usable format.
+    """
+    Setup transformation info into a usable format.
 
+    Parameters
+    ----------
     trans_input : list or None
-    trans_args : dict or None
+        One initial transformation per starlist, or None to start each
+        starlist with no transformation (it is then derived from an initial
+        guess on the first iteration).
+    trans_args : dict or list of dict
+        Extra keywords for the transformation class. A single dict is
+        replicated for every iteration; a list must have one entry per
+        iteration.
     N_lists : int
+        Number of starlists being aligned.
     iters : int
+        Number of matching/transformation iterations.
+
+    Returns
+    -------
+    trans_list : list
+        One entry per starlist, holding the initial transformation or None.
+    trans_args : list of dict
+        One dict per iteration.
     """
     trans_list = [None for ii in range(N_lists)]
-    if trans_input != None:
+    if trans_input is not None:
         trans_list = [trans_input[ii] for ii in range(N_lists)]
 
     # Keep a list of trans_args, one for each starlist. If only
@@ -3771,21 +5371,29 @@ def setup_trans_info(trans_input, trans_args, N_lists, iters):
     if type(trans_args) == dict:
         tmp = trans_args
         trans_args = [tmp for ii in range(iters)]
-        
+
     return trans_list, trans_args
 
 def apply_mag_lim(star_list, mag_lim):
-    """ Apply a magnitude limit to the list. If no magnitude limit is 
-    specified, then return a copy of the list.  This works on a 
+    """ Apply a magnitude limit to the list. If no magnitude limit is
+    specified, then return a copy of the list.  This works on a
     reference list (with 'm0') or a star_list ('m') with 'm0' taking
     priority.
 
-    mag_lim : 2 element array
-        Contains the minimum and maximum magnitude cut to apply. If none,
-        no magnitude cut is applied.
+    Parameters
+    ----------
+    star_list : StarList
+        The list to cut. Its 'm0' column is used if present, otherwise 'm'.
+    mag_lim : 2 element array or None
+        The minimum and maximum magnitude to keep. None applies no cut.
 
+    Returns
+    -------
+    StarList
+        A copy of the input holding only the stars inside the limits (a
+        plain copy when ``mag_lim`` is None).
     """
-    star_list_T = copy.deepcopy(star_list)
+    star_list_T = StarList(star_list, copy=True)
 
     if (mag_lim is not None):
         # Support 'm0' (primary) or 'm' column name.
@@ -3795,7 +5403,7 @@ def apply_mag_lim(star_list, mag_lim):
             mcol = 'm'
 
         conditions = {}
-    
+
         cond_key = '{0:s}_min'.format(mcol)
         conditions[cond_key] = mag_lim[0]
 
@@ -3807,13 +5415,41 @@ def apply_mag_lim(star_list, mag_lim):
     return star_list_T
 
 def get_weighting_scheme(weights, ref_list, star_list):
+    """
+    Build per-star fit weights from a weighting-scheme name.
+
+    The free-function equivalent of
+    :meth:`MosaicSelfRef.get_weights_for_lists`, for callers that are not
+    working through a mosaic object.
+
+    Parameters
+    ----------
+    weights : str or None
+        Which uncertainties to use and how. One of 'both,var', 'both,std',
+        'ref,var', 'ref,std', 'list,var', 'list,std' -- the first part
+        selecting the reference list, the starlist, or both, and the second
+        selecting inverse variance or inverse standard deviation. None means
+        an unweighted fit.
+    ref_list : StarList
+        Reference stars, matched row-for-row with ``star_list``. Uses its
+        'xe'/'ye' columns if they exist.
+    star_list : StarList
+        Starlist stars, matched row-for-row with ``ref_list``. Uses its
+        'xe'/'ye' columns if they exist.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        One weight per matched star, or None when ``weights`` is None or
+        neither list carries uncertainties.
+    """
     if 'xe' in ref_list.colnames:
         var_xref = ref_list['xe']**2
         var_yref = ref_list['ye']**2
     else:
         var_xref = 0.0
         var_yref = 0.0
-        
+
     if 'xe' in star_list.colnames:
         var_xlis = star_list['xe']**2
         var_ylis = star_list['ye']**2
@@ -3821,7 +5457,7 @@ def get_weighting_scheme(weights, ref_list, star_list):
         var_xlis = 0.0
         var_ylis = 0.0
 
-    if weights != None:
+    if weights is not None:
         if weights == 'both,var':
             weight = 1.0 / (var_xref + var_xlis + var_yref + var_ylis)
         if weights == 'both,std':
@@ -3844,36 +5480,286 @@ def get_weighting_scheme(weights, ref_list, star_list):
 
     return weight
 
-def get_pos_at_time(t, starlist, use_vel=True):
-    """
-    Take a starlist, check to see if it has velocity columns.
-    If it does, then propogate the positions forward in time 
-    to the desired epoch. If no velocities exist, then just 
-    use ['x0', 'y0'] or ['x', 'y']
-
-    Inputs
-    ----------
-    t_array : float
-        The time to propogate to. Usually in decimal years; 
-        but it should be in the same units
-        as the 't0' column in starlist.
-    """
-    if use_vel and ('vx' in starlist.colnames) and ('vy' in starlist.colnames):
-        dt = t - starlist['t0']
-        x = starlist['x0'] + (starlist['vx'] * dt)
-        y = starlist['y0'] + (starlist['vy'] * dt)
-    else:
-        if ('x0' in starlist.colnames) and ('y0' in starlist.colnames):
-            x = starlist['x0']
-            y = starlist['y0']
-        else:
-            x = starlist['x']
-            y = starlist['y']
-        
-    return (x, y)
 
 def logger(logfile, message, verbose = 9):
+    """
+    Write a message to a log file, and to stdout when verbose enough.
+
+    Parameters
+    ----------
+    logfile : file object
+        An open, writable file. A newline is appended to each message.
+    message : str
+        The line to log.
+    verbose : int, optional
+        The message is also printed to stdout when this is greater than 4.
+        By default 9, i.e. print.
+
+    Returns
+    -------
+    None
+    """
     if verbose > 4:
         print(message)
     logfile.write(message + '\n')
     return
+
+
+def generic_match(sl1, sl2, init_mode='triangle',
+                  model=transforms.PolyTransform, order_dr=(1, 1.0),
+                  dr_final=1.0,
+                  xy_match=(None, None, None, None, None, None, None, None),
+                  m_match=(None, None, None, None), sigma_match=None,
+                  n_bright=100, verbose=True, **kwargs):
+    """
+    Finds the transformation between two starlists using the first one
+    as reference frame. Different matching methods can be used. If no
+    transformation is found, it returns an error message.
+
+
+    Parameters
+    ----------
+    sl1 : StarList
+        starlist used for reference frame
+    sl2 : StarList
+        starlist transformed
+    init_mode : str, optional
+        Initial matching method.
+        If 'triangle', uses the blind triangle method.
+        If 'match_name', uses match by name
+        If 'load', uses the transformation from a loaded file, by default 'triangle'.
+    model : str, optional
+        Transformation model to be used with the 'triangle' initial mode, by default transforms.PolyTransform.
+    poly_order : int, optional
+        Order of the transformation model. Passed through ``**kwargs``.
+    order_dr : int, float [n, 2], optional
+        Combinations of polinomial order (first column) and search radius
+        (second column) to refine the transformation. Rows are executed in
+        orders, by default (1, 1.0).
+    dr_final : float, optional
+        Search radius used for the final matching, by default 1.0.
+    n_bright : int, optional
+        Number of bright stars used in the initial blind triangles matching, by default 100.
+    xy_match : array, optional
+        Area of the images to remove in the matching [reference catalog min x,
+        reference catalog max x, reference catalog min y, reference catalog max y,
+        transformed catalog min x, transformed catalog max x,
+        transformed catalog min y, transformed catalog max y]. Use None for values not used.
+        By default (None, None, None, None, None, None, None, None).
+    m_match : array, optional
+        Magnitude limits of matching stars used to find transformations
+        [reference catalog min mag, reference catalog max mag, transformed
+        catalog min mag, transformed catalog max mag]. Use None for values not
+        used, by default (None, None, None, None).
+    sigma_match : array, optional
+        Number of Deltap movement sigmas [0] used for sigma-cutting matched
+        stars for a number of times [1]. Use None for no sigma-cut. The last
+        polynomial order and search radius in 'order_dr' are used, by default None.
+    transf_file : str, optional
+        File name and path of the transformation file used with the 'load'
+        init_mode. Passed through ``**kwargs``.
+    verbose : bool, optional
+        Prints on screen information on the matching, by default True.
+
+    Returns
+    -------
+    transf : Transform2D
+        Transformation of the second starlist respect to the first
+    st : StarTable
+        Startable of the two matched catalogs
+
+    """
+    from flystar import starlists, startables
+
+    # order_dr is documented as (n, 2): one (order, dr_tol) row per refinement
+    # loop. A single pair may be passed flat, e.g. (1, 1.0) -- as the default
+    # does -- so normalize to 2D. Without this, len(order_dr) is 2 for a flat
+    # pair and the refinement loop runs twice for one requested pass.
+    order_dr = np.atleast_2d(order_dr)
+
+    #  Check the input StarLists and transform them into astropy Tables
+    if not isinstance(sl1, starlists.StarList):
+        raise TypeError("The first catalog has to be a StarList")
+    if not isinstance(sl2, starlists.StarList):
+        raise TypeError("The second catalog has to be a StarList")
+
+    #  Find the initial transformation
+    if init_mode == 'triangle': #  Blind triangles method
+
+        #  Prepare the reduced starlists for matching
+        sl1_cut = StarList(sl1, copy=True)
+        sl2_cut = StarList(sl2, copy=True)
+        sl1_cut.restrict_by_value(x_min=xy_match[0], x_max=xy_match[1],
+                                  y_min=xy_match[2], y_max=xy_match[3])
+        sl2_cut.restrict_by_value(x_min=xy_match[4], x_max=xy_match[5],
+                                  y_min=xy_match[6], y_max=xy_match[7])
+        sl1_cut.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
+        sl2_cut.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
+
+        # Find the transformation
+        # TODO: test 'initial_align' with StarList input
+        transf = initial_align(sl1_cut, sl2_cut, briteN=n_bright, transformModel=model,
+                               order=int(order_dr[0][0]))
+
+    elif init_mode == 'match_name': #  Name match
+        sl1_idx_init, sl2_idx_init, _ = starlists.restrict_by_name(sl1, sl2)
+        # derive_transform, not the constructor: model(...) is the old calling
+        # convention and PolyTransform.__init__ now takes (order, px, py)
+        # coefficients, so passing positions to it raises TypeError.
+        transf = model.derive_transform(sl2['x'][sl2_idx_init], sl2['y'][sl2_idx_init],
+                                        sl1['x'][sl1_idx_init], sl1['y'][sl1_idx_init],
+                                        int(order_dr[0][0]),
+                                        m=sl2['m'][sl2_idx_init],
+                                        mref=sl1['m'][sl1_idx_init])
+        check_transform_finite(
+            transf, len(sl1_idx_init),
+            f'align.generic_match: match_name initial guess '
+            f'(order={int(order_dr[0][0])})'
+        )
+
+    elif init_mode == 'load': #  Load a transformation file
+        transf = transforms.Transform2D.from_file(kwargs['transf_file'])
+
+    else: #  None of the above
+        raise TypeError("Unrecognized initial matching method")
+
+    # Restrict the matching catalogs
+    sl1_match = StarList(sl1, copy=True)
+    sl2_match = StarList(sl2, copy=True)
+    sl1_match.restrict_by_value(m_min=m_match[0], m_max=m_match[1])
+    sl2_match.restrict_by_value(m_min=m_match[2], m_max=m_match[3])
+
+    #  Refine the transformation
+    if sigma_match:
+        order_dr_len = len(order_dr)
+
+        for i_loop in range(sigma_match[1]):
+            order_dr = np.vstack((np.array(order_dr), np.array(order_dr[-1])))
+
+    for i_loop in range(len(order_dr)):
+
+        #  Transform and match the catalog to the reference frame
+        sl2_idx, sl1_idx = transform_and_match(sl2_match, sl1_match, transf,
+                                                     dr_tol=order_dr[i_loop][1],
+                                                     verbose=verbose)
+
+        #  Transform the catalog to the reference frame
+        sl2_transf_match = transform_from_object(sl2_match, transf)
+
+        # Sigma-rejection
+        if sigma_match and (i_loop >= order_dr_len):
+            resid = np.sqrt((sl1_match['x'][sl1_idx] -
+                            sl2_transf_match['x'][sl2_idx])**2 +
+                            (sl1_match['y'][sl1_idx] -
+                            sl2_transf_match['y'][sl2_idx])**2)
+            sl1_idx = sl1_idx[resid <= (sigma_match[0] * np.std(resid))]
+            sl2_idx = sl2_idx[resid <= (sigma_match[0] * np.std(resid))]
+
+        # Test section to observe the matching catalogs before refining the transformation
+        """
+        from matplotlib import pyplot
+
+        _, axarr = pyplot.subplots(nrows=1, ncols=1, figsize=(10,10))
+        axarr.scatter(sl1_match['x'][sl1_idx], sl1_match['y'][sl1_idx])
+        xlim = axarr.get_xlim()
+        ylim = axarr.get_ylim()
+
+        _, axarr = pyplot.subplots(nrows=1, ncols=1, figsize=(10, 10))
+        axarr.scatter(sl2_transf_match['x'][sl2_idx], sl2_transf_match['y'][sl2_idx])
+        axarr.set_xlim(xlim)
+        axarr.set_ylim(ylim)
+        """
+
+        #  Find a better transformation
+        transf, _ = find_transform(
+            sl2_match[sl2_idx],
+            sl2_transf_match[sl2_idx],
+            sl1_match[sl1_idx], transModel=model,
+            order=int(order_dr[i_loop][0]), verbose=verbose
+        )
+        check_transform_finite(
+            transf, len(sl1_idx),
+            f'align.generic_match: refinement loop {i_loop} '
+            f'(order={int(order_dr[i_loop][0])}, dr_tol={order_dr[i_loop][1]})'
+        )
+
+        # This section was used for testing transformations with normalized
+        # coordinates. Only several catalogs had reduced residuals when using
+        # high order polynomials (>3), some of them became unstable
+        """sl1_match_norm = sl1_match[sl1_idx]
+        sl2_match_norm = sl2_match[sl2_idx]
+        sl2_transf_match_norm = sl2_transf_match[sl2_idx]
+        mm = max(max(sl1_match_norm['x']), max(sl1_match_norm['y']),
+                 max(sl2_transf_match_norm['x']), max(sl2_transf_match_norm['y']))
+        sl1_match_norm['x'] = sl1_match_norm['x'] / mm
+        sl1_match_norm['y'] = sl1_match_norm['y'] / mm
+        sl2_match_norm['x'] = sl2_match_norm['x'] / mm
+        sl2_match_norm['y'] = sl2_match_norm['y'] / mm
+        sl2_transf_match_norm['x'] = sl2_transf_match_norm['x'] / mm
+        sl2_transf_match_norm['y'] = sl2_transf_match_norm['y'] / mm
+        transf, _ = align.find_transform(sl2_match_norm, sl2_transf_match_norm,
+                                         sl1_match_norm, transModel=model,
+                                         order=poly_order, verbose=verbose)
+        c_exp = np.zeros(len(transf.px._parameters))
+
+        for i_c in range(len(transf.px._parameters)):
+            c_exp[i_c] = int(transf.px._param_names[i_c][1:].split('_')[0]) +\
+                         int(transf.px._param_names[i_c][1:].split('_')[1])
+
+        c_corr = mm ** (1 - c_exp)
+        transf.px._parameters = transf.px._parameters * c_corr
+        transf.py._parameters = transf.py._parameters * c_corr"""
+
+    # Do the final transformation and matching using
+    sl2_idx, sl1_idx = transform_and_match(sl2, sl1, transf, dr_tol=dr_final, verbose=verbose)
+    #  StarTable output
+    sl2_transf = transform_from_object(sl2, transf)
+    unames = np.array(range(len(sl1_idx)))
+    st = startables.StarTable(name=unames,
+         x=np.column_stack((np.array(sl1['x'][sl1_idx]), np.array(sl2_transf['x'][sl2_idx]))),
+         y=np.column_stack((np.array(sl1['y'][sl1_idx]), np.array(sl2_transf['y'][sl2_idx]))),
+         m=np.column_stack((np.array(sl1['m'][sl1_idx]), np.array(sl2_transf['m'][sl2_idx]))),
+         ep_name=np.column_stack((np.array(sl1['name'][sl1_idx]), np.array(sl2_transf['name'][sl2_idx])))
+    )
+
+    for col in sl1.colnames:
+        if col in sl2.colnames:
+            if col not in ['name', 'x', 'y', 'm']:
+                st.add_column(Column(np.column_stack((np.array(sl1[col][sl1_idx]),np.array(sl2_transf[col][sl2_idx]))), name=col))
+
+    return transf, st
+
+
+def suppress_meta_warnings(table):
+    """
+    Build a copy of a table's meta dict with over-long keys renamed, so
+    writing it to FITS does not warn.
+
+    A FITS header keyword is limited to 8 characters; astropy will write a
+    longer one using the HIERARCH convention but warns each time it does.
+    Prefixing those keys with 'HIERARCH ' up front asks for the same result
+    explicitly, which suppresses the warning without changing what is
+    written.
+
+    This returns a new dict rather than renaming ``table.meta`` in place:
+    the HIERARCH prefix is only meaningful to the FITS writer, so baking it
+    into the table's real meta keys would break plain key lookups (e.g.
+    ``ref_table.meta['list_times']``) for every other consumer -- including
+    a later, unrelated save in a different format.
+
+    Parameters
+    ----------
+    table : astropy.table.Table
+        Table to read ``meta`` from. Not modified.
+
+    Returns
+    -------
+    dict
+        A new meta dict with long keys HIERARCH-prefixed, suitable for
+        assigning onto a table (or a copy of one) that is about to be
+        written as FITS.
+    """
+    return {
+        (f'HIERARCH {k}' if len(k) > 8 else k): v
+        for k, v in table.meta.items()
+    }

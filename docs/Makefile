@@ -4,6 +4,7 @@
 # You can set these variables from the command line.
 SPHINXOPTS    =
 SPHINXBUILD   = sphinx-build
+SPHINXAUTOBUILD = sphinx-autobuild
 PAPER         =
 BUILDDIR      = _build
 
@@ -12,7 +13,7 @@ PAPEROPT_a4     = -D latex_paper_size=a4
 PAPEROPT_letter = -D latex_paper_size=letter
 ALLSPHINXOPTS   = -d $(BUILDDIR)/doctrees $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) .
 
-.PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest
+.PHONY: help clean livehtml html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest
 
 #This is needed with git because git doesn't create a dir if it's empty
 $(shell [ -d "_static" ] || mkdir -p _static)
@@ -20,6 +21,7 @@ $(shell [ -d "_static" ] || mkdir -p _static)
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
 	@echo "  html       to make standalone HTML files"
+	@echo "  livehtml   to serve the docs at http://127.0.0.1:8000 and rebuild on every save"
 	@echo "  dirhtml    to make HTML files named index.html in directories"
 	@echo "  singlehtml to make a single large HTML file"
 	@echo "  pickle     to make pickle files"
@@ -44,6 +46,21 @@ html:
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
+
+# Live preview: serves the docs and rebuilds whenever a file changes, so you
+# don't re-run `make html` after every fix. ../flystar is watched explicitly
+# because sphinx-autobuild only watches the source dir by default, and the API
+# reference is generated from the package source -- without it, editing a
+# docstring would not trigger a rebuild. The generated api/ tree and myst-nb's
+# jupyter_execute/ are ignored so their churn doesn't cause a rebuild loop.
+# Requires: pip install -r requirements-dev.txt
+livehtml:
+	$(SPHINXAUTOBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/livehtml \
+		--watch ../flystar \
+		--ignore "*/api/*" \
+		--ignore "*/jupyter_execute/*" \
+		--ignore "*/_build/*" \
+		--open-browser
 
 dirhtml:
 	$(SPHINXBUILD) -b dirhtml $(ALLSPHINXOPTS) $(BUILDDIR)/dirhtml

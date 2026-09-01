@@ -1,17 +1,21 @@
 include README.rst
 include CHANGES.rst
-include setup.cfg
-include LICENSE.rst
 include pyproject.toml
-
-recursive-include flystar *.pyx *.c *.pxd
-recursive-include docs *
+include setup.cfg
 recursive-include licenses *
-recursive-include cextern *
-recursive-include scripts *
+
+# Documentation sources, but not the example data: docs/examples carries ~10 MB
+# of .lis/.fits inputs for the Gaia notebook, which Read the Docs takes from the
+# repository rather than from an sdist.
+recursive-include docs *.rst *.py *.ipynb *.txt Makefile make.bat
+recursive-include docs/_static *
+prune docs/examples/flystar_mosaic_to_gaia
+
+# Tests are not distributed -- see the packages.find exclude in pyproject.toml.
+prune flystar/tests
 
 prune build
 prune docs/_build
 prune docs/api
 
-global-exclude *.pyc *.o
+global-exclude *.pyc *.pyo *.o __pycache__

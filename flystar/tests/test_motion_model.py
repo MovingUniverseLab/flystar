@@ -1,0 +1,1047 @@
+from flystar import motion_model
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+def within_error(true_val, fit_val, fit_err, n_sigma=3):
+    return np.abs(true_val - fit_val) <= n_sigma*fit_err
+
+def test_Fixed():
+    rng = np.random.default_rng(0)
+    # Test handling of a single star
+    true_params = {'x0': 1.0, 'y0':0.5, 'x0_err':0.1, 'y0_err':0.1}
+    mod = motion_model.Fixed()
+    param_list = mod.fit_param_names
+    # Confirm return of proper values for single t and array t
+    x_t, y_t = mod.model(
+        0.0,
+        fit_params=np.array([true_params['x0'], true_params['y0']]).T
+    )
+    assert x_t==true_params['x0']
+    assert y_t==true_params['y0']
+    x_t, y_t = mod.model(
+        [0.0,2025.0,10000],
+        fit_params=np.array([true_params['x0'], true_params['y0']]).T
+    )
+    assert (x_t==true_params['x0']).all()
+    assert (y_t==true_params['y0']).all()
+    
+    # Check behavior of model
+    x0_batch = np.random.uniform(-2.0,2.0, 50)
+    y0_batch = np.random.uniform(-2.0,2.0, 50)
+    x0_err_batch = np.repeat(0.1, 50)
+    y0_err_batch = np.repeat(0.1, 50)
+    # Single epoch
+    t_batch=2020.0
+    x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.model(
+        t_batch,
+        fit_params=np.array([x0_batch, y0_batch]).T,
+        fit_param_errs=np.array([x0_err_batch, y0_err_batch]).T
+    )
+    assert (x_t_batch==x0_batch).all()
+    assert (y_t_batch==y0_batch).all()
+    assert (x_err_t_batch==x0_err_batch).all()
+    assert (y_err_t_batch==y0_err_batch).all()
+    # Multiple times
+    t_batch = np.arange(2015.0,2025.0, 0.5)
+    x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.model(
+        t_batch,
+        fit_params=np.array([x0_batch, y0_batch]).T,
+        fit_param_errs=np.array([x0_err_batch, y0_err_batch]).T
+    )
+    assert (x_t_batch==np.array([np.repeat(x0_batch_i, len(t_batch)) for x0_batch_i in x0_batch])).all()
+    assert (y_t_batch==np.array([np.repeat(y0_batch_i, len(t_batch)) for y0_batch_i in y0_batch])).all()
+    assert (x_err_t_batch==np.array([np.repeat(x0_err_batch_i, len(t_batch)) for x0_err_batch_i in x0_err_batch])).all()
+    assert (y_err_t_batch==np.array([np.repeat(y0_err_batch_i, len(t_batch)) for y0_err_batch_i in y0_err_batch])).all()
+    
+    # Test fitter
+    t = np.arange(2015.0,2025.0, 0.5)
+    # Get values from model and add scatter
+    x_true, y_true = mod.model(
+        t, 
+        fit_params=np.array([true_params['x0'], true_params['y0']])
+    )
+    x_sim = rng.normal(x_true, true_params['x0_err'])
+    y_sim = rng.normal(y_true, true_params['y0_err'])
+    xe = np.ones_like(t)*true_params['x0_err']
+    ye = np.ones_like(t)*true_params['y0_err']
+    # Run fit
+    params, param_errs = mod.fit(
+        t, 
+        x_sim,y_sim,
+        xe=xe,
+        ye=ye
+    )
+    
+    x_wt = 1. / xe**2
+    y_wt = 1. / ye**2
+    x_wt_norm = x_wt / np.sum(x_wt)
+    y_wt_norm = y_wt / np.sum(y_wt)
+    x_mean = np.average(x_sim, weights=x_wt)
+    y_mean = np.average(y_sim, weights=y_wt)
+    x_std = (np.sum(x_wt_norm**2 * xe**2))**0.5
+    y_std = (np.sum(y_wt_norm**2 * ye**2))**0.5
+    
+    # Confirm true value is within error bar of fit value
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
+    np.testing.assert_allclose(params[0], x_mean, atol=1e-5)
+    np.testing.assert_allclose(params[1], y_mean, atol=1e-5)
+    np.testing.assert_allclose(param_errs[0], x_std, atol=1e-5)
+    np.testing.assert_allclose(param_errs[1], y_std, atol=1e-5)
+
+
+def test_Linear():
+    rng = np.random.default_rng(1)
+    # Test handling of a single star
+    true_params = {'x0': 1.0, 'y0':0.5, 'x0_err':0.1, 'y0_err':0.1,
+                    'vx':0.2, 'vy':0.5, 'vx_err':0.05, 'vy_err':0.05,
+                    't0':2025.0}
+    mod = motion_model.Linear()
+    param_list = mod.fit_param_names
+    # Confirm return of proper values for single t=t0 and array t
+    x_t, y_t = mod.model(
+        t=true_params['t0'],
+        fit_params=np.array([true_params[p] for p in param_list]).T,
+        fixed_params_dict={'t0': true_params['t0']}
+    )
+    assert x_t==true_params['x0']
+    assert y_t==true_params['y0']
+    t_arr = np.array([2010.0,true_params['t0'],2030.0])
+    x_t, y_t = mod.model(
+        t=t_arr,
+        fit_params=np.array([true_params[p] for p in param_list]).T,
+        fixed_params_dict={'t0': true_params['t0']}
+    )
+    assert (x_t==(true_params['x0'] + (t_arr-true_params['t0'])*true_params['vx'])).all()
+    assert (y_t==(true_params['y0'] + (t_arr-true_params['t0'])*true_params['vy'])).all()
+
+    # Check behavior of model
+    x0_batch = np.random.uniform(-2.0,2.0, 50)
+    y0_batch = np.random.uniform(-2.0,2.0, 50)
+    vx_batch = np.random.uniform(-2.0,2.0, 50)
+    vy_batch = np.random.uniform(-2.0,2.0, 50)
+    x0_err_batch = np.repeat(0.1, 50)
+    y0_err_batch = np.repeat(0.1, 50)
+    vx_err_batch = np.repeat(0.05, 50)
+    vy_err_batch = np.repeat(0.05, 50)
+    t0_batch = np.repeat(2025.0,50)
+    # Single epoch
+    t_batch=2020.0
+    x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.model(
+        t=t_batch,
+        fit_params=np.array([x0_batch, vx_batch, y0_batch, vy_batch]).T,
+        fit_param_errs=np.array([x0_err_batch, vx_err_batch, y0_err_batch, vy_err_batch]).T,
+        fixed_params_dict={'t0': t0_batch}
+    )
+
+    np.testing.assert_allclose(x_t_batch, (x0_batch+(t_batch-t0_batch)*vx_batch), atol=1e-5)
+    np.testing.assert_allclose(y_t_batch, (y0_batch+(t_batch-t0_batch)*vy_batch), atol=1e-5)
+    np.testing.assert_allclose(x_err_t_batch, np.hypot(x0_err_batch, (t_batch-t0_batch)*vx_err_batch), atol=1e-5)
+    np.testing.assert_allclose(y_err_t_batch, np.hypot(y0_err_batch, (t_batch-t0_batch)*vy_err_batch), atol=1e-5)
+
+    # Multiple times
+    t_batch = np.arange(2015.0,2025.0, 0.5)
+    x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.model(
+        t=t_batch,
+        fit_params=np.array([x0_batch, vx_batch, y0_batch, vy_batch]).T,
+        fit_param_errs=np.array([x0_err_batch, vx_err_batch, y0_err_batch, vy_err_batch]).T,
+        fixed_params_dict={'t0': t0_batch}
+    )
+    np.testing.assert_allclose(x_t_batch, np.array([x0_batch[i] + (t_batch-t0_batch[i])*vx_batch[i] for i in range(len(x0_batch))]), atol=1e-5)
+    np.testing.assert_allclose(y_t_batch, np.array([y0_batch[i] + (t_batch-t0_batch[i])*vy_batch[i] for i in range(len(x0_batch))]), atol=1e-5)
+    np.testing.assert_allclose(x_err_t_batch, np.array([np.hypot(x0_err_batch[i], (t_batch-t0_batch[i])*vx_err_batch[i]) for i in range(len(x0_batch))]), atol=1e-5)
+    np.testing.assert_allclose(y_err_t_batch, np.array([np.hypot(y0_err_batch[i], (t_batch-t0_batch[i])*vy_err_batch[i]) for i in range(len(x0_batch))]), atol=1e-5)
+
+    # Test fitter
+    t = np.arange(2015.0,2025.0, 0.5)
+    # Get values from model and add scatter
+    x_true, y_true = mod.model(
+        t=t,
+        fit_params=np.array([true_params[p] for p in param_list]).T,
+        fixed_params_dict={'t0': true_params['t0']}
+    )
+    x_sim = rng.normal(x_true, 0.05)
+    y_sim = rng.normal(y_true, 0.05)
+    # Run fit
+    xe = np.ones_like(t)*0.05
+    ye = np.ones_like(t)*0.05
+     
+    def linear(t, x0, vx):
+        return x0 + vx * t
+
+    for absolute_sigma in [True, False]:
+        for weighting in ['std', 'var']:
+            params, param_errs = mod.fit(
+                t=t,
+                x=x_sim,
+                y=y_sim,
+                xe=xe,
+                ye=ye,
+                fixed_params_dict={'t0': true_params['t0']},
+                weighting=weighting,
+                absolute_sigma=absolute_sigma
+            )
+
+            # Scipy (independent ground truth to check our closed-form fit against)
+            xe_scipy = xe**0.5 if weighting=='std' else xe
+            ye_scipy = ye**0.5 if weighting=='std' else ye
+            x_popt, x_pcov = curve_fit(
+                linear,
+                t - true_params['t0'],
+                x_sim,
+                sigma=xe_scipy,
+                absolute_sigma=absolute_sigma,
+                p0=[np.mean(x_sim), 0.0]
+            )
+            y_popt, y_pcov = curve_fit(
+                linear,
+                t - true_params['t0'],
+                y_sim,
+                sigma=ye_scipy,
+                absolute_sigma=absolute_sigma,
+                p0=[np.mean(y_sim), 0.0]
+            )
+            np.testing.assert_allclose(params[:2], x_popt, atol=1e-5)
+            np.testing.assert_allclose(param_errs[:2], np.sqrt(np.diag(x_pcov)), atol=1e-5)
+            np.testing.assert_allclose(params[2:], y_popt, atol=1e-5)
+            np.testing.assert_allclose(param_errs[2:], np.sqrt(np.diag(y_pcov)), atol=1e-5)
+
+    # Test fitter with bootstrap
+    t = np.arange(2015.0, 2025.0, 0.5)
+    # Get values from model and add scatter
+    x_true, y_true = mod.model(
+        t=t,
+        fit_params=np.array([true_params[p] for p in param_list]).T,
+        fixed_params_dict={'t0': true_params['t0']}
+    )
+    x_true_err, y_true_err = np.ones_like(t)*0.05, np.ones_like(t)*0.05
+    x_sim = rng.normal(x_true, x_true_err)
+    y_sim = rng.normal(y_true, y_true_err)
+    # Run fit
+    params, param_errs = mod.fit(t, x_sim, y_sim, x_true_err, y_true_err, fixed_params_dict={'t0': true_params['t0']}, bootstrap=10, seed=42)
+    # Confirm true value is within error bar of fit value
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
+
+    
+def test_Acceleration():
+    rng = np.random.default_rng(2)
+    # Test handling of a single star
+    true_params = {'x0': 1.0, 'y0':0.5, 'x0_err':0.1, 'y0_err':0.1,
+                    'vx0':0.2, 'vy0':0.5, 'vx0_err':0.05, 'vy0_err':0.05,
+                    'ax':0.1, 'ay':-0.1, 'ax_err':0.02, 'ay_err':0.02,
+                    't0':2025.0}
+    mod = motion_model.Acceleration()
+    param_list = mod.fit_param_names
+    # Confirm return of proper values for single t=t0 and array t
+    x_t, y_t = mod.model(
+        t=true_params['t0'],
+        fit_params=np.array([true_params[p] for p in param_list]).T,
+        fixed_params_dict={'t0': true_params['t0']}
+    )
+    np.testing.assert_allclose(x_t, true_params['x0'])
+    np.testing.assert_allclose(y_t, true_params['y0'])
+    t_arr = np.array([2010.0, true_params['t0'], 2030.0])
+    x_t, y_t = mod.model(
+        t=t_arr,
+        fit_params=np.array([true_params[p] for p in param_list]).T,
+        fixed_params_dict={'t0': true_params['t0']}
+    )
+    np.testing.assert_allclose(x_t, true_params['x0'] + (t_arr-true_params['t0'])*true_params['vx0'] + 0.5*(t_arr-true_params['t0'])**2*true_params['ax'])
+    np.testing.assert_allclose(y_t, true_params['y0'] + (t_arr-true_params['t0'])*true_params['vy0'] + 0.5*(t_arr-true_params['t0'])**2*true_params['ay'])
+    
+    # Check behavior of model
+    x0_batch = np.random.uniform(-2.0,2.0, 50)
+    y0_batch = np.random.uniform(-2.0,2.0, 50)
+    vx0_batch = np.random.uniform(-2.0,2.0, 50)
+    vy0_batch = np.random.uniform(-2.0,2.0, 50)
+    ax_batch = np.random.uniform(-1.0,1.0, 50)
+    ay_batch = np.random.uniform(-1.0,1.0, 50)
+    x0_err_batch = np.repeat(0.1, 50)
+    y0_err_batch = np.repeat(0.1, 50)
+    vx0_err_batch = np.repeat(0.05, 50)
+    vy0_err_batch = np.repeat(0.05, 50)
+    ax_err_batch = np.repeat(0.02, 50)
+    ay_err_batch = np.repeat(0.02, 50)
+    t0_batch = np.repeat(2025.0,50)
+    # Single epoch
+    t_batch=2020.0
+    x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.model(
+        t=t_batch,
+        fit_params=np.array([x0_batch, vx0_batch, ax_batch, y0_batch, vy0_batch, ay_batch]).T,
+        fit_param_errs=np.array([x0_err_batch, vx0_err_batch, ax_err_batch, y0_err_batch, vy0_err_batch, ay_err_batch]).T,
+        fixed_params_dict={'t0': t0_batch}
+    )
+    np.testing.assert_allclose(x_t_batch, x0_batch + (t_batch-t0_batch)*vx0_batch + 0.5*(t_batch-t0_batch)**2*ax_batch)
+    np.testing.assert_allclose(y_t_batch, y0_batch + (t_batch-t0_batch)*vy0_batch + 0.5*(t_batch-t0_batch)**2*ay_batch)
+    np.testing.assert_allclose(x_err_t_batch, np.sqrt(x0_err_batch**2 + ((t_batch-t0_batch)*vx0_err_batch)**2 +
+                                    (0.5*(t_batch-t0_batch)**2*ax_err_batch)**2))
+    np.testing.assert_allclose(y_err_t_batch, np.sqrt(y0_err_batch**2 + ((t_batch-t0_batch)*vy0_err_batch)**2 +
+                                    (0.5*(t_batch-t0_batch)**2*ay_err_batch)**2))
+
+    # Multiple times
+    t_batch = np.arange(2015.0,2025.0, 0.5)
+    x_t_batch, y_t_batch, x_err_t_batch, y_err_t_batch = mod.model(
+        t=t_batch,
+        fit_params=np.array([x0_batch, vx0_batch, ax_batch, y0_batch, vy0_batch, ay_batch]).T,
+        fit_param_errs=np.array([x0_err_batch, vx0_err_batch, ax_err_batch, y0_err_batch, vy0_err_batch, ay_err_batch]).T,
+        fixed_params_dict={'t0': t0_batch}
+    )
+    np.testing.assert_allclose(x_t_batch, np.array([x0_batch[i] + (t_batch-t0_batch[i])*vx0_batch[i] + 0.5*(t_batch-t0_batch[i])**2*ax_batch[i] for i in range(len(x0_batch))]))
+    np.testing.assert_allclose(y_t_batch, np.array([y0_batch[i] + (t_batch-t0_batch[i])*vy0_batch[i] + 0.5*(t_batch-t0_batch[i])**2*ay_batch[i] for i in range(len(x0_batch))]))
+    np.testing.assert_allclose(x_err_t_batch, np.array([np.sqrt(x0_err_batch[i]**2 + ((t_batch-t0_batch[i])*vx0_err_batch[i])**2 + (0.5*(t_batch-t0_batch[i])**2*ax_err_batch[i])**2) for i in range(len(x0_batch))]))
+    np.testing.assert_allclose(y_err_t_batch, np.array([np.sqrt(y0_err_batch[i]**2 + ((t_batch-t0_batch[i])*vy0_err_batch[i])**2 + (0.5*(t_batch-t0_batch[i])**2*ay_err_batch[i])**2) for i in range(len(x0_batch))]))
+
+    # Test fitter
+    t = np.arange(2015.0,2025.0, 0.5)
+    # Get values from model and add scatter
+    x_true, y_true = mod.model(
+        t=t,
+        fit_params=np.array([true_params[p] for p in param_list]).T,
+        fixed_params_dict={'t0': true_params['t0']}
+    )
+    x_true_err = np.sqrt(true_params['x0_err']**2 + ((t - true_params['t0']) * true_params['vx0_err'])**2 +
+                            (0.5*(t - true_params['t0'])**2 * true_params['ax_err'])**2)
+    y_true_err = np.sqrt(true_params['y0_err']**2 + ((t - true_params['t0']) * true_params['vy0_err'])**2 +
+                            (0.5*(t - true_params['t0'])**2 * true_params['ay_err'])**2)
+    x_sim = rng.normal(x_true, x_true_err)
+    y_sim = rng.normal(y_true, y_true_err)
+    # Run fit
+    mod_fit = motion_model.Acceleration()
+    params, param_errs = mod_fit.fit(
+        t=t, 
+        x=x_sim,
+        y=y_sim,
+        xe=x_true_err, 
+        ye=y_true_err, 
+        fixed_params_dict={'t0': true_params['t0']}
+    )
+    # Confirm true value is within error bar of fit value
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
+
+#@pytest.mark.skip(reason="not written")
+def test_Parallax():
+    rng = np.random.default_rng(4)
+    # Test handling of a single star
+    true_params = {'x0': 1.0, 'y0':-0.5, 'x0_err':0.1, 'y0_err':0.1,
+                    'vx':-0.2, 'vy':0.5, 'vx_err':0.05, 'vy_err':0.05,
+                    'pi':0.5, 'ra':17.76, 'dec':-28.933, 'pa':0,
+                    't0':2020.0, 'obsLocation': 'earth'}
+    mod = motion_model.Parallax()
+    param_list = mod.fit_param_names
+    fixed_params_dict = {
+        't0': true_params['t0'],
+        'ra': true_params['ra'],
+        'dec': true_params['dec'],
+        'pa': true_params['pa'],
+        'obsLocation': true_params['obsLocation']
+    }
+    
+    # Test fitter
+    t = np.arange(2015.0,2025.0, 0.5)
+    # Get values from model and add scatter
+    x_true, y_true = mod.model(
+        t=t,
+        fit_params=np.array([true_params[p] for p in param_list]).T,
+        fixed_params_dict=fixed_params_dict
+    )
+    x_true_err, y_true_err = np.ones_like(t)*true_params['x0_err'], np.ones_like(t)*true_params['y0_err']
+    x_sim = rng.normal(x_true, x_true_err)
+    y_sim = rng.normal(y_true, y_true_err)
+    # Run fit
+    params, param_errs = mod.fit(t, x_sim,y_sim, x_true_err, y_true_err, fixed_params_dict=fixed_params_dict)
+
+    x_model, y_model = mod.model(
+        t=t,
+        fit_params=params,
+        fixed_params_dict=fixed_params_dict
+    )
+    plt.clf()
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    ax1.plot(t, x_model, color='C3', lw=2, label='Model x')
+    ax1.plot(t, x_true, color='C0', ls='--', label='True x')
+    ax1.errorbar(t, x_sim, yerr=x_true_err, fmt='o', color='C0', label='Sim x')
+    ax1.set_xlabel('t')
+    ax1.set_ylabel('x')
+    ax1.legend()
+    ax2.plot(t, y_model, color='C3', lw=2, label='Model y')
+    ax2.plot(t, y_true, color='C0', ls='--', label='True y')
+    ax2.errorbar(t, y_sim, yerr=y_true_err, fmt='o', color='C0', label='Sim y')
+    ax2.set_xlabel('t')
+    ax2.set_ylabel('y')
+    ax2.legend()
+    plt.tight_layout()
+
+    # Confirm true value is within error bar of fit value
+    assert np.all([within_error(true_params[param_list[i]], params[i], param_errs[i]) for i in range(len(params))])
+
+def test_Parallax_PA():
+    # Set PA=0 model
+    x0, y0 = 2.0, -1.0
+    vx, vy = 0.2, 0.5
+    ra, dec = 17.76, -28.933
+    pi = 0.5
+    mod_pa0 = motion_model.Parallax()
+    # Set PA=90 model with equivalent parameters in that frame
+    mod_pa90 = motion_model.Parallax()
+    
+    t_set = np.arange(2018, 2024, 0.01)
+    t0 = 2020.0
+    dat_pa0 = mod_pa0.model(
+        t = t_set,
+        fit_params = np.array([x0, vx, y0, vy, pi]).T,
+        fixed_params_dict = {'t0': t0, 'ra': ra, 'dec': dec, 'pa': 0}
+    )
+    dat_pa90 = mod_pa90.model(
+        t = t_set,
+        fit_params = np.array([y0, vy, -x0, -vx, pi]).T,
+        fixed_params_dict = {'t0': t0, 'ra': ra, 'dec': dec, 'pa': 90}
+    )
+    np.testing.assert_allclose(dat_pa0[0], -dat_pa90[1], atol=1e-10)
+    np.testing.assert_allclose(dat_pa0[1], dat_pa90[0], atol=1e-10)
+
+
+def test_motion_model_param_names_dedup():
+    """
+    motion_model_param_names() used to re-expand fit_param_names/fixed_param_names
+    once per input entry even when the same motion model repeated thousands of
+    times (e.g. align.py passing one entry per star). It now dedups the input
+    first. Check a heavily-duplicated input still gives the same result as the
+    plain unique input.
+    """
+    repeated_names = ['Fixed', 'Linear'] * 5000
+    got = motion_model.motion_model_param_names(repeated_names, with_errors=True, with_fixed=True)
+    want = motion_model.motion_model_param_names(['Fixed', 'Linear'], with_errors=True, with_fixed=True)
+    assert got == want
+
+    # Order of first appearance should still control the output order.
+    reordered = ['Linear', 'Fixed'] * 3000
+    got_reordered = motion_model.motion_model_param_names(reordered, with_errors=True, with_fixed=True)
+    want_reordered = motion_model.motion_model_param_names(['Linear', 'Fixed'], with_errors=True, with_fixed=True)
+    assert got_reordered == want_reordered
+    assert got_reordered != got  # different first-seen order -> different param order
+
+    # Mixing model classes with their string names should still be correct.
+    mixed = [motion_model.Fixed, 'Fixed', motion_model.Linear, 'Linear'] * 100
+    got_mixed = motion_model.motion_model_param_names(mixed, with_errors=True, with_fixed=True)
+    assert got_mixed == want
+
+    # with_errors=False / with_fixed=False should still behave as before.
+    got_no_extras = motion_model.motion_model_param_names(repeated_names, with_errors=False, with_fixed=False)
+    want_no_extras = motion_model.motion_model_param_names(['Fixed', 'Linear'], with_errors=False, with_fixed=False)
+    assert got_no_extras == want_no_extras
+
+
+def test_Fixed_run_fit():
+    """
+    Fixed.run_fit() fits many stars at once in a single vectorized call
+    (closed-form weighted average, no iterative optimizer needed). Check it
+    against a per-star loop calling fit() directly (which wraps a single
+    star into a batch of one row and calls run_fit() itself), across a
+    battery of randomized cases: full epochs, ragged (different numbers of
+    valid epochs per star), a star with exactly one valid epoch
+    (degree_of_freedom == 0), a star with zero valid epochs (not enough
+    data), var/std weighting, and absolute_sigma True/False.
+    """
+    rng = np.random.default_rng(3)
+    n_stars = 40
+    n_epochs = 6
+
+    t = np.tile(np.arange(n_epochs) + 2020.0, (n_stars, 1))
+    x = rng.normal(100, 5, size=(n_stars, n_epochs))
+    y = rng.normal(-50, 5, size=(n_stars, n_epochs))
+    xe = rng.uniform(0.01, 0.5, size=(n_stars, n_epochs))
+    ye = rng.uniform(0.01, 0.5, size=(n_stars, n_epochs))
+
+    valid = rng.random((n_stars, n_epochs)) > 0.3
+    valid[0, :] = False          # zero valid epochs -- not enough data
+    valid[1, :] = False
+    valid[1, 2] = True           # exactly one valid epoch -- degree_of_freedom == 0
+    valid[2, :] = True           # fully detected, for a clean baseline case
+
+    for weighting, absolute_sigma in [('var', True), ('std', True), ('var', False)]:
+        mod = motion_model.Fixed()
+        got_params, got_errs, got_chi2x, got_chi2y = mod.run_fit(
+            t, x, y, xe, ye, valid, weighting=weighting, absolute_sigma=absolute_sigma,
+            fill_value=np.nan, verbose=False
+        )
+
+        want_params = np.full((n_stars, 2), np.nan)
+        want_errs = np.full((n_stars, 2), np.inf)
+        want_chi2x = np.full(n_stars, np.nan)
+        want_chi2y = np.full(n_stars, np.nan)
+        for i in range(n_stars):
+            idx = np.flatnonzero(valid[i])
+            params, errs, chi2x, chi2y = mod.fit(
+                t=t[i][idx], x=x[i][idx], y=y[i][idx], xe=xe[i][idx], ye=ye[i][idx],
+                weighting=weighting, absolute_sigma=absolute_sigma,
+                fill_value=np.nan, return_chi2=True, bootstrap=0, verbose=False
+            )
+            want_params[i] = params
+            want_errs[i] = errs
+            want_chi2x[i] = chi2x
+            want_chi2y[i] = chi2y
+
+        np.testing.assert_allclose(got_params, want_params, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                    err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: params mismatch")
+        np.testing.assert_allclose(got_errs, want_errs, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                    err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: errs mismatch")
+        np.testing.assert_allclose(got_chi2x, want_chi2x, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                    err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: chi2x mismatch")
+        np.testing.assert_allclose(got_chi2y, want_chi2y, rtol=1e-10, atol=1e-10, equal_nan=True,
+                                    err_msg=f"weighting={weighting} absolute_sigma={absolute_sigma}: chi2y mismatch")
+
+# ----------------------------------------------------------------------
+# scipy.optimize.curve_fit agreement
+#
+# Every MotionModel.run_fit is a closed-form (vectorized) weighted
+# least-squares solve rather than an iterative optimizer call, so nothing
+# structurally guarantees it still matches scipy's conventions -- these
+# tests pin that down. They caught a real bug: Fixed.run_fit computed chi2
+# as residual**2/xe**2 instead of using the fit's own weights (1/sigma**2).
+# Those coincide only for weighting='var'; under weighting='std' the fit
+# weight is 1/xe, so chi2 (and, through the absolute_sigma=False
+# sqrt(chi2/dof) rescaling, the reported parameter errors) disagreed with
+# curve_fit. Keep weighting='std' x absolute_sigma=False in the sweep.
+# ----------------------------------------------------------------------
+
+_CF_KW = dict(xtol=1e-14, ftol=1e-14, gtol=1e-14, maxfev=200000)
+
+_FIXED_BASIS = lambda tt, x0: x0 + 0.0 * tt
+_LINEAR_BASIS = lambda tt, x0, v: x0 + v * tt
+_ACCEL_BASIS = lambda tt, x0, v, a: x0 + v * tt + 0.5 * a * tt ** 2
+
+_INDEP_MODELS = [
+    ('Fixed', motion_model.Fixed, _FIXED_BASIS, 1),
+    ('Linear', motion_model.Linear, _LINEAR_BASIS, 2),
+    ('Acceleration', motion_model.Acceleration, _ACCEL_BASIS, 3),
+]
+
+
+def _wchi2(resid, sigma):
+    return float(np.sum((resid / sigma) ** 2))
+
+
+def test_scipy_agreement_independent_models():
+    """
+    Fixed/Linear/Acceleration fit x and y independently -- compare each
+    direction against its own curve_fit, over both weighting schemes, both
+    absolute_sigma settings, several epoch counts (including exactly
+    n_params, where dof == 0), and nan-padded epochs.
+    """
+    for name, cls, basis, n_par in _INDEP_MODELS:
+        for n_epochs in [n_par, n_par + 1, 8]:
+            for weighting in ['var', 'std']:
+                for absolute_sigma in [True, False]:
+                    for nan_count in ([0, 2] if n_epochs == 8 else [0]):
+                        _check_independent(name, cls, basis, n_par, n_epochs,
+                                           weighting, absolute_sigma, nan_count)
+
+
+def _check_independent(name, cls, basis, n_par, n_epochs, weighting,
+                       absolute_sigma, nan_count):
+    seed = abs(hash((name, n_epochs, weighting, absolute_sigma, nan_count))) % (2**31)
+    rng = np.random.default_rng(seed)
+
+    t = 2020.0 + np.arange(n_epochs, dtype=float) * 0.9
+    t0 = float(np.mean(t))
+    dt = t - t0
+
+    tx = rng.normal(50, 2, n_par)
+    ty = rng.normal(30, 2, n_par)
+    xe = rng.uniform(0.5, 2.0, n_epochs) * 1e-3
+    ye = rng.uniform(0.5, 2.0, n_epochs) * 1e-3
+    x = basis(dt, *tx) + rng.normal(0, 1, n_epochs) * xe
+    y = basis(dt, *ty) + rng.normal(0, 1, n_epochs) * ye
+    if nan_count:
+        idx = rng.choice(n_epochs, size=nan_count, replace=False)
+        x[idx] = np.nan
+        y[idx] = np.nan
+
+    model = cls()
+    tag = (f'{name} N={n_epochs} nan={nan_count} weighting={weighting} '
+           f'absolute_sigma={absolute_sigma}')
+
+    if nan_count:
+        # nan padding is only supported on the 2D batch path -- the 1D path's
+        # contract is data the caller already filtered down to real epochs.
+        gp, ge, gx2, gy2 = model.fit(
+            t[None, :], x[None, :], y[None, :], xe[None, :], ye[None, :],
+            fixed_params_dict={'t0': t0}, weighting=weighting,
+            absolute_sigma=absolute_sigma, verbose=False)
+        gp, ge, gx2, gy2 = gp[0], ge[0], gx2[0], gy2[0]
+    else:
+        gp, ge, gx2, gy2 = model.fit(
+            t, x, y, xe, ye, fixed_params_dict={'t0': t0}, weighting=weighting,
+            absolute_sigma=absolute_sigma, return_chi2=True, verbose=False)
+
+    valid = np.isfinite(x) & np.isfinite(y)
+    n_valid = int(valid.sum())
+    sx, sy = motion_model.sigma_from_error(xe, ye, weighting=weighting)
+    dtv = dt[valid]
+
+    want_p, want_e = [], []
+    for val, sig, truth in ((x[valid], sx[valid], tx), (y[valid], sy[valid], ty)):
+        popt, pcov = curve_fit(lambda tt, *p: basis(tt, *p), dtv, val,
+                               p0=np.array(truth, dtype=float), sigma=sig,
+                               absolute_sigma=absolute_sigma, **_CF_KW)
+        want_p.append(popt)
+        want_e.append(np.sqrt(np.diag(pcov)))
+    want_p = np.concatenate(want_p)
+    want_e = np.concatenate(want_e)
+
+    if n_valid == n_par and not absolute_sigma:
+        # dof == 0: scipy's cov is inf/nan; flystar's contract is inf
+        want_e = np.full_like(want_e, np.inf)
+
+    np.testing.assert_allclose(gp, want_p, rtol=1e-6, atol=1e-12,
+                               err_msg=f'{tag}: params disagree with curve_fit')
+    np.testing.assert_allclose(ge, want_e, rtol=1e-5, atol=1e-14,
+                               err_msg=f'{tag}: param errors disagree with curve_fit')
+
+    # chi2 is compared using scipy's definition evaluated at flystar's OWN
+    # params: for a near-exact (low-dof) fit chi2 is so sensitive to the
+    # parameters that curve_fit's residual convergence error would dominate,
+    # even though the params themselves agree to ~1e-11 relative.
+    want_c2 = (_wchi2(x[valid] - basis(dtv, *gp[:n_par]), sx[valid]),
+               _wchi2(y[valid] - basis(dtv, *gp[n_par:]), sy[valid]))
+    np.testing.assert_allclose([gx2, gy2], want_c2, rtol=1e-9, atol=1e-14,
+                               err_msg=f'{tag}: chi2 disagrees with curve_fit definition')
+
+
+def test_scipy_agreement_parallax():
+    """
+    Parallax is a single joint 5-parameter fit over the stacked [x, y] data
+    (pi is shared between both directions), so it's compared against one
+    curve_fit over that same stacked model -- not two independent fits.
+    """
+    from astropy.time import Time
+
+    ra, dec = 266.4, -29.0
+    truth = np.array([50.0, 0.4, 30.0, -0.3, 0.05])
+
+    for n_epochs in [4, 9]:
+        for weighting in ['var', 'std']:
+            for absolute_sigma in [True, False]:
+                seed = abs(hash((n_epochs, weighting, absolute_sigma))) % (2**31)
+                rng = np.random.default_rng(seed)
+
+                t = 2020.0 + np.arange(n_epochs, dtype=float) * 0.7
+                t0 = float(np.mean(t))
+                dt = t - t0
+
+                model = motion_model.Parallax()
+                pvec = model.calc_parallax_vector(
+                    Time(t, format='decimalyear', scale='utc').tdb.mjd,
+                    np.array([ra]), np.array([dec]),
+                    pa=np.array([0.0]), obsLocation='earth')
+                Px, Py = pvec[0, 0, :].copy(), pvec[0, 1, :].copy()
+                model.pvec_cached = None
+                model.t_mjd_cached = None
+
+                xe = rng.uniform(0.5, 2.0, n_epochs) * 1e-3
+                ye = rng.uniform(0.5, 2.0, n_epochs) * 1e-3
+                x = truth[0] + truth[1]*dt + truth[4]*Px + rng.normal(0, 1, n_epochs)*xe
+                y = truth[2] + truth[3]*dt + truth[4]*Py + rng.normal(0, 1, n_epochs)*ye
+
+                tag = (f'Parallax N={n_epochs} weighting={weighting} '
+                       f'absolute_sigma={absolute_sigma}')
+
+                gp, ge, gx2, gy2 = model.fit(
+                    t, x, y, xe, ye,
+                    fixed_params_dict={'t0': t0, 'ra': ra, 'dec': dec},
+                    weighting=weighting, absolute_sigma=absolute_sigma,
+                    return_chi2=True, verbose=False)
+
+                sx, sy = motion_model.sigma_from_error(xe, ye, weighting=weighting)
+
+                def f_joint(dummy, x0, vx, y0, vy, pi):
+                    return np.concatenate([x0 + vx*dt + pi*Px,
+                                           y0 + vy*dt + pi*Py])
+
+                data = np.concatenate([x, y])
+                sig = np.concatenate([sx, sy])
+                dummy = np.arange(2 * n_epochs)
+                popt, pcov = curve_fit(f_joint, dummy, data, p0=truth, sigma=sig,
+                                       absolute_sigma=absolute_sigma, **_CF_KW)
+                want_e = np.sqrt(np.diag(pcov))
+                if 2 * n_epochs - 5 <= 0 and not absolute_sigma:
+                    want_e = np.full(5, np.inf)
+
+                np.testing.assert_allclose(gp, popt, rtol=1e-6, atol=1e-12,
+                                           err_msg=f'{tag}: params disagree with curve_fit')
+                np.testing.assert_allclose(ge, want_e, rtol=1e-5, atol=1e-14,
+                                           err_msg=f'{tag}: param errors disagree with curve_fit')
+
+                resid = (data - f_joint(dummy, *gp)) / sig
+                want_c2 = (float((resid[:n_epochs]**2).sum()),
+                           float((resid[n_epochs:]**2).sum()))
+                np.testing.assert_allclose([gx2, gy2], want_c2, rtol=1e-9, atol=1e-14,
+                                           err_msg=f'{tag}: chi2 disagrees with curve_fit definition')
+
+
+# ----------------------------------------------------------------------
+# Time-argument shape contract (motion_model.broadcast_times)
+#
+# model() used to infer "one time per star" from len(t) == N_stars, so the
+# same 1D array changed meaning based on how many stars the table happened
+# to hold -- and a table whose star count equalled its epoch count took the
+# per-star branch by accident, then crashed in infer_positions. Shape alone
+# decides now; these tests pin that, especially the coincidence case, which
+# previously had no coverage anywhere in the suite.
+# ----------------------------------------------------------------------
+
+def test_broadcast_times_shape_contract():
+    n_stars = 3
+    bt = motion_model.broadcast_times
+
+    assert bt(2025.0, n_stars).shape == (n_stars, 1)
+    assert bt(np.array([1., 2., 3., 4.]), n_stars).shape == (n_stars, 4)
+    # 1D whose length equals n_stars is a SHARED grid, never per-star
+    assert bt(np.array([1., 2., 3.]), n_stars).shape == (n_stars, 3)
+    assert bt(np.array([[1., 2., 3., 4.]]), n_stars).shape == (n_stars, 4)
+    assert bt(np.array([[1.], [2.], [3.]]), n_stars).shape == (n_stars, 1)
+    assert bt(np.zeros((n_stars, 5)), n_stars).shape == (n_stars, 5)
+
+    # a shared 1D grid really is shared: every row identical
+    grid = bt(np.array([1., 2., 3.]), n_stars)
+    assert np.all(grid == np.array([1., 2., 3.])[np.newaxis, :])
+
+    # unusable shapes raise instead of being guessed at
+    for bad in [np.zeros((7, 2)), np.zeros((2, 2, 2))]:
+        try:
+            bt(bad, n_stars)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f'broadcast_times accepted bad shape {bad.shape}')
+
+
+def test_model_time_shape_contract():
+    """Every model honors the same time-shape contract and agrees, row by
+    row, with independent single-star evaluations."""
+    t0 = np.array([2020., 2021., 2022.])
+    t_shared = np.array([2025., 2026., 2027., 2028.])
+    t_coincide = np.array([2025., 2026., 2027.])        # len == N_stars
+    t_per_star = np.array([[2025., 2026.], [2030., 2031.], [2035., 2036.]])
+
+    cases = [
+        (motion_model.Fixed, np.array([[1., 2.], [3., 4.], [5., 6.]]), {}),
+        (motion_model.Linear,
+         np.array([[10., 1., 20., 2.], [30., -1., 40., .5], [50., 0., 60., -3.]]),
+         {'t0': t0}),
+        (motion_model.Acceleration,
+         np.array([[10., 1., .1, 20., 2., -.1],
+                   [30., -1., .2, 40., .5, .05],
+                   [50., 0., -.3, 60., -3., .01]]),
+         {'t0': t0}),
+        (motion_model.Parallax,
+         np.array([[10., 1., 20., 2., .05],
+                   [30., -1., 40., .5, .04],
+                   [50., 0., 60., -3., .03]]),
+         {'t0': t0, 'ra': 266.4, 'dec': -29.0}),
+    ]
+
+    for cls, params, fpd in cases:
+        n_stars = params.shape[0]
+
+        assert np.shape(cls().model(t_shared, params, fixed_params_dict=fpd)[0]) \
+            == (n_stars, len(t_shared)), f'{cls.__name__}: shared grid'
+
+        # the coincidence case: must be a shared grid, NOT per-star
+        x_co = cls().model(t_coincide, params, fixed_params_dict=fpd)[0]
+        assert np.shape(x_co) == (n_stars, len(t_coincide)), \
+            f'{cls.__name__}: len(t) == N_stars must stay a shared grid'
+        x_1x = cls().model(t_coincide[np.newaxis, :], params, fixed_params_dict=fpd)[0]
+        np.testing.assert_allclose(
+            x_co, x_1x, rtol=1e-12, atol=1e-12,
+            err_msg=f'{cls.__name__}: (N,) and (1,N) must agree')
+
+        # per-star times: each row equals an independent single-star fit
+        x_ps, y_ps = cls().model(t_per_star, params, fixed_params_dict=fpd)[:2]
+        assert np.shape(x_ps) == t_per_star.shape, f'{cls.__name__}: per-star grid'
+        for i in range(n_stars):
+            fpd_i = {k: (np.atleast_1d(v)[i] if (not isinstance(v, str)
+                                                and np.ndim(v) > 0) else v)
+                     for k, v in fpd.items()}
+            xi, yi = cls().model(t_per_star[i], params[i], fixed_params_dict=fpd_i)[:2]
+            np.testing.assert_allclose(
+                x_ps[i], xi, rtol=1e-10, atol=1e-10,
+                err_msg=f'{cls.__name__}: per-star row {i} x')
+            np.testing.assert_allclose(
+                y_ps[i], yi, rtol=1e-10, atol=1e-10,
+                err_msg=f'{cls.__name__}: per-star row {i} y')
+
+
+def test_infer_positions_time_shape_contract():
+    """StarTable.infer_positions with N_stars == N_times used to raise a
+    broadcasting ValueError, because model() silently switched to its
+    per-star interpretation. It is a shared grid now."""
+    from flystar.startables import StarTable
+
+    n = 6  # deliberately N_stars == N_times
+    rng = np.random.default_rng(0)
+    t = np.tile(2020.0 + np.arange(n, dtype=float), (n, 1))
+    tab = StarTable(name=[f's{i}' for i in range(n)],
+                    x=rng.uniform(10, 50, (n, n)), y=rng.uniform(10, 50, (n, n)),
+                    m=np.full((n, n), 15.0), xe=np.full((n, n), 0.01),
+                    ye=np.full((n, n), 0.01), me=np.full((n, n), 0.01), t=t)
+    tab.fit_motion_models(motion_models=['Linear'], verbose=False)
+
+    times = 2020.0 + np.arange(n, dtype=float)
+    x, y, xe, ye = tab.infer_positions(times)
+    assert x.shape == (n, n), f'expected shared grid (6, 6), got {x.shape}'
+
+    # identical to spelling the same grid as (1, N_times)
+    x2, _, _, _ = tab.infer_positions(times[np.newaxis, :])
+    np.testing.assert_allclose(x, x2, rtol=1e-12, atol=1e-12, equal_nan=True)
+
+    # per-star times: give every star its own grid, check against a shared
+    # call for the subset of stars whose row is that same grid
+    per_star = np.tile(times, (n, 1))
+    x3, _, _, _ = tab.infer_positions(per_star)
+    np.testing.assert_allclose(x, x3, rtol=1e-12, atol=1e-12, equal_nan=True)
+
+    # one time per star, as a column vector
+    x4, _, _, _ = tab.infer_positions(times[:, np.newaxis])
+    assert x4.shape == (n,), f'expected (6,) for one time per star, got {x4.shape}'
+    for i in range(n):
+        assert np.isclose(x4[i], x3[i, i], rtol=1e-10, atol=1e-10)
+
+
+def test_organize_motion_models_accepts_any_case():
+    """
+    organize_motion_models() matches names case-insensitively, and only the
+    canonical spelling propagates.
+
+    Every model name is a single word, so str.capitalize() is an exact
+    normalization. The point of the test is not just that 'linear' is accepted
+    but that nothing downstream can tell how it was spelled: what comes back is
+    the class, and the name reaching a ref_table is that class's .name.
+    """
+    import pytest
+    from flystar.motion_model import organize_motion_models as org
+
+    canonical = ['Empty', 'Fixed', 'Linear']
+
+    # A bare string, in any casing.
+    for spelling in ['Linear', 'linear', 'LINEAR', 'lInEaR']:
+        got = [mm.name for mm in org(spelling)]
+        assert got == canonical, f'{spelling!r} gave {got}'
+
+    # Inside a list, and mixed with the classes themselves.
+    assert [mm.name for mm in org(['linear', 'acceleration'])] == \
+        ['Empty', 'Fixed', 'Linear', 'Acceleration']
+    assert [mm.name for mm in org([motion_model.Linear, 'parallax'])] == \
+        ['Empty', 'Fixed', 'Linear', 'Parallax']
+    assert [mm.name for mm in org(('linear',))] == canonical
+
+    # Every valid name resolves from its lower-case form.
+    for name in ['empty', 'fixed', 'linear', 'acceleration', 'parallax']:
+        assert name.capitalize() in [mm.name for mm in org(name)]
+
+    # A genuine typo still fails -- case-insensitivity must not become
+    # fuzzy matching. The message quotes what the caller wrote, not the
+    # capitalized form, so it is recognizable in a traceback.
+    for bad in ['Quadratic', 'quadratic', 'lineaar', '']:
+        with pytest.raises(AssertionError) as err:
+            org(bad)
+        assert repr(bad).strip("'") in str(err.value) or bad == ''
+
+
+def _mini_table(n_stars=6, n_epochs=8, varying_radec=True):
+    """A small StarTable with clean Linear motion, for the tests below."""
+    from flystar.startables import StarTable
+    rng = np.random.default_rng(0)
+    t = np.tile(np.linspace(2015., 2025., n_epochs), (n_stars, 1))
+    x = rng.uniform(0, 100, (n_stars, 1)) + rng.normal(0, .05, (n_stars, n_epochs))
+    y = rng.uniform(0, 100, (n_stars, 1)) + rng.normal(0, .05, (n_stars, n_epochs))
+    e = np.full((n_stars, n_epochs), .05)
+    m = np.tile(rng.uniform(12, 19, (n_stars, 1)), (1, n_epochs))
+    tab = StarTable(name=np.array([f'S{i}' for i in range(n_stars)]),
+                    x=x, y=y, m=m, xe=e, ye=e, me=e, t=t)
+    off = np.arange(n_stars) * 0.01 if varying_radec else np.zeros(n_stars)
+    tab['ra'] = 18.0 + off
+    tab['dec'] = -30.0 + off
+    return tab
+
+
+def test_determine_motion_models_reads_meta():
+    """
+    determine_motion_models() must treat table metadata as a source of fixed
+    parameters, like the lookups it gates do.
+
+    fit_motion_models() stores a fixed parameter that is uniform across stars
+    in meta -- only a per-star one becomes a column -- so fitting Parallax with
+    one ra/dec/pa for the whole table leaves 'pa' and 'obsLocation' in meta.
+    Checking only columns and fixed_params_dict made Parallax un-selectable
+    afterwards, so infer_positions silently demoted those stars to Linear and
+    dropped the parallax term: the table said motion_model_used='Parallax' and
+    carried a fitted pi, yet was propagated as if pi were zero.
+    """
+    from flystar.motion_model import determine_motion_models
+
+    tab = _mini_table()
+    tab.fit_motion_models(motion_models=['Parallax'], verbose=False)
+
+    # Precondition: this is the storage split that used to break selection.
+    assert 'pa' in tab.meta and 'pa' not in tab.colnames
+    assert 'Parallax' in np.unique(np.asarray(tab['motion_model_used']).astype(str))
+
+    used = np.unique(np.asarray(determine_motion_models(tab)[0]).astype(str))
+    assert set(used) == {'Parallax'}, f'expected Parallax from meta, got {used}'
+
+    # And it still round-trips through the public entry point.
+    x_pred, y_pred, _, _ = tab.infer_positions(np.array([2030.]))
+    assert np.all(np.isfinite(x_pred)) and np.all(np.isfinite(y_pred))
+
+    # A non-finite fixed parameter must still disqualify the model, whether it
+    # sits in meta or anywhere else -- the fix widens where we look, not what
+    # counts as usable.
+    tab.meta['pa'] = np.nan
+    used_nan = np.unique(np.asarray(determine_motion_models(tab)[0]).astype(str))
+    assert 'Parallax' not in used_nan, f'nan pa should disqualify Parallax, got {used_nan}'
+
+
+def test_infer_positions_accepts_array_fixed_params():
+    """
+    A fixed parameter may be an array of length n_stars.
+
+    fit_motion_models documents scalars as applying to every star and arrays as
+    per-star, but determine_motion_models tested np.isfinite(value) for its
+    truth value, which raises for any array longer than one element -- so the
+    per-star form the API invites crashed on the way into infer_positions.
+    """
+    tab = _mini_table()
+    tab.fit_motion_models(motion_models=['Linear'], verbose=False)
+    n = len(tab)
+
+    t0 = np.asarray(tab['t0']).copy() if 't0' in tab.colnames else np.full(n, 2020.)
+
+    from_column, _, _, _ = tab.infer_positions(np.array([2030.]))
+    from_array, _, _, _ = tab.infer_positions(np.array([2030.]),
+                                              fixed_params_dict={'t0': t0})
+    shifted, _, _, _ = tab.infer_positions(np.array([2030.]),
+                                           fixed_params_dict={'t0': t0 + 100.})
+
+    # Same numbers as reading t0 off the column ...
+    np.testing.assert_allclose(np.asarray(from_column), np.asarray(from_array),
+                               rtol=1e-10, atol=1e-10)
+    # ... and the dict is actually consulted, not silently dropped.
+    assert not np.allclose(np.asarray(from_column), np.asarray(shifted))
+
+
+def test_fixed_params_written_back_under_canonical_name():
+    """
+    Whatever the fit used must be readable back under ``<param>``.
+
+    That is the name infer_positions and determine_motion_models search, so a
+    fixed parameter written anywhere else means the propagation runs with
+    parameters the fit never saw -- either demoting the star to a simpler model
+    (the name is missing) or propagating the requested model with somebody
+    else's values. Previously a per-star value went to ``<param>_mm``, and a
+    uniform value conflicting with an existing column went to meta where that
+    column shadowed it.
+
+    A caller's own values are not destroyed: on a genuine conflict they move to
+    ``<param>_orig``, the convention align.py uses when it replaces x/y/m with
+    transformed values.
+    """
+    from flystar.motion_model import determine_motion_models
+
+    n = 6
+    ra_per_star = 18.0 + np.arange(n) * 0.01
+    dec_per_star = -30.0 + np.arange(n) * 0.01
+    uniform = {'ra': 18.0, 'dec': -30.0, 'pa': 0.0, 'obsLocation': 'earth'}
+    per_star = {'ra': ra_per_star, 'dec': dec_per_star,
+                'pa': 0.0, 'obsLocation': 'earth'}
+
+    def selected(tab):
+        return set(np.unique(np.asarray(determine_motion_models(tab)[0]).astype(str)))
+
+    # No column yet, per-star values -> canonical column, not <param>_mm.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    del tab['ra'], tab['dec']
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=per_star, verbose=False)
+    assert not any(c.endswith('_mm') for c in tab.colnames)
+    np.testing.assert_allclose(np.asarray(tab['ra']), ra_per_star)
+    assert selected(tab) == {'Parallax'}
+
+    # Column conflicts with a UNIFORM value -> column holds what was used, and
+    # meta must NOT be where it went, since the column would shadow it.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    tab['ra'] = np.full(n, 99.0)
+    tab['dec'] = np.full(n, -99.0)
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=uniform, verbose=False)
+    np.testing.assert_allclose(np.asarray(tab['ra']), 18.0)
+    np.testing.assert_allclose(np.asarray(tab['ra_orig']), 99.0)
+    assert 'ra' not in tab.meta
+    assert selected(tab) == {'Parallax'}
+
+    # Column conflicts with PER-STAR values -> same, per-star this time.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    tab['ra'] = np.full(n, 99.0)
+    tab['dec'] = np.full(n, -99.0)
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=per_star, verbose=False)
+    np.testing.assert_allclose(np.asarray(tab['ra']), ra_per_star)
+    np.testing.assert_allclose(np.asarray(tab['ra_orig']), 99.0)
+    assert selected(tab) == {'Parallax'}
+
+    # No conflict -> the column is left completely alone, no _orig churn.
+    tab = _mini_table(n_stars=n)
+    tab.fit_motion_models(motion_models=['Parallax'], verbose=False)
+    assert 'ra_orig' not in tab.colnames
+    assert selected(tab) == {'Parallax'}
+
+    # A second fit with different values must not overwrite the caller's
+    # original with the first fit's substitute.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    tab['ra'] = np.full(n, 99.0)
+    tab['dec'] = np.full(n, -99.0)
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=uniform, verbose=False)
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict={**uniform, 'ra': 55.0, 'dec': -55.0},
+                          verbose=False)
+    np.testing.assert_allclose(np.asarray(tab['ra']), 55.0)
+    np.testing.assert_allclose(np.asarray(tab['ra_orig']), 99.0)
+
+    # A uniform value with NO column of that name still goes to meta -- one
+    # entry instead of the same number down every row.
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    del tab['ra'], tab['dec']
+    tab.fit_motion_models(motion_models=['Parallax'],
+                          fixed_params_dict=uniform, verbose=False)
+    assert tab.meta['ra'] == 18.0 and 'ra' not in tab.colnames
+    assert selected(tab) == {'Parallax'}
+
+
+def test_fixed_param_string_column_not_truncated():
+    """
+    obsLocation is a string fixed parameter, so the replacement has to swap the
+    column rather than assign into it -- assigning a longer string into an
+    existing narrower column truncates it to the old itemsize.
+
+    The pre-seeded column is deliberately the SHORT side ('e', itemsize 1) and
+    the value the fit uses is the longer, valid 'earth'. obsLocation names a JPL
+    Horizons body that gets queried over the network and cached on disk, so a
+    test must not invent one: it would fire a live query and write a junk entry
+    into the shared parallax cache. Truncation is exercised by the widening
+    direction, which needs no new body.
+    """
+    n = 6
+    tab = _mini_table(n_stars=n, varying_radec=False)
+    tab['obsLocation'] = np.array(['e'] * n)
+    assert np.asarray(tab['obsLocation']).dtype.itemsize < len('earth') * 4
+
+    tab.fit_motion_models(
+        motion_models=['Parallax'],
+        fixed_params_dict={'ra': 18.0, 'dec': -30.0, 'pa': 0.0,
+                           'obsLocation': 'earth'},
+        verbose=False)
+
+    assert set(np.asarray(tab['obsLocation']).astype(str)) == {'earth'}, \
+        'used value was truncated to the old column width'
+    assert set(np.asarray(tab['obsLocation_orig']).astype(str)) == {'e'}
