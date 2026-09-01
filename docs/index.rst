@@ -149,7 +149,6 @@ which is the only part of this a real data set would not have:
 
    msc = align.MosaicSelfRef(
        lists,
-       iters=3,
        dr_tol=[60., 10., 5.],           # match radius in pixels, per iteration
        dm_tol=[1., 1., 1.],
        trans_class=transforms.PolyTransform,
@@ -220,7 +219,7 @@ hand them to an aligner:
        sl.meta['list_time'] = year          # decimal year, UTC
        lists.append(sl)
 
-   msc = align.MosaicSelfRef(lists, iters=3,
+   msc = align.MosaicSelfRef(lists,
                              dr_tol=[1.0, 0.5, 0.3],
                              dm_tol=[2.0, 1.0, 1.0],
                              trans_class=transforms.PolyTransform,

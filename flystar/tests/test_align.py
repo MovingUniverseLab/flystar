@@ -1,4 +1,5 @@
 import pdb
+import pytest
 import flystar
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ def test_MosaicSelfRef():
     ##########
     # Test instantiation and basic fitting.
     ##########
-    msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
+    msc = align.MosaicSelfRef(lists, ref_index=0,
                               dr_tol=[3, 3], dm_tol=[1, 1],
                               trans_class=transforms.PolyTransform,
                               verbose=False,
@@ -92,7 +93,7 @@ def test_MosaicSelfRef_vel_tconst():
     # Test instantiation and basic fitting.
     # Note these star lists are ALL at the same date.
     ##########
-    msc = align.MosaicSelfRef(lists, ref_index=0, iters=2,
+    msc = align.MosaicSelfRef(lists, ref_index=0,
                               dr_tol=[3, 3], dm_tol=[1, 1],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2},
@@ -161,7 +162,7 @@ def test_MosaicSelfRef_vel():
     ##########
     # Test instantiation and basic fitting.
     ##########
-    msc = align.MosaicSelfRef(lists, ref_index=0, iters=3,
+    msc = align.MosaicSelfRef(lists, ref_index=0,
                               dr_tol=[5, 3, 3], dm_tol=[1, 1, 0.5], outlier_tol=None, briteN=30,
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2}, motion_models=['Empty', 'Fixed', 'Linear'],
@@ -224,7 +225,7 @@ def test_MosaicToRef():
 
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
-    msc = align.MosaicToRef(ref_list, lists, iters=2,
+    msc = align.MosaicToRef(ref_list, lists,
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2}, motion_models=['Empty', 'Fixed'],
@@ -281,7 +282,7 @@ def test_MosaicToRef_p0_vel():
 
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
-    msc = align.MosaicToRef(ref_list, lists, iters=2,
+    msc = align.MosaicToRef(ref_list, lists,
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               outlier_tol=[None, None],
                               trans_class=transforms.PolyTransform,
@@ -340,7 +341,7 @@ def test_MosaicToRef_vel():
 
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
-    msc = align.MosaicToRef(ref_list, lists, iters=2,
+    msc = align.MosaicToRef(ref_list, lists,
                               dr_tol=[0.2, 0.1], dm_tol=[1, 0.5],
                               outlier_tol=[None, None],
                               trans_class=transforms.PolyTransform,
@@ -406,7 +407,7 @@ def test_MosaicToRef_acc():
 
     lists = [starlists.StarList.read(lf) for lf in list_files]
 
-    msc = align.MosaicToRef(ref_list, lists, iters=2,
+    msc = align.MosaicToRef(ref_list, lists,
                               dr_tol=[0.4, 0.2], dm_tol=[1, 0.5],
                               trans_class=transforms.PolyTransform,
                               trans_args={'order': 2},
@@ -530,7 +531,7 @@ def test_MosaicToRef_hst_me():
         list_of_starlists.append(lis)
 
     msc = align.MosaicToRef(
-        my_gaia, list_of_starlists, iters=1,
+        my_gaia, list_of_starlists,
         dr_tol=[0.1], dm_tol=[5],
         outlier_tol=[None], mag_lim=[13, 21],
         trans_class=transforms.PolyTransform,
@@ -567,7 +568,6 @@ def test_bootstrap():
     # Set parameters for alignment
     transModel = transforms.PolyTransform
     trans_args = {'order':2}
-    N_loop = 1
     dr_tol = 0.08
     dm_tol = 99
     outlier_tol = None
@@ -580,7 +580,7 @@ def test_bootstrap():
     boot_epochs_min=-1
 
     # Run FLYSTAR, no bootstraps yet!
-    match1 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+    match1 = align.MosaicToRef(ref, [list1, list2], dr_tol=dr_tol,
                                   dm_tol=dm_tol, outlier_tol=outlier_tol,
                                   trans_class=transModel,
                                   trans_args=trans_args,
@@ -614,7 +614,7 @@ def test_bootstrap():
     # Rerun align. Some stars should only be detected in 1 epoch
     list3 = list2[0:60]
 
-    match2 = align.MosaicToRef(ref, [list1, list3], iters=N_loop, dr_tol=dr_tol,
+    match2 = align.MosaicToRef(ref, [list1, list3], dr_tol=dr_tol,
                                   dm_tol=dm_tol, outlier_tol=outlier_tol,
                                   trans_class=transModel,
                                   trans_args=trans_args,
@@ -678,7 +678,6 @@ def test_calc_vel_in_bootstrap():
     # Set parameters for alignment
     transModel = transforms.PolyTransform
     trans_args = {'order':2}
-    N_loop = 1
     dr_tol = 0.08
     dm_tol = 99
     outlier_tol = None
@@ -691,7 +690,7 @@ def test_calc_vel_in_bootstrap():
     boot_epochs_min=-1
 
     # Run match
-    match = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+    match = align.MosaicToRef(ref, [list1, list2], dr_tol=dr_tol,
                                   dm_tol=dm_tol, outlier_tol=outlier_tol,
                                   trans_class=transModel,
                                   trans_args=trans_args,
@@ -746,7 +745,6 @@ def test_transform_xym():
     # Set parameters for alignment
     transModel = transforms.PolyTransform
     trans_args = {'order':2}
-    N_loop = 1
     dr_tol = 0.08
     dm_tol = 99
     outlier_tol = None
@@ -758,7 +756,7 @@ def test_transform_xym():
     mag_trans = False
 
     # Run FLYSTAR, with bootstraps
-    match1 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+    match1 = align.MosaicToRef(ref, [list1, list2], dr_tol=dr_tol,
                                   dm_tol=dm_tol, outlier_tol=outlier_tol,
                                   trans_class=transModel,
                                   trans_args=trans_args,
@@ -793,7 +791,7 @@ def test_transform_xym():
     #---Align 2: self.mag_Trans = True---#
     # Repeat, this time with mag_trans = False
     mag_trans = True
-    match2 = align.MosaicToRef(ref, [list1, list2], iters=N_loop, dr_tol=dr_tol,
+    match2 = align.MosaicToRef(ref, [list1, list2], dr_tol=dr_tol,
                                   dm_tol=dm_tol, outlier_tol=outlier_tol,
                                   trans_class=transModel,
                                   trans_args=trans_args,
@@ -839,7 +837,6 @@ def test_MosaicToRef_mag_bug():
 
     msc = align.MosaicToRef(ref_list, lists,
                               mag_trans=True,
-                              iters=1,
                               dr_tol=[0.2], dm_tol=[1],
                               outlier_tol=None,
                               trans_class=transforms.PolyTransform,
@@ -1574,7 +1571,7 @@ if __name__ == '__main__':
         list_of_starlists = pickle.load(f)
     ra_deg, dec_deg = 18.0, -30.0
     my_gaia.remove_column('motion_model_used')
-    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=3,
+    msc = align.MosaicToRef(my_gaia, list_of_starlists,
                         dr_tol=[0.2, 0.1, 0.08], dm_tol=[5,5,5],
                         outlier_tol=[None, None, 3], mag_lim=[6, 20],
                         trans_class=transforms.PolyTransform,
@@ -1640,7 +1637,7 @@ def test_ref_velocity_propagation_independent_of_motion_models():
 
     for models in (['Fixed'], ['Linear']):
         mtr = MosaicToRef(ref, lists, motion_models=models,
-                          update_ref_orig=False, iters=1, dr_tol=[6.],
+                          update_ref_orig=False, dr_tol=[6.],
                           dm_tol=[3], outlier_tol=[None],
                           init_guess_mode='name', verbose=False)
         mtr.fit()
@@ -1676,7 +1673,7 @@ def test_ref_velocity_propagation_independent_of_motion_models():
     # motion_models=['Fixed'] would describe a row holding Linear parameters as
     # Fixed with n_params=1, which is what this used to do.
     mtr_fixed = MosaicToRef(ref, lists, motion_models=['Fixed'],
-                            update_ref_orig=False, iters=1, dr_tol=[6.],
+                            update_ref_orig=False, dr_tol=[6.],
                             dm_tol=[3], outlier_tol=[None],
                             init_guess_mode='name', verbose=False)
     mtr_fixed.fit()
@@ -1737,7 +1734,7 @@ def test_propagation_honors_motion_model_input():
     def slopes(mm_input):
         ref, lists = build(mm_input)
         mtr = MosaicToRef(ref, lists, motion_models=['Fixed'],
-                          update_ref_orig=False, iters=1, dr_tol=[6.],
+                          update_ref_orig=False, dr_tol=[6.],
                           dm_tol=[3], outlier_tol=[None],
                           init_guess_mode='name', verbose=False)
         mtr.fit()
@@ -1864,7 +1861,7 @@ def test_outlier_tol_second_pass_redoes_transform():
 
         transforms.PolyTransform.derive_transform = counting
         try:
-            msc = MosaicSelfRef(lists, iters=1, dr_tol=[8.], dm_tol=[3],
+            msc = MosaicSelfRef(lists, dr_tol=[8.], dm_tol=[3],
                                 outlier_tol=outlier_tol, motion_models=['Fixed'],
                                 init_guess_mode='name', verbose=0)
             msc.fit()
@@ -1989,7 +1986,7 @@ def test_outlier_tol_self_ref_transforms_are_finite():
 
     # Two iterations with second-order transformations on the second pass --
     # the configuration that failed, scaled down.
-    msc = MosaicSelfRef(lists, iters=2, dr_tol=[1., .5], dm_tol=[.5, .5],
+    msc = MosaicSelfRef(lists, dr_tol=[1., .5], dm_tol=[.5, .5],
                         outlier_tol=[5, 5], trans_class=transforms.PolyTransform,
                         trans_args=[{'order': 1}, {'order': 2}],
                         trans_input=[transforms.PolyTransform(order=0, px=[0], py=[0])
@@ -2050,7 +2047,7 @@ def test_chi2_matching_reduces_split_stars():
 
     def n_split(mode):
         msc = MosaicSelfRef(
-            lists, iters=2, dr_tol=[.1, .05], dm_tol=[.5, .5], matching=mode,
+            lists, dr_tol=[.1, .05], dm_tol=[.5, .5], matching=mode,
             trans_class=transforms.PolyTransform,
             trans_args=[{'order': 1}, {'order': 1}],
             trans_input=[transforms.PolyTransform(order=0, px=[0], py=[0]) for _ in lists],
@@ -2120,7 +2117,7 @@ def test_use_in_trans_on_input_starlist():
         sl.meta['list_time'] = 2020.0 + e
         lists.append(sl)
 
-    msc = MosaicSelfRef(lists, iters=2, dr_tol=[8., 8.], dm_tol=[3, 3],
+    msc = MosaicSelfRef(lists, dr_tol=[8., 8.], dm_tol=[3, 3],
                         outlier_tol=[None, None], motion_models=['Fixed'],
                         init_guess_mode='name', verbose=0)
     msc.fit()      # must not raise
@@ -2166,7 +2163,7 @@ def test_iter_callback_indices_are_distinct():
 
     for iters in (1, 2, 3):
         seen = []
-        msc = MosaicSelfRef(make_lists(), iters=iters, dr_tol=[8.] * iters,
+        msc = MosaicSelfRef(make_lists(), dr_tol=[8.] * iters,
                             dm_tol=[3] * iters, outlier_tol=[None] * iters,
                             motion_models=['Fixed'], init_guess_mode='name',
                             verbose=0,
@@ -2179,3 +2176,59 @@ def test_iter_callback_indices_are_distinct():
             f'iters={iters}: expected indices 0..{iters}, got {seen}'
         assert seen[-1] == iters, \
             f'iters={iters}: final call must be marked {iters}, got {seen[-1]}'
+
+
+def test_iters_from_longest_schedule():
+    """
+    The number of iterations is the length of the longest schedule, not of
+    dr_tol specifically. Any schedule given as a single value is broadcast up
+    to that length, and two schedules of differing length are an error.
+    """
+    rng = np.random.default_rng(4)
+    n = 40
+    names = np.array([f's{i:03d}' for i in range(n)])
+    x0 = rng.uniform(0, 100, n)
+    y0 = rng.uniform(0, 100, n)
+    m0 = rng.uniform(10, 15, n)
+
+    lists = []
+    for e in range(2):
+        sl = starlists.StarList(name=names, x=x0 + rng.normal(0, .01, n),
+                                y=y0 + rng.normal(0, .01, n), m=m0,
+                                xe=np.full(n, .01), ye=np.full(n, .01),
+                                me=np.full(n, .01))
+        sl.meta['list_time'] = 2020.0 + e
+        lists.append(sl)
+
+    def build(**kwargs):
+        return align.MosaicSelfRef(lists, motion_models=['Fixed'],
+                                   init_guess_mode='name', verbose=0, **kwargs)
+
+    # Each schedule in turn sets the count, with the others broadcast up.
+    for kwargs, iters in (({'dr_tol': 8.}, 1),
+                          ({'dr_tol': [8., 4.]}, 2),
+                          ({'dr_tol': 8., 'dm_tol': [3, 2]}, 2),
+                          ({'dr_tol': 8., 'outlier_tol': [None, 3, 3]}, 3),
+                          ({'dr_tol': 8.,
+                            'trans_args': [{'order': 1}, {'order': 2}]}, 2)):
+        msc = build(**kwargs)
+        assert msc.iters == iters, f'{kwargs}: iters={msc.iters} != {iters}'
+        for name in ('dr_tol', 'dm_tol', 'outlier_tol', 'trans_args'):
+            assert len(getattr(msc, name)) == iters, \
+                f'{kwargs}: {name} was not broadcast to {iters}'
+
+    # A single value really is used for every iteration, not just the first.
+    msc = build(dr_tol=8., dm_tol=[3, 2])
+    assert np.all(msc.dr_tol == 8.), f'dr_tol not broadcast: {msc.dr_tol}'
+
+    # Two schedules that disagree stay an error rather than being guessed at.
+    for kwargs in ({'dr_tol': [8., 4.], 'dm_tol': [3, 2, 1]},
+                   {'dr_tol': [8., 4., 2.], 'outlier_tol': [None, 3]},
+                   {'dr_tol': [8., 4.],
+                    'trans_args': [{'order': 1}] * 3}):
+        with pytest.raises(AssertionError):
+            build(**kwargs)
+
+    # mag_lim does not vote: its [min, max] form is a pair, not a schedule.
+    msc = build(dr_tol=8., mag_lim=[10, 15])
+    assert msc.iters == 1, f'mag_lim set the iteration count: iters={msc.iters}'

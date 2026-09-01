@@ -54,8 +54,8 @@ class MosaicSelfRef(object):
 
     .. code-block:: python
 
-        msc = align.MosaicSelfRef(list_of_starlists, ref_index=0, iters=2,
-                                  dr_tol=[1.0, 0.5], dm_tol=[2.0, 1.0],
+        msc = align.MosaicSelfRef(list_of_starlists, dr_tol=[1.0, 0.5],
+                                  ref_index=0, dm_tol=[2.0, 1.0],
                                   trans_class=transforms.PolyTransform,
                                   trans_args={'order': 1})
         msc.fit()
@@ -65,12 +65,11 @@ class MosaicSelfRef(object):
     def __init__(
             self,
             list_of_starlists,
+            dr_tol,
             starlist_vertices=None,
             # Alignment parameters
             ref_index=0,
-            iters=1,
-            dr_tol=[1.],
-            dm_tol=[1.],
+            dm_tol=None,
             outlier_tol=None,
             matching='legacy',
             dchi2_tol=9.0,
@@ -130,17 +129,25 @@ class MosaicSelfRef(object):
             The index of the reference epoch. (default = 0). Note that this is the reference
             list only for the first iteration. Subsequent iterations will utilize the sigma-clipped
             mean of the positions from all the starlists.
-        iters : int, optional
-            The number of iterations used in the matching and transformation.  TO DO: INNER/OUTER?
-        dr_tol : list or array, optional
-            The delta-radius (dr) tolerance for matching in units of the reference coordinate system.
-            This is a list of dr values, one for each iteration of matching/transformation, by default [1.0].
-        dm_tol : list or array, optional
+        dr_tol : float, list or array
+            The delta-radius (dr) tolerance for matching in units of the reference
+            coordinate system. Required: matching is a radius search, so there is no
+            meaningful default. This is a list of dr values, one for each iteration of
+            matching/transformation, or a single value used for every iteration.
+        dm_tol : float, list or array, or None, optional
             The delta-magnitude (dm) tolerance for matching in units of the reference coordinate system.
-            This is a list of dm values, one for each iteration of matching/transformation, by default [1.0].
-        outlier_tol : list or array, optional
+            This is a list of dm values, one for each iteration of matching/transformation,
+            or a single value used for every iteration. None (the default) places
+            no magnitude cut on the match, matching on position alone.
+        outlier_tol : float, list or array, optional
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
-            This is a list of tol values, one for each iteration of matching/transformation, by default None.
+            This is a list of tol values, one for each iteration of matching/transformation,
+            or a single value used for every iteration, by default None.
+
+            The number of iterations is the length of the longest of ``dr_tol``,
+            ``dm_tol``, ``outlier_tol`` and ``trans_args``; single values are
+            broadcast to it, and two sequences of differing length are an error.
+            All single values therefore means a single iteration.
         matching : str, optional
             How a star with more than one candidate inside the tolerances is
             resolved, and how one-to-one is enforced. 'legacy' (default) keeps
@@ -176,10 +183,13 @@ class MosaicSelfRef(object):
             iteration -- or a list of such dictionaries, one per iteration, to
             use a different transformation argument (e.g. increasing order)
             in later iterations. If a list is passed in, its length must
-            equal iters. By default {'order': 1}.
-        trans_input : array or list of transform objects, optional
+            equal the number of iterations. By default {'order': 1}.
+        trans_input : transform object, or array or list of them, optional
             If not None, then this should contain an array or list of transform
             objects that will be used as the initial guess in the alignment and matching.
+            There must be one per starlist, in the same order; entries may be
+            None. A single transform object (rather than a sequence) is used as
+            the initial guess for every starlist.
             By default None.
         trans_weights : str, optional
             Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
@@ -284,9 +294,9 @@ class MosaicSelfRef(object):
         iter_callback : None or function, optional
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration, and once more after the final
-            re-matching pass with an index of `iters` (one past the last
-            iteration), so that last call can be told apart from the end of
-            the last iteration. Useful for plotting or printing state, and for
+            re-matching pass with an index equal to the number of iterations
+            (one past the last iteration), so that last call can be told apart
+            from the end of the last iteration. Useful for plotting or printing state, and for
             rejecting stars between iterations: the table handed in is the live
             ref_table, so setting `use_in_trans = False` on a row excludes it
             from subsequent transformations while keeping the star in the
@@ -330,8 +340,8 @@ class MosaicSelfRef(object):
         --------
         .. code-block:: python
 
-            mtr = align.MosaicToRef(list_of_starlists, iters=1,
-                                    dr_tol=[0.1], dm_tol=[5],
+            mtr = align.MosaicToRef(list_of_starlists,
+                                    dr_tol=0.1, dm_tol=5,
                                     outlier_tol=[None], mag_lim=[13, 21],
                                     trans_class=transforms.PolyTransform,
                                     trans_args=[{'order': 1}],
@@ -356,13 +366,20 @@ class MosaicSelfRef(object):
             plt.errorbar(times, stars_table['x'][0, :], yerr=stars_table['xe'][0, :])
             plt.axhline(stars_table['x0'][0] + stars_table['vx'][0]*(times - stars_table['t0'][0])), by default True.
         """
-        dr_tol = np.atleast_1d(dr_tol)
-        self.iters = len(dr_tol)
-        if dm_tol is not None:
-            dm_tol = np.atleast_1d(dm_tol)
-            assert self.iters == len(dm_tol), f'dr_tol (len={self.iters}) and dm_tol (len={len(dm_tol)}) must all have the same length!'
-        if outlier_tol is not None:
-            assert self.iters == len(outlier_tol), f'dr_tol (len={self.iters}) and outlier_tol (len={len(outlier_tol)}) must all have the same length!'
+        # The number of iterations is just how long the per-iteration
+        # schedules are. Every one of them gets a vote: whichever is given as
+        # a sequence sets the count, and a single value is broadcast up to it
+        # in fix_iterable_conditions(). dr_tol is required -- matching is a
+        # radius search, so there is no meaningful default -- but it is not
+        # privileged in setting the length, so dr_tol=0.5 with
+        # dm_tol=[1., 0.5] is two passes at a constant radius. Two sequences
+        # that disagree are still an error, raised in
+        # fix_iterable_conditions(); only single values broadcast, so nothing
+        # here can silently paper over a mismatch. mag_lim does not vote: its
+        # [min, max] form is a pair, not a schedule, and would claim two
+        # iterations.
+        self.iters = max(schedule_len(tol)
+                         for tol in (dr_tol, dm_tol, outlier_tol, trans_args))
 
         self.star_lists = list_of_starlists
         self.starlist_vertices = starlist_vertices
@@ -437,6 +454,16 @@ class MosaicSelfRef(object):
         # Error checking for parameters.
         ##########
         self.fix_iterable_conditions()  # fix dr_tol, dm_tol, outlier_tol, mag_lim, trans_args to be iterable.
+
+        # A single transformation object means "use this one as the initial
+        # guess for every starlist", so replicate it up to one per list before
+        # anything downstream tries to index or len() it. Note the entries are
+        # the same object, not copies -- the alignment only reads an input
+        # transformation and then replaces it with a derived one, exactly as
+        # trans_args replicates a single dict across iterations.
+        if (self.trans_input is not None) and (not isinstance(self.trans_input, (list, tuple, np.ndarray))):
+            self.trans_input = [self.trans_input] * self.N_lists
+
         check_trans_input(self.star_lists, self.trans_input, self.mag_trans)
 
         ##########
@@ -453,11 +480,13 @@ class MosaicSelfRef(object):
         """
         Normalize the per-iteration settings into arrays of length ``iters``.
 
+``iters`` is the length of the longest schedule, set in ``__init__``.
         ``dr_tol``, ``dm_tol`` and ``outlier_tol`` may each be given as a
         single value (used for every iteration) or as a sequence with one
-        entry per iteration; scalars are broadcast here and the lengths are
-        checked. ``trans_args`` is treated the same way, a bare dict being
-        replicated for every iteration.
+        entry per iteration; single values are broadcast here and the lengths
+        are checked, so two sequences that disagree are an error.
+        ``trans_args`` is treated the same way, a bare dict being replicated
+        for every iteration.
 
         ``mag_lim`` is normalized to shape ``(N_iters, N_lists, 2)``. Its
         accepted forms are:
@@ -481,17 +510,15 @@ class MosaicSelfRef(object):
         ValueError
             If ``mag_lim`` has a shape that is not one of the forms above.
         """
-        if not np.iterable(self.dr_tol):
-            self.dr_tol = np.repeat(self.dr_tol, self.iters)
-        assert len(self.dr_tol) == self.iters, f'len(dr_tol)={len(self.dr_tol)} != iters={self.iters}'
-
-        if not np.iterable(self.dm_tol):
-            self.dm_tol = np.repeat(self.dm_tol, self.iters)
-        assert len(self.dm_tol) == self.iters, f'len(dm_tol)={len(self.dm_tol)} != iters={self.iters}'
-
-        if not np.iterable(self.outlier_tol):
-            self.outlier_tol = np.repeat(self.outlier_tol, self.iters)
-        assert len(self.outlier_tol) == self.iters, f'len(outlier_tol)={len(self.outlier_tol)} != iters={self.iters}'
+        for name in ('dr_tol', 'dm_tol', 'outlier_tol'):
+            tol = np.atleast_1d(getattr(self, name))
+            if len(tol) == 1:
+                tol = np.repeat(tol, self.iters)
+            assert len(tol) == self.iters, \
+                (f'len({name})={len(tol)} != iters={self.iters}. The per-iteration '
+                 f'settings must be single values or sequences of the same length; '
+                 f'iters is the longest one given.')
+            setattr(self, name, tol)
 
         # Format self.mag_lim to be (N_iters, N_lists, 2) array. If only a single mag_lim is passed in, replicate for all lists.
         # mag_lim accepts, and is normalized to, (N_iters, N_lists, 2). Its
@@ -541,7 +568,10 @@ class MosaicSelfRef(object):
         if type(self.trans_args) == dict:
             tmp = self.trans_args
             self.trans_args = [tmp for ii in range(self.iters)]
-        assert len(self.trans_args) == self.iters, f'len(trans_args)={len(self.trans_args)} != iters={self.iters}'
+        assert len(self.trans_args) == self.iters, \
+            (f'len(trans_args)={len(self.trans_args)} != iters={self.iters}. The '
+             f'per-iteration settings must be single values or sequences of the '
+             f'same length; iters is the longest one given.')
 
         return
 
@@ -2473,12 +2503,11 @@ class MosaicToRef(MosaicSelfRef):
         self,
         ref_list,
         list_of_starlists,
+        dr_tol,
         reflist_vertex=None,
         starlist_vertices=None,
         # Alignment parameters
-        iters=1,
-        dr_tol=[1.],
-        dm_tol=[1.],
+        dm_tol=None,
         outlier_tol=None,
         matching='legacy',
         dchi2_tol=9.0,
@@ -2550,20 +2579,28 @@ class MosaicToRef(MosaicSelfRef):
             A list or array of polygon vertices coordinates for each starlist. Initial guess will only use stars in overlapping regions defined by these polygons.
             Shape of (N_lists, N_vertices, 2) in the format of [[x1, y1], [x2, y2], ..., [xN, yN]] for each starlist, by default None
 
-        iters : int, optional
-            The number of iterations used in the matching and transformation.  TO DO: INNER/OUTER?
 
-        dr_tol : list or array, optional
-            The delta-radius (dr) tolerance for matching in units of the reference coordinate system.
-            This is a list of dr values, one for each iteration of matching/transformation.
+        dr_tol : float, list or array
+            The delta-radius (dr) tolerance for matching in units of the reference
+            coordinate system. Required: matching is a radius search, so there is no
+            meaningful default. This is a list of dr values, one for each iteration of
+            matching/transformation, or a single value used for every iteration.
 
-        dm_tol : list or array, optional
+        dm_tol : float, list or array, or None, optional
             The delta-magnitude (dm) tolerance for matching in units of the reference coordinate system.
-            This is a list of dm values, one for each iteration of matching/transformation.
+            This is a list of dm values, one for each iteration of matching/transformation,
+            or a single value used for every iteration. None (the default) places
+            no magnitude cut on the match, matching on position alone.
 
-        outlier_tol : list or array, optional
+        outlier_tol : float, list or array, optional
             The outlier tolerance (in units of sigma) for rejecting outlier stars.
-            This is a list of tol values, one for each iteration of matching/transformation.
+            This is a list of tol values, one for each iteration of matching/transformation,
+            or a single value used for every iteration.
+
+            The number of iterations is the length of the longest of ``dr_tol``,
+            ``dm_tol``, ``outlier_tol`` and ``trans_args``; single values are
+            broadcast to it, and two sequences of differing length are an error.
+            All single values therefore means a single iteration.
         matching : str, optional
             How a star with more than one candidate inside the tolerances is
             resolved, and how one-to-one is enforced. 'legacy' (default) keeps
@@ -2618,11 +2655,14 @@ class MosaicToRef(MosaicSelfRef):
             iteration -- or a list of such dictionaries, one per iteration, to
             use a different transformation argument (e.g. increasing order)
             in later iterations. If a list is passed in, its length must
-            equal iters. By default {'order': 1}.
+            equal the number of iterations. By default {'order': 1}.
 
-        trans_input : array or list of transform objects, optional
+        trans_input : transform object, or array or list of them, optional
             def = None. If not None, then this should contain an array or list of transform
             objects that will be used as the initial guess in the alignment and matching.
+            There must be one per starlist, in the same order; entries may be
+            None. A single transform object (rather than a sequence) is used as
+            the initial guess for every starlist.
 
         trans_weights : str, optional
             Either None (def), 'both,var', 'list,var', or 'ref,var' depending on whether you want
@@ -2725,9 +2765,9 @@ class MosaicToRef(MosaicSelfRef):
         iter_callback : None or function, optional
             A function to call (that accepts a StarTable object and an iteration number)
             at the end of every iteration, and once more after the final
-            re-matching pass with an index of `iters` (one past the last
-            iteration), so that last call can be told apart from the end of
-            the last iteration. Useful for plotting or printing state, and for
+            re-matching pass with an index equal to the number of iterations
+            (one past the last iteration), so that last call can be told apart
+            from the end of the last iteration. Useful for plotting or printing state, and for
             rejecting stars between iterations: the table handed in is the live
             ref_table, so setting `use_in_trans = False` on a row excludes it
             from subsequent transformations while keeping the star in the
@@ -2777,8 +2817,8 @@ class MosaicToRef(MosaicSelfRef):
 
         .. code-block:: python
 
-            mtr = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
-                                    dr_tol=[0.1], dm_tol=[5],
+            mtr = align.MosaicToRef(my_gaia, list_of_starlists,
+                                    dr_tol=0.1, dm_tol=5,
                                     outlier_tol=[None], mag_lim=[13, 21],
                                     trans_class=transforms.PolyTransform,
                                     trans_args=[{'order': 1}],
@@ -3201,6 +3241,32 @@ class MosaicToRef(MosaicSelfRef):
             print('========== Done with fit ==========')
             print('===================================')
         return
+
+def schedule_len(value):
+    """
+    The number of iterations a per-iteration setting asks for.
+
+    A single value -- a scalar, None, or a bare dict of transformation
+    arguments -- asks for one, and is broadcast to however many iterations
+    the other settings call for. A sequence asks for one iteration per
+    entry.
+
+    Parameters
+    ----------
+    value : scalar, None, dict, or sequence
+        A schedule argument: ``dr_tol``, ``dm_tol``, ``outlier_tol`` or
+        ``trans_args``.
+
+    Returns
+    -------
+    int
+        ``len(value)`` for a sequence, 1 otherwise.
+    """
+    if (value is None) or isinstance(value, dict) or (not np.iterable(value)):
+        return 1
+
+    return len(value)
+
 
 # TODO: This is sometimes run on a startable, not a starlist, at least as currently used
 def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, return_errors=False):

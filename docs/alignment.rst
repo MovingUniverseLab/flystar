@@ -26,7 +26,6 @@ Both are constructed with their parameters and then run with ``fit()``:
 
    msc = align.MosaicSelfRef(
        list_of_starlists,
-       iters=3,
        dr_tol=[1.0, 0.5, 0.3],       # one entry per iteration
        dm_tol=[2.0, 1.0, 1.0],
        outlier_tol=[None, 3.0, 3.0],
@@ -65,22 +64,21 @@ becomes better known.
    * - Parameter
      - Default
      - What it does
-   * - ``iters``
-     - ``1``
-     - Number of match/transform/average passes. Sets the length every
-       schedule below must have.
    * - ``dr_tol``
-     - ``[1.0]``
-     - Match radius per iteration, in reference-frame units. Must be generous
-       enough on the first pass to cover the initial frame offsets.
+     - required
+     - Match radius per iteration, or one value for all of them. In
+       reference-frame units, and must be generous enough on the first pass to
+       cover the initial frame offsets.
    * - ``dm_tol``
-     - ``[1.0]``
-     - Match magnitude tolerance per iteration.
+     - ``None``
+     - Match magnitude tolerance per iteration, or one value for all of them.
+       ``None`` matches on position alone, with no magnitude cut.
    * - ``outlier_tol``
      - ``None``
-     - Sigma clipping on the transformation residuals, per iteration. ``None``
-       in a slot means no rejection that pass. Rejection re-derives the
-       transformation, so the rejected stars stop influencing it.
+     - Sigma clipping on the transformation residuals, per iteration, or one
+       value for all of them. ``None`` in a slot means no rejection that pass.
+       Rejection re-derives the transformation, so the rejected stars stop
+       influencing it.
    * - ``trans_args``
      - ``{'order': 1}``
      - Arguments to ``trans_class``. A single dict applies to every iteration;
@@ -90,6 +88,39 @@ becomes better known.
      - Magnitude range for deriving the transformation. ``[min, max]`` applies
        everywhere; ``(N_iters, 2)`` varies by iteration; ``(N_iters, N_lists,
        2)`` varies by list as well.
+
+The number of match/transform/average passes is the length of the longest
+schedule given: ``dr_tol``, ``dm_tol``, ``outlier_tol`` or ``trans_args``.
+Single values are broadcast to it, so ``dr_tol=0.5, dm_tol=[1.0, 0.5]`` is two
+passes at a constant radius, and all single values is a single pass. Two
+schedules of differing length are an error rather than a guess. ``mag_lim``
+does not take part: its ``[min, max]`` form is a pair, not a schedule, so it is
+checked against the number of passes rather than setting it.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 56 44
+
+   * - Arguments
+     - Result
+   * - ``dr_tol=0.5``
+     - One pass.
+   * - ``dr_tol=[1.0, 0.5]``
+     - Two passes, tightening the radius.
+   * - ``dr_tol=0.5, dm_tol=[1.0, 0.5]``
+     - Two passes at a constant radius, tightening the magnitude cut.
+   * - ``dr_tol=0.5, outlier_tol=[None, 3, 3]``
+     - Three passes, no clipping on the first.
+   * - ``dr_tol=0.5, trans_args=[{'order': 1}, {'order': 2}]``
+     - Two passes, raising the polynomial order once there are enough good
+       matches to constrain it.
+   * - ``dr_tol=0.5, mag_lim=[10, 15]``
+     - One pass. ``mag_lim`` is a pair, not a schedule, so it does not add a
+       second.
+   * - ``dr_tol=[1.0, 0.5], outlier_tol=[None, 3, 3]``
+     - ``AssertionError``: two schedules, of length 2 and 3.
+   * - ``dr_tol=[1.0, 0.5, 0.3], dm_tol=[1.0, 1.0]``
+     - ``AssertionError``: two schedules, of length 3 and 2.
 
 Matching
 --------
@@ -203,8 +234,9 @@ Which stars drive the fit
    * - ``iter_callback``
      - ``None``
      - Called with ``(ref_table, iteration)`` after every iteration, and once
-       more with ``iters``. Set ``use_in_trans = False`` on a row to drop that
-       star from later transformations while keeping it in the output.
+       more with the number of iterations. Set ``use_in_trans = False`` on a
+       row to drop that star from later transformations while keeping it in
+       the output.
    * - ``ref_index``
      - ``0``
      - :class:`~flystar.align.MosaicSelfRef` only. Which list seeds the frame on
@@ -410,9 +442,9 @@ The ``'w'`` column
 
 ``iter_callback``
     A function called with ``(ref_table, iteration)`` at the end of every
-    iteration, and once more after the final re-matching pass with an index of
-    ``iters`` -- one past the last iteration -- so that final call can be told
-    apart from the end of the last iteration. The table handed in is the live
+    iteration, and once more after the final re-matching pass with an index
+    equal to the number of iterations -- one past the last iteration -- so
+    that final call can be told apart from the end of the last iteration. The table handed in is the live
     ``ref_table``, so setting ``use_in_trans = False`` on a row excludes that
     star from subsequent transformations while keeping it in the output.
 
@@ -422,7 +454,7 @@ The ``'w'`` column
        if i == 0:
            table['use_in_trans'][table['m0'] < 10.0] = False
 
-   msc = align.MosaicSelfRef(lists, iters=3, iter_callback=reject_bright_saturated,
+   msc = align.MosaicSelfRef(lists, iter_callback=reject_bright_saturated,
                              dr_tol=[1., .5, .3], dm_tol=[2., 1., 1.])
    msc.fit()
 

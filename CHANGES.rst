@@ -2,6 +2,31 @@
 Changelog
 =========
 
+Unreleased
+==========
+
+API changes to ``MosaicSelfRef`` and ``MosaicToRef``
+----------------------------------------------------
+
+- ``dr_tol`` is now a required argument, given before the optional ones.
+  Matching is a radius search, so there is no meaningful default: the old
+  ``dr_tol=[1.0]`` silently applied a one-unit radius in whatever units the
+  reference frame happened to use.
+- The ``iters`` argument is gone. It had never been read -- the iteration
+  count has always come from the length of ``dr_tol`` -- so calls that passed
+  a disagreeing ``iters`` were already running the ``dr_tol`` schedule. Drop
+  it from the call.
+- The number of iterations is now the length of the longest schedule given:
+  ``dr_tol``, ``dm_tol``, ``outlier_tol`` or ``trans_args``. Any of them may
+  be a single value, broadcast to that length, so ``dr_tol=0.5,
+  dm_tol=[1.0, 0.5]`` is two passes at a constant radius, and all single
+  values is a single pass. Two schedules of differing length remain an error.
+  ``mag_lim`` does not take part -- its ``[min, max]`` form is a pair, not a
+  schedule -- and is still checked against the resulting count.
+- ``dm_tol`` now defaults to ``None``, which places no magnitude cut on the
+  match. The old default of ``[1.0]`` rejected pairs more than one magnitude
+  apart, which is wrong across filters and arbitrary within one.
+
 0.1.0 (2026-08-26)
 ==================
 

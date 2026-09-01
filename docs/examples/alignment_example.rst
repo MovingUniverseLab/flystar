@@ -96,7 +96,6 @@ the tolerance now that the transformation is better known.
 
    msc = align.MosaicSelfRef(
        lists,
-       iters=3,
        dr_tol=[60., 10., 5.],                # match radius, pixels, per iteration
        dm_tol=[1., 1., 1.],                  # match magnitude tolerance
        trans_class=transforms.PolyTransform,

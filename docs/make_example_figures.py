@@ -45,7 +45,7 @@ for i, yr in enumerate(YEARS):
     sl.meta['list_time'] = yr
     lists.append(sl)
 
-msc = align.MosaicSelfRef(lists, iters=3, dr_tol=[60., 10., 5.], dm_tol=[1., 1., 1.],
+msc = align.MosaicSelfRef(lists, dr_tol=[60., 10., 5.], dm_tol=[1., 1., 1.],
                           trans_class=transforms.PolyTransform,
                           trans_args=[{'order': 1}]*3,
                           motion_models=['Linear'], init_guess_mode='miracle', verbose=False)

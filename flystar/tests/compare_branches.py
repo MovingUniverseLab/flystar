@@ -16,7 +16,7 @@ ra_deg, dec_deg = 18.0, -30.0
 my_gaia.remove_column('motion_model_used')
 # my_gaia['motion_model_input'] = 'Fixed'
 if branch == 'mm_rework_lingfeng':
-    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
+    msc = align.MosaicToRef(my_gaia, list_of_starlists,
                         dr_tol=[0.2], dm_tol=[5],
                         outlier_tol=[None], mag_lim=[6, 20],
                         trans_class=transforms.PolyTransform,
@@ -29,7 +29,7 @@ if branch == 'mm_rework_lingfeng':
                         trans_weights='both,std',
                         init_guess_mode='name', verbose=3)
 elif branch == 'mm_rework':
-    msc = align.MosaicToRef(my_gaia, list_of_starlists, iters=1,
+    msc = align.MosaicToRef(my_gaia, list_of_starlists,
                         dr_tol=[0.2], dm_tol=[5],
                         outlier_tol=[None], mag_lim=[6, 20],
                         trans_class=transforms.PolyTransform,
