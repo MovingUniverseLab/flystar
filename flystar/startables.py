@@ -1733,14 +1733,23 @@ class StarTable(Table):
         for unique_motion_model, unique_index in indices_by_motion_model.items():
             # Create motion model instance
             motion_model_instance = mm_map[unique_motion_model]()
-            # Prepare parameters for prediction
-            fit_params = np.array([
-                self[param_name][unique_index] for param_name in motion_model_instance.fit_param_names
-            ]).T # shape (N_stars_this_model, N_params)
+            # Prepare parameters for prediction. Empty has no fit params at
+            # all, and np.array([]).T would collapse to shape (0,) no matter
+            # how many stars this model covers -- atleast_2d then reads that
+            # back as a single star, and the (N_stars_this_model, N_times)
+            # time grid below no longer matches. Build the empty case with an
+            # explicit row per star so every model sees the same shape.
+            if len(motion_model_instance.fit_param_names) > 0:
+                fit_params = np.array([
+                    self[param_name][unique_index] for param_name in motion_model_instance.fit_param_names
+                ]).T # shape (N_stars_this_model, N_params)
 
-            fit_param_errs = np.array([
-                self[param_name + '_err'][unique_index] for param_name in motion_model_instance.fit_param_names
-            ]).T if with_xe_ye else None # shape (N_stars_this_model, N_params)
+                fit_param_errs = np.array([
+                    self[param_name + '_err'][unique_index] for param_name in motion_model_instance.fit_param_names
+                ]).T if with_xe_ye else None # shape (N_stars_this_model, N_params)
+            else:
+                fit_params = np.empty((len(unique_index), 0))
+                fit_param_errs = np.empty((len(unique_index), 0)) if with_xe_ye else None
 
             # Construct fixed_params: Look for fixed_params_dict -> table columns -> meta data -> default value
             fixed_params = fixed_params_dict.copy() if fixed_params_dict is not None else {}
