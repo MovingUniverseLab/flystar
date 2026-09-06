@@ -1,27 +1,19 @@
+import copy
 import numpy as np
 import pylab as plt
-from flystar import starlists
-from flystar import startables
-from flystar import align
-from flystar import match
-from flystar import transforms
+from scipy.stats import f
 from astropy import table
 from astropy.table import Table, Column
 from astropy.coordinates import SkyCoord
 from astropy import units as u
-from astropy.wcs import WCS
-from astroquery.gaia import Gaia
-from astroquery.mast import Observations, Catalogs
-import pdb, copy
-import math
-from scipy.stats import f
+from flystar import starlists, match
 
 ##################################################
 # New codes for velocity support in FlyStar and using
-# the new StarTable and StarList format. 
+# the new StarTable and StarList format.
 ##################################################
 
-def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
+def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
     """
     Query the Gaia database at the specified location
     and with the specified search radius
@@ -35,13 +27,14 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
         Dec. in degrees in the format such as '-29:00:28.0'
 
     search_radius : float
-        The search radius in arcseconds. 
+        The search radius in arcseconds.
 
     Optional Input
     --------------
     table_name : string
         Options are 'gaiadr2' or 'gaiaedr3'
     """
+    from astroquery.gaia import Gaia
     target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
     ra = target_coords.ra.degree
     dec = target_coords.dec.degree
@@ -49,20 +42,72 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr2'):
     search_radius *= u.arcsec
 
     Gaia.ROW_LIMIT = 50000
-    gaia_job = Gaia.cone_search_async(target_coords, search_radius, table_name = table_name + '.gaia_source')
+    gaia_job = Gaia.cone_search_async(target_coords, radius=search_radius, table_name=table_name + '.gaia_source')
     gaia = gaia_job.get_results()
 
     #Change new 'SOURCE_ID' column header back to lowercase 'source_id' so all subsequent functions still work:
-    gaia['SOURCE_ID'].name = 'source_id'
+    if 'SOURCE_ID' in gaia.colnames:
+        gaia.rename_column('SOURCE_ID', 'source_id')
 
     return gaia
 
+def check_gaia_parallaxes(ra,dec,search_radius=10.0,table_name='gaiadr3',target='(unnamed)',
+    file_ext=''):
+    """
+    Query the Gaia database at the specified location
+    and with the specified search radius, and plot
+    parallaxes.
 
-def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2):
+    Input
+    ----------
+    ra : string
+        R.A. in hours in the format such as '17:45:40.3'
+
+    dec : string
+        Dec. in degrees in the format such as '-29:00:28.0'
+
+    search_radius : float
+        The search radius in arcseconds.
+
+    Optional Input
+    --------------
+    table_name : string
+        Options are 'gaiadr2' or 'gaiadr3'
+    """
+    # Query Gaia
+    gaia = query_gaia(ra,dec,search_radius=search_radius,table_name=table_name)
+    # Set up reasonable histogram bins
+    plim0,plim1 = np.min(gaia['parallax']),np.max(gaia['parallax'])
+    pplim0,pplim1 = np.min(gaia['parallax']/gaia['parallax_error']),np.max(gaia['parallax']/gaia['parallax_error'])
+    binwidth = 1
+    pbins = np.arange(np.floor(plim0),np.ceil(plim1)+binwidth,binwidth)
+    ppbins = np.arange(np.floor(pplim0),np.ceil(pplim1)+binwidth,binwidth)
+    # Find number where plx/plx_err>3
+    p_perr = (gaia['parallax']/gaia['parallax_error']).compressed()
+    nppe3 = sum((p_perr>3).astype(int))
+    nppen3 = sum((p_perr<-3).astype(int))
+    print(table_name,'stars within',search_radius,'\" with plx/plx_err>3: ', nppe3, ' of ', len(gaia['parallax']))
+    print(table_name,'stars within',search_radius,'\" with plx/plx_err<-3: ', nppen3, ' of ', len(gaia['parallax']))
+    # Plot
+    plt.subplots(nrows=1,ncols=2,figsize=(12,6))
+    plt.subplot(121)
+    plt.xlabel('parallax (mas)'); plt.ylabel('N stars')
+    plt.hist(gaia['parallax'],bins=pbins)
+    plt.yscale('log')
+    plt.title(table_name+' parallax histograms, '+str(search_radius)+'\" radius around '+target, loc='left')
+    plt.subplot(122)
+    plt.xlabel('parallax/parallax_error')
+    plt.hist(gaia['parallax']/gaia['parallax_error'],bins=ppbins)
+    plt.yscale('log')
+    plt.tight_layout()
+    plt.savefig('gaiaplx'+file_ext+'.png')
+
+
+def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2, pi_err_limit=0.4, default_motion_model='Linear'):
     """
     Take a Gaia table (from astroquery) and produce a new table with a tangential projection
-    and shift such that the origin is centered on the target of interest. 
-    Convert everything into arcseconds and name columns such that they are 
+    and shift such that the origin is centered on the target of interest.
+    Convert everything into arcseconds and name columns such that they are
     ready for FlyStar input.
 
     Inputs
@@ -79,7 +124,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
     ra = target_coords.ra.degree     # in decimal degrees
     dec = target_coords.dec.degree   # in decimal degrees
-    
+
     cos_dec = np.cos(np.radians(dec))
     x = (gaia['ra'] - ra) * cos_dec * 3600.0   # arcsec
     y = (gaia['dec'] - dec) * 3600.0           # arcsec
@@ -90,15 +135,15 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
 
     gaia_new['x0'] = x * -1.0
     gaia_new['y0'] = y
-    gaia_new['x0e'] = xe
-    gaia_new['y0e'] = ye
+    gaia_new['x0_err'] = xe
+    gaia_new['y0_err'] = ye
 
     # Also convert the velocities. Note that Gaia PM are already * cos(dec)
     gaia_new['vx'] = gaia['pmra'].data * -1.0 / 1e3 # asec/yr
     gaia_new['vy'] = gaia['pmdec'].data / 1e3
-    gaia_new['vxe'] = gaia['pmra_error'].data / 1e3
-    gaia_new['vye'] = gaia['pmdec_error'].data / 1e3
-    
+    gaia_new['vx_err'] = gaia['pmra_error'].data / 1e3
+    gaia_new['vy_err'] = gaia['pmdec_error'].data / 1e3
+
     gaia_new['t0'] = gaia['ref_epoch'].data
     gaia_new['source_id'] = gaia['source_id'].data.astype('S19')
 
@@ -106,40 +151,84 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2)
     idx = np.where(gaia['pmdec'].mask == True)[0]
     gaia_new['vx'][idx] = 0.0
     gaia_new['vy'][idx] = 0.0
-    gaia_new['vxe'][idx] = 0.0
-    gaia_new['vye'][idx] = 0.0
-    
+    gaia_new['vx_err'][idx] = 0.0
+    gaia_new['vy_err'][idx] = 0.0
+
     gaia_new['m'] = gaia['phot_g_mean_mag']
     gaia_new['me'] = 1.09/gaia['phot_g_mean_flux_over_error']
-    gaia_new['parallax'] = gaia['parallax']
-    gaia_new['parallax_error'] = gaia['parallax_error']
+    gaia_new['pi'] = gaia['parallax'].data*1e-3
+    gaia_new['pi_err'] = gaia['parallax_error'].data*1e-3
 
     # Set the velocities (and uncertainties) to zero if they aren't measured.
     idx = np.where(np.isnan(gaia_new['vx']) == True)[0]
     gaia_new['vx'][idx] = 0.0
-    gaia_new['vxe'][idx] = 0.0
+    gaia_new['vx_err'][idx] = 0.0
     gaia_new['vy'][idx] = 0.0
-    gaia_new['vye'][idx] = 0.0
+    gaia_new['vy_err'][idx] = 0.0
+
+    # Cut out stars with high plx error and set motion models
+    idx = np.where((gaia_new['pi_err']>(pi_err_limit/1e3)) | (gaia['parallax'].mask == True))[0]
+    gaia_new['pi'][idx] = 0.0
+    gaia_new['pi_err'][idx] = 0.0
+    if default_motion_model=='Parallax':
+        gaia_new['motion_model_input'] = 'Parallax'
+        gaia_new['motion_model_used'] = 'Parallax'
+        gaia_new['motion_model_used'][idx] = 'Linear'
+        gaia_new['n_params'] = 3
+        gaia_new['n_params'][idx] = 2
+    elif default_motion_model=='Linear':
+        gaia_new['motion_model_input'] = 'Linear'
+        gaia_new['motion_model_used'] = 'Linear'
+        gaia_new['n_params'] = 2
+    elif default_motion_model=='Fixed':
+        gaia_new['motion_model_input'] = 'Fixed'
+        gaia_new['motion_model_used'] = 'Fixed'
+        gaia_new['n_params'] = 1
+    elif default_motion_model=='Empty':
+        gaia_new['motion_model_input'] = 'Empty'
+        gaia_new['motion_model_used'] = 'Empty'
+        gaia_new['n_params'] = 0
+    else:
+        print("Invalid motion model",default_motion_model,"- none assigned")
+
+    #macy additions to try to fix wild magnitude values
+    #gaia_new['ruwe'] = gaia['ruwe']
+    #try:
+    #    gaia_new = gaia_new[~gaia_new['m'].mask]
+    #except:
+    #    print('no invalig mags')
 
     gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
 
     if targets_dict != None:
-        for targ_name, targ_coo in targets_dict.items():
-            dx = gaia_new['x0'] - (targ_coo[0] * -1.0)
-            dy = gaia_new['y0'] - targ_coo[1]
+#        for targ_name, targ_coo in targets_dict.items():
+#            dx = gaia_new['x0'] - (targ_coo[0] * -1.0)
+#            dy = gaia_new['y0'] - targ_coo[1]
+#            dr = np.hypot(dx, dy)
+#
+#            idx = dr.argmin()
+#
+#            if dr[idx] < match_dr_max:
+#                gaia_new['name'][idx] = targ_name
+#                print('Found match for: ', targ_name, ' - ',gaia_new['source_id'][idx])
+        targ_names = [x for x in targets_dict]
+        targ_xs = np.array([targets_dict[x][0] for x in targets_dict])
+        targ_ys = np.array([targets_dict[x][1] for x in targets_dict])
+        for i_gaia in range(len(gaia_new)):
+            dx = gaia_new['x0'][i_gaia] - (targ_xs * -1.0)
+            dy = gaia_new['y0'][i_gaia] - targ_ys
             dr = np.hypot(dx, dy)
 
             idx = dr.argmin()
 
             if dr[idx] < match_dr_max:
-                gaia_new['name'][idx] = targ_name
-                print('Found match for: ', targ_name)
+                gaia_new['name'][i_gaia] = targ_names[idx]
+                print('Found match for: ', targ_names[idx], ' - ',gaia_new['source_id'][i_gaia])
 
     return gaia_new
-    
 
 def run_flystar():
-    
+
     test_file = '/u/jlu/work/microlens/OB150211/a_2018_10_19/a_ob150211_2018_10_19/lis/stars_matched2.fits'
 
     t = Table.read(test_file)
@@ -171,39 +260,39 @@ def run_flystar():
     ym_t = y0 + vy * (t - t0)
 
     # Model distorted positions
-    
-    
+
+
     return
 
 
 def project_gaia(gaia, epoch, ra, dec):
     """
     Take the Gaia measurements, forward them in time, and then convert them into a tangential projection.
-    
+
     Inputs
     ----------
     epoch : float (year)
         The decimal year to project the measurement to. Note that we use 365.25 days per year.
-        
+
     ra : float (deg)
         The right ascension (J2000) in decimal degrees of the center of the field.
-        
+
     dec : float (deg)
         The declination (J2000) in decimal degrees of the center of the field.
-        
+
     """
     t0 = gaia['ref_epoch']
     x0 = (gaia['ra'] - ra) * np.cos(np.radians(dec)) * 3600.0   # Arcsec
     y0 = (gaia['dec'] - dec) * 3600.0
     x0e = gaia['ra_error']  / 1.0e3       # arcsec, already in alpha* (multiplied by cos(delta))
     y0e = gaia['dec_error'] / 1.0e3       # arcsec
-    
-    
+
+
     vx = gaia['pmra'] / 1.0e3            # arcsec / yr
-    vy = gaia['pmdec'] / 1.0e3       
+    vy = gaia['pmdec'] / 1.0e3
     vxe = gaia['pmra_error'] / 1.0e3     # arcsec / yr
     vye = gaia['pmdec_error'] / 1.0e3
-    
+
     # Modify any vx/vy, etc. that are zero and make a regular (unmasked) numpy array.
     vx[vx.mask] = 0.0
     vy[vy.mask] = 0.0
@@ -213,29 +302,29 @@ def project_gaia(gaia, epoch, ra, dec):
     vy = np.array(vy)
     vxe = np.array(vxe)
     vye = np.array(vye)
-    
+
     dt = epoch - t0
     x_now = (x0 + (vx * dt)) * -1.0  # Switch to a left-handed coordinate system, like detector pixels.
     y_now = (y0 + (vy * dt))
     xe_now = np.hypot(x0e, vxe*dt)
     ye_now = np.hypot(y0e, vye*dt)
-    
+
     # Format as a starlist
-    gaia_lis = starlists.StarList(name=gaia['source_id'], 
+    gaia_lis = starlists.StarList(name=gaia['source_id'],
                                   x=x_now, y=y_now, m=gaia['phot_g_mean_mag'],
                                   xe=xe_now, ye=ye_now, me=1.0/gaia['phot_g_mean_flux_over_error'])
-    
+
     # Duplicate columns to 'x_avg', etc. Needed for initial guessing.
     gaia_lis['x_avg'] = gaia_lis['x']
     gaia_lis['y_avg'] = gaia_lis['y']
-    gaia_lis['m_avg'] = gaia_lis['m']    
-    
+    gaia_lis['m_avg'] = gaia_lis['m']
+
     return gaia_lis
 
 
 def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, dm_tol=0.3, verbose=False):
     """
-    Take a StarTable output from FlyStar MosaicToRef that has been 
+    Take a StarTable output from FlyStar MosaicToRef that has been
     aligned into R.A. and Dec. (usually by way of Gaia). Align
     the output to a label.dat file for this source and rename
     everything.
@@ -263,25 +352,28 @@ def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, d
                              x_lab[ndx_lab[ii]], star_tab['x0'][ndx_star[ii]],
                              y_lab[ndx_lab[ii]], star_tab['y0'][ndx_star[ii]],
                              m_lab[ndx_lab[ii]], star_tab['m0'][ndx_star[ii]]))
-        
+
 
         print('Temporary shift transformations: ')
         print('    dm = {0:8.4f} +/- {1:8.4f}'.format(dm.mean(), dm.std()))
         print('    dx = {0:8.4f} +/- {1:8.4f}'.format(dx.mean(), dx.std()))
         print('    dy = {0:8.4f} +/- {1:8.4f}'.format(dy.mean(), dy.std()))
-    
+
     m_lab = label_tab['m'] + dm.mean()
     x_lab += dx.mean()
     y_lab += dy.mean()
-    
+
     # Now that we are in a common coordinate and magnitude
     # system, lets match the whole lists by coordinates.
-    idx_lab, idx_star, dr, dm = match.match(x_lab, y_lab, m_lab, 
+    idx_lab, idx_star, dr, dm = match.match(x_lab, y_lab, m_lab,
                                             star_tab['x0'], star_tab['y0'], star_tab['m0'],
                                             dr_tol=dr_tol, dm_tol=dm_tol, verbose=verbose)
+    #print('idx_lab:')
+    #for iii in range(len(idx_lab)):
+    #    print(label_tab["name"][idx_lab[iii]], star_tab["name"][idx_star[iii]])
 
     print('Renaming {0:d} out of {1:d} stars'.format(len(idx_lab), len(star_tab)))
-    
+
     # Make a copy of the table, UNLESS, the user specifies.
     if new_copy:
         new_tab = copy.deepcopy(star_tab)
@@ -291,9 +383,9 @@ def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, d
     # copy over the original names... don't overwrite (this could mean data loss)
     if 'name_orig' not in new_tab.colnames:
         new_tab.add_column(Column(star_tab['name'].data, name='name_orig'))
-        
+
     new_tab['name'][idx_star] = label_tab[idx_lab]['name']
-    
+
     return new_tab
 
 def pick_good_ref_stars(star_tab, r_cut=None, m_cut=None, p_err_cut=None, pm_err_cut=None, name_cut=None, reset=True):
@@ -317,12 +409,12 @@ def pick_good_ref_stars(star_tab, r_cut=None, m_cut=None, p_err_cut=None, pm_err
         print('pick_good_ref_stars: Use {0:d} stars after m<{1:.2f}.'.format(use.sum(), m_cut))
 
     if p_err_cut is not None:
-        p_err = np.mean((star_tab['x0e'], star_tab['y0e']), axis=0)
+        p_err = np.mean((star_tab['x0_err'], star_tab['y0_err']), axis=0)
         use = use & (p_err < p_err_cut)
         print('pick_good_ref_stars: Use {0:d} stars after p_err<{1:.5f}.'.format(use.sum(), p_err_cut))
 
     if pm_err_cut is not None:
-        pm_err = np.mean((star_tab['vxe'], star_tab['vye']), axis=0)
+        pm_err = np.mean((star_tab['vx_err'], star_tab['vy_err']), axis=0)
         use = use & (pm_err < pm_err_cut)
         print('pick_good_ref_stars: Use {0:d} stars after pm_err<{1:.5f}.'.format(use.sum(), pm_err_cut))
 
@@ -338,44 +430,29 @@ def pick_good_ref_stars(star_tab, r_cut=None, m_cut=None, p_err_cut=None, pm_err
 
 def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
     """
-    Input is MosaicToRef table from alignment of multiple filters, 
+    Input is MosaicToRef table from alignment of multiple filters,
     such that the astrometry is combined but the photometry is not.
-    This function is used to separate out a selected filter from the 
+    This function is used to separate out a selected filter from the
     combined astrometry + uncombined photometry table.
     """
     # Multiples: ['x', 'y', 'm', 'name_in_list', 'xe', 'ye', 'me', 't',
-    #     'x_orig', 'y_orig', 'm_orig', 'xe_orig', 'ye_orig', 'me_orig', 'used_in_trans']
-    # Single: ['name', 'm0', 'm0e', 'use_in_trans', 'ref_orig', 'n_detect',
-    #     'x0', 'vx', 'y0', 'vy', 'x0e', 'vxe', 'y0e', 'vye', 't0'] 
+    #     'x_orig', 'y_orig', 'm_orig', 'xe_orig', 'ye_orig', 'me_orig', 'used_in_trans',
+    #     'xe_boot','ye_boot','me_boot']
+    # Single: ['name', 'm0', 'm0_err', 'use_in_trans', 'ref_orig', 'n_detect',
+    #     'x0', 'vx', 'y0', 'vy', 'x0_err', 'vx_err', 'y0_err', 'vy_err', 't0']
     # Don't include n_vfit
 
-    new_tab = startables.StarTable(name=tab['name'].data, 
-                                   x=tab['x'][:,idx].data,
-                                   y=tab['y'][:,idx].data,
-                                   m=tab['m'][:,idx].data,
-                                   xe=tab['xe'][:,idx].data,
-                                   ye=tab['ye'][:,idx].data,
-                                   me=tab['me'][:,idx].data,
-                                   t=tab['t'][:,idx].data,                                
-                                   x_orig=tab['x_orig'][:,idx].data,                                
-                                   y_orig=tab['y_orig'][:,idx].data,                                
-                                   m_orig=tab['m_orig'][:,idx].data,                                
-                                   xe_orig=tab['xe_orig'][:,idx].data,                                
-                                   ye_orig=tab['ye_orig'][:,idx].data,                                
-                                   me_orig=tab['me_orig'][:,idx].data,                                  
-                                   used_in_trans=tab['used_in_trans'][:,idx].data,                                
-                                   m0=tab['m0'].data,
-                                   m0e=tab['m0e'].data,
-                                   use_in_trans=tab['use_in_trans'].data,         
-                                   x0=tab['x0'].data,
-                                   vx=tab['vx'].data,
-                                   y0=tab['y0'].data,
-                                   vy=tab['vy'].data,   
-                                   x0e=tab['x0e'].data,
-                                   vxe=tab['vxe'].data,
-                                   y0e=tab['y0e'].data,
-                                   vye=tab['vye'].data,                                  
-                                   t0=tab['t0'].data)
+    new_tab = copy.deepcopy(tab)
+    #new_tab.remove_column('n_fit')
+    new_tab.remove_column('n_detect')
+    for col in ['x','y','m','idx_in_list','name_in_list','xe','ye','me','t',
+                'x_orig','y_orig','m_orig','xe_orig','ye_orig','me_orig',
+                'used_in_trans','xe_boot','ye_boot','me_boot']:
+        # 'idx_in_list'/'name_in_list' are alternatives (the latter only on
+        # tables written before the switch to indices), and several of the
+        # rest are optional, so slice whichever are actually present.
+        if col in tab.colnames:
+            new_tab[col] = tab[col][:,idx]
 
     new_tab.combine_lists('m', weights_col='me', sigma=3, ismag=True)
 
@@ -392,7 +469,7 @@ def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
             # Update the original table.
             if mag_trans_orig:
                 tab['m'][:,idx[ii]] += mag_offset
-    
+
     return new_tab
 
 
@@ -400,123 +477,58 @@ def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
 # Old codes.
 ##################################################
 
-def calc_chi2(ref_mat, starlist_mat, transform, errs='both'):
-    """
-    calculate the chi2 and reduced chi2 of the position 
-    between two matched starlists.
-    Input:
-    ref_mat: astropy table
-        Reference starlist only containing matched stars that were used in the
-        transformation. Standard column headers are assumed.
-        
-    starlist_mat: astropy table
-        Transformed starlist only containing the matched stars used in
-        the transformation. Standard column headers are assumed.
-
-    transform: transformation object
-        Transformation object of final transform. Used in chi-square
-        determination
-
-    errs: string; 'both', 'reference', or 'starlist'
-        If both, add starlist errors in quadrature with reference errors.
-
-        If reference, only consider reference errors. This should be used if the starlist
-        does not have valid errors
-
-        If starlist, only consider starlist errors. This should be used if the reference
-        does not have valid errors
-
-    Output:
-    chi_sq: float
-        chi2 = sum (diff_x**2 / xerr**2 + diff_y**2 /yerr**2)
-    chi_sq_red: float
-        reduced chi2 = chi2/ degree of freedom
-    deg_freedom: int
-        degree of freedom
-
-    """
-    diff_x = ref_mat['x'] - starlist_mat['x']
-    diff_y = ref_mat['y'] - starlist_mat['y']
-
-    # Set errors as per user input
-    if errs == 'both':
-        xerr = np.hypot(ref_mat['xe'], starlist_mat['xe'])
-        yerr = np.hypot(ref_mat['ye'], starlist_mat['ye'])
-    elif errs == 'reference':
-        xerr = ref_mat['xe']
-        yerr = ref_mat['ye']
-    elif errs == 'starlist':
-        xerr = starlist_mat['xe']
-        yerr = starlist_mat['ye']
-          
-
-    # For both X and Y, calculate chi-square. Combine arrays to get combined
-    # chi-square
-    chi_sq_x = diff_x**2. / xerr**2.
-    chi_sq_y = diff_y**2. / yerr**2.
-
-    chi_sq = np.append(chi_sq_x, chi_sq_y)
-    
-    # Calculate degrees of freedom in transformation
-    num_mod_params = calc_nparam(transform)
-    deg_freedom = len(chi_sq) - num_mod_params
-    
-    # Calculate reduced chi-square
-    chi_sq = np.sum(chi_sq)
-    chi_sq_red = chi_sq / deg_freedom
-
-    return chi_sq, chi_sq_red, deg_freedom
-
-
-def calc_nparam(transformation):
-    """
-    calculate the degree of freedom for a transformation
-    """
-    # Read transformation: Extract X, Y coefficients from transform
-    if transformation.__class__.__name__ == 'four_paramNW':
-        nparam = 4
-    elif transformation.__class__.__name__ == 'PolyTransform':
-        order = transformation.order
-        nparam = (order+1) * (order+2) 
-    return nparam
-
 def calc_F(red_chi2_1, red_chi2_2, v1, v2):
     """
     compare two different models to get the proper polynomial fitting order
 
-    Input:
-    red_chi2_1: reduced chi2 for the first model
-    red_chi2_2: reduced chi2 for the second model
-    v1 = degree of freedom for the first model
-       = 2*(N_star_matched) - model_parameters
-    v2 = degree of freedom for the second mdoel
+    Parameters
+    ----------
+    red_chi2_1 : float
+        reduced chi2 for the first model
+    red_chi2_2 : float
+        reduced chi2 for the second model
+    v1 : int
+        degree of freedom for the first model,
+        ``= 2*(N_star_matched) - model_parameters``
+    v2 : int
+        degree of freedom for the second mdoel
 
-    Output:
-    P: The probability that the first model is better
+    Returns
+    -------
+    P : float
+        The probability that the first model is better
 
-    Example:
-    for 1st order polynomial fitting:
-        x' = a0 + a1*x + a2*y
-        y' = b0 + b1*x + b2*y
-        v1 = 2*N1 - 2*3 (2*: because x and y direction) 
-        red_chi2_1 = chi2/v1
-    for 2nd order polynomial fitting:
-        x' = a0 + a1*x + a2*y + a3*x**2 + a4*y**2 + a5*x*y
-        y' = b0 + b1*x + b2*y + b3*x**2 + b4*y**2 + b5*x*y
-        v1 = 2*N1 - 2*6 
-        red_chi2_2 = chi2/v2
-    calc_F(red_chi2_1, red_chi2_2, v1, v2)
-    
-    ***Note***
-    * make sure the first model is the simple model 
+    Notes
+    -----
+    - make sure the first model is the simple model
       and the second model is the more complicated model
-    * the return value represents the probability that 
+    - the return value represents the probability that
       the first model is better than the second model, in other words,
       the small P means the more colicated model is needed.
       the large P means the simple model is good enough.
-    * normally, the P value will increase from model1->model2, to 
-      model2->model3, to model3->model4. The user can decide a 
+    - normally, the P value will increase from model1->model2, to
+      model2->model3, to model3->model4. The user can decide a
       critical value (eg, 0.7) to find the proper model.
+
+    Examples
+    --------
+    For 1st order polynomial fitting::
+
+        x' = a0 + a1*x + a2*y
+        y' = b0 + b1*x + b2*y
+        v1 = 2*N1 - 2*3 (2*: because x and y direction)
+        red_chi2_1 = chi2/v1
+
+    For 2nd order polynomial fitting::
+
+        x' = a0 + a1*x + a2*y + a3*x**2 + a4*y**2 + a5*x*y
+        y' = b0 + b1*x + b2*y + b3*x**2 + b4*y**2 + b5*x*y
+        v1 = 2*N1 - 2*6
+        red_chi2_2 = chi2/v2
+
+    then::
+
+        calc_F(red_chi2_1, red_chi2_2, v1, v2)
     """
 
     f_value = red_chi2_1/red_chi2_2
