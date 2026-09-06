@@ -1383,6 +1383,27 @@ class MosaicSelfRef(object):
         # Use the columns from the ref list to make the ref_table.
         ref_table = StarTable(**col_arrays)
 
+        # That constructor builds the table from the input list's COLUMNS, so
+        # anything the caller put in the input's meta is gone. Carry over the
+        # motion model fixed parameters (ra, dec, pa, obsLocation, ...): both
+        # fit_motion_models and determine_motion_models look up fixed parameters
+        # in table meta -- their "or as table metadata" error message promises
+        # exactly that -- and without this the promise cannot be kept for a
+        # MosaicToRef ref_list, which is the natural place to attach an ra/dec
+        # for Parallax. Only recognized fixed-parameter names are copied: the
+        # rest of the input's meta (n_lists, n_stars, list_times, EPNAMES) is
+        # bookkeeping for the table it came from -- a ref list carried over from
+        # an earlier alignment describes that alignment's lists, not the single
+        # one this table starts with -- and would corrupt this table's own. An explicit fixed_params_dict still wins,
+        # since every lookup consults it before the table.
+        fixed_param_names = set()
+        for mm_class in motion_model.motion_model_map().values():
+            fixed_param_names |= set(mm_class.fixed_param_names)
+            fixed_param_names |= set(mm_class.optional_fixed_params)
+        for key in sorted(fixed_param_names):
+            if key in star_list.meta and key not in ref_table.meta:
+                ref_table.meta[key] = star_list.meta[key]
+
         # Make new columns to hold original values. These will be copies
         # of the old columns and will only include x, y, m, xe, ye, me.
         # The columns we have already created will hold transformed values.
