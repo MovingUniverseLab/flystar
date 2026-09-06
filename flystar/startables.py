@@ -227,6 +227,25 @@ class StarTable(Table):
 
         return
 
+    @classmethod
+    def read(cls, *args, **kwargs):
+        """
+        Table.read, with string columns handed back as str rather than bytes.
+
+        HDF5 (and FITS) store strings as fixed-length bytes, so a table written
+        with a 'U' column reads back with an 'S' one: 'Linear' becomes
+        b'Linear'. That compares unequal to every str literal, which turns a
+        round-trip through disk into silently different behavior -- a
+        `motion_model_used == 'Parallax'` test that works on a freshly fit
+        table stops matching anything once the table has been saved and
+        reloaded, without raising. Normalizing on read keeps a saved table
+        behaving like the one that was written.
+        """
+        tab = super().read(*args, **kwargs)
+        if isinstance(tab, Table):
+            tab.convert_bytestring_to_unicode()
+        return tab
+
     def add_starlist(self, warn_missing_meta=True, **kwargs):
         """
         Add data from a new list to an existing StarTable.
