@@ -1577,6 +1577,24 @@ class Parallax(MotionModel):
         if not isinstance(obsLocation, str):
             obsLocation = np.unique(obsLocation)[0]
 
+        # A star that wasn't observed in an epoch carries nan there in x/y and
+        # in t alike, and Time(..., format='decimalyear') rejects non-finite
+        # input outright -- so the shared unique-time axis below has to be built
+        # from the finite times alone, or one undetected epoch anywhere in the
+        # table kills the whole batch fit. Those epochs contribute nothing
+        # regardless: `valid` zeroes them out of every weighted sum, so whatever
+        # pvec ends up holding for them is never read. Substitute a real time
+        # purely so the UTC->TDB conversion runs, and drop them from `valid`
+        # too, in case a nan time ever arrives alongside finite x/y -- that
+        # would otherwise contribute a nan dt to the sums.
+        t_finite = np.isfinite(t)
+        if not t_finite.all():
+            valid = valid & t_finite
+            # J2000 is an arbitrary stand-in; any finite epoch would do, and a
+            # real one from this batch keeps the unique-time axis short.
+            fill_t = t[t_finite][0] if t_finite.any() else 2000.0
+            t = np.where(t_finite, t, fill_t)
+
         dt = t - t0[:, np.newaxis]
 
         n_valid = valid.sum(axis=1)
