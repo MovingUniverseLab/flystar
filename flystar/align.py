@@ -309,7 +309,10 @@ class MosaicSelfRef(object):
             -- the derived transform objects, which aren't plain data and so
             need pickling). If calc_trans_inverse is True,
             PREFIX_trans_list_inverse.pkl (self.trans_list_inverse) is also
-            saved. By default None (nothing saved).
+            saved. calc_bootstrap_errors writes
+            PREFIX_ref_table_bootstrap.<ext> (and PREFIX_bootstrap.pkl when
+            save_object is True) to the same directory. By default None
+            (nothing saved).
         save_plot : bool, optional
             If save_path is set, also save a transformation diagnostic plot
             for every (starlist, iteration) under
@@ -913,10 +916,12 @@ class MosaicSelfRef(object):
             print('===================================')
         return
 
-    def _write_ref_table(self, save_path, prefix_name):
+    def _write_ref_table(self, save_path, prefix_name, suffix=''):
         """
-        Write self.ref_table to save_path/PREFIX_ref_table.<ext>, in
-        self.save_format.
+        Write self.ref_table to save_path/PREFIX_ref_table<suffix>.<ext>, in
+        self.save_format. `suffix` distinguishes a table written outside of
+        fit() -- calc_bootstrap_errors passes '_bootstrap' -- and must not
+        change the format that save_format asked for.
 
         'fits' needs meta keys renamed for the HIERARCH convention (see
         suppress_meta_warnings), which is done on a column-sharing copy so
@@ -925,13 +930,13 @@ class MosaicSelfRef(object):
         lookup, must keep working regardless of what was last written here.
         """
         if self.save_format == 'hdf5':
-            self.ref_table.write(os.path.join(save_path, f'{prefix_name}_ref_table.hdf5'), path='data', overwrite=True)
+            self.ref_table.write(os.path.join(save_path, f'{prefix_name}_ref_table{suffix}.hdf5'), path='data', overwrite=True)
         elif self.save_format == 'fits':
             ref_table_out = self.ref_table.copy(copy_data=False)
             ref_table_out.meta = suppress_meta_warnings(self.ref_table)
-            ref_table_out.write(os.path.join(save_path, f'{prefix_name}_ref_table.fits'), overwrite=True)
+            ref_table_out.write(os.path.join(save_path, f'{prefix_name}_ref_table{suffix}.fits'), overwrite=True)
         elif self.save_format == 'pkl':
-            with open(os.path.join(save_path, f'{prefix_name}_ref_table.pkl'), 'wb') as file:
+            with open(os.path.join(save_path, f'{prefix_name}_ref_table{suffix}.pkl'), 'wb') as file:
                 pickle.dump(self.ref_table, file)
 
     def match_and_transform(self, ref_mag_lim, dr_tol, dm_tol, outlier_tol, trans_args, nn=None, processes=1, chunksize=None, match_workers=1, mp_star_threshold=100_000):
@@ -2507,10 +2512,13 @@ class MosaicSelfRef(object):
             print("The same was done for ye and me.")
 
         if self.save_path is not None:
-            with open(os.path.join(self.save_path, self.prefix_name+'_bootstrap.pkl'), 'wb') as file:
-                pickle.dump(self, file)
-            with open(os.path.join(self.save_path, self.prefix_name+'_ref_table_bootstrap.pkl'), 'wb') as file:
-                pickle.dump(self.ref_table, file)
+            # Same save options fit() honors: the ref table goes out in
+            # save_format (not hardwired to pickle), and the object itself is
+            # only dumped when save_object was asked for.
+            self._write_ref_table(self.save_path, self.prefix_name, suffix='_bootstrap')
+            if self.save_object:
+                with open(os.path.join(self.save_path, self.prefix_name+'_bootstrap.pkl'), 'wb') as file:
+                    pickle.dump(self, file)
 
         return
 
@@ -2831,7 +2839,10 @@ class MosaicToRef(MosaicSelfRef):
             -- the derived transform objects, which aren't plain data and so
             need pickling). If calc_trans_inverse is True,
             PREFIX_trans_list_inverse.pkl (self.trans_list_inverse) is also
-            saved. By default None (nothing saved).
+            saved. calc_bootstrap_errors writes
+            PREFIX_ref_table_bootstrap.<ext> (and PREFIX_bootstrap.pkl when
+            save_object is True) to the same directory. By default None
+            (nothing saved).
 
         prefix_name : str, optional
             Filename prefix for everything written under ``save_path``, by
