@@ -2743,12 +2743,16 @@ def plot_chi2_dist_mag_per_filter(tab, Ndetect, mlim=40, n_bins=30, xlim=40, fil
     
     return
 
-def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False, boot_err=False):
+def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = None, figsize=(15,25), color_time=False, boot_err=False, plot_plx_residuals=False):
     """
     Plot a set of stars positions, flux and residuals over time. 
 
     epoch_array : None, array
         Array of the epoch indicies to plot. If None, plots all epochs.
+
+    plot_plx_residuals : bool
+        If True, add a row of X/Y panels with proper motion (secular motion)
+        subtracted but parallax retained, for both data and model.
     """
     
     def rs(x):
@@ -2759,10 +2763,11 @@ def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = N
     
     Nstars = len(star_names)
     Ncols = 3 * np.min([Nstars, NcolMax])
+    rows_per_star = 4 if plot_plx_residuals else 3
     if Nstars <= Ncols/3:
-        Nrows = 3
+        Nrows = rows_per_star
     else:
-        Nrows = math.ceil(Nstars / (Ncols / 3)) * 3
+        Nrows = math.ceil(Nstars / (Ncols / 3)) * rows_per_star
 
     plt.close('all')
     plt.figure(2, figsize=figsize)
@@ -2855,8 +2860,45 @@ def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = N
               (chi2_red_y, chi2_y, dof))
         print( '\tM Chi^2 = %5.2f (%6.2f for %2d dof)' % 
               (chi2_red_m, chi2_m, dofM))
+        mm_used = None
         if 'motion_model_used' in tab.keys():
-            print('\tMotion model:', tab['motion_model_used'][ii])
+            mm_used = tab['motion_model_used'][ii]
+            print('\tMotion model:', mm_used)
+
+        # PM-only (secular) reference: subtract this to leave parallax (+ residuals)
+        if plot_plx_residuals:
+            dt_cont = cont_times - tab['t0'][ii]
+            x0_i = tab['x0'][ii]
+            y0_i = tab['y0'][ii]
+            if mm_used == 'Acceleration':
+                x_pm = x0_i + tab['vx0'][ii]*dt + 0.5*tab['ax'][ii]*dt**2
+                y_pm = y0_i + tab['vy0'][ii]*dt + 0.5*tab['ay'][ii]*dt**2
+                x_pm_cont = x0_i + tab['vx0'][ii]*dt_cont + 0.5*tab['ax'][ii]*dt_cont**2
+                y_pm_cont = y0_i + tab['vy0'][ii]*dt_cont + 0.5*tab['ay'][ii]*dt_cont**2
+            elif 'vx' in tab.keys() and np.isfinite(tab['vx'][ii]):
+                x_pm = x0_i + tab['vx'][ii]*dt
+                y_pm = y0_i + tab['vy'][ii]*dt
+                x_pm_cont = x0_i + tab['vx'][ii]*dt_cont
+                y_pm_cont = y0_i + tab['vy'][ii]*dt_cont
+            else:
+                x_pm = x0_i + 0.0*dt
+                y_pm = y0_i + 0.0*dt
+                x_pm_cont = x0_i + 0.0*dt_cont
+                y_pm_cont = y0_i + 0.0*dt_cont
+
+            x_pm_sub = (x - x_pm) * 1e3
+            y_pm_sub = (y - y_pm) * 1e3
+            x_cont_pm_sub = (xt_cont_all[ii] - x_pm_cont) * 1e3
+            y_cont_pm_sub = (yt_cont_all[ii] - y_pm_cont) * 1e3
+
+            plx_extent = np.nanmax(np.abs(np.concatenate([
+                rs(x_pm_sub - xerr*1e3), rs(x_pm_sub + xerr*1e3),
+                rs(y_pm_sub - yerr*1e3), rs(y_pm_sub + yerr*1e3),
+                np.atleast_1d(x_cont_pm_sub), np.atleast_1d(y_cont_pm_sub)
+            ])))
+            if (not np.isfinite(plx_extent)) or (plx_extent == 0):
+                plx_extent = 1.0
+            plxTicRng = [-1.1*plx_extent, 1.1*plx_extent]
 
         tmin = time.min()
         tmax = time.max()
@@ -2902,7 +2944,7 @@ def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = N
             row = 1
         else:
             col = 1 + 3*(i % (Ncols/3))
-            row = 1 + 3*(i//(Ncols/3)) 
+            row = 1 + rows_per_star*(i//(Ncols/3)) 
 
         ind = int((row-1)*Ncols + col)
 
@@ -3083,6 +3125,66 @@ def plot_stars(tab, star_names, motion_model_dict={}, NcolMax=2, epoch_array = N
         paxes.xaxis.set_major_formatter(fmtX)
         paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
 
+        if plot_plx_residuals:
+            ##########
+            # X with PM subtracted (parallax retained)
+            ##########
+            row = row + 1
+            col = col - 2
+            ind = int((row-1)*Ncols + col)
+
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            plt.plot(cont_times, x_cont_pm_sub, 'b-')
+            plt.plot(cont_times, x_cont_pm_sub + xt_cont_err[ii]*1e3, 'b--')
+            plt.plot(cont_times, x_cont_pm_sub - xt_cont_err[ii]*1e3, 'b--')
+            if not color_time:
+                plt.errorbar(rs(time), rs(x_pm_sub), yerr=rs(xerr)*1e3, fmt='k.')
+            else:
+                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+                time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+                for xx, yy, ee, color in zip(time, x_pm_sub, xerr*1e3, time_color):
+                    plt.plot(xx, yy, '.', color=color)
+                    plt.errorbar(xx, yy, ee, color=color)
+            plt.axis(dateTicRng + plxTicRng)
+            plt.xticks(fontsize=fontsize1)
+            plt.xlabel('Date (yrs)', fontsize=fontsize1)
+            if time[0] > 50000:
+                plt.xlabel('Date (MJD)', fontsize=fontsize1)
+            plt.ylabel('X - PM (mas)', fontsize=fontsize1)
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+
+            ##########
+            # Y with PM subtracted (parallax retained)
+            ##########
+            col = col + 1
+            ind = int((row-1)*Ncols + col)
+
+            paxes = plt.subplot(Nrows, Ncols, ind)
+            plt.plot(cont_times, y_cont_pm_sub, 'b-')
+            plt.plot(cont_times, y_cont_pm_sub + yt_cont_err[ii]*1e3, 'b--')
+            plt.plot(cont_times, y_cont_pm_sub - yt_cont_err[ii]*1e3, 'b--')
+            if not color_time:
+                plt.errorbar(rs(time), rs(y_pm_sub), yerr=rs(yerr)*1e3, fmt='k.')
+            else:
+                norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+                mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
+                time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
+                for xx, yy, ee, color in zip(time, y_pm_sub, yerr*1e3, time_color):
+                    plt.plot(xx, yy, '.', color=color)
+                    plt.errorbar(xx, yy, ee, color=color)
+            plt.axis(dateTicRng + plxTicRng)
+            plt.xticks(fontsize=fontsize1)
+            plt.xlabel('Date (yrs)', fontsize=fontsize1)
+            if time[0] > 50000:
+                plt.xlabel('Date (MJD)', fontsize=fontsize1)
+            plt.ylabel('Y - PM (mas)', fontsize=fontsize1)
+            paxes.xaxis.set_major_formatter(fmtX)
+            paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
+
+            # Third column left unused for layout consistency
+            col = col + 1
 
         ##########
         # X vs. Y
