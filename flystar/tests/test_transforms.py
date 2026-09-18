@@ -22,9 +22,9 @@ def compare_evaluate_errors():
     xe = np.abs(np.random.randn(100) * 0.1)
     ye = np.abs(np.random.randn(100) * 0.1)
 
-    xe_new1 = foo._evaluate_error2(x, y, xe, ye, foo.px.parameters)
+    # xe_new1 = foo._evaluate_error2(x, y, xe, ye, foo.px.parameters)
 
-    xe_new2, ye_new2 = foo._evaluate_error(x, y, xe, ye)
+    xe_new2, ye_new2 = foo.evaluate_error(x, y, xe, ye)
 
     # BROKEN
 

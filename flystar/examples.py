@@ -1,11 +1,5 @@
-from flystar import transforms
-from flystar import match
-from flystar import align
-from flystar import starlists
-from flystar import plots
 import numpy as np
-import copy
-import pdb
+from flystar import transforms, match, align, starlists, plots
 
 
 def align_example(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,
@@ -38,7 +32,7 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     dr_tol: float (default = 1.0)
         The search radius for the matching algorithm, in the same units as the
         starlist file positions.
-        
+
     dm_tol: float or None
         If float, sets the maximum magnitude difference allowed in matching
         between label.dat and starlist. Note that this should be set to
@@ -54,10 +48,10 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
 
     outFile: string (default = 'outTrans.txt')
         Name of output ascii file which contains the transform parameters.
-    
-    Output:
+
+    Output
     ------
-        
+
     """
     # Read in label.dat file and reference starlist, changing columns to their
     # standard column headers/epochs/orientations
@@ -72,7 +66,7 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
 
     # Apply intial transformation to label.dat (for error weighting purposes below)
     label_trans = align.transform_from_object(label, trans)
-    
+
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
@@ -80,10 +74,10 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
                                                             trans,
                                                             dr_tol=dr_tol,
                                                             dm_tol=dm_tol)
-        
+
         trans, N_trans = align.find_transform(label[idx_label],
                                               label_trans[idx_label],
-                                              starlist_mat[idx_starlist],
+                                              starlist[idx_starlist],
                                               transModel=transModel,
                                               order=order, weights=weights)
 
@@ -91,14 +85,14 @@ def align_example(labelFile, reference, transModel=transforms.four_paramNW, orde
     # Write final transform in java align format
     print('Write transform to {0}'.format(outFile))
     align.write_transform(trans, labelFile, reference, N_trans, outFile=outFile)
-    
+
     # Test transform: apply final transformation to label.dat
     label_trans2 = align.transform(label, outFile)
 
     # Make diagnostic plots
-    
+
     return
-    
+
 
 def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order=1, N_loop=2,
                  dr_tol=1.0, dm_tol=None, briteN=100, weights=None, restrict=False,
@@ -131,7 +125,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     dr_tol: float (default = 1.0)
         The search radius for the matching algorithm, in the same units as the
         starlist file positions.
-        
+
     dm_tol: float or None (default = None)
         If float, sets the maximum magnitude difference allowed in matching
         between label.dat and starlist. Note that this should be set to
@@ -143,8 +137,8 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
 
     weights: string (default=None)
         if weights=='both', we use both position error and velocity error in transformed
-        starlist and reference starlist as uncertanties. And weights is the reciprocal 
-            of this uncertanty.
+        starlist and reference starlist as uncertanties. And weights is the reciprocal
+        of this uncertanty.
         if weights=='starlist', we only use postion error and velocity error in transformed
         starlist as uncertainty.
         if weights=='reference', we only use position error in reference starlist as uncertainty.
@@ -156,8 +150,8 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
 
     outFile: string (default = 'outTrans.txt')
         Name of output ascii file which contains the transform parameters.
-    
-    Output:
+
+    Output
     ------
     outFile is written containing the tranformation coefficients
 
@@ -170,11 +164,11 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
         positions and the label.dat positions after transformation.
 
     -Positions_quiver.png: Quiver plot showing the difference between reference
-        positions and transformed label.dat positions as a function of location. 
-        
+        positions and transformed label.dat positions as a function of location.
+
     -Magnitude_hist.png: Histogram of the difference between the reference list
         magnitude and label.dat magnitude for matched stars.
-        
+
     """
     # Read in label.dat file and reference starlist, changing columns to their
     # standard column headers/epochs/orientations
@@ -192,10 +186,10 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     # Perform blind matching of 100 brightest stars and calculate initial transform
     trans = align.initial_align(label_r, starlist, briteN, transformModel=transModel,
                                 order=order)
-    
+
     # Apply transformation to label.dat file, for weighting purposes.
     label_trans = align.transform_from_object(label, trans)
-    
+
     # Use transformation to match starlists, then recalculate transformation.
     # Iterate on this as many times as desired
     for i in range(N_loop):
@@ -223,7 +217,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     print('Write transform to {0}'.format(outFile))
     align.write_transform(trans, labelFile, reference, N_trans, deltaMag=delta_m,
                           restrict=restrict, weights=weights, outFile=outFile)
-    
+
     # Test transform: apply to label.dat, make diagnostic plots
     label_trans2 = align.transform_from_file(label, outFile)
 
@@ -241,7 +235,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                           label_trans2[idx_label], xlim=xlim, ylim=ylim)
 
     # Histogram of difference in transformed and reference positions for
-    # matched stars 
+    # matched stars
     plots.pos_diff_hist(starlist[idx_starlist], label_trans2[idx_label])
 
     # Histogram of difference in transformed and reference positions for
@@ -250,7 +244,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
     plots.pos_diff_err_hist(starlist[idx_starlist], label_trans2[idx_label],
                             trans, errs='both', bin_width=0.5, xlim=[-6,6])
 
-    # Histogram of difference in the magnitudes for the matched stars    
+    # Histogram of difference in the magnitudes for the matched stars
     plots.mag_diff_hist(starlist[idx_starlist], label_trans2[idx_label])
 
     # Quiver plot showing difference between transformed and reference
@@ -260,7 +254,7 @@ def align_Arches(labelFile, reference, transModel=transforms.four_paramNW, order
                           ylim=ylim, outlier_reject=None)
 
     print('Done with plots')
-    print('Done with plots')   
+    print('Done with plots')
 
     return
 
@@ -274,7 +268,7 @@ def align_gc(starFile, refFile, transModel=transforms.PolyTransform, order=1, N_
     Parameters:
     -----------
     starFile: string
-        Starlist we would like to transform into the reference frame, eg:label.dat 
+        Starlist we would like to transform into the reference frame, eg:label.dat
 
     refFile: string
         Starlist that defines the reference frame.
@@ -299,7 +293,7 @@ def align_gc(starFile, refFile, transModel=transforms.PolyTransform, order=1, N_
 
     weights: string (default='both')
         if weights=='both', we use both position error in transformed starlist and
-           reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
+        reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
         if weights=='starlist', we only use postion error in transformed starlist.
         if weights=='reference', we only use position error in reference starlist.
         if weights==None, we don't use weights.
@@ -312,7 +306,7 @@ def align_gc(starFile, refFile, transModel=transforms.PolyTransform, order=1, N_
     """
 
     #----------------------------------------------
-    # Read in starlist and reference 
+    # Read in starlist and reference
     #----------------------------------------------
     # starlist has postion &  postion err
     ref = starlists.read_starlist(refFile, error=True)
@@ -400,7 +394,7 @@ def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2,
     Parameters:
     -----------
     starlist: Table
-        Starlist we would like to transform into the reference frame, eg:label.dat 
+        Starlist we would like to transform into the reference frame, eg:label.dat
 
     ref: Table
         Starlist that defines the reference frame.
@@ -425,7 +419,7 @@ def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2,
 
     weights: string (default='both')
         if weights=='both', we use both position error in transformed starlist and
-           reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
+        reference starlist as uncertanty. And weights is the reciprocal of this uncertanty.
         if weights=='starlist', we only use postion error in transformed starlist.
         if weights=='reference', we only use position error in reference starlist.
         if weights==None, we don't use weights.
@@ -433,7 +427,7 @@ def align_starlists(starlist, ref, transModel=transforms.PolyTransform, order=2,
     outFile: string('outTrans.txt')
         the name of the output transformation file
     """
-    
+
     #--------------------------------------------------
     # Initial transformation with brightest briteN stars
     #--------------------------------------------------
