@@ -658,10 +658,10 @@ class StarTable(Table):
         # This is slow; but robust.
         if show_progress:
             for ss in tqdm(fit_star_idxs):
-                self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, bootstrap=bootstrap,
-                                           use_scipy=use_scipy, absolute_sigma=absolute_sigma,
-                                           fixed_t0=fixed_t0, default_motion_model=default_motion_model,
-                                           mask_val=mask_val, mask_lists=mask_lists)
+                self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, 
+                                           use_scipy=use_scipy, absolute_sigma=absolute_sigma, bootstrap=bootstrap,
+                                           fixed_t0=fixed_t0, 
+                                           mask_val=mask_val, mask_lists=mask_lists, default_motion_model=default_motion_model)
         else:
             for ss in fit_star_idxs:
                 self.fit_velocity_for_star(ss, motion_model_dict, weighting=weighting, bootstrap=bootstrap,

@@ -1122,7 +1122,8 @@ def plot_mean_residuals_by_epoch(tab, motion_model_dict={}):
     
     return
 
-def plot_quiver_residuals_all_epochs(tab, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None):
+def plot_quiver_residuals_all_epochs(tab, motion_model_dict={}, unit='arcsec', scale=None, plotlim=None,
+                                     savefig=False):
 
     # Keep track of the residuals for averaging.
     dr_good = np.zeros(len(tab), dtype=float)
@@ -1146,6 +1147,9 @@ def plot_quiver_residuals_all_epochs(tab, motion_model_dict={}, unit='arcsec', s
                                        good_idx, ref_idx,
                                        'Epoch {0:d}'.format(ee), 
                                        unit=unit, scale=scale, plotlim=plotlim)
+
+        if savefig:
+            plt.savefig(f'quiver_residuals_ep{ee:02d}.png')
 
         # Building up average dr for a set of stars.
         dr = np.hypot(dx, dy)
