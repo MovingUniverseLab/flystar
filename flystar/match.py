@@ -327,7 +327,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, verbose=True):
             x2_nn = x2[i2_tmp]
             y2_nn = y2[i2_tmp]
             m2_nn = m2[i2_tmp]
-            dr = np.abs(x1_nn - x2_nn, y1_nn - y2_nn)
+            dr = np.hypot(x1_nn - x2_nn, y1_nn - y2_nn)
             dm = np.abs(m1_nn - m2_nn)
 
             if dm_tol != None:

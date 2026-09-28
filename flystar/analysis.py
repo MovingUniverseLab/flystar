@@ -449,7 +449,8 @@ def startable_subset(tab, idx, mag_trans=True, mag_trans_orig=False):
     new_tab.remove_column('n_detect')
     for col in ['x','y','m','name_in_list','xe','ye','me','t','x_orig','y_orig','m_orig',
                 'xe_orig','ye_orig','me_orig','used_in_trans','xe_boot','ye_boot','me_boot']:
-        new_tab[col] = tab[col][:,idx]
+        if col in tab.columns:
+            new_tab[col] = tab[col][:,idx]
 
     new_tab.combine_lists('m', weights_col='me', sigma=3, ismag=True)
 
