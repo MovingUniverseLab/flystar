@@ -1,8 +1,4 @@
-from flystar import transforms
-from flystar import match
-from flystar import align
-from flystar import starlists
-from flystar import plots
+from . import transforms, match, align, starlists, plots
 import numpy as np
 import copy
 import pdb

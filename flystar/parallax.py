@@ -36,7 +36,7 @@ def parallax_in_direction(RA, Dec, mjd, obsLocation='earth', PA=0):
     #print('parallax_in_direction: len(t) = ', len(mjd))
 
     # Munge inputs into astropy format.
-    times = Time(mjd + 2400000.5, format='jd', scale='tdb')
+    times = Time(mjd, format='mjd', scale='tdb')
     coord = SkyCoord(RA, Dec, unit=(units.deg, units.deg))
 
     direction = coord.cartesian.xyz.value
