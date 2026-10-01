@@ -6,6 +6,365 @@ This adds a prediction-only Keplerian model for Galactic Center stars orbiting S
 
 Orbital elements are not free parameters in this version. A separate, generic align option says which motion models are not refit. `Orbit` is the reason for that option. It is not hard-coded.
 
+## Comparison with the existing framework
+
+`Orbit` is another direct subclass of `MotionModel`. It does not change the base class. The differences are which attributes it fills in, and four edits to the shared selection and refit path, listed at the end of this section.
+
+### The base class today
+
+`MotionModel` is an abstract base class in `flystar/motion_model.py`. One instance is one functional form, not one star. Fit results are arguments and return values. They are not stored on the instance, apart from the `fixed_params_dict` that `fit` remembers so a later `model` call can reuse it (`motion_model.py:366-369`).
+
+Class attributes (`motion_model.py:138-152`):
+
+| Attribute | Lines | What it is |
+|---|---|---|
+| `name` | 138 | Public name. `motion_model_map` keys on the class `__name__` (`motion_model.py:2017-2018`), which matches `name` for every subclass. |
+| `fit_param_names` | 141 | Parameters `run_fit` solves for. Order is the x block, then the y block, then any term shared by both. |
+| `n_fit_params` | 142 | `len(fit_param_names)`. |
+| `n_params` | 143-144 | `int((n_fit_params + 1) / 2)`. Epochs required to fit, and the sort key for complexity. |
+| `fixed_param_names` | 148 | Every non-fitted name. Subclasses set this to the required list plus the optional keys. |
+| `required_fixed_param_names` | 149 | Must be resolved or `fit_motion_models` raises `KeyError`. |
+| `optional_fixed_params` | 150 | `{name: default}`. A missing value falls back to the default inside `fit_motion_models` and `infer_positions`. |
+| `fixed_meta_data` | 152 | Declared on the base class and unused. `Parallax` does not set it. |
+
+Methods:
+
+| Method | Lines | Who overrides it |
+|---|---|---|
+| `model_fit` | 192-193 | Each subclass. Nothing outside the class calls it. |
+| `model` | 195-240 | Every subclass. This is prediction and error propagation. `t` goes through `broadcast_times` (`motion_model.py:52`). With `fit_param_errs is None` it returns `(x, y)`. With errors it returns `(x, y, xe, ye)`. |
+| `run_fit` | 242-258 | Every subclass. The base raises `NotImplementedError`. Batch in, batch out: `(params, param_errs, chi2x, chi2y)`. |
+| `fit` | 260-422 | Not overridden. Builds `valid` from finite `x` and `y`, calls `run_fit`, and bootstraps by calling `run_fit` again. If `t0` is required and missing, it fills the weighted-mean epoch (`motion_model.py:364-365`). |
+| `calc_chi2` | 446-461 | Not overridden. Calls `model` and sums squared residuals. |
+| `_check_param_dimensions` | 167-190 | Not overridden. A fixed-parameter array must be a scalar or length `N_stars`. |
+
+There is no separate `predict` method and no separate error-propagation method. Both are `model`.
+
+How a model is selected and used:
+
+1. `motion_model_map()` (`motion_model.py:2009-2022`) discovers direct subclasses. `organize_motion_models` (`motion_model.py:2024`) sorts the caller's list by `n_params` and always adds `Empty` and `Fixed`.
+2. `StarTable.fit_motion_models` (`startables.py:856`) assigns `motion_model_used`. With a `motion_model_input` column, the request stands when `n_fit >= n_params`; otherwise `np.digitize` demotes the star (`startables.py:1242-1255`). It then calls `run_fit` through `MotionModel.fit` for each used model.
+3. `StarTable.infer_positions` (`startables.py:1683`) calls `determine_motion_models` with `motion_models=None` (`startables.py:1739-1741`), groups rows by the chosen name, and calls `model` (`startables.py:1830-1836`). It honors `motion_model_input` when that model can be evaluated. It does not read `motion_model_used`.
+4. `MosaicToRef` (`align.py:2650`) subclasses `MosaicSelfRef`. Its constructor takes `motion_models=['Empty', 'Fixed']` and `fixed_params_dict=None` (`align.py:2704-2705`). `update_ref_table_aggregates` (`align.py:1818`) sends stars with at most one valid epoch to `combine_lists_xym` and the rest to `fit_motion_models` (`align.py:1926-1942`). `get_ref_list_from_table` (`align.py:2132`) propagates with `infer_positions(epoch, fixed_params_dict=self.fixed_params_dict)` (`align.py:2194-2196`). The fitting list and the propagation choice are separate: propagation is not restricted to `self.motion_models` (`align.py:2190-2193`).
+
+### Subclasses side by side
+
+`n_params` is `int((n_fit_params + 1) / 2)` for every row, including the proposed `Orbit`.
+
+| | Empty | Fixed | Linear | Acceleration | Parallax | Orbit (proposed) |
+|---|---|---|---|---|---|---|
+| Fit parameters | none | `x0`, `y0` | `x0`, `vx`, `y0`, `vy` | `x0`, `vx0`, `ax`, `y0`, `vy0`, `ay` | `x0`, `vx`, `y0`, `vy`, `pi` | none |
+| Required fixed | none | none | `t0` | `t0` | `t0`, `ra`, `dec` | `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, `orb_omega` |
+| Optional fixed | none | none | none | none | `pa=0`, `obsLocation='earth'` | `mass=4.0e6` Msun, `dist=8.0e3` pc, `x_bh=0`, `y_bh=0`, `vx_bh=0`, `vy_bh=0`, `t_bh=2000`, `x_sign=-1`, `y_sign=1`, `pos_err=0`, `gr_orbit=False`, `rel_redshift=False` |
+| Catalog columns | none | `x0`, `y0` and `_err` | those plus `vx`, `vy` and `_err`, and `t0` | those plus `vx0`, `ax`, `vy0`, `ay` and `_err`, and `t0` | Linear's columns plus `pi`, `pi_err`, `ra`, `dec`, `pa`, `obsLocation` | the six `orb_*` elements. `mass`, `dist`, and the black-hole offsets land in `meta` when uniform, otherwise in columns. The reader also stores `orb_A` and `orb_search`, which are not model parameters |
+| Meaning of `t0` | none | none | Epoch of `x0`, `y0`, `vx`, `vy`. `fit` fills the weighted-mean epoch when `t0` is missing (`motion_model.py:364-365`) | Epoch of `x0`, `y0`, `vx0`, `vy0`, `ax`, `ay`. Same default fill | Same epoch as `Linear`, plus the epoch subtracted before the parallax vector | `orb_t0` is periapse time. It is a different column from stellar `t0`. `t_bh` is the epoch of the black-hole offset |
+| `n_params` and demotion | `0`. Already the floor | `1`. One epoch keeps it; zero epochs become `Empty` | `2`. Fewer than two distinct epochs demotes to `Fixed` or `Empty` (`startables.py:1245-1255`) | `3`. Shares that number with `Parallax`, so both in one list without `motion_model_input` raises (`startables.py:1082-1086`) | `3`. Same collision with `Acceleration` | `0`, same as `Empty`. Both in one list without `motion_model_input` raises. With the column, `n_fit < 0` never happens, so an unfrozen `Orbit` star is not demoted for lack of epochs |
+| Fittable | `run_fit` returns the fill value. Nothing is solved | Closed-form weighted mean | Closed-form 2x2 normal equations | Closed-form quadratic | Closed-form joint 5-parameter fit. `pi` is shared by x and y | `run_fit` returns arrays with shape `(n_stars, 0)`, like `Empty`. Elements are not solved |
+| Prediction | NaN at every time (`motion_model.py:517-518`) | `x0`, `y0`, constant in time (`motion_model.py:602`) | `x0 + vx*(t - t0)` (`motion_model.py:791`, `854-855`) | `x0 + vx0*dt + 0.5*ax*dt**2` (`motion_model.py:1073`) | `x0 + vx*dt + pi*pvec_x`, and the same in y (`motion_model.py:1408-1409`) | `kep2xyz` east/north, then `x = x_bh + vx_bh*(t - t_bh) + x_sign*r_east` and the same in y with `y_sign` |
+| Error propagation | `xe = ye = inf` when errors are requested | `x0_err`, `y0_err` broadcast across time (`motion_model.py:659-660`) | `hypot(x0_err, vx_err*dt)` (`motion_model.py:867-868`) | `sqrt(x0_err**2 + (vx0_err*dt)**2 + (0.5*ax_err*dt**2)**2)` (`motion_model.py:1132-1133`) | That linear sum plus `(pi_err * pvec)**2` (`motion_model.py:1510-1511`) | `xe = ye = pos_err` (default 0). Element uncertainties are not propagated. `orbits.dat` has none |
+| `fixed_motion_models` / `fix_motion` | Does not exist yet. After the change, a listed model or a `True` `fix_motion` row keeps its input columns and is not demoted. Unlisted stars are unchanged | same rule | same rule. This is how one `Linear` star stays frozen while another is refit | same rule | same rule | same rule. The recommended align passes `fixed_motion_models=['Orbit']`. An unfrozen `Orbit` star keeps its elements (they are fixed parameters) and loses `x0` and `vx` to the fit-parameter reset (`startables.py:1450-1458`) |
+
+### Class skeletons
+
+`Parallax` as it exists, cut down to the declarations and the real signatures. The body of `model` is the formula at `motion_model.py:1408-1409` and `1510-1511`. `run_fit` is the batched solve at `motion_model.py:1521`.
+
+```python
+import numpy as np
+
+
+class Parallax(MotionModel):
+    """Linear proper motion plus parallax.
+
+    RA and Dec are J2000 degrees. ``pa`` is the counterclockwise offset of
+    the image y-axis from north, in degrees.
+    """
+
+    name = "Parallax"
+    fit_param_names = ['x0', 'vx', 'y0', 'vy', 'pi']
+    required_fixed_param_names = ['t0', 'ra', 'dec']
+    optional_fixed_params = {'pa': 0., 'obsLocation': 'earth'}
+    fixed_param_names = (
+        required_fixed_param_names + list(optional_fixed_params.keys())
+    )
+    n_fit_params = len(fit_param_names)
+    n_params = int((n_fit_params + 1) / 2)  # 3
+
+    def model(self, t, fit_params, fit_param_errs=None,
+              fixed_params_dict=None):
+        """Predict positions, and uncertainties if errors are given.
+
+        Parameters
+        ----------
+        t : scalar or array-like
+            Shared time grid or per-star times. See ``broadcast_times``.
+        fit_params : array-like, shape (5,) or (n_stars, 5)
+            ``x0``, ``vx``, ``y0``, ``vy``, ``pi``.
+        fit_param_errs : array-like, optional
+            Same shape as ``fit_params``. Omit to skip uncertainties.
+        fixed_params_dict : dict, optional
+            Required keys ``t0``, ``ra``, ``dec``. Optional ``pa`` and
+            ``obsLocation``.
+
+        Returns
+        -------
+        x, y : ndarray
+            Predicted positions.
+        xe, ye : ndarray
+            Returned only when ``fit_param_errs`` is given.
+        """
+        # x = x0 + vx * (t - t0) + pi * pvec_x
+        # y = y0 + vy * (t - t0) + pi * pvec_y
+
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None,
+                weighting='var', absolute_sigma=True, fill_value=np.nan,
+                verbose=True):
+        """Closed-form joint fit of the five parameters.
+
+        Parameters
+        ----------
+        t, x, y, xe, ye : array-like, shape (n_stars, n_epochs)
+            Measurements. Padding epochs are ignored via ``valid``.
+        valid : ndarray of bool, shape (n_stars, n_epochs)
+            Epochs that enter the fit.
+        fixed_params_dict : dict, optional
+            Must contain ``t0``, ``ra``, and ``dec``.
+        weighting : {'var', 'std'}, optional
+            ``'var'`` uses ``1/sigma**2``. ``'std'`` uses ``1/sigma``.
+        absolute_sigma : bool, optional
+            When False, rescale parameter errors by the reduced chi2.
+        fill_value : float, optional
+            Parameter value for a star with too few epochs.
+        verbose : bool, optional
+            Warn when a star cannot be fit.
+
+        Returns
+        -------
+        params, param_errs : ndarray, shape (n_stars, 5)
+            ``[x0, vx, y0, vy, pi]`` and their uncertainties.
+        chi2x, chi2y : ndarray, shape (n_stars,)
+            Chi-squared in each coordinate.
+        """
+```
+
+`Orbit` as proposed. Same two methods, same signatures. No new method on the base class.
+
+```python
+import numpy as np
+
+
+class Orbit(MotionModel):
+    """Prediction-only Keplerian orbit about Sgr A*.
+
+    Elements are fixed. ``mass`` and ``dist`` default to the pair that
+    reproduces the ``A`` column of ``orbits.dat`` v2.0.2.
+    """
+
+    name = "Orbit"
+    fit_param_names = []
+    required_fixed_param_names = [
+        'orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega',
+    ]
+    optional_fixed_params = {
+        'mass': 4.0e6,
+        'dist': 8.0e3,
+        'x_bh': 0.0,
+        'y_bh': 0.0,
+        'vx_bh': 0.0,
+        'vy_bh': 0.0,
+        't_bh': 2000.0,
+        'x_sign': -1.0,
+        'y_sign': 1.0,
+        'pos_err': 0.0,
+        'gr_orbit': False,
+        'rel_redshift': False,
+    }
+    fixed_param_names = (
+        required_fixed_param_names + list(optional_fixed_params.keys())
+    )
+    n_fit_params = len(fit_param_names)
+    n_params = int((n_fit_params + 1) / 2)  # 0, same slot as Empty
+
+    def model(self, t, fit_params, fit_param_errs=None,
+              fixed_params_dict=None):
+        """Predict the star relative to the black-hole offset.
+
+        Parameters
+        ----------
+        t : scalar or array-like
+            Decimal years. Shared grid or per-star times. See
+            ``broadcast_times``.
+        fit_params : array-like, shape (0,) or (n_stars, 0)
+            No free parameters. Accepted so the call matches ``model``.
+        fit_param_errs : array-like, optional
+            Ignored. Position errors are ``pos_err``, not a propagation.
+        fixed_params_dict : dict, optional
+            The six elements are required. ``mass``, ``dist``, and the
+            black-hole offsets fall back to ``optional_fixed_params``.
+
+        Returns
+        -------
+        x, y : ndarray
+            FlyStar frame. ``+x`` is west, ``+y`` is north.
+        xe, ye : ndarray
+            Returned only when ``fit_param_errs`` is given. Both equal
+            ``pos_err``.
+        """
+        # r_east, r_north, _ = kep2xyz(...)
+        # x = x_bh + vx_bh * (t - t_bh) + x_sign * r_east
+        # y = y_bh + vy_bh * (t - t_bh) + y_sign * r_north
+
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None,
+                weighting='var', absolute_sigma=True, fill_value=np.nan,
+                verbose=True):
+        """No-op. Elements are not fit parameters.
+
+        Parameters
+        ----------
+        t, x, y, xe, ye : array-like, shape (n_stars, n_epochs)
+            Accepted and unused.
+        valid : ndarray of bool, shape (n_stars, n_epochs)
+            Accepted and unused.
+        fixed_params_dict : dict, optional
+            Accepted and unused. Elements stay where the caller put them.
+        weighting, absolute_sigma, fill_value, verbose
+            Accepted so the signature matches ``MotionModel.run_fit``.
+
+        Returns
+        -------
+        params, param_errs : ndarray, shape (n_stars, 0)
+            Empty. Nothing was solved.
+        chi2x, chi2y : ndarray, shape (n_stars,)
+            NaN.
+        """
+```
+
+### Changes to shared machinery
+
+`MotionModel` itself is not edited. `model`, `fit`, `run_fit`, and `calc_chi2` keep the signatures above. `Orbit` is picked up by `motion_model_map` because it is a direct subclass. The longest existing name is `Acceleration` (12 characters), and `Orbit` is shorter, so `_MOTION_MODEL_NAME_WIDTH` in `startables.py:17-18` does not change.
+
+1. **`determine_motion_models` treats optional parameters as optional.** Today `fixed_param_names` includes the optional keys, and both loops require every one of those names to be present. `infer_positions` already falls back to the class default after selection (`startables.py:1806-1818`). The gate runs first, so the default is never reached when the name is absent. The explicit `motion_model_input` loop also skips `table.meta`.
+
+   Candidate loop, before (`motion_model.py:1824-1833`):
+
+```python
+required_columns = mm.fit_param_names + mm.fixed_param_names
+if all((col in startable.colnames) or (col in fixed_params_dict)
+       or (col in meta_keys) for col in required_columns):
+    motion_models_possible.append(...)
+```
+
+   Candidate loop, after:
+
+```python
+required_columns = mm.fit_param_names + mm.required_fixed_param_names
+if all((col in startable.colnames) or (col in fixed_params_dict)
+       or (col in meta_keys) for col in required_columns):
+    # A present optional value that is non-finite still rejects the model.
+    # A missing optional value does not. model() uses the class default.
+    motion_models_possible.append(...)
+```
+
+   Explicit request, before (`motion_model.py:1908-1920`):
+
+```python
+for col in mm.fit_param_names + mm.fixed_param_names:
+    if col in startable.colnames:
+        usable &= np.isfinite(startable[col][rows])  # numeric columns
+    elif col in fixed_params_dict:
+        ...
+    else:
+        usable[:] = False
+        break
+```
+
+   Explicit request, after:
+
+```python
+for col in mm.fit_param_names + mm.required_fixed_param_names:
+    if col in startable.colnames:
+        usable &= np.isfinite(...)
+    elif col in fixed_params_dict:
+        ...
+    elif col in startable.meta:
+        ...
+    else:
+        usable[:] = False
+        break
+for col, default in mm.optional_fixed_params.items():
+    # Absent: leave usable alone. Present and non-finite: usable = False.
+    ...
+```
+
+   Existing models. `Empty`, `Fixed`, `Linear`, and `Acceleration` have `optional_fixed_params = {}`, so both loops see the same names as today. `Parallax` changes only for a star that is missing `pa` or `obsLocation`. Today that star cannot be selected. After the change it can, with `pa=0` and `obsLocation='earth'`. A `Parallax` star that already carries those values is unchanged. A non-finite `pa` still rejects `Parallax`.
+
+2. **`fit_motion_models` grows an optional argument.** The default is no freeze.
+
+   Before (`startables.py:856`):
+
+```python
+def fit_motion_models(self, motion_models=None, fixed_params_dict=None, ...):
+```
+
+   After:
+
+```python
+def fit_motion_models(self, motion_models=None, fixed_params_dict=None,
+                      fixed_motion_models=None, ...):
+    # frozen = motion_model_input in fixed_motion_models, or fix_motion
+    # Drop frozen rows from select_stars before demotion (line 1242)
+    # and before the fit-parameter reset (line 1453).
+```
+
+   Existing models. A call that omits `fixed_motion_models` and has no `fix_motion` column takes the same path as today, including demotion and the reset of fit-parameter columns the used model does not own. A caller who passes `fixed_motion_models=['Linear']`, or sets `fix_motion` on one row, freezes those stars and refits the others. That is new behavior only for the rows the caller marked.
+
+3. **`update_ref_table_aggregates` unions the same mask into `keep_orig`.** This is the align path. Stars with one valid epoch never reach `fit_motion_models`; they go through `combine_lists_xym` (`align.py:1909`, `1926-1937`). The mask has to be applied before that split.
+
+   Before (`align.py:1852-1868`):
+
+```python
+if (keep_orig is not None) and (np.count_nonzero(keep_orig) > 0):
+    vals_orig = {...}          # save m0 and motion columns
+    fit_star_idxs = ~keep_orig
+else:
+    fit_star_idxs = None
+```
+
+   After:
+
+```python
+frozen = _frozen_motion_mask(self.ref_table, self.fixed_motion_models)
+if frozen.any():
+    keep_orig = frozen if keep_orig is None else (keep_orig | frozen)
+# then the existing save / fit_star_idxs / restore, unchanged
+```
+
+   Existing models. With no frozen rows, `keep_orig` is the `update_ref_orig` mask from section 1.6 and the function behaves as it does now. Frozen rows of any model, including `Linear` and `Parallax`, are saved and restored and are absent from both `simple_idxs` and `complex_idxs`, so they are not demoted.
+
+4. **`MosaicToRef.__init__` stores the list.** `MosaicSelfRef.__init__` sets `self.fixed_motion_models` to an empty collection so the inherited aggregate method can read it.
+
+   Before (`align.py:2704-2705`):
+
+```python
+motion_models=['Empty', 'Fixed'],
+fixed_params_dict=None,
+```
+
+   After:
+
+```python
+motion_models=['Empty', 'Fixed'],
+fixed_params_dict=None,
+fixed_motion_models=None,   # None means freeze nobody
+```
+
+   Existing models. Callers that do not pass the new argument get today's refit. Passing `['Orbit']` freezes only stars whose `motion_model_input` is `Orbit`.
+
+5. **New columns and metadata keys.** The reader writes `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, `orb_omega`, `orb_A`, and `orb_search`. A fit that uses an `Orbit` star writes uniform optional values such as `mass` and `dist` into `table.meta`, by the rule already in `fit_motion_models` (`startables.py:1422-1429`). The reset loop builds its column set from `fit_param_names` of every subclass (`startables.py:1450-1452`). `Orbit.fit_param_names` is empty, so that set does not grow and no existing column starts being cleared because `Orbit` exists.
+
+   Existing models. Their columns and their `meta` keys are untouched. The one new effect is on a star whose `motion_model_used` becomes `Orbit` and that is not frozen: `x0`, `vx`, and the other fit-parameter columns it does not own are cleared by the reset that already does this for any model. Freezing the star skips that reset.
+
+6. **`n_params` uniqueness.** The assert at `startables.py:1082-1086` is unchanged. `Orbit.n_params` is 0, like `Empty`. A `motion_models` list that contains both, and a table with no `motion_model_input` column, raises. Lists that do not include `Orbit` are unaffected. Galactic Center catalogs set the column, which is the supported way to mix them.
+
 ## 1. Architecture on `mm_rework_lingfeng`
 
 The motion-model machinery on this branch is not the `mm_rework` API. Implementation follows the names below.
@@ -74,7 +433,7 @@ Two columns:
 
 There is no `default_motion_model`. `MosaicToRef.__init__` takes `motion_models=['Empty', 'Fixed']`. `organize_motion_models` sorts that list by `n_params`. New unmatched stars get `motion_models[-1].name` as `motion_model_input` inside `add_rows_for_new_stars`.
 
-`motion_model_input` / `motion_model_used` use a derived string width, `_MOTION_MODEL_NAME_WIDTH` in `startables.py`, not a hard-coded `U20`. Adding `Orbit` widens the column.
+`motion_model_input` / `motion_model_used` use a derived string width, `_MOTION_MODEL_NAME_WIDTH` in `startables.py`, not a hard-coded `U20`. The longest name on this branch is `Acceleration` (12 characters). `Orbit` is shorter, so the width does not change.
 
 ### 1.5 Prediction
 
