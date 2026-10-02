@@ -3,7 +3,8 @@ import numpy as np
 from abc import ABC
 from flystar import parallax
 from astropy.time import Time
-from scipy.optimize import OptimizeWarning
+from scipy.optimize import OptimizeWarning, least_squares
+from flystar import orbits as kepler
 
 
 def weight_from_sigma(sigma, valid=None):
@@ -287,11 +288,13 @@ class MotionModel(ABC):
             run_fit(), which does the actual (closed-form, vectorized)
             solve for the whole batch in one call.
 
-        Every concrete model's run_fit is closed-form: the single-star
-        case just wraps the star's data into a batch of one row (and, for
-        bootstrap, into a batch of `bootstrap` rows -- one resampled
-        subset/order of this star's epochs per row), so every case above
-        goes through the same vectorized, non-iterative solve.
+        Every concrete model's run_fit is closed-form, except Orbit, which
+        loops over stars inside run_fit and calls a nonlinear solver.
+        The single-star case wraps the star's data into a batch of one
+        row (and, for bootstrap, into a batch of `bootstrap` rows -- one
+        resampled subset/order of this star's epochs per row). Orbit may
+        append a diagnostics dict as a fifth return value. Callers that
+        unpack four names should slice ``result[:4]``.
 
         Parameters
         ----------
@@ -370,11 +373,14 @@ class MotionModel(ABC):
 
         n_obs = len(t)
         valid = np.ones((1, n_obs), dtype=bool)
-        params, param_errs, chi2_x, chi2_y = self.run_fit(
+        result = self.run_fit(
             t[np.newaxis, :], x[np.newaxis, :], y[np.newaxis, :], xe[np.newaxis, :], ye[np.newaxis, :], valid,
             fixed_params_dict=fixed_params_dict, weighting=weighting, absolute_sigma=absolute_sigma,
             fill_value=fill_value, verbose=verbose
         )
+        # A fifth value is optional. Existing models return four arrays.
+        params, param_errs, chi2_x, chi2_y = result[:4]
+        diagnostics = result[4] if len(result) > 4 else None
         params, param_errs, chi2_x, chi2_y = params[0], param_errs[0], chi2_x[0], chi2_y[0]
 
         # Bootstrap errors
@@ -400,11 +406,12 @@ class MotionModel(ABC):
             # all-True since every entry in a row is a real, if repeated,
             # epoch).
             valid_boot = np.ones_like(bdx_all, dtype=bool)
-            bb_params, bb_param_errs, _, _ = self.run_fit(
+            bb_result = self.run_fit(
                 t[bdx_all], x[bdx_all], y[bdx_all], xe[bdx_all], ye[bdx_all], valid_boot,
                 fixed_params_dict=fixed_params_dict, weighting=weighting, absolute_sigma=absolute_sigma,
                 fill_value=fill_value, verbose=verbose
             )
+            bb_params, bb_param_errs = bb_result[0], bb_result[1]
 
             # Save the errors from the bootstrap
             param_errs = np.std(bb_params, axis=0)
@@ -417,9 +424,19 @@ class MotionModel(ABC):
             warnings.resetwarnings()
 
         if return_chi2:
+            if diagnostics is not None:
+                # Drop the length-1 star axis so a per-star caller sees
+                # scalars and a (6, 6) covariance, not a batch of one.
+                squeezed = {}
+                for key, val in diagnostics.items():
+                    arr = np.asarray(val)
+                    if arr.shape[:1] == (1,):
+                        squeezed[key] = arr[0]
+                    else:
+                        squeezed[key] = arr
+                return params, param_errs, chi2_x, chi2_y, squeezed
             return params, param_errs, chi2_x, chi2_y
-        else:
-            return params, param_errs
+        return params, param_errs
 
 
     # def calc_chi2(self, dt, x, y, x_wt, y_wt, popt_x, popt_y, reduced=False, parallax=False):
@@ -1821,18 +1838,37 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
 
     motion_models_possible = []
     for mm in motion_models:
-        required_columns = mm.fit_param_names + mm.fixed_param_names
-        req_col_in_table = [col for col in required_columns if (col in startable.colnames)]
-        req_col_in_dict = [col for col in required_columns if (col in fixed_params_dict.keys())]
-        req_col_in_meta = [col for col in required_columns
+        # Optional fixed parameters are not required to be present. A missing
+        # one falls through to the class default after this gate. A present
+        # one that is non-finite still rejects the model, same as a required
+        # parameter. Orbit's mass and dist, and Parallax's pa, use this.
+        required_columns = list(mm.fit_param_names) + list(mm.required_fixed_param_names)
+        optional_names = list(mm.optional_fixed_params)
+
+        def _present(col):
+            return ((col in startable.colnames)
+                    or (col in fixed_params_dict)
+                    or (col in meta_keys))
+
+        if not all(_present(col) for col in required_columns):
+            continue
+
+        check_columns = list(required_columns)
+        for col in optional_names:
+            if _present(col):
+                check_columns.append(col)
+
+        req_col_in_table = [col for col in check_columns if (col in startable.colnames)]
+        req_col_in_dict = [col for col in check_columns
+                           if (col not in startable.colnames)
+                           and (col in fixed_params_dict.keys())]
+        req_col_in_meta = [col for col in check_columns
                            if (col not in startable.colnames)
                            and (col not in fixed_params_dict.keys())
                            and (col in meta_keys)]
         req_cols = startable[req_col_in_table]
-        if all((col in startable.colnames) or (col in fixed_params_dict.keys())
-               or (col in meta_keys) for col in required_columns):
-            motion_models_possible.append(
-                (mm, req_col_in_table, req_cols, req_col_in_dict, req_col_in_meta))
+        motion_models_possible.append(
+            (mm, req_col_in_table, req_cols, req_col_in_dict, req_col_in_meta))
 
     # Vectorized replacement for the old per-star Python loop (which called
     # np.isfinite/np.issubdtype once per star per required column -- millions
@@ -1905,7 +1941,10 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
                 continue
 
             usable = np.ones(rows.size, dtype=bool)
-            for col in mm.fit_param_names + mm.fixed_param_names:
+            # Required names, including fit parameters. Optional names are
+            # a second loop: missing is fine, present and non-finite is not.
+            # Meta is consulted here, as the candidate loop already does.
+            for col in list(mm.fit_param_names) + list(mm.required_fixed_param_names):
                 if col in startable.colnames:
                     col_data = np.asarray(startable[col][rows])
                     if np.issubdtype(col_data.dtype, np.number):
@@ -1914,10 +1953,28 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
                     value = np.asarray(fixed_params_dict[col])
                     if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
                         usable[:] = False
+                elif col in meta_keys:
+                    value = np.asarray(startable.meta[col])
+                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+                        usable[:] = False
                 else:
                     # The requested model needs something this table lacks.
                     usable[:] = False
                     break
+            for col in mm.optional_fixed_params:
+                if col in startable.colnames:
+                    col_data = np.asarray(startable[col][rows])
+                    if np.issubdtype(col_data.dtype, np.number):
+                        usable &= np.isfinite(col_data)
+                elif col in fixed_params_dict:
+                    value = np.asarray(fixed_params_dict[col])
+                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+                        usable[:] = False
+                elif col in meta_keys:
+                    value = np.asarray(startable.meta[col])
+                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+                        usable[:] = False
+                # Absent optional parameter: leave usable alone.
 
             honored = rows[usable]
             motion_model_used[honored] = mm.name
@@ -2084,3 +2141,866 @@ def organize_motion_models(motion_models):
     # Sort by increasing n_params
     motion_model_classes = sorted(motion_model_classes, key=lambda mm: mm.n_params)
     return motion_model_classes
+
+# Orbit and the freeze mask. Newtonian sky positions come from
+# flystar.orbits. Fixed versus fit is not a second class.
+
+_FIT_MOTION_VALUES = ('fixed', 'fit')
+
+
+def frozen_motion_mask(table, fixed_motion_models=None):
+    """Stars that must not be refit.
+
+    Parameters
+    ----------
+    table : astropy.table.Table
+        Catalog. Reads ``motion_model_input`` and, when present,
+        ``fit_motion``.
+    fixed_motion_models : sequence of str or None, optional
+        Model names to freeze. ``None`` or empty freezes nobody by
+        itself, by default None.
+
+    Returns
+    -------
+    frozen : ndarray of bool, shape (n_stars,)
+        True where the star is held fixed.
+
+    Notes
+    -----
+    A non-blank ``fit_motion`` cell overrides the list. A missing
+    column, or a masked or blank cell, follows the list. Any other
+    non-blank string raises ``ValueError``. The accepted spellings
+    are exactly ``'fixed'`` and ``'fit'``.
+    """
+    n_stars = len(table)
+    names = []
+    if fixed_motion_models:
+        names = [str(name) for name in fixed_motion_models]
+
+    frozen = np.zeros(n_stars, dtype=bool)
+    if names and ('motion_model_input' in table.colnames):
+        requested = np.asarray(table['motion_model_input']).astype(str)
+        frozen = np.isin(requested, names)
+
+    if 'fit_motion' not in table.colnames:
+        return frozen
+
+    column = table['fit_motion']
+    if hasattr(column, 'mask'):
+        masked = np.ma.getmaskarray(np.ma.asarray(column)).astype(bool)
+        if masked.shape != (n_stars,):
+            masked = np.zeros(n_stars, dtype=bool)
+    else:
+        masked = np.zeros(n_stars, dtype=bool)
+
+    text = []
+    for i in range(n_stars):
+        if masked[i]:
+            text.append('')
+            continue
+        value = column[i]
+        if value is None:
+            text.append('')
+            continue
+        if isinstance(value, (bytes, np.bytes_)):
+            value = value.decode('utf-8', 'replace')
+        # A float NaN is the masked-numeric case, not a mode string.
+        if isinstance(value, (float, np.floating)) and not np.isfinite(value):
+            text.append('')
+            continue
+        text.append(str(value).strip())
+    text = np.asarray(text, dtype=object)
+
+    bad = []
+    for i, cell in enumerate(text):
+        if cell == '':
+            continue
+        if cell not in _FIT_MOTION_VALUES:
+            bad.append(cell)
+            continue
+        frozen[i] = (cell == 'fixed')
+    if bad:
+        raise ValueError(
+            "fit_motion must be 'fixed', 'fit', or blank; "
+            f"got {sorted(set(bad))}."
+        )
+    return frozen
+
+
+def _angdiff(angle, reference):
+    """Signed difference ``angle - reference`` in (-180, 180].
+
+    Parameters
+    ----------
+    angle, reference : float
+        Angles in degrees.
+
+    Returns
+    -------
+    delta : float
+        ``angle`` minus ``reference``, wrapped into (-180, 180].
+    """
+    return (float(angle) - float(reference) + 180.0) % 360.0 - 180.0
+
+
+def _nearest_angle(angle, reference):
+    """Wrap ``angle`` onto the turn nearest ``reference``.
+
+    Parameters
+    ----------
+    angle, reference : float
+        Angles in degrees.
+
+    Returns
+    -------
+    wrapped : float
+        Equivalent angle closest to ``reference``.
+    """
+    return float(reference) + _angdiff(angle, reference)
+
+
+def _sky_xy(epochs, elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh):
+    """FlyStar-frame sky position of one star.
+
+    Parameters
+    ----------
+    epochs : ndarray, shape (n_epochs,)
+        Decimal years.
+    elements : array-like, shape (6,)
+        ``orb_P, orb_t0, orb_e, orb_i, orb_Omega, orb_omega``.
+    mass : float
+        Black-hole mass in solar masses.
+    dist : float
+        Distance in parsecs.
+    x_bh, y_bh : float
+        Black-hole offset in arcseconds at ``t_bh``. ``+x`` is west.
+    vx_bh, vy_bh : float
+        Black-hole proper motion in arcseconds per year.
+    t_bh : float
+        Epoch of the black-hole offset.
+
+    Returns
+    -------
+    x, y : ndarray, shape (n_epochs,)
+        ``x = -east``, ``y = +north``, in arcseconds.
+    """
+    r_au, _, _ = kepler.kep2xyz(
+        epochs,
+        elements[0], elements[1], elements[2],
+        elements[3], elements[4], elements[5],
+        mass=mass, dist=dist,
+    )
+    dt = np.asarray(epochs, dtype=float) - float(t_bh)
+    x = float(x_bh) + float(vx_bh) * dt - r_au[:, 0]
+    y = float(y_bh) + float(vy_bh) * dt + r_au[:, 1]
+    return x, y
+
+
+def _row_value(mapping, name, default, index, n_stars):
+    """One star's fixed parameter, from a scalar or a per-star array.
+
+    Parameters
+    ----------
+    mapping : dict or None
+        Fixed parameters for the batch.
+    name : str
+        Parameter name.
+    default : float
+        Value used when ``name`` is absent.
+    index : int
+        Star index inside the batch.
+    n_stars : int
+        Batch length. An array of this length is per-star.
+
+    Returns
+    -------
+    value : float
+        The scalar used for this star.
+    """
+    if mapping is None or name not in mapping:
+        return float(default)
+    value = np.asarray(mapping[name], dtype=float)
+    if value.ndim == 0 or value.size == 1:
+        return float(value.reshape(-1)[0])
+    if value.shape[0] == n_stars:
+        return float(value[index])
+    raise ValueError(
+        f"Fixed parameter {name} has shape {value.shape}, "
+        f"expected a scalar or length {n_stars}."
+    )
+
+
+def _cov_for_star(mapping, index, n_stars):
+    """One star's ``orb_cov``, or None if the caller did not pass it.
+
+    Parameters
+    ----------
+    mapping : dict or None
+        Fixed-parameter dict handed to ``model``.
+    index : int
+        Star index.
+    n_stars : int
+        Batch length.
+
+    Returns
+    -------
+    cov : ndarray, shape (6, 6), or None
+        None when ``orb_cov`` is not in ``mapping``.
+    """
+    if mapping is None or 'orb_cov' not in mapping:
+        return None
+    cov = np.asarray(mapping['orb_cov'], dtype=float)
+    if cov.shape == (6, 6):
+        return cov
+    if cov.ndim == 3 and cov.shape[1:] == (6, 6):
+        if cov.shape[0] == n_stars:
+            return cov[index]
+        if cov.shape[0] == 1:
+            return cov[0]
+    raise ValueError(
+        f"orb_cov has shape {cov.shape}; expected (6, 6) or (n_stars, 6, 6)."
+    )
+
+
+def _cov_state(cov):
+    """Classify a covariance as missing, finite, or unusable.
+
+    Parameters
+    ----------
+    cov : ndarray or None
+        One star's 6x6 covariance, or None.
+
+    Returns
+    -------
+    state : {'missing', 'finite', 'bad'}
+        All-NaN means the fitter never wrote this star (treat like a
+        missing column). Any other non-finite matrix is a failed or
+        singular fit.
+
+    Notes
+    -----
+    A frozen star on a table where some other star was fit still has
+    an ``orb_cov`` column, filled with NaN. That must not look like a
+    failed fit, which writes inf.
+    """
+    if cov is None or cov.shape != (6, 6):
+        return 'missing' if cov is None else 'bad'
+    if np.all(np.isnan(cov)):
+        return 'missing'
+    if np.all(np.isfinite(cov)):
+        return 'finite'
+    return 'bad'
+
+
+def _position_sigma(epochs, elements, cov, mass, dist, bh):
+    """Numerical Jacobian of (x, y) times ``cov``.
+
+    Parameters
+    ----------
+    epochs : ndarray, shape (n_epochs,)
+        Decimal years.
+    elements : ndarray, shape (6,)
+        Reported elements.
+    cov : ndarray, shape (6, 6)
+        Element covariance. Must be finite.
+    mass, dist : float
+        Black-hole mass and distance.
+    bh : tuple of float
+        ``(x_bh, y_bh, vx_bh, vy_bh, t_bh)``.
+
+    Returns
+    -------
+    xe, ye : ndarray, shape (n_epochs,)
+        One-sigma position errors in arcseconds.
+
+    Notes
+    -----
+    Central differences of the same ``kep2xyz`` path the prediction
+    uses. Diagonal element errors are not the input: the elements are
+    correlated, and ``Omega`` with ``omega`` is degenerate on the sky.
+    """
+    x_bh, y_bh, vx_bh, vy_bh, t_bh = bh
+    n_epochs = len(epochs)
+    jac_x = np.zeros((n_epochs, 6))
+    jac_y = np.zeros((n_epochs, 6))
+    # Relative step on the period, absolute steps on the other elements.
+    steps = np.array([
+        max(abs(float(elements[0])) * 1e-6, 1e-8),
+        1e-4,
+        1e-6,
+        1e-4,
+        1e-4,
+        1e-4,
+    ])
+    for j in range(6):
+        step = steps[j]
+        up = np.array(elements, dtype=float, copy=True)
+        dn = np.array(elements, dtype=float, copy=True)
+        up[j] += step
+        dn[j] -= step
+        # Keep the perturbed copy inside the domain kep2xyz accepts.
+        for trial in (up, dn):
+            trial[0] = max(trial[0], 1e-8)
+            trial[2] = min(max(trial[2], 0.0), 0.999999)
+        xu, yu = _sky_xy(epochs, up, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh)
+        xd, yd = _sky_xy(epochs, dn, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh)
+        jac_x[:, j] = (xu - xd) / (2.0 * step)
+        jac_y[:, j] = (yu - yd) / (2.0 * step)
+
+    xe2 = np.einsum('ta,ab,tb->t', jac_x, cov, jac_x)
+    ye2 = np.einsum('ta,ab,tb->t', jac_y, cov, jac_y)
+    xe = np.sqrt(np.maximum(xe2, 0.0))
+    ye = np.sqrt(np.maximum(ye2, 0.0))
+    return xe, ye
+
+
+def _elements_from_internal(internal, seed):
+    """Map the unconstrained solver vector onto catalog elements.
+
+    Parameters
+    ----------
+    internal : ndarray, shape (6,)
+        ``ln P``, ``delta t0``, ``h``, ``k``, inclination (deg),
+        ``Omega`` (deg, unbounded).
+    seed : ndarray, shape (6,)
+        Elements the fit started from. ``t0`` and the node are wrapped
+        toward this seed. The 180 degree twin is not applied here.
+
+    Returns
+    -------
+    elements : ndarray, shape (6,)
+        ``P, t0, e, i, Omega, omega``.
+    n_wrap : float
+        Integer number of periods removed from ``t0``. Used by the
+        covariance transform.
+
+    Notes
+    -----
+    ``e = h**2 + k**2`` and ``omega = atan2(k, h)`` in degrees.
+    ``t0`` is shifted by an integer number of periods so it lies
+    within half a period of the seed.
+    """
+    period = float(np.exp(internal[0]))
+    t0 = float(seed[1]) + float(internal[1])
+    n_wrap = float(np.round((t0 - float(seed[1])) / period))
+    t0 = t0 - n_wrap * period
+    ecc = float(internal[2]**2 + internal[3]**2)
+    omega = float(np.degrees(np.arctan2(internal[3], internal[2])))
+    incl = float(internal[4])
+    big_omega = _nearest_angle(internal[5], seed[4])
+    elements = np.array([period, t0, ecc, incl, big_omega, omega], dtype=float)
+    return elements, n_wrap
+
+
+def _choose_branch(elements, seed):
+    """Keep the ``(Omega, omega)`` branch closer to the seed.
+
+    Parameters
+    ----------
+    elements : ndarray, shape (6,)
+        Solved elements, before the twin comparison.
+    seed : ndarray, shape (6,)
+        Elements the solver was started from.
+
+    Returns
+    -------
+    elements : ndarray, shape (6,)
+        Copy. ``Omega`` and ``omega`` may each have 180 degrees added,
+        then wrapped to the turn nearest the seed. Inclination is not
+        flipped.
+
+    Notes
+    -----
+    Sky positions are unchanged under ``(Omega + 180, omega + 180)``
+    and the line-of-sight velocity flips. This fit has no radial
+    velocities, so both branches are acceptable. The one closer to the
+    catalog angles is kept.
+    """
+    out = np.array(elements, dtype=float, copy=True)
+    big_omega = out[4]
+    omega = out[5]
+    d_keep = _angdiff(big_omega, seed[4])**2 + _angdiff(omega, seed[5])**2
+    d_twin = (
+        _angdiff(big_omega + 180.0, seed[4])**2
+        + _angdiff(omega + 180.0, seed[5])**2
+    )
+    if d_twin < d_keep:
+        big_omega = big_omega + 180.0
+        omega = omega + 180.0
+    out[4] = _nearest_angle(big_omega, seed[4])
+    out[5] = _nearest_angle(omega, seed[5])
+    return out
+
+
+def _element_jacobian(internal, seed, n_wrap):
+    """Analytic ``d(reported elements) / d(internal parameters)``.
+
+    Parameters
+    ----------
+    internal : ndarray, shape (6,)
+        Solver vector at the accepted solution.
+    seed : ndarray, shape (6,)
+        Unused except to document the wrap. The wrap's derivative is
+        carried by ``n_wrap``.
+    n_wrap : float
+        Periods subtracted from ``t0``.
+
+    Returns
+    -------
+    deriv : ndarray, shape (6, 6)
+        Rows are ``P, t0, e, i, Omega, omega``. Columns are
+        ``ln P, delta t0, h, k, i, Omega``.
+
+    Notes
+    -----
+    Angle wrapping is locally the identity, so those derivatives are 1.
+    ``d(omega)/d(h, k)`` is the derivative of ``atan2`` in degrees.
+    """
+    del seed  # the wrap derivative is n_wrap, not a finite difference
+    period = float(np.exp(internal[0]))
+    h = float(internal[2])
+    k = float(internal[3])
+    ecc = h * h + k * k
+    deriv = np.zeros((6, 6), dtype=float)
+    deriv[0, 0] = period
+    deriv[1, 0] = -float(n_wrap) * period
+    deriv[1, 1] = 1.0
+    deriv[2, 2] = 2.0 * h
+    deriv[2, 3] = 2.0 * k
+    deriv[3, 4] = 1.0
+    deriv[4, 5] = 1.0
+    if ecc > 0.0:
+        rad2deg = 180.0 / np.pi
+        deriv[5, 2] = rad2deg * (-k / ecc)
+        deriv[5, 3] = rad2deg * (h / ecc)
+    return deriv
+
+
+def _solve_one_orbit(t, x, y, xe, ye, valid, seed, mass, dist, bh,
+                     weighting, absolute_sigma, verbose):
+    """Fit one star. On failure, return ``seed`` unchanged.
+
+    Parameters
+    ----------
+    t, x, y, xe, ye : ndarray, shape (n_epochs,)
+        One star's astrometry.
+    valid : ndarray of bool, shape (n_epochs,)
+        Epochs that enter the fit.
+    seed : ndarray, shape (6,)
+        Current elements. Copied before the solve.
+    mass, dist : float
+        Black-hole mass and distance.
+    bh : tuple of float
+        ``(x_bh, y_bh, vx_bh, vy_bh, t_bh)``.
+    weighting : {'var', 'std'}
+        Same meaning as ``Linear.run_fit``.
+    absolute_sigma : bool
+        When False, scale the covariance by the reduced chi-squared.
+    verbose : bool
+        Warn when the star is skipped or does not converge.
+
+    Returns
+    -------
+    elements : ndarray, shape (6,)
+        Solution, or the seed if the star was not solved.
+    errs : ndarray, shape (6,)
+        Square root of the covariance diagonal, or inf.
+    chi2x, chi2y : float
+        Weighted squared residuals in each coordinate.
+    converged : bool
+        True only when ``least_squares`` succeeded and the covariance
+        is the one belonging to that solution (it may still be
+        non-finite when there is no residual degree of freedom).
+    n_iter : int
+        Residual evaluations, or 0 if the solver was not called.
+    cov : ndarray, shape (6, 6)
+        Element covariance, or inf.
+
+    Notes
+    -----
+    Fewer than three distinct epochs, a non-finite seed, or a seed
+    with ``P <= 0`` or ``e`` outside ``[0, 1)`` does not call the
+    solver. A seed that cannot be integrated would otherwise be
+    replaced by a fill value on the way back into the table.
+    """
+    seed = np.array(seed, dtype=float, copy=True)
+    x_bh, y_bh, vx_bh, vy_bh, t_bh = bh
+    idx = np.flatnonzero(np.asarray(valid, dtype=bool))
+    inf6 = np.full(6, np.inf)
+    cov_bad = np.full((6, 6), np.inf)
+
+    def _chi2(elements):
+        if idx.size == 0:
+            return np.nan, np.nan
+        sigma_x, sigma_y = sigma_from_error(xe[idx], ye[idx], weighting=weighting)
+        wx = weight_from_sigma(sigma_x)
+        wy = weight_from_sigma(sigma_y)
+        try:
+            xs, ys = _sky_xy(
+                t[idx], elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh,
+            )
+        except ValueError:
+            return np.nan, np.nan
+        chi2x = float(np.sum(wx * (xs - x[idx])**2))
+        chi2y = float(np.sum(wy * (ys - y[idx])**2))
+        return chi2x, chi2y
+
+    def _fail(n_iter, warn_text):
+        if verbose and warn_text:
+            warnings.warn(warn_text, OptimizeWarning, stacklevel=3)
+        chi2x, chi2y = _chi2(seed)
+        # converged False even when the seed itself is the catalog orbit.
+        return seed, inf6, chi2x, chi2y, False, int(n_iter), cov_bad
+
+    if idx.size == 0:
+        return _fail(0, None)
+    n_fit = np.unique(np.asarray(t[idx], dtype=float)).size
+    usable_seed = (
+        np.all(np.isfinite(seed))
+        and seed[0] > 0.0
+        and 0.0 <= seed[2] < 1.0
+    )
+    if (not usable_seed) or n_fit < 3:
+        why = None
+        if verbose:
+            if not usable_seed:
+                why = "Orbit fit skipped: the seed elements cannot be integrated."
+            else:
+                why = (
+                    f"Orbit fit skipped: {n_fit} distinct epochs, need at least 3."
+                )
+        return _fail(0, why)
+
+    # Internal start. Inclination is clipped into the open interval the
+    # bounded solver accepts; the reported seed on failure is unclipped.
+    omega_rad = np.radians(seed[5])
+    sqrt_e = np.sqrt(seed[2])
+    internal0 = np.array([
+        np.log(seed[0]),
+        0.0,
+        sqrt_e * np.cos(omega_rad),
+        sqrt_e * np.sin(omega_rad),
+        np.clip(seed[3], 1e-6, 180.0 - 1e-6),
+        seed[4],
+    ], dtype=float)
+
+    sigma_x, sigma_y = sigma_from_error(xe[idx], ye[idx], weighting=weighting)
+    wx = weight_from_sigma(sigma_x)
+    wy = weight_from_sigma(sigma_y)
+
+    def residual(internal):
+        h = internal[2]
+        k = internal[3]
+        ecc = h * h + k * k
+        # Penalty keeps e < 1 without a hard bound on h and k.
+        if (not np.isfinite(ecc)) or ecc >= 1.0:
+            return np.full(2 * idx.size, 1.0e3 * (1.0 + max(ecc, 1.0)))
+        elements, _n_wrap = _elements_from_internal(internal, seed)
+        try:
+            xs, ys = _sky_xy(
+                t[idx], elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh,
+            )
+        except ValueError:
+            return np.full(2 * idx.size, 1.0e3)
+        rx = np.sqrt(wx) * (xs - x[idx])
+        ry = np.sqrt(wy) * (ys - y[idx])
+        return np.concatenate([rx, ry])
+
+    bounds_lo = np.array([-np.inf, -np.inf, -np.inf, -np.inf, 0.0, -np.inf])
+    bounds_hi = np.array([np.inf, np.inf, np.inf, np.inf, 180.0, np.inf])
+    result = least_squares(
+        residual,
+        internal0,
+        method='trf',
+        bounds=(bounds_lo, bounds_hi),
+        x_scale=np.array([1.0, 1.0, 0.1, 0.1, 10.0, 10.0]),
+        ftol=1e-12,
+        xtol=1e-12,
+        gtol=1e-12,
+        max_nfev=200,
+    )
+    n_iter = int(result.nfev)
+    if (not result.success) or (not np.all(np.isfinite(result.x))):
+        return _fail(n_iter, "Orbit fit did not converge; keeping the seed.")
+
+    elements, n_wrap = _elements_from_internal(result.x, seed)
+    elements = _choose_branch(elements, seed)
+    chi2x, chi2y = _chi2(elements)
+
+    # No residual degree of freedom: the elements may still move, but
+    # the covariance is defined to be non-finite. Four epochs is the
+    # threshold (2*4 - 6 = 2).
+    dof = 2 * int(n_fit) - 6
+    cov = cov_bad
+    errs = inf6
+    if dof > 0 and result.jac is not None:
+        jac = np.asarray(result.jac, dtype=float)
+        gram = jac.T @ jac
+        try:
+            cov_internal = np.linalg.inv(gram)
+        except np.linalg.LinAlgError:
+            cov_internal = None
+        if cov_internal is not None and np.all(np.isfinite(cov_internal)):
+            deriv = _element_jacobian(result.x, seed, n_wrap)
+            cov = deriv @ cov_internal @ deriv.T
+            cov = 0.5 * (cov + cov.T)
+            if not absolute_sigma:
+                chi2 = chi2x + chi2y
+                if np.isfinite(chi2) and chi2 >= 0.0:
+                    cov = cov * (chi2 / dof)
+            diag = np.diag(cov)
+            if np.all(np.isfinite(cov)) and np.all(diag > 0.0):
+                errs = np.sqrt(diag)
+            else:
+                cov = cov_bad
+                errs = inf6
+
+    return elements, errs, chi2x, chi2y, True, n_iter, cov
+
+
+class Orbit(MotionModel):
+    """Newtonian orbit. Fixed or fit is chosen per star, not here.
+
+    ``fixed_motion_models`` and the ``fit_motion`` column decide.
+    Both modes read ``orb_*``. A fit updates those columns in place.
+    A failed fit returns the values it was seeded with.
+
+    The sky frame is hardcoded: ``x = -east``, ``y = +north``.
+    ``mass`` and ``dist`` default to the pair that reproduces the
+    ``A`` column of ``orbits.dat`` v2.0.2.
+    """
+
+    name = "Orbit"
+    fit_param_names = [
+        'orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega',
+    ]
+    required_fixed_param_names = []
+    optional_fixed_params = {
+        'mass': 4.0e6,
+        'dist': 8.0e3,
+        'x_bh': 0.0,
+        'y_bh': 0.0,
+        'vx_bh': 0.0,
+        'vy_bh': 0.0,
+        't_bh': 2000.0,
+    }
+    fixed_param_names = (
+        required_fixed_param_names + list(optional_fixed_params.keys())
+    )
+    n_fit_params = len(fit_param_names)
+    n_params = int((n_fit_params + 1) / 2)  # 3; covariance needs 4 epochs
+    demote = False
+    prediction_columns = ['orb_cov']
+
+    def __init__(self):
+        """Build one Orbit model. No constructor arguments.
+
+        Returns
+        -------
+        None
+        """
+        super().__init__()
+        return None
+
+    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+        """Predict from the current ``orb_*`` elements.
+
+        Parameters
+        ----------
+        t : scalar or array-like
+            Decimal years. See ``broadcast_times``.
+        fit_params : array-like, shape (6,) or (n_stars, 6)
+            ``orb_P``, ``orb_t0``, ``orb_e``, ``orb_i``,
+            ``orb_Omega``, ``orb_omega``.
+        fit_param_errs : array-like, optional
+            Diagonal ``orb_*_err``. Position errors use ``orb_cov``
+            when that covariance is finite, not these diagonals.
+            By default None.
+        fixed_params_dict : dict, optional
+            ``mass``, ``dist``, and the black-hole offsets.
+            ``orb_cov`` is passed here when the column exists.
+            ``mass`` and ``dist`` fall back to the defaults.
+            By default None.
+
+        Returns
+        -------
+        x, y : ndarray
+            FlyStar frame. ``x = -east``, ``y = +north``.
+        xe, ye : ndarray
+            Returned only when ``fit_param_errs`` is given. ``0`` when
+            no fit was run. Jacobian times ``orb_cov`` when that matrix
+            is finite. ``inf`` when a fit has no finite covariance.
+
+        Notes
+        -----
+        An all-NaN covariance is "never written", same as a missing
+        column, and returns zero errors. A failed fit stores inf, not
+        NaN, and returns inf errors.
+        """
+        if fixed_params_dict is None:
+            fixed_params_dict = getattr(self, 'fixed_params_dict', None)
+        fit_params = np.atleast_2d(np.asarray(fit_params, dtype=float))
+        if fit_param_errs is not None:
+            fit_param_errs = np.atleast_2d(np.asarray(fit_param_errs, dtype=float))
+        n_stars = fit_params.shape[0]
+        # orb_cov is (n_stars, 6, 6) or (6, 6). The dimension check treats
+        # every dict value as a per-star vector, which a bare (6, 6) is not.
+        cov_held = None
+        if fixed_params_dict is not None and 'orb_cov' in fixed_params_dict:
+            fixed_params_dict = dict(fixed_params_dict)
+            cov_held = fixed_params_dict.pop('orb_cov')
+        self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
+        if cov_held is not None:
+            fixed_params_dict['orb_cov'] = cov_held
+        t_grid = broadcast_times(t, n_stars, caller='Orbit.model')
+        n_times = t_grid.shape[1]
+
+        x = np.empty((n_stars, n_times), dtype=float)
+        y = np.empty((n_stars, n_times), dtype=float)
+        want_err = fit_param_errs is not None
+        if want_err:
+            xe = np.empty((n_stars, n_times), dtype=float)
+            ye = np.empty((n_stars, n_times), dtype=float)
+
+        for i in range(n_stars):
+            mass = _row_value(fixed_params_dict, 'mass', 4.0e6, i, n_stars)
+            dist = _row_value(fixed_params_dict, 'dist', 8.0e3, i, n_stars)
+            x_bh = _row_value(fixed_params_dict, 'x_bh', 0.0, i, n_stars)
+            y_bh = _row_value(fixed_params_dict, 'y_bh', 0.0, i, n_stars)
+            vx_bh = _row_value(fixed_params_dict, 'vx_bh', 0.0, i, n_stars)
+            vy_bh = _row_value(fixed_params_dict, 'vy_bh', 0.0, i, n_stars)
+            t_bh = _row_value(fixed_params_dict, 't_bh', 2000.0, i, n_stars)
+            elements = fit_params[i]
+            xs, ys = _sky_xy(
+                t_grid[i], elements, mass, dist,
+                x_bh, y_bh, vx_bh, vy_bh, t_bh,
+            )
+            x[i] = xs
+            y[i] = ys
+            if not want_err:
+                continue
+            cov = _cov_for_star(fixed_params_dict, i, n_stars)
+            state = _cov_state(cov)
+            if state == 'missing':
+                xe[i] = 0.0
+                ye[i] = 0.0
+            elif state == 'bad':
+                xe[i] = np.inf
+                ye[i] = np.inf
+            else:
+                xe[i], ye[i] = _position_sigma(
+                    t_grid[i], elements, cov, mass, dist,
+                    (x_bh, y_bh, vx_bh, vy_bh, t_bh),
+                )
+
+        if n_stars == 1 or n_times == 1:
+            x = x.flatten()
+            y = y.flatten()
+            if want_err:
+                xe = xe.flatten()
+                ye = ye.flatten()
+        if not want_err:
+            return x, y
+        return x, y, xe, ye
+
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None,
+                weighting='var', absolute_sigma=True, fill_value=np.nan,
+                verbose=True):
+        """Per-star ``least_squares``, seeded from the current ``orb_*``.
+
+        On failure, return that seed and flag non-convergence. Do not
+        return ``fill_value``. Frozen stars never reach this method.
+
+        Parameters
+        ----------
+        t, x, y, xe, ye : array-like, shape (n_stars, n_epochs)
+            Astrometry. Invalid epochs are marked by ``valid``.
+        valid : ndarray of bool, shape (n_stars, n_epochs)
+            Epochs that enter the fit.
+        fixed_params_dict : dict, optional
+            ``mass`` and ``dist`` fall back to the class defaults.
+            The six elements are read from keys ``orb_P`` ... ``orb_omega``
+            when the fitter has copied the current columns in.
+            By default None.
+        weighting : {'var', 'std'}, optional
+            Same meaning as ``Linear.run_fit``, by default 'var'.
+        absolute_sigma : bool, optional
+            When False, scale the covariance by the reduced chi-squared.
+            By default True.
+        fill_value : float, optional
+            Unused for the elements. A failed fit keeps its seed.
+            By default ``np.nan``.
+        verbose : bool, optional
+            Warn when a star is skipped or does not converge.
+            By default True.
+
+        Returns
+        -------
+        params, param_errs : ndarray, shape (n_stars, 6)
+            Updated elements, or the seed if not solved. Uncertainties
+            are the square root of the covariance diagonal, or inf
+            when not solved.
+        chi2x, chi2y : ndarray, shape (n_stars,)
+            Weighted squared residuals in each coordinate.
+        diagnostics : dict
+            ``orb_fit_converged`` (bool, shape (n_stars,)),
+            ``orb_fit_n_iter`` (int, shape (n_stars,)), and ``orb_cov``
+            with shape ``(n_stars, 6, 6)``. ``orb_fit_n_iter`` counts
+            residual evaluations from ``least_squares``.
+
+        Notes
+        -----
+        The seed has to travel in ``fixed_params_dict`` because
+        ``run_fit`` otherwise only sees the measurements. The table
+        fitter copies the current ``orb_*`` columns into that dict
+        before the call. A missing seed is non-finite, so the elements
+        already in the table are what a failed fit returns only when
+        those columns were copied in.
+        """
+        del fill_value  # a failed fit returns the seed, never this
+        t = np.asarray(t, dtype=float)
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+        xe = np.asarray(xe, dtype=float)
+        ye = np.asarray(ye, dtype=float)
+        valid = np.asarray(valid, dtype=bool)
+        n_stars = t.shape[0]
+        if fixed_params_dict is None:
+            fixed_params_dict = {}
+
+        params = np.empty((n_stars, 6), dtype=float)
+        param_errs = np.empty((n_stars, 6), dtype=float)
+        chi2x = np.empty(n_stars, dtype=float)
+        chi2y = np.empty(n_stars, dtype=float)
+        converged = np.zeros(n_stars, dtype=bool)
+        n_iter = np.zeros(n_stars, dtype=int)
+        cov = np.full((n_stars, 6, 6), np.inf, dtype=float)
+
+        for i in range(n_stars):
+            seed = np.array([
+                _row_value(fixed_params_dict, name, np.nan, i, n_stars)
+                for name in self.fit_param_names
+            ], dtype=float)
+            mass = _row_value(fixed_params_dict, 'mass', 4.0e6, i, n_stars)
+            dist = _row_value(fixed_params_dict, 'dist', 8.0e3, i, n_stars)
+            bh = (
+                _row_value(fixed_params_dict, 'x_bh', 0.0, i, n_stars),
+                _row_value(fixed_params_dict, 'y_bh', 0.0, i, n_stars),
+                _row_value(fixed_params_dict, 'vx_bh', 0.0, i, n_stars),
+                _row_value(fixed_params_dict, 'vy_bh', 0.0, i, n_stars),
+                _row_value(fixed_params_dict, 't_bh', 2000.0, i, n_stars),
+            )
+            (
+                params[i], param_errs[i], chi2x[i], chi2y[i],
+                converged[i], n_iter[i], cov[i],
+            ) = _solve_one_orbit(
+                t[i], x[i], y[i], xe[i], ye[i], valid[i], seed,
+                mass, dist, bh, weighting, absolute_sigma, verbose,
+            )
+
+        diagnostics = {
+            'orb_fit_converged': converged,
+            'orb_fit_n_iter': n_iter,
+            'orb_cov': cov,
+        }
+        return params, param_errs, chi2x, chi2y, diagnostics

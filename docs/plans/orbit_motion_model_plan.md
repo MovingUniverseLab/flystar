@@ -1,6 +1,6 @@
 # Plan: Keplerian `Orbit` motion model
 
-Plan only. No source changes in this branch. The base is `mm_rework_lingfeng`.
+Implemented on a branch off `mm_rework_lingfeng`. This file is the plan as approved at commit `911d066`, plus the deviations in section 10. The code and the tests follow section 10 where it disagrees with the text above it.
 
 This adds one Keplerian model, `Orbit`, for Galactic Center stars orbiting Sgr A*. Elements are read from `orbits.dat` and wired into `MosaicToRef` so those stars are propagated to each epoch while every other star keeps using `Empty`, `Fixed`, `Linear`, `Acceleration`, or `Parallax`.
 
@@ -890,7 +890,7 @@ Solver and model, phase A:
 
 Freeze list and column. These apply to phase A and stay green in phase B:
 
-- One `Orbit` star with `fixed_motion_models=['Orbit']` and no `fit_motion` column. After `fit_motion_models` and after `MosaicToRef`, every `orb_*` value and the input `x0` and `vx` are unchanged, including with one detection and with zero detections. `motion_model_used` stays `Orbit`. The solver is not called. `xe = ye = 0`.
+- One `Orbit` star with `fixed_motion_models=['Orbit']` and no `fit_motion` column. After `fit_motion_models`, and after `MosaicToRef.update_ref_table_aggregates`, every `orb_*` value and the input `x0` and `vx` are unchanged, including with one detection and with zero detections. `motion_model_used` stays `Orbit`. The solver is not called. `xe = ye = 0`. `MosaicToRef.fit` still drops a star with zero detections in its existing junk-source cleanup, so that case is not a surviving row after `fit`.
 - The same star with the list unset and `fit_motion='fixed'`. Same outcome.
 - The column overrides the list in both directions. `fixed_motion_models=['Orbit']` and one row `fit_motion='fit'`: that row is not frozen, and the other `Orbit` rows are. `fixed_motion_models=['Linear']` and one row `fit_motion='fit'`: that `Linear` row is refit and the other `Linear` rows keep `x0` and `vx`. A blank cell next to a populated cell follows the list.
 - One table, two `Linear` stars with the same epochs and different motions. `fit_motion` is `'fixed'` for the first only. After `fit_motion_models`, the first star's `x0` and `vx` are exactly the input values. The second star's `vx` has changed.
@@ -950,4 +950,14 @@ Phase B, the solver inside the same class, after phase A:
 
 ## 9. Out of scope
 
-A second orbit class. A boolean `fix_motion` column. Any exception that pulls one model out of `keep_orig` or restores only some of a row's columns. Posterior samples. Light-time delay. Radial velocities, including using them to break the `(Ω + 180°, ω + 180°)` degeneracy. A joint fit of black-hole mass, distance, or offset across stars. GR periapse advance and relativistic redshift: not parameters, not flags, and not branches in `flystar/orbits.py`. A per-star match radius, including any use of the file's `search` column. Editing `MosaicSelfRef` beyond storing an empty freeze list so the shared aggregate method can read it. Changing name lookup. Any change to stars that the list and the column do not mark, beyond the missing `orb_*_err` lookup and `demote = False` described above.
+A second orbit class. A boolean `fix_motion` column. Any exception that pulls one model out of `keep_orig` or restores only some of a row's columns. Posterior samples. Light-time delay. Radial velocities, including using them to break the `(Ω + 180°, ω + 180°)` degeneracy. A joint fit of black-hole mass, distance, or offset across stars. GR periapse advance and relativistic redshift: not parameters, not flags, and not branches in `flystar/orbits.py`. A per-star match radius, including any use of the file's `search` column. Editing `MosaicSelfRef` beyond storing an empty freeze list so the shared aggregate method can read it, and keeping `fit_motion` one-dimensional in `setup_ref_table_from_starlist` (section 10). Changing name lookup. Any change to stars that the list and the column do not mark, beyond the missing `orb_*_err` lookup and `demote = False` described above.
+
+## 10. Deviations found while implementing
+
+1. `get_star_positions_at_time` now calls `infer_positions`. `motion_model_dict` and `allow_alt_models` are accepted and unused. The old body raised `AttributeError`.
+2. A seed with `P <= 0` or `e` outside `[0, 1)` is treated like a non-finite seed: the solver is not called, the seed is kept, and `orb_fit_converged` is false. `kep2xyz` cannot integrate those elements, and returning a fill value would erase the catalog.
+3. `orb_fit_n_iter` stores `least_squares` `nfev` (residual evaluations). `OptimizeResult` has no `nit`.
+4. An all-NaN `orb_cov` means the fitter never wrote that star, so `xe = ye = 0`. A failed fit stores inf, and `xe = ye = inf`. One column has to carry both, because a mixed table creates `orb_cov` for every row.
+5. `fit_motion` is kept one-dimensional in `MosaicSelfRef.setup_ref_table_from_starlist`, next to `motion_model_input`. A two-dimensional column is cleared when the per-list values are reset, which erased the mode before the freeze mask could read it.
+6. `MosaicToRef.fit` still removes stars with `n_detect == 0`. A frozen orbit with no detections is unchanged inside `fit_motion_models` and `update_ref_table_aggregates`, and is then dropped by that existing cleanup. The zero-detection check does not expect the star to survive `fit`.
+7. The acceleration vector uses the cgs constants written in `flystar/orbits.py`. The uploaded gcwork `Constants` class was not in the dependency file. Positions and velocities do not use those constants. The gcwork cross-check compares east and north only.
