@@ -4,11 +4,11 @@ Plan only. No source changes in this branch. The base is `mm_rework_lingfeng`.
 
 This adds one Keplerian model, `Orbit`, for Galactic Center stars orbiting Sgr A*. Elements are read from `orbits.dat` and wired into `MosaicToRef` so those stars are propagated to each epoch while every other star keeps using `Empty`, `Fixed`, `Linear`, `Acceleration`, or `Parallax`.
 
-`Orbit` covers a fixed orbit and a fitted orbit. There is no second class. The six fit parameters are written to new `fit_orb_*` columns. The input `orb_*` columns are the reference elements and are never overwritten. Whether a star is fixed or fit is decided only by the generic freeze mechanism: the `fixed_motion_models` list, and a per-star string column `fit_motion`. The same mechanism freezes or refits `Linear` and the other models. Fitting the elements is phase B, after fixed prediction and the freeze mechanism work.
+`Orbit` covers a fixed orbit and a fitted orbit. There is no second class. `fit_param_names` are `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega`. A fit updates those columns in place, the same way `Linear` updates `x0` and `vx`. The new columns are `orb_*_err`, plus `orb_cov`, `orb_fit_converged`, and `orb_fit_n_iter`. Whether a star is fixed or fit is decided only by the generic freeze mechanism: the `fixed_motion_models` list, and a per-star string column `fit_motion`. The same mechanism freezes or refits `Linear` and the other models. Original elements survive when the star is frozen or when `update_ref_orig` holds the row. Fitting the elements is phase B, after fixed prediction and the freeze mechanism work.
 
 ## Comparison with the existing framework
 
-`Orbit` is a direct subclass of `MotionModel`. Phase A adds the shared-machinery edits at the end of this section: optional fixed parameters stay optional, a fixed orbit can be predicted when `fit_orb_*` is missing, and the freeze list and `fit_motion` column exist. Phase A also stops demotion from rewriting an `Orbit` star that has too few epochs. Phase B adds one more edit: an optional diagnostics return from `run_fit`. Name lookup is unchanged. `str.capitalize()` already maps `orbit` to `Orbit`. There is no second class and no exception that pulls one model out of `keep_orig`.
+`Orbit` is a direct subclass of `MotionModel`. Phase A adds the shared-machinery edits at the end of this section: optional fixed parameters stay optional, a missing `orb_*_err` column does not block prediction, and the freeze list and `fit_motion` column exist. Phase A also stops demotion from rewriting an `Orbit` star that has too few epochs. Phase B adds one more edit: an optional diagnostics return from `run_fit`. Name lookup is unchanged. `str.capitalize()` already maps `orbit` to `Orbit`. There is no second class and no exception that pulls one model out of `keep_orig`.
 
 ### The base class today
 
@@ -53,16 +53,16 @@ How a model is selected and used:
 
 | | Empty | Fixed | Linear | Acceleration | Parallax | Orbit |
 |---|---|---|---|---|---|---|
-| Fit parameters | none | `x0`, `y0` | `x0`, `vx`, `y0`, `vy` | `x0`, `vx0`, `ax`, `y0`, `vy0`, `ay` | `x0`, `vx`, `y0`, `vy`, `pi` | `fit_orb_P`, `fit_orb_t0`, `fit_orb_e`, `fit_orb_i`, `fit_orb_Omega`, `fit_orb_omega`. These names are not the input `orb_*` columns. A fixed star does not run the solver, so the fit columns are not written. A fit star writes the solution there |
-| Required fixed | none | none | `t0` | `t0` | `t0`, `ra`, `dec` | `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, `orb_omega`. A fixed star predicts from these. A fit star uses them only as the starting guess. They are never overwritten |
+| Fit parameters | none | `x0`, `y0` | `x0`, `vx`, `y0`, `vy` | `x0`, `vx0`, `ax`, `y0`, `vy0`, `ay` | `x0`, `vx`, `y0`, `vy`, `pi` | `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, `orb_omega`. A fit writes the solution back into these columns, the same way `Linear` writes `x0` and `vx`. A fixed star is not refit, so the columns stay at the catalog values |
+| Required fixed | none | none | `t0` | `t0` | `t0`, `ra`, `dec` | none. The elements are fit parameters, not fixed parameters. A fixed star is predicted from those same columns, which the fitter does not rewrite |
 | Optional fixed | none | none | none | none | `pa=0`, `obsLocation='earth'` | `mass=4.0e6` Msun, `dist=8.0e3` pc, `x_bh=0`, `y_bh=0`, `vx_bh=0`, `vy_bh=0`, `t_bh=2000`. `mass`, `dist`, and the black-hole offsets are not fit. A joint black-hole fit across stars is future work |
-| Catalog columns | none | `x0`, `y0` and `_err` | those plus `vx`, `vy` and `_err`, and `t0` | those plus `vx0`, `ax`, `vy0`, `ay` and `_err`, and `t0` | Linear's columns plus `pi`, `pi_err`, `ra`, `dec`, `pa`, `obsLocation` | the six `orb_*` elements. After a fit, also `fit_orb_*`, `fit_orb_*_err`, `fit_orb_cov` (6×6), `fit_orb_converged`, and `fit_orb_n_iter`. `chi2_x` and `chi2_y` are the existing chi-squared columns. `mass`, `dist`, and the black-hole offsets land in `meta` when uniform, otherwise in columns. File fields `A` and `search` are parsed to check the line and are not written to the catalog |
-| Meaning of `t0` | none | none | Epoch of `x0`, `y0`, `vx`, `vy`. `fit` fills the weighted-mean epoch when `t0` is missing (`motion_model.py:364-365`) | Epoch of `x0`, `y0`, `vx0`, `vy0`, `ax`, `ay`. Same default fill | Same epoch as `Linear`, plus the epoch subtracted before the parallax vector | `orb_t0` is the reference periapse time. `fit_orb_t0` is the fitted periapse time. Neither is stellar `t0`. `t_bh` is the epoch of the black-hole offset |
+| Catalog columns | none | `x0`, `y0` and `_err` | those plus `vx`, `vy` and `_err`, and `t0` | those plus `vx0`, `ax`, `vy0`, `ay` and `_err`, and `t0` | Linear's columns plus `pi`, `pi_err`, `ra`, `dec`, `pa`, `obsLocation` | the six `orb_*` elements, their `orb_*_err` columns, `orb_cov` (6×6), `orb_fit_converged`, and `orb_fit_n_iter`. `chi2_x` and `chi2_y` are the existing chi-squared columns. `mass`, `dist`, and the black-hole offsets land in `meta` when uniform, otherwise in columns. File fields `A` and `search` are parsed to check the line and are not written to the catalog |
+| Meaning of `t0` | none | none | Epoch of `x0`, `y0`, `vx`, `vy`. `fit` fills the weighted-mean epoch when `t0` is missing (`motion_model.py:364-365`) | Epoch of `x0`, `y0`, `vx0`, `vy0`, `ax`, `ay`. Same default fill | Same epoch as `Linear`, plus the epoch subtracted before the parallax vector | `orb_t0` is periapse time. A fit updates that same column. It is not stellar `t0`. `t_bh` is the epoch of the black-hole offset |
 | `n_params` and demotion | `n_params` is the fewest distinct epochs the model needs. `Empty` needs 0, which is the floor. | `Fixed` needs 1. A star with one valid epoch stays `Fixed`. A star with none becomes `Empty`. | `Linear` needs 2. A star with fewer than two distinct valid epochs is demoted to `Fixed` or `Empty` (`startables.py:1244-1255`). A frozen `Linear` star is removed before that test, so one detection stays `Linear`. | `Acceleration` needs 3. That is the same number as `Parallax`. With no `motion_model_input` column the fitter chooses by `n_params` alone and requires unique values, so both in one list raises (`startables.py:1082-1086`). | `Parallax` needs 3. Same collision with `Acceleration` when the column is absent. A frozen star is not demoted. | `Orbit` has six fit parameters, so the class formula gives `n_params = 3`. Each epoch supplies two sky coordinates, so three epochs are the algebraic minimum. That is the same `n_params` as `Acceleration` and `Parallax`, and a list with no `motion_model_input` column raises (`startables.py:1082-1086`). The reader always writes `motion_model_input`. A fixed star is removed before demotion, so the test never sees it and the star is never demoted, including with zero epochs. A fit star with fewer than three epochs is not demoted to `Linear`. `Orbit` sets `demote = False`. The solver is skipped and prediction uses `orb_*`. Four epochs are where the covariance is finite. See section 2.5. |
-| Fittable | `run_fit` returns the fill value. Nothing is solved | Closed-form weighted mean | Closed-form 2x2 normal equations | Closed-form quadratic | Closed-form joint 5-parameter fit. `pi` is shared by x and y | A fixed star does not call `run_fit`. A fit star, in phase B, calls `scipy.optimize.least_squares` once per star inside `run_fit`. The batch signature is unchanged. Phase A returns the fill value and does not solve. Other models stay closed-form |
-| Prediction | NaN at every time (`motion_model.py:517-518`) | `x0`, `y0`, constant in time (`motion_model.py:602`) | `x0 + vx*(t - t0)` (`motion_model.py:791`, `854-855`) | `x0 + vx0*dt + 0.5*ax*dt**2` (`motion_model.py:1073`) | `x0 + vx*dt + pi*pvec_x`, and the same in y (`motion_model.py:1408-1409`) | Newtonian `kep2xyz` east/north, then `x = x_bh + vx_bh*(t - t_bh) - r_east` and `y = y_bh + vy_bh*(t - t_bh) + r_north`. The signs are hardcoded. Use `fit_orb_*` when all six are finite. Otherwise use `orb_*` |
-| Error propagation | `xe = ye = inf` when errors are requested | `x0_err`, `y0_err` broadcast across time (`motion_model.py:659-660`) | `hypot(x0_err, vx_err*dt)` (`motion_model.py:867-868`) | `sqrt(x0_err**2 + (vx0_err*dt)**2 + (0.5*ax_err*dt**2)**2)` (`motion_model.py:1132-1133`) | That linear sum plus `(pi_err * pvec)**2` (`motion_model.py:1510-1511`) | A fixed star returns `xe = ye = 0`. A fit with a finite `fit_orb_cov` returns the numerical Jacobian of `(x, y)` times that covariance. Diagonal `_err` values alone are not propagated. A fit with no finite covariance returns `xe = ye = inf`. There is no `pos_err` knob |
-| `fixed_motion_models` / `fit_motion` | Does not exist yet. After the change, a listed model is frozen unless the row's `fit_motion` says `'fit'`. A row that says `'fixed'` is frozen even if the model is not in the list. A missing or blank cell follows the list. Unset list and unset column means fit, which is today's behavior | same rule. A frozen `Fixed` star keeps `x0` and `y0` | same rule. This is how one `Linear` star stays frozen while another is refit | same rule | same rule | same rule. The recommended align passes `fixed_motion_models=['Orbit']`. A row with `fit_motion='fit'` is solved anyway, on the passes where `update_ref_orig` refits original stars. A fixed star keeps input `x0`, `vx`, and `orb_*`. A fit star owns only `fit_orb_*`, so the reset (`startables.py:1450-1461`) clears `x0`, `y0`, `vx`, `vy`, and the other models' fit parameters when those columns exist. `orb_*` stay. Freezing skips that reset |
+| Fittable | `run_fit` returns the fill value. Nothing is solved | Closed-form weighted mean | Closed-form 2x2 normal equations | Closed-form quadratic | Closed-form joint 5-parameter fit. `pi` is shared by x and y | A fixed star does not call `run_fit`. A fit star, in phase B, calls `scipy.optimize.least_squares` once per star inside `run_fit`, seeded from the current `orb_*`. On failure it returns those same values and sets `orb_fit_converged` false. The batch signature is unchanged. Other models stay closed-form |
+| Prediction | NaN at every time (`motion_model.py:517-518`) | `x0`, `y0`, constant in time (`motion_model.py:602`) | `x0 + vx*(t - t0)` (`motion_model.py:791`, `854-855`) | `x0 + vx0*dt + 0.5*ax*dt**2` (`motion_model.py:1073`) | `x0 + vx*dt + pi*pvec_x`, and the same in y (`motion_model.py:1408-1409`) | Newtonian `kep2xyz` east/north, then `x = x_bh + vx_bh*(t - t_bh) - r_east` and `y = y_bh + vy_bh*(t - t_bh) + r_north`. The signs are hardcoded. Fixed and fit both read the current `orb_*` columns |
+| Error propagation | `xe = ye = inf` when errors are requested | `x0_err`, `y0_err` broadcast across time (`motion_model.py:659-660`) | `hypot(x0_err, vx_err*dt)` (`motion_model.py:867-868`) | `sqrt(x0_err**2 + (vx0_err*dt)**2 + (0.5*ax_err*dt**2)**2)` (`motion_model.py:1132-1133`) | That linear sum plus `(pi_err * pvec)**2` (`motion_model.py:1510-1511`) | A fixed star returns `xe = ye = 0`. A fit with a finite `orb_cov` returns the numerical Jacobian of `(x, y)` times that covariance. Diagonal `orb_*_err` values alone are not propagated. A fit with no finite covariance returns `xe = ye = inf`. There is no `pos_err` knob |
+| `fixed_motion_models` / `fit_motion` | Does not exist yet. After the change, a listed model is frozen unless the row's `fit_motion` says `'fit'`. A row that says `'fixed'` is frozen even if the model is not in the list. A missing or blank cell follows the list. Unset list and unset column means fit, which is today's behavior | same rule. A frozen `Fixed` star keeps `x0` and `y0` | same rule. This is how one `Linear` star stays frozen while another is refit. `keep_orig` restores `x0` and `vx` the same way it will restore `orb_*` | same rule | same rule | same rule. The recommended align passes `fixed_motion_models=['Orbit']`. A row with `fit_motion='fit'` is solved on the passes where `update_ref_orig` refits original stars, and `orb_*` move. A frozen star, or a row held by `update_ref_orig=False`, keeps the input `orb_*`. The reset (`startables.py:1450-1461`) does not clear `orb_*` on an `Orbit` star, because those names belong to it. It still clears `x0` and `vx` on a fit `Orbit` star. Freezing skips that reset |
 
 ### Class skeletons
 
@@ -146,7 +146,7 @@ class Parallax(MotionModel):
         """
 ```
 
-`Orbit` as proposed. Same two methods, same signatures. No new method on the base class. Fixed versus fit is not a class flag. Phase A predicts from `orb_*` and does not call the solver. Phase B fills in `run_fit`.
+`Orbit` as proposed. Same two methods, same signatures. No new method on the base class. Fixed versus fit is not a class flag. The elements are fit parameters. A fixed star simply is not refit, so `model` reads the catalog columns. Phase B fills in `run_fit`.
 
 ```python
 import numpy as np
@@ -156,8 +156,8 @@ class Orbit(MotionModel):
     """Newtonian orbit. Fixed or fit is chosen per star, not here.
 
     ``fixed_motion_models`` and the ``fit_motion`` column decide.
-    A fixed star predicts from ``orb_*`` and does not solve. A fit
-    star solves into ``fit_orb_*`` and leaves ``orb_*`` unchanged.
+    Both modes read ``orb_*``. A fit updates those columns in place.
+    A failed fit returns the values it was seeded with.
 
     The sky frame is hardcoded: ``x = -east``, ``y = +north``.
     ``mass`` and ``dist`` default to the pair that reproduces the
@@ -166,12 +166,9 @@ class Orbit(MotionModel):
 
     name = "Orbit"
     fit_param_names = [
-        'fit_orb_P', 'fit_orb_t0', 'fit_orb_e', 'fit_orb_i',
-        'fit_orb_Omega', 'fit_orb_omega',
-    ]
-    required_fixed_param_names = [
         'orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega',
     ]
+    required_fixed_param_names = []
     optional_fixed_params = {
         'mass': 4.0e6,
         'dist': 8.0e3,
@@ -187,29 +184,26 @@ class Orbit(MotionModel):
     n_fit_params = len(fit_param_names)
     n_params = int((n_fit_params + 1) / 2)  # 3; see section 2.5
     demote = False  # too few epochs fall back; see section 2.5
-    # Missing or non-finite fit_orb_* still predict from orb_*.
-    predict_without_fit_params = True
-    prediction_columns = ['fit_orb_cov']
+    prediction_columns = ['orb_cov']
 
     def model(self, t, fit_params, fit_param_errs=None,
               fixed_params_dict=None):
-        """Predict from ``fit_orb_*`` when finite, else from ``orb_*``.
+        """Predict from the current ``orb_*`` elements.
 
         Parameters
         ----------
         t : scalar or array-like
             Decimal years. See ``broadcast_times``.
         fit_params : array-like, shape (6,) or (n_stars, 6)
-            ``fit_orb_P``, ``fit_orb_t0``, ``fit_orb_e``, ``fit_orb_i``,
-            ``fit_orb_Omega``, ``fit_orb_omega``. Non-finite means use
-            the input elements.
+            ``orb_P``, ``orb_t0``, ``orb_e``, ``orb_i``,
+            ``orb_Omega``, ``orb_omega``.
         fit_param_errs : array-like, optional
-            Diagonal errors. Position errors use ``fit_orb_cov`` when
-            that covariance is finite, not these diagonals alone.
+            Diagonal ``orb_*_err``. Position errors use ``orb_cov``
+            when that covariance is finite, not these diagonals alone.
         fixed_params_dict : dict, optional
-            Input ``orb_*``, ``mass``, ``dist``, and the black-hole
-            offsets. ``fit_orb_cov`` is passed here when the column
-            exists. ``mass`` and ``dist`` fall back to the defaults.
+            ``mass``, ``dist``, and the black-hole offsets.
+            ``orb_cov`` is passed here when the column exists.
+            ``mass`` and ``dist`` fall back to the defaults.
 
         Returns
         -------
@@ -217,9 +211,8 @@ class Orbit(MotionModel):
             FlyStar frame. ``x = -east``, ``y = +north``.
         xe, ye : ndarray
             Returned only when errors are requested. ``0`` when no
-            fit was run. Jacobian times ``fit_orb_cov`` when that
-            matrix is finite. ``inf`` when a fit has no finite
-            covariance.
+            fit was run. Jacobian times ``orb_cov`` when that matrix
+            is finite. ``inf`` when a fit has no finite covariance.
         """
         # r_east, r_north, _ = kep2xyz(...)  # arcsec; east, north
         # x = x_bh + vx_bh * (t - t_bh) - r_east
@@ -228,10 +221,12 @@ class Orbit(MotionModel):
     def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None,
                 weighting='var', absolute_sigma=True, fill_value=np.nan,
                 verbose=True):
-        """Per-star ``least_squares``, started from ``orb_*``.
+        """Per-star ``least_squares``, seeded from the current ``orb_*``.
 
-        Phase A returns ``fill_value`` and does not call the solver.
-        Phase B is section 2.6. Frozen stars never reach this method.
+        On failure, return that seed and flag non-convergence. Do not
+        return ``fill_value``. Phase A returns the seed and does not
+        call the solver. Phase B is section 2.6. Frozen stars never
+        reach this method.
 
         Parameters
         ----------
@@ -240,34 +235,35 @@ class Orbit(MotionModel):
         valid : ndarray of bool, shape (n_stars, n_epochs)
             Epochs that enter the fit.
         fixed_params_dict : dict, optional
-            Must contain the six input elements. ``mass`` and ``dist``
-            fall back to the class defaults.
+            ``mass`` and ``dist`` fall back to the class defaults.
+            The six elements come from the table, not from here.
         weighting : {'var', 'std'}, optional
             Same meaning as ``Linear.run_fit``.
         absolute_sigma : bool, optional
             When False, scale the covariance by the reduced chi-squared.
         fill_value : float, optional
-            Value written when the star is not solved.
+            Unused for the elements. A failed fit keeps its seed.
         verbose : bool, optional
             Warn when a star is skipped or does not converge.
 
         Returns
         -------
         params, param_errs : ndarray, shape (n_stars, 6)
-            Fitted elements and the square root of the covariance
-            diagonal. ``fill_value`` and ``inf`` when not solved.
+            Updated elements, or the seed if not solved. Uncertainties
+            are the square root of the covariance diagonal, or ``inf``
+            when not solved.
         chi2x, chi2y : ndarray, shape (n_stars,)
             Weighted squared residuals in each coordinate.
         diagnostics : dict
-            Phase B only. ``fit_orb_converged`` (bool),
-            ``fit_orb_n_iter`` (int), and ``fit_orb_cov`` with shape
+            Phase B only. ``orb_fit_converged`` (bool),
+            ``orb_fit_n_iter`` (int), and ``orb_cov`` with shape
             ``(n_stars, 6, 6)``. Phase A returns four arrays.
         """
 ```
 
 ### Changes to shared machinery
 
-Phase A does not edit `model`, `run_fit`, or `calc_chi2` on the base class. Phase B edits `fit` only so a fifth return value from `run_fit` does not raise (item 7). `Orbit` is picked up by `motion_model_map` because it is a direct subclass. The longest existing name is `Acceleration` (12 characters). `Orbit` is 5, so `_MOTION_MODEL_NAME_WIDTH` in `startables.py:17-18` does not change. `organize_motion_models` keeps `str.capitalize()` (`motion_model.py:2057-2059`). That already resolves `Orbit`.
+Phase A does not edit `model`, `run_fit`, or `calc_chi2` on the base class. Phase B edits `fit` only so a fifth return value from `run_fit` does not raise (item 8). `Orbit` is picked up by `motion_model_map` because it is a direct subclass. The longest existing name is `Acceleration` (12 characters). `Orbit` is 5, so `_MOTION_MODEL_NAME_WIDTH` in `startables.py:17-18` does not change. `organize_motion_models` keeps `str.capitalize()` (`motion_model.py:2057-2059`). That already resolves `Orbit`.
 
 1. **`determine_motion_models` treats optional parameters as optional.** Today `fixed_param_names` includes the optional keys, and both loops require every one of those names to be present. `infer_positions` already falls back to the class default after selection (`startables.py:1806-1818`). The gate runs first, so the default is never reached when the name is absent. The explicit `motion_model_input` loop also skips `table.meta`.
 
@@ -324,15 +320,32 @@ for col, default in mm.optional_fixed_params.items():
 
    Existing models. `Empty`, `Fixed`, `Linear`, and `Acceleration` have `optional_fixed_params = {}`, so both loops see the same names as today. `Parallax` changes only for a star that is missing `pa` or `obsLocation`. Today that star cannot be selected. After the change it can, with `pa=0` and `obsLocation='earth'`. A `Parallax` star that already carries those values is unchanged. A non-finite `pa` still rejects `Parallax`.
 
-2. **A fixed orbit can be selected when `fit_orb_*` is missing.** Both loops today require every name in `fit_param_names` to be present and finite (`motion_model.py:1824`, `1908-1912`). That rule exists so a request with NaN parameters falls through instead of predicting NaN (`motion_model.py:1890-1895`). `Orbit` does not follow that assumption. Non-finite `fit_orb_*` still has a position: `orb_*`.
+2. **Fixed-mode prediction reads the fit-parameter columns.** `orb_*` are `fit_param_names`, so the existing finiteness check is the right gate (`motion_model.py:1824`, `1908-1912`). A fixed star is selectable because the catalog already has finite elements. A missing or non-finite `orb_e` drops the request, the same way a missing `vx` drops `Linear`. There is no `predict_without_fit_params` attribute. A fixed star is predicted from those columns because it was not refit, not because the elements live in a second list.
 
-   `Orbit` sets `predict_without_fit_params = True`. Other classes leave it unset, and `getattr` defaults to `False`.
+   `infer_positions` builds `fit_param_errs` by indexing `param + '_err'` whenever `x0_err` and `y0_err` exist (`startables.py:1754-1787`). `orbits.dat` has no uncertainties, and a frozen star never enters the fitter that creates `orb_P_err`. A missing `_err` column becomes an array of `inf`, which is the same default the fitter uses when it adds an error column (`startables.py:1350-1353`). Columns that already exist are read as they are.
 
-   After, when the attribute is true, `fit_param_names` are left out of the presence and finiteness checks in both loops. The six `orb_*` elements stay required. A missing or non-finite `fit_orb_*` does not drop `motion_model_input='Orbit'`.
+   Before:
 
-   `infer_positions` indexes those columns (`startables.py:1781-1787`). When the attribute is true and a column is missing, pass NaN for the value and `inf` for the `_err`. When `prediction_columns` names a column that exists, copy it into the dict handed to `model`. `Orbit` lists `fit_orb_cov` there so the Jacobian can see the matrix. A missing covariance column means the fixed-star errors, `xe = ye = 0`.
+```python
+fit_param_errs = np.array([
+    self[param_name + '_err'][unique_index]
+    for param_name in motion_model_instance.fit_param_names
+]).T
+```
 
-   Existing models. The attribute is unset, so the gate and the column lookup are unchanged. A `Linear` star with non-finite `vx` is still rejected.
+   After:
+
+```python
+fit_param_errs = np.array([
+    self[name][unique_index] if name in self.colnames
+    else np.full(len(unique_index), np.inf)
+    for name in (p + '_err' for p in motion_model_instance.fit_param_names)
+]).T
+```
+
+   When `prediction_columns` names a column that exists, copy it into the dict handed to `model`. `Orbit` lists `orb_cov`. A missing covariance column means the fixed-star errors, `xe = ye = 0`. `Orbit.model` does not propagate the diagonal `orb_*_err` values.
+
+   Existing models. They already have their `_err` columns in the catalogs this branch fits, so the new branch is not taken and the numbers are unchanged. A `Linear` star with non-finite `vx` is still rejected.
 
 3. **`fit_motion_models` grows a freeze list and reads `fit_motion`.** The default is no freeze. The column is a string, not a boolean. See section 5 for why, and for precedence.
 
@@ -398,9 +411,15 @@ fixed_motion_models=None,   # None means freeze nobody
 
    Existing models. Callers that do not pass the new argument get today's refit. Passing `['Orbit']` freezes stars whose `motion_model_input` is `Orbit`, except rows whose `fit_motion` is `'fit'`.
 
-6. **New columns and metadata keys.** The reader writes `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega`. It does not write `A` or `search`. No `catalog_meta_names` hook is added. That hook is not needed: `A` is checked inside the reader test and then dropped, `search` is not a match radius, and uniform values such as `mass` and `dist` already go to `table.meta` through `fit_motion_models` (`startables.py:1422-1429`). The reset loop builds its column set from `fit_param_names` of every subclass (`startables.py:1450-1452`). `Orbit` adds the six `fit_orb_*` names. The reset then clears those columns on any star whose used model is not `Orbit`. Columns that already belonged to `Empty`, `Fixed`, `Linear`, `Acceleration`, or `Parallax` are unchanged.
+6. **`orb_*` are fit parameters, so the reset and `keep_orig` already know them.** The reader writes `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega`. It does not write `A` or `search`, and it does not write a second set of element columns. No `catalog_meta_names` hook is added. That hook is not needed: `A` is checked inside the reader test and then dropped, `search` is not a match radius, and uniform values such as `mass` and `dist` already go to `table.meta` through `fit_motion_models` (`startables.py:1422-1429`).
 
-   Existing models. Their columns and their `meta` keys are untouched. On a star whose `motion_model_used` is `Orbit` and that is not frozen, the reset clears every fit-parameter column `Orbit` does not own. On a catalog that already has them, that is `x0`, `y0`, `vx`, `vy`, `vx0`, `ax`, `vy0`, `ay`, `pi`, and each `_err` column. The `orb_*` elements are fixed parameters and are not in that list. Freezing the star skips the reset, which is what keeps the catalog's `x0` and `vx`. There is no second restore that puts those columns back onto a fit star.
+   The reset builds its column set from `fit_param_names` of every subclass (`startables.py:1450-1452`). `Orbit` adds the six `orb_*` names to that set. A star whose `motion_model_used` is `Orbit` owns them, so the reset does not clear them. The seed is still in the columns when `run_fit` reads it. The ordinary write at `startables.py:1667-1669` then stores whatever `run_fit` returned, which is the same write that stores `x0` and `vx` for `Linear`. On success that is the solution. On failure `run_fit` returns the seed, so the write puts the same numbers back. `orb_*_err` follows the framework's `_err` suffix and is created with the other error columns (`startables.py:1350-1353`).
+
+   A star whose used model is not `Orbit` does not own `orb_*`. If those columns exist, the reset sets them to the fill value and their `_err` columns to `inf`. Non-orbit rows from `attach_orbits` are already NaN there. Frozen stars are not in the fitted subtable (`startables.py:1001-1046`), so the reset never sees them and the scatter does not write them.
+
+   `keep_orig` saves every name from `motion_model_param_names` for the models named on the table (`align.py:1857-1867`), which is `fit_param_names`, each `_err`, and `fixed_param_names` (`motion_model.py:1978-1988`). Once `Orbit` is one of those models, `orb_*` and `orb_*_err` are in that list and are restored with `x0` and `vx` (`align.py:1987-1989`). `orb_cov`, `orb_fit_converged`, and `orb_fit_n_iter` are not fit parameters, so they are not in the save. They are written only for stars that enter `run_fit`, and held rows do not.
+
+   Existing models. Their own columns are unchanged. On a star whose `motion_model_used` is `Orbit` and that is not frozen, the reset still clears every fit-parameter column `Orbit` does not own. On a catalog that already has them, that is `x0`, `y0`, `vx`, `vy`, `vx0`, `ax`, `vy0`, `ay`, `pi`, and each `_err` column. Prediction does not use those columns. It matters only for a reader that wanted the catalog proper motion to survive on the same row as a fitted orbit. Freezing the star, or holding it with `update_ref_orig`, restores them, because the save list includes every model's fit parameters. There is no second restore that puts `x0` back onto a star that was actually fit.
 
 7. **`n_params` uniqueness, and demotion.** The assert at `startables.py:1082-1086` is unchanged. `n_params` is the class formula `int((n_fit_params + 1) / 2)`. Without a `motion_model_input` column the fitter selects by that number alone, so two models that share it raise. `Orbit` needs 3 epochs, the same as `Acceleration` and `Parallax`. Pairing `Orbit` with either of those raises when the column is missing. `Orbit` does not share 0 with `Empty`. Lists that do not include `Orbit` are unaffected. The orbits reader always writes `motion_model_input`.
 
@@ -408,7 +427,7 @@ fixed_motion_models=None,   # None means freeze nobody
 
    Frozen stars are removed before the demotion block (`startables.py:1244-1255`). Their effective requirement in that test is 0 epochs. The class attribute is not rewritten, and the `n_params` column on a frozen row is left at its input value because the fitter does not write that row. This is the whole of the per-star change, and it applies to every model. A frozen `Linear` star with one detection stays `Linear`. A frozen `Orbit` star with zero detections stays `Orbit`.
 
-   An unfrozen `Orbit` star would still be demoted when `n_fit < 3`, because the class `n_params` is 3. That demotion is the wrong fallback: `Linear` would move the star with a proper motion, and the reset would clear `fit_orb_*` because `Linear` does not own those names. `Orbit` sets `demote = False`. The base class does not grow the attribute.
+   An unfrozen `Orbit` star would still be demoted when `n_fit < 3`, because the class `n_params` is 3. That demotion is the wrong fallback: `Linear` would move the star with a proper motion, and the reset would then clear `orb_*` because `Linear` does not own those names. The only elements would be gone. `Orbit` sets `demote = False`. The base class does not grow the attribute. The skipped solver returns the current `orb_*` values, so the write-back does not replace them with the fill value.
 
    Before (`startables.py:1245-1246`):
 
@@ -453,7 +472,7 @@ diagnostics = result[4] if len(result) > 4 else None
 
    `fit_motion_models` does the same slice at the three unpack sites and writes each entry of `diagnostics` as a column on the stars just fit. `fit` with `return_chi2=True` appends `diagnostics` when it is present, so the per-star loop and the worker can see it. The docstring at `motion_model.py:290-294`, which says every `run_fit` is closed-form, gains one sentence: `Orbit` loops per star inside `run_fit`.
 
-   Existing models. They keep returning four arrays. Slicing `[:4]` is the same four values, `diagnostics` is absent, and no new column is written. `Orbit` returns a dict with `fit_orb_converged`, `fit_orb_n_iter`, and `fit_orb_cov`. `chi2_x` and `chi2_y` stay the coordinate chi-squareds. Their sum is the joint chi-squared. There is no extra chi-squared column. Phase A does not return the dict.
+   Existing models. They keep returning four arrays. Slicing `[:4]` is the same four values, `diagnostics` is absent, and no new column is written. `Orbit` returns a dict with `orb_fit_converged`, `orb_fit_n_iter`, and `orb_cov`. `chi2_x` and `chi2_y` stay the coordinate chi-squareds. Their sum is the joint chi-squared. There is no extra chi-squared column. Phase A does not return the dict.
 
 ## 1. Architecture on `mm_rework_lingfeng`
 
@@ -506,7 +525,7 @@ Methods to implement:
 
 A missing required parameter raises `KeyError`. Fitting writes the values it used back under the same name: one `meta` entry when the value is uniform and no column exists, otherwise a column. A column that disagrees is moved to `<param>_orig` on the first write. Disagreeing metadata is overwritten and not kept.
 
-The solver must not put the fitted elements into that write-back under the `orb_*` names. The solution is written only to `fit_orb_*`. The input columns then compare equal to the values the fit used as its guess, and the write-back leaves them alone.
+The fitted elements are not fixed parameters, so this write-back does not touch them. They are updated by the fit-parameter write at `startables.py:1667-1669`, the same write that stores `x0` and `vx`. On a failed fit that write stores the seed `run_fit` returned, which is the values already in the columns.
 
 `MosaicToRef` stores the caller's dict on `self.fixed_params_dict` and passes it into `infer_positions` and `fit_motion_models`.
 
@@ -533,7 +552,7 @@ The live path is `StarTable.infer_positions`. `MosaicToRef.get_ref_list_from_tab
 
 `StarTable.get_star_positions_at_time` is still in the file and still calls `get_batch_pos_at_time` and `get_one_motion_model_param_names`. Those are gone. Do not extend it. `align.infer_positions` is a thin wrapper around the table method.
 
-For `Orbit`, "can be evaluated" means the six `orb_*` elements are present and finite. Missing `fit_orb_*` still counts. Item 2 in the shared-machinery list is that gate.
+For `Orbit`, "can be evaluated" means the six `orb_*` elements are present and finite. They are fit parameters, and the catalog supplies them. A missing `orb_*_err` does not drop the star. Item 2 in the shared-machinery list is that error-column lookup.
 
 ### 1.6 How an align refits the reference
 
@@ -556,7 +575,7 @@ Inside one aggregate update:
 | `'periter'` | Same as `False` until the last list of the iteration, which refits the original rows. | `keep_orig = None`, because the flag is truthy. |
 | `'atend'` | Original rows are kept on every list. | `keep_orig = None`. The final aggregate is the one that refits them. |
 
-The freeze mask is unioned into that `keep_orig` for every model. A row with `fit_motion='fit'` is not frozen, and it is not removed from the `update_ref_orig` mask. Held rows are restored in full. Nothing keeps `fit_orb_*` while restoring `x0`.
+The freeze mask is unioned into that `keep_orig` for every model. A row with `fit_motion='fit'` is not frozen, and it is not removed from the `update_ref_orig` mask. Held rows are restored in full. Because `orb_*` are fit parameters, `motion_model_param_names` includes them and their `_err` columns, and the restore writes those saved values back (`align.py:1857-1867`, `1987-1989`). That is the same restore that puts `x0` and `vx` back on a held `Linear` star.
 
 `iters` is not a constructor argument. It is the longest of the tolerance and `trans_args` schedules.
 
@@ -576,24 +595,23 @@ Change, in both loops of `determine_motion_models`:
 - An optional parameter that is present but non-finite still does.
 - The explicit-request loop consults `table.meta`, as the candidate loop already does.
 
-Required parameters are unchanged: the six elements must be present and finite. Add a test that a `Parallax` row whose `pa` is only in `meta` survives an explicit `motion_model_input` request, so the meta fix is not orbit-only.
-
-The same function also has to accept `Orbit` when `fit_orb_*` is missing or non-finite. That is item 2 above, and it is separate from the optional-parameter fix. `mass` can be missing. `orb_P` cannot.
+Required element columns are unchanged in spirit: the six `orb_*` values must be present and finite, because they are now fit parameters and the existing gate already requires that. Add a test that a `Parallax` row whose `pa` is only in `meta` survives an explicit `motion_model_input` request, so the meta fix is not orbit-only. `mass` can be missing. `orb_P` cannot.
 
 ## 2. The `Orbit` model
 
-One class. `fit_param_names` is the six `fit_orb_*` names, so `n_fit_params = 6` and `n_params = 3`. The input elements are required fixed parameters. The reader sets `motion_model_input='Orbit'`. It does not set `fit_motion`. A caller who wants every attached orbit held passes `fixed_motion_models=['Orbit']`. A caller who wants some of them solved sets `fit_motion='fit'` on those rows.
+One class. `fit_param_names` is `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega`, so `n_fit_params = 6` and `n_params = 3`. `required_fixed_param_names` is empty. The elements are not fixed parameters. A fixed star uses them because the fitter never replaces them. A fit star uses them as the seed and then as the updated solution. The reader sets `motion_model_input='Orbit'`. It does not set `fit_motion`. A caller who wants every attached orbit held passes `fixed_motion_models=['Orbit']`. A caller who wants some of them solved sets `fit_motion='fit'` on those rows.
 
-Phase A implements `model` and a `run_fit` that returns the fill value. Phase B replaces that body with the solver in section 2.6. The declarations do not change between the phases.
+Phase A implements `model` and a `run_fit` that returns the current `orb_*` values and does not call the solver. Phase B replaces that body with the solver in section 2.6. The declarations do not change between the phases.
 
 ### 2.1 Parameters
 
 | Kind | Names |
 |---|---|
-| Fit | `fit_orb_P`, `fit_orb_t0`, `fit_orb_e`, `fit_orb_i`, `fit_orb_Omega`, `fit_orb_omega` |
-| Required fixed | `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, `orb_omega` |
+| Fit | `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, `orb_omega` |
+| Uncertainties | `orb_P_err`, `orb_t0_err`, `orb_e_err`, `orb_i_err`, `orb_Omega_err`, `orb_omega_err` |
+| Required fixed | none |
 | Optional fixed | see the table below |
-| Diagnostics, not fit parameters | `fit_orb_cov`, `fit_orb_converged`, `fit_orb_n_iter` |
+| Diagnostics, not fit parameters | `orb_cov`, `orb_fit_converged`, `orb_fit_n_iter` |
 
 `Orbit()` takes none of these as constructor arguments. The defaults live on `optional_fixed_params`, which is how this branch gives `Parallax` its `pa=0` and `obsLocation='earth'`. Overrides use the normal order: `fixed_params_dict`, then a column, then `meta`, then the default.
 
@@ -636,11 +654,11 @@ v2.0.2, whitespace-separated, no header. Thirty-two stars. Columns in order:
 | File column | Unit | Catalog column | Used to predict? |
 |---|---|---|---|
 | name | | `name` | match key only |
-| P | yr | `orb_P` | yes, until a finite `fit_orb_P` exists |
+| P | yr | `orb_P` | yes. A fit updates this column |
 | A | mas | not stored | parsed so the line can be checked. The `a_mas` test compares it with `P` and the default mass and distance, then drops it |
-| t0 | decimal year | `orb_t0` | yes, time of periapse, until a finite `fit_orb_t0` exists |
-| e | | `orb_e` | yes, until a finite `fit_orb_e` exists |
-| i | deg | `orb_i` | yes, until a finite `fit_orb_i` exists |
+| t0 | decimal year | `orb_t0` | yes, time of periapse. A fit updates this column |
+| e | | `orb_e` | yes. A fit updates this column |
+| i | deg | `orb_i` | yes. A fit updates this column |
 | Omega | deg | `orb_Omega` | yes, PA of the ascending node |
 | omega | deg | `orb_omega` | yes, argument of periapse |
 | search | pix | not stored | parsed so the line can be checked. Not a match radius |
@@ -655,7 +673,7 @@ Non-orbit stars have NaN in the `orb_*` columns. Their `motion_model_input` stay
 
 A fixed star has no solved elements. When `model` is asked for errors it returns `xe = ye = 0`. When it is not asked, it returns only `x, y`, and `infer_positions` fills `inf` if the table has no error columns (`startables.py:1754-1763`). There is no `pos_err` argument.
 
-A fit star with a finite `fit_orb_cov` propagates that matrix. Section 2.7 has the formula. A fit star whose covariance is missing, singular, or left non-finite because the solver did not run returns `xe = ye = inf`. That `inf` is how a failed fit stays distinct from the fixed star's zero.
+A fit star with a finite `orb_cov` propagates that matrix. Section 2.7 has the formula. A fit star whose covariance is missing, singular, or left non-finite because the solver did not converge returns `xe = ye = inf`. The elements themselves stay at the seed. That `inf` is how a failed fit stays distinct from the fixed star's zero.
 
 Matching ignores errors, so a zero reference error does not change who matches. Transform weights do not ignore them. `get_weights_for_lists` turns a non-finite weight into 0, which drops that star from the transform.
 
@@ -667,13 +685,13 @@ That is the same outcome as a `Fixed` or `Linear` reference star whose `x0_err` 
 
 ### 2.4 What a fit does to an orbit star
 
-A fixed star never enters `run_fit`. Its input columns stay, including `x0`, `vx`, `orb_*`, `motion_model_used`, and `n_params`.
+A fixed star never enters `run_fit`. Its `orb_*` columns stay, and so do `x0`, `vx`, `motion_model_used`, and `n_params`. `keep_orig` would also restore `orb_*` if a fit had touched the row, because those names are now fit parameters and `motion_model_param_names` saves them (`align.py:1857-1867`).
 
-A fit star does enter `run_fit`. The solver writes `fit_orb_*`, the `_err` columns, and, in phase B, the diagnostics. It does not write `orb_*`.
+A fit star does enter `run_fit`. The solver is seeded from the current `orb_*` values. On success the ordinary fit-parameter write (`startables.py:1667-1669`) stores the solution back into those same columns, and stores `orb_*_err`. On failure it stores the seed again, so the elements are unchanged, and it stores non-finite errors. Phase B also writes `orb_fit_converged`, `orb_fit_n_iter`, and `orb_cov`.
 
-`Orbit` does not own `x0` or `vx`. The reset in `fit_motion_models` (`startables.py:1450-1461`) still clears every fit-parameter column the used model does not own, for every star that was not frozen. For a fit `Orbit` star that is `x0`, `y0`, `vx`, `vy`, `vx0`, `ax`, `vy0`, `ay`, `pi`, and their `_err` columns, whenever those columns are already on the table. A Galactic Center reference list usually already has `x0`, `y0`, `vx`, and `vy`. Those input values are replaced with the fill value. The six `orb_*` columns are fixed parameters, so they stay. The existing `t0` write at `startables.py:1672` also runs, because the star was fit. `orb_t0` is a different column.
+Writing the fill value on failure would erase the only elements that can still place the star, and the next fit would have nothing to start from. A `Linear` star can survive a fill in `x0` because the next detection refits a position from the data. An orbit with a NaN period cannot be integrated. The reset does not clear `orb_*` on an `Orbit` star (`startables.py:1456-1458`), so the pre-fit numbers are still in the columns. Returning that seed makes the generic write a no-op on the values. No special case is added to the write loop. `orb_fit_converged = False` is what distinguishes a kept catalog orbit from a solution.
 
-There is no later step that puts `x0` and `vx` back. Callers who need those input values kept freeze the star. The model class does not freeze itself.
+`Orbit` does not own `x0` or `vx`. The same reset still clears every fit-parameter column the used model does not own, for every star that was not frozen. For a fit `Orbit` star that is `x0`, `y0`, `vx`, `vy`, `vx0`, `ax`, `vy0`, `ay`, `pi`, and their `_err` columns, whenever those columns are already on the table. This still happens. It does not matter for prediction: `infer_positions` reads `orb_*` for an `Orbit` star, not `x0 + vx*(t - t0)`. It matters for a catalog that wanted the old linear solution to remain on the same row as the fitted orbit. Those callers freeze the star, or hold it with `update_ref_orig`, which restores `x0` and `vx` along with `orb_*`. There is no extra restore for a star that was actually fit. The existing `t0` write at `startables.py:1672` also runs, because the star was fit. `orb_t0` is a different column.
 
 ### 2.5 Epochs and demotion
 
@@ -686,9 +704,9 @@ There is no later step that puts `x0` and `vx` back. Callers who need those inpu
 What each star does:
 
 - Fixed, by the list or by `fit_motion='fixed'`. Removed before demotion. Effective requirement in that test: 0 epochs. Never demoted, including with no detections. Predicts from `orb_*`. `xe = ye = 0`. The solver is not called.
-- Fit, and `n_fit < 3`. Stays `Orbit` because `demote = False`. The solver is not called. `fit_orb_*` stay at the fill value, `fit_orb_converged` is false, `fit_orb_n_iter` is 0. Prediction uses `orb_*`. Errors are `inf`, because a fit was requested and no covariance exists.
-- Fit, and `n_fit = 3`. The solver runs. A converged solution may be stored. Covariance and position errors stay non-finite.
-- Fit, and `n_fit >= 4`. The solver runs. A converged solution stores a finite covariance and finite positive `_err` values.
+- Fit, and `n_fit < 3`. Stays `Orbit` because `demote = False`. The solver is not called. `run_fit` returns the current `orb_*` values, so those columns are bitwise unchanged. `orb_fit_converged` is false, `orb_fit_n_iter` is 0, and `orb_*_err` is non-finite. Prediction uses the kept elements. Errors on the sky are `inf`, because a fit was requested and no covariance exists.
+- Fit, and `n_fit = 3`. The solver runs. A converged solution updates `orb_*`. Covariance and `orb_*_err` stay non-finite.
+- Fit, and `n_fit >= 4`. The solver runs. A converged solution updates `orb_*` and stores a finite covariance and finite positive `orb_*_err`.
 
 The uniqueness assert is untouched. Catalogs that place `Orbit` in a list with `Acceleration` or `Parallax` need `motion_model_input`. The reader writes it. A frozen star does not get a private `n_params` of 0 stored on the class or, by this plan, written into the column. Skipping the row is the whole framework change for the fixed case.
 
@@ -696,36 +714,36 @@ The uniqueness assert is untouched. Catalogs that place `Orbit` in a list with `
 
 `run_fit` keeps the batch signature and loops over stars inside it. `docs/motion_models.rst` already describes that pattern for a nonlinear model: the closed-form models stay vectorized, and only the stars assigned to this model pay for a per-star optimizer. A Galactic Center list is tens of orbits, not the whole mosaic. One shared `least_squares` across stars is a poor fit here. Each star has its own elements, bounds, and angle branch. `Linear`, `Fixed`, `Acceleration`, and `Parallax` stay on their closed-form vectorized fits.
 
-Use `scipy.optimize.least_squares` with `method='trf'`. The residual is the weighted sky offset, `weighting='var'` or `'std'` the same way as `Linear.run_fit`. Initialize from the input `orb_*` elements. If any of those six is non-finite, do not search. Set `fit_orb_converged` false and the fit columns to the fill value. There is no grid search in this phase.
+Use `scipy.optimize.least_squares` with `method='trf'`. The residual is the weighted sky offset, `weighting='var'` or `'std'` the same way as `Linear.run_fit`. Initialize from the current `orb_*` elements, copied before the solve. If any of those six is non-finite, do not search. Set `orb_fit_converged` false, leave the elements at that copy, and set the errors non-finite. There is no grid search in this phase.
 
 The internal vector has six unconstrained numbers. The catalog columns stay in the usual units (years, degrees, dimensionless eccentricity).
 
 | Internal parameter | Maps to | Why |
 |---|---|---|
-| `ln(P)` | `fit_orb_P = exp(ln P)` | Period stays positive. |
-| `Δt0` | `fit_orb_t0`, then shifted by an integer number of periods so it lies within half a period of the input `orb_t0` | Periapse time is periodic. The reported value stays near the guess. |
+| `ln(P)` | `orb_P = exp(ln P)` | Period stays positive. |
+| `Δt0` | `orb_t0`, then shifted by an integer number of periods so it lies within half a period of the seed | Periapse time is periodic. The reported value stays near the guess. |
 | `h = sqrt(e) cos ω`, `k = sqrt(e) sin ω` | `e = h² + k²`, `ω = atan2(k, h)` in degrees | Puts the eccentricity and the argument of periapse in a form without a hard angle cut. If `h² + k² >= 1`, the residual returns a large penalty so `e` stays below 1. |
-| `i` with bounds `(0, 180)` degrees | `fit_orb_i` | Inclination stays in the usual range. |
-| `Ω` unbounded, in degrees | `fit_orb_Omega`, wrapped to the turn nearest the input `orb_Omega` | Node angle has no preferred cut. |
+| `i` with bounds `(0, 180)` degrees | `orb_i` | Inclination stays in the usual range. |
+| `Ω` unbounded, in degrees | `orb_Omega`, wrapped to the turn nearest the seed | Node angle has no preferred cut. |
 
 After a successful solve, also evaluate the twin `(Ω + 180°, ω + 180°)`. Sky positions are unchanged under that pair, and the line-of-sight velocity flips. This fit has no radial velocities, so the twin is a real degeneracy, not a bug. Keep the branch whose angles are closer to the input `orb_Omega` and `orb_omega`. Do not flip `i`. Radial velocities that would break the degeneracy are future work.
 
-`absolute_sigma=True` uses the covariance `inv(Jᵀ W J)` in the internal parameters, then the analytic Jacobian of the map above to convert that matrix into `fit_orb_cov` in the reported elements. `absolute_sigma=False` multiplies by the reduced chi-squared when the degree of freedom is positive. The diagonal of `fit_orb_cov` supplies `fit_orb_*_err`.
+`absolute_sigma=True` uses the covariance `inv(Jᵀ W J)` in the internal parameters, then the analytic Jacobian of the map above to convert that matrix into `orb_cov` in the reported elements. `absolute_sigma=False` multiplies by the reduced chi-squared when the degree of freedom is positive. The diagonal of `orb_cov` supplies `orb_*_err`.
 
-If `least_squares` does not converge, or the star has fewer than three epochs, do not write a partial element set. `fit_orb_*` are the fill value, errors are non-finite, `fit_orb_converged` is false, and `fit_orb_n_iter` records how far the solver got (zero if it was not called). The input `orb_*` columns are not arguments of the write-back, so they stay byte for byte.
+If `least_squares` does not converge, or the star has fewer than three epochs, return the seed copied before the solve, not a partial step and not `fill_value`. `orb_*_err` is non-finite, `orb_fit_converged` is false, `orb_cov` is non-finite, and `orb_fit_n_iter` records how far the solver got (zero if it was not called). The generic column write then stores the seed, so the elements stay byte for byte. A partial solution would be a set of elements that was never accepted, and a fill value would leave the next epoch with no orbit to propagate.
 
 ### 2.7 Prediction and position errors
 
-`model` uses `fit_orb_*` when all six are finite. Otherwise it uses `orb_*`, so a fixed star, a skipped fit, or a failed fit still places the star on the reference orbit. The sky formula is the one in section 2.1, including `x = -east` and `y = +north`.
+`model` always reads the current `orb_*` columns. A fixed star, a skipped fit, and a failed fit all still have the seed there. A successful fit has the updated elements there. The sky formula is the one in section 2.1, including `x = -east` and `y = +north`.
 
-When errors are requested and `fit_orb_cov` is finite:
+When errors are requested and `orb_cov` is finite:
 
 ```text
-xe**2 = J_x  fit_orb_cov  J_x.T
-ye**2 = J_y  fit_orb_cov  J_y.T
+xe**2 = J_x  orb_cov  J_x.T
+ye**2 = J_y  orb_cov  J_y.T
 ```
 
-The Jacobian is a central difference of the same `kep2xyz` path the prediction uses. Diagonal `fit_orb_*_err` alone is the wrong input. Period, periapse time, eccentricity, and the two angles are correlated, and `Ω` with `ω` is exactly degenerate on the sky. Propagating only the diagonal would invent a position error. If a fit was requested and the covariance is missing or singular, return `xe = ye = inf`. If the solver was not called because the star is fixed, return `xe = ye = 0`. There is no `pos_err` argument.
+The Jacobian is a central difference of the same `kep2xyz` path the prediction uses. Diagonal `orb_*_err` alone is the wrong input. Period, periapse time, eccentricity, and the two angles are correlated, and `Ω` with `ω` is exactly degenerate on the sky. Propagating only the diagonal would invent a position error. If a fit was requested and the covariance is missing or singular, return `xe = ye = inf`. If the solver was not called because the star is fixed, return `xe = ye = 0`. There is no `pos_err` argument.
 
 ## 3. Kepler solver
 
@@ -753,7 +771,7 @@ With `M = 4.0e6` and `R0 = 8000`, `a_mas` from the printed `P` matches column `A
 - Unmatched catalog rows: leave `motion_model_input` unchanged and set those six columns to NaN.
 - Names in the orbit file that are not in the catalog: warn, do not add rows.
 - Do not add `orb_A`, `orb_search`, or any metadata entry for `A` or `search`.
-- Do not add `fit_orb_*`. Those columns appear when a fit runs.
+- Do not add `orb_*_err`, `orb_cov`, `orb_fit_converged`, or `orb_fit_n_iter`. The fitter creates the error columns. The diagnostics appear when a fit runs.
 
 Attach is explicit. Loading a starlist does not look for `orbits.dat`.
 
@@ -823,7 +841,7 @@ To solve orbital elements inside `MosaicToRef`, the orbit row must be not frozen
 
 A fixed `Orbit` star is never demoted, because it is not in the test. Its class `n_params` is still 3. The effective requirement is 0 only in the sense that the comparison is not applied.
 
-A fit `Orbit` star is not demoted when `n_fit < 3`, because `demote = False`. The solver is skipped and prediction uses `orb_*`. Section 2.5 is the full account. The reset still runs for that star, so `x0` and `vx` are cleared when those columns exist. `orb_*` stay. `fit_orb_*` stay at the fill value because the solver did not write a solution.
+A fit `Orbit` star is not demoted when `n_fit < 3`, because `demote = False`. The solver is skipped and `orb_*` stay at the seed. Section 2.5 is the full account. The reset still runs for that star. It does not clear `orb_*`, because `Orbit` owns them. It does clear `x0` and `vx` when those columns exist. Prediction does not use the cleared columns.
 
 Without a `motion_model_input` column, selection uses `n_params` alone, and two models with the same `n_params` raise (`startables.py:1082-1086`). `Acceleration` and `Parallax` also have `n_params = 3`, so a fit list that contains `Orbit` and either of them raises when the column is missing. The orbits reader always writes `motion_model_input`.
 
@@ -835,7 +853,7 @@ Without a `motion_model_input` column, selection uses `n_params` alone, and two 
 | `Linear` | Keep `x0`, `vx`, `y0`, `vy`. One detection stays `Linear`. | Closed-form refit, as today. Fewer than two epochs demotes. |
 | `Acceleration` | Keep the quadratic coefficients and `t0`. | Closed-form refit, as today. |
 | `Parallax` | Keep `x0`, `vx`, `y0`, `vy`, `pi`. | Closed-form refit, as today. |
-| `Orbit` | Predict from `orb_*`. `xe = ye = 0`. No solver. Input `x0` and `vx` stay. | `least_squares` into `fit_orb_*` in phase B. `orb_*` stay. `x0` and `vx` are cleared by the reset. |
+| `Orbit` | Predict from `orb_*`. `xe = ye = 0`. No solver. Input `orb_*`, `x0`, and `vx` stay. | `least_squares` updates `orb_*` in place. A failed fit keeps the seed and sets `orb_fit_converged` false. `x0` and `vx` are cleared by the reset. |
 
 ### 5.7 Recommended Galactic Center call
 
@@ -862,13 +880,13 @@ Solver and model, phase A:
 
 - Circular and eccentric analytic positions match Newtonian `kep2xyz` at a grid of epochs. The port has no GR or redshift switch to test.
 - With the black hole at the origin, `x` equals minus the east offset and `y` equals the north offset. The class has no `x_sign` or `y_sign` to override.
-- A fixed star, asked for errors, returns `xe = ye = 0`. `optional_fixed_params` has no `pos_err`. Prediction uses `orb_*` when `fit_orb_*` is missing or non-finite.
+- A fixed star, asked for errors, returns `xe = ye = 0`. `optional_fixed_params` has no `pos_err`. Prediction reads `orb_*`. It does not need `orb_*_err`.
 - `Orbit()` has `optional_fixed_params['mass'] == 4.0e6` and `optional_fixed_params['dist'] == 8.0e3`. `model` with no `mass` or `dist` uses those. A `fixed_params_dict` override, a column, and a `meta` entry each win in that order.
 - For every star in `orbits.dat` v2.0.2, `a_mas` from the printed `P` with those defaults is within 0.02 mas of the file's `A` field. The test reads `A` during the parse. After `read_orbits_dat` and after `attach_orbits`, the table has no `A`, `orb_A`, `search`, or `orb_search` column and no metadata entry for either field.
 - Against gcwork `kep2xyz`, pass `mass=4.07e6` and `dist=7960.1` explicitly. Compare east and north at several epochs, including periapse and a time far from it. Do not use the FlyStar defaults for this comparison.
 - `read_orbits_dat` returns 32 rows and the S0-2 elements. `attach_orbits` sets `motion_model_input` only on name matches, and does not set `fit_motion`.
 - An orbit star and a linear star in one `MosaicToRef` are matched with the same `dr_tol`. No column on the orbit star changes that radius.
-- `determine_motion_models` keeps `motion_model_input='Orbit'` when `mass` and `dist` are absent, when they exist only in `meta`, and when `fit_orb_*` is absent or NaN. A non-finite `orb_e` still rejects the request. The same meta path keeps an explicit `Parallax` request whose `pa` is only in `meta`. A non-finite `vx` still rejects `Linear`.
+- `determine_motion_models` keeps `motion_model_input='Orbit'` when `mass` and `dist` are absent, when they exist only in `meta`, and when `orb_*_err` is absent. A non-finite `orb_e` still rejects the request. The same meta path keeps an explicit `Parallax` request whose `pa` is only in `meta`. A non-finite `vx` still rejects `Linear`. `infer_positions` on a fixed orbit star with `x0_err` present and `orb_P_err` absent returns `xe = ye = 0` and does not raise.
 
 Freeze list and column. These apply to phase A and stay green in phase B:
 
@@ -889,23 +907,24 @@ Align integration, phase A:
 
 Fitting, phase B. The phase A tests above still pass.
 
-- Inject an S0-2-like orbit (`e` about 0.9, `P` about 16 yr) at 15 or more epochs spanning at least one period, with the star not frozen. Add 0.5 mas Gaussian noise. Recover `|ΔP|/P < 0.02`, `|Δe| < 0.02`, `|Δt0| < 0.1` yr, and angle errors under 5 degrees after folding `(Ω, ω)` onto the branch nearer the input elements.
+- Inject an S0-2-like orbit (`e` about 0.9, `P` about 16 yr) at 15 or more epochs spanning at least one period, with the star not frozen. Add 0.5 mas Gaussian noise. The fit updates `orb_*` in place. Recover `|ΔP|/P < 0.02`, `|Δe| < 0.02`, `|Δt0| < 0.1` yr, and angle errors under 5 degrees after folding `(Ω, ω)` onto the branch nearer the seed.
 - Inject an S0-16-like orbit (`e` about 0.97, `P` about 55 yr) with epochs that include periapse and 1 mas noise. Recover `|Δe| < 0.03` and `|ΔP|/P < 0.05`, with the same angle rule.
-- After every fit, the six input `orb_*` columns are bitwise unchanged.
-- With four or more epochs and a converged fit, `fit_orb_*` is finite, each `fit_orb_*_err` is finite and positive, `fit_orb_cov` has shape `(6, 6)` and is symmetric, `fit_orb_converged` is true, and `fit_orb_n_iter` is positive. `xe` and `ye` from `model` are finite and come from that covariance.
-- With `n_fit = 2`, the star stays `Orbit`, the solver is not treated as converged, `fit_orb_*` is the fill value, and the predicted position matches prediction from the input elements. `xe` and `ye` are non-finite.
-- With `n_fit = 3`, a converged fit may exist, and the errors, the covariance used for `xe` / `ye`, and `xe` / `ye` themselves are non-finite.
-- One `MosaicToRef` with original rows, `fixed_motion_models=['Orbit']`, and `update_ref_orig=True`: an `Orbit` row with blank `fit_motion` keeps its input elements, keeps `x0` and `vx`, and does not gain a solution; an `Orbit` row with `fit_motion='fit'` keeps `orb_*`, gains `fit_orb_*`, and does not keep the input `x0` and `vx`; a `Linear` row is refit. All three match with the same `dr_tol`.
-- The same three rows with `update_ref_orig=False`: the row marked `'fit'` is held, and `fit_orb_*` is not populated. The `Linear` row is held too.
+- `orb_*` is bitwise unchanged for a frozen star, and for an original row when `update_ref_orig=False`, including a row whose `fit_motion` is `'fit'`. It is not bitwise unchanged for a star that was actually fit.
+- With four or more epochs and a converged fit, `orb_*` has moved toward the injected elements, each `orb_*_err` is finite and positive, `orb_cov` has shape `(6, 6)` and is symmetric, `orb_fit_converged` is true, and `orb_fit_n_iter` is positive. `xe` and `ye` from `model` are finite and come from that covariance.
+- With `n_fit = 2`, the star stays `Orbit`, `orb_*` is bitwise unchanged, `orb_fit_converged` is false, and the predicted position matches the seed. `xe` and `ye` are non-finite.
+- With `n_fit = 3`, a converged fit may update `orb_*`, and the errors, the covariance used for `xe` / `ye`, and `xe` / `ye` themselves are non-finite.
+- A failed solve keeps the seed in `orb_*`, sets `orb_fit_converged` false, and does not leave a fill value in the element columns.
+- One `MosaicToRef` with original rows, `fixed_motion_models=['Orbit']`, and `update_ref_orig=True`: an `Orbit` row with blank `fit_motion` keeps its input elements and its input `x0` and `vx`; an `Orbit` row with `fit_motion='fit'` has `orb_*` updated toward the data, finite `orb_*_err` when it has at least four epochs, and does not keep the input `x0` and `vx`; a `Linear` row is refit. All three match with the same `dr_tol`.
+- The same three rows with `update_ref_orig=False`: every original row is held, including the one marked `'fit'`, and `orb_*` is bitwise unchanged. The `Linear` row is held too.
 
 ## 7. Decisions
 
 1. **Coordinate frame.** Resolved. Hardcoded inside `Orbit.model`: `x = -east`, `y = +north`. There is no `x_sign` or `y_sign` parameter.
 2. **Black-hole mass and distance.** Resolved. Optional fixed parameters, defaults `mass=4.0e6` Msun and `dist=8.0e3` pc, same lookup as `Parallax`'s `pa` and `obsLocation`. These defaults reproduce the `A` field of `orbits.dat`. The gcwork pair is an explicit override, not the default. They are not fit. A joint black-hole fit across stars is future work.
-3. **Fixed versus fitted elements.** Resolved. One class. `fit_param_names` are the six `fit_orb_*` columns. The input `orb_*` columns are required fixed parameters and are never overwritten. Fixed versus fit is the freeze list plus the `fit_motion` column, not a second class and not a flag on the instance. Class `n_params` stays 3, from `int((6 + 1) / 2)`. A fixed star is removed before demotion, so it needs no epochs. A fit star is attempted at three epochs and is not demoted below that. Finite covariance starts at four epochs. `demote = False` is the framework change that stops a short fit from becoming `Linear`.
+3. **Fixed versus fitted elements.** Resolved. One class. `fit_param_names` are `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega`. A fit updates those columns in place. They are not also required fixed parameters. A fixed star is predicted from the same columns because it is not refit. Original values survive through `update_ref_orig` / `keep_orig`, `fixed_motion_models`, and `fit_motion='fixed'`, the same mechanisms that preserve `x0` and `vx`. A failed fit returns the seed and sets `orb_fit_converged` false. Class `n_params` stays 3. A fit star below that is not demoted. Finite `orb_*_err` starts at four epochs. A fit `Orbit` star still loses pre-existing `x0` and `vx` to the reset. That does not affect the orbit prediction. Callers who need those linear columns freeze the star or hold the row.
 4. **Which stars are frozen.** Resolved. `fixed_motion_models` names whole classes. The string column `fit_motion` is `'fixed'` or `'fit'`. A non-blank cell overrides the list. A missing column, or a null or blank cell, follows the list. Both unset means fit, which is today's behavior. The recommended align passes `fixed_motion_models=['Orbit']`. The same column and list freeze or refit `Linear` and the other models. `fit_motion` does not override `update_ref_orig`.
 5. **Match radius.** Resolved. Every star, fixed orbit or fitted orbit, uses the same `MosaicToRef` `dr_tol`. The file's `search` column is parsed and discarded. There is no per-star search radius.
-6. **Position errors.** Resolved. A fixed star returns `xe = ye = 0` when errors are requested. A fit with a finite `fit_orb_cov` returns the Jacobian times that covariance. A fit with no finite covariance returns `inf`. There is no `pos_err` parameter. For a fixed star, `'ref,var'` and `'ref,std'` still drop the star; schemes that use the science-list errors do not.
+6. **Position errors.** Resolved. A fixed star returns `xe = ye = 0` when errors are requested. A fit with a finite `orb_cov` returns the Jacobian times that covariance. A fit with no finite covariance returns `inf`, including a failed fit whose `orb_*` values were kept. There is no `pos_err` parameter. For a fixed star, `'ref,var'` and `'ref,std'` still drop the star; schemes that use the science-list errors do not.
 
 Still open, and not blocking the plan:
 
@@ -918,15 +937,15 @@ Phase A is the `Orbit` class with fixed prediction, plus the freeze list and the
 Phase A:
 
 1. `flystar/orbits.py`: Newtonian solver only, `kep2xyz`, `read_orbits_dat`, `attach_orbits`. Parse `A` and `search`, do not store them. Tests against the analytic orbit, the `a_mas` check against file `A`, and gcwork with explicit mass and distance.
-2. `Orbit` in `motion_model.py`. `fit_param_names` are the six `fit_orb_*` names, `n_params` is 3, `demote = False`, `predict_without_fit_params = True`. `model` predicts from `orb_*` and returns `xe = ye = 0`. `run_fit` returns the fill value and does not call `least_squares`. Tests for defaults, overrides, and `infer_positions` with `fit_orb_*` absent.
-3. `determine_motion_models`: optional defaults count as available, the explicit-request loop reads `meta`, and `predict_without_fit_params` leaves `fit_orb_*` out of the finiteness check. `infer_positions` tolerates a missing fit-parameter column for that class.
+2. `Orbit` in `motion_model.py`. `fit_param_names` are the six `orb_*` names, `required_fixed_param_names` is empty, `n_params` is 3, and `demote = False`. `model` predicts from `orb_*` and returns `xe = ye = 0`. `run_fit` returns the current elements and does not call `least_squares`. Tests for defaults, overrides, and `infer_positions` when `orb_*_err` is absent.
+3. `determine_motion_models`: optional defaults count as available, and the explicit-request loop reads `meta`. `infer_positions` treats a missing `orb_*_err` column as `inf` and passes `orb_cov` through when the column exists.
 4. `fixed_motion_models` and `fit_motion` on `MosaicToRef` and `fit_motion_models`. Honor precedence, the one-epoch path, demotion (frozen rows out; `demote = False` for `Orbit`), and all four `update_ref_orig` settings. The same mask freezes `Linear`.
 5. Tests: fixed via the list, fixed via the column, the column overriding the list in both directions, one `Linear` star frozen by the column while another is refit, and the default unchanged when neither is set.
 
 Phase B, the solver inside the same class, after phase A:
 
 1. The optional fifth return from `run_fit` for diagnostics. Existing models keep their four-value return.
-2. `Orbit.run_fit`: per-star `least_squares`, the internal parameterization, the 180 degree branch choice, and `fit_orb_cov`. Below three epochs, skip the solver and predict from `orb_*`. Tests that recover the injected S0-2-like and S0-16-like orbits, leave `orb_*` unchanged, fill the new columns, and cover `n_fit` of 2 and of 3.
+2. `Orbit.run_fit`: per-star `least_squares`, the internal parameterization, the 180 degree branch choice, and `orb_cov`. A failed fit and a star with fewer than three epochs return the seed and set `orb_fit_converged` false. Tests that move `orb_*` toward the injected S0-2-like and S0-16-like orbits, leave `orb_*` unchanged when the star is frozen or when `update_ref_orig=False`, require finite `orb_*_err` at four or more epochs, and cover `n_fit` of 2 and of 3.
 3. One `MosaicToRef` test with a fixed `Orbit` star, a fit `Orbit` star (`fit_motion='fit'`), and a `Linear` star. `update_ref_orig=True` so the fit runs. The same rows with `update_ref_orig=False` stay held.
 
 ## 9. Out of scope
