@@ -1772,484 +1772,6 @@ class Parallax(MotionModel):
         return params, param_errs, chi2x, chi2y
 
 
-def determine_motion_models(startable, motion_models=None, fixed_params_dict=None):
-    """Determine, per star, which motion model to use.
-
-    Precedence:
-
-    1. A ``motion_model_input`` column -- the caller's explicit per-star
-       request -- wherever that model can actually be evaluated for that star
-       (every parameter it needs present and finite). This is the same
-       priority fit_motion_models gives the column.
-    2. Otherwise the most complex model in `motion_models` whose parameters
-       are all present and finite for that star.
-    3. `motion_models=None` means "any model", so step 2 becomes "the most
-       complex model this star's parameters support".
-
-    The distinction between a restricted list and None is what separates the
-    two questions this answers. Which model a star was FIT with is confined to
-    the models that were requested, so callers pass their list. How far a star
-    must move to reach some other epoch is a property of the star, not of what
-    you chose to fit -- a reference imported from an external catalog can carry
-    vx/vy/t0 that were never fit here and still has to move with Linear -- so
-    propagation passes None.
-
-    Parameters
-    ----------
-    startable : startable
-        Startable with motion model parameter columns
-    motion_models : list of MotionModel or str, optional
-        List of motion model classes or their names to select from.
-        If None, all available motion models will be considered, by default None
-    fixed_params_dict : dict, optional
-        Dictionary of fixed parameters, by default None
-
-    Returns
-    -------
-    motion_model_used : list
-        List of motion model used for each star
-    n_params : list
-        List of n parameters per direction for each star
-    """
-
-    # Needed unconditionally: both for resolving a list of model names and for
-    # resolving 'motion_model_input' requests further down, which are looked up
-    # against every known model rather than just the ones passed in.
-    all_mm_map = motion_model_map()
-
-    if motion_models is None:
-        motion_models = MotionModel.__subclasses__()
-    elif all(isinstance(mm, str) for mm in motion_models):
-        motion_models = [all_mm_map[mm] for mm in motion_models]
-
-    if fixed_params_dict is None:
-        fixed_params_dict = {}
-
-    # A fixed parameter counts as available from any of the three places the
-    # rest of the code will actually look it up in: fixed_params_dict, a table
-    # column, or table metadata. Metadata has to be included here or this
-    # function contradicts the lookup it is gating: fit_motion_models stores a
-    # fixed parameter that is uniform across stars in meta (only a per-star one
-    # becomes a column), so after fitting Parallax with a single ra/dec/pa for
-    # the whole table, 'pa' and 'obsLocation' live in meta -- and omitting meta
-    # made Parallax un-selectable, silently demoting those stars to Linear and
-    # dropping the parallax term from infer_positions.
-    meta_keys = set(getattr(startable, 'meta', None) or {})
-
-    motion_models_possible = []
-    for mm in motion_models:
-        # Optional fixed parameters are not required to be present. A missing
-        # one falls through to the class default after this gate. A present
-        # one that is non-finite still rejects the model, same as a required
-        # parameter. Orbit's mass and dist, and Parallax's pa, use this.
-        required_columns = list(mm.fit_param_names) + list(mm.required_fixed_param_names)
-        optional_names = list(mm.optional_fixed_params)
-
-        def _present(col):
-            return ((col in startable.colnames)
-                    or (col in fixed_params_dict)
-                    or (col in meta_keys))
-
-        if not all(_present(col) for col in required_columns):
-            continue
-
-        check_columns = list(required_columns)
-        for col in optional_names:
-            if _present(col):
-                check_columns.append(col)
-
-        req_col_in_table = [col for col in check_columns if (col in startable.colnames)]
-        req_col_in_dict = [col for col in check_columns
-                           if (col not in startable.colnames)
-                           and (col in fixed_params_dict.keys())]
-        req_col_in_meta = [col for col in check_columns
-                           if (col not in startable.colnames)
-                           and (col not in fixed_params_dict.keys())
-                           and (col in meta_keys)]
-        req_cols = startable[req_col_in_table]
-        motion_models_possible.append(
-            (mm, req_col_in_table, req_cols, req_col_in_dict, req_col_in_meta))
-
-    # Vectorized replacement for the old per-star Python loop (which called
-    # np.isfinite/np.issubdtype once per star per required column -- millions
-    # of times for large mosaics). For each candidate motion model, checked in
-    # the same priority order as before (last-declared model first), compute a
-    # whole-table boolean mask of which stars have all of that model's required
-    # *numeric* columns finite, then assign that model to every not-yet-assigned
-    # star the mask covers. Whether the fixed_params_dict/meta entries are
-    # finite doesn't depend on which star is being assigned, so each is checked
-    # once per model instead of once per star. This makes the `processes`/`chunksize` arguments unnecessary for
-    # this function; they are kept in the signature for backward compatibility.
-    n_stars = len(startable)
-    motion_model_used = np.empty(n_stars, dtype=object)
-    n_params = np.empty(n_stars, dtype=int)
-    assigned = np.zeros(n_stars, dtype=bool)
-
-    for mm, req_col_in_table, req_cols, req_col_in_dict, req_col_in_meta in motion_models_possible[::-1]:
-        # np.all(), not the bare truth value: a fixed parameter may legitimately
-        # be an array of length n_stars (fit_motion_models documents scalars as
-        # applying to every star and arrays as per-star), and np.isfinite() of
-        # an array cannot be used in a boolean context -- which raised
-        # "truth value of an array ... is ambiguous" for exactly the per-star
-        # form the API invites.
-        def _finite(value):
-            arr = np.asarray(value)
-            if not np.issubdtype(arr.dtype, np.number):
-                return True          # strings such as obsLocation: nothing to check
-            return bool(np.all(np.isfinite(arr)))
-
-        fixed_ok = (all(_finite(fixed_params_dict[col]) for col in req_col_in_dict)
-                    and all(_finite(startable.meta[col]) for col in req_col_in_meta))
-        if not fixed_ok:
-            continue
-
-        satisfies = np.ones(n_stars, dtype=bool)
-        for col in req_col_in_table:
-            col_data = req_cols[col]
-            if np.issubdtype(col_data.dtype, np.number):
-                satisfies &= np.isfinite(col_data)
-
-        newly_assigned = satisfies & ~assigned
-        motion_model_used[newly_assigned] = mm.name
-        n_params[newly_assigned] = mm.n_params
-        assigned |= newly_assigned
-
-    # Highest priority: an explicit per-star request in 'motion_model_input',
-    # wherever that model can actually be evaluated for that star. Applied
-    # last so it overrides the choice made from `motion_models` above.
-    #
-    # This is the same priority fit_motion_models already gives the column --
-    # it resolves requests through the full model map rather than the
-    # restricted list -- so honoring it here keeps the two in agreement
-    # instead of having this function silently re-derive something else.
-    #
-    # "Can be evaluated" means every parameter that model needs is present (a
-    # table column or a fixed_params_dict entry) and finite for that star. So
-    # a request downgrades by itself when its parameters are missing: a star
-    # asking for Acceleration with no ax/ay, or with ax nan because it had too
-    # few epochs to fit, falls through to the choice above rather than
-    # silently producing nan positions.
-    if 'motion_model_input' in startable.colnames:
-        requested = np.asarray(startable['motion_model_input'])
-        for name in np.unique(requested):
-            if name not in all_mm_map:
-                # Unrecognized request -- leave those rows as assigned above.
-                continue
-            mm = all_mm_map[name]
-            rows = np.flatnonzero(requested == name)
-            if rows.size == 0:
-                continue
-
-            usable = np.ones(rows.size, dtype=bool)
-            # Required names, including fit parameters. Optional names are
-            # a second loop: missing is fine, present and non-finite is not.
-            # Meta is consulted here, as the candidate loop already does.
-            for col in list(mm.fit_param_names) + list(mm.required_fixed_param_names):
-                if col in startable.colnames:
-                    col_data = np.asarray(startable[col][rows])
-                    if np.issubdtype(col_data.dtype, np.number):
-                        usable &= np.isfinite(col_data)
-                elif col in fixed_params_dict:
-                    value = np.asarray(fixed_params_dict[col])
-                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
-                        usable[:] = False
-                elif col in meta_keys:
-                    value = np.asarray(startable.meta[col])
-                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
-                        usable[:] = False
-                else:
-                    # The requested model needs something this table lacks.
-                    usable[:] = False
-                    break
-            for col in mm.optional_fixed_params:
-                if col in startable.colnames:
-                    col_data = np.asarray(startable[col][rows])
-                    if np.issubdtype(col_data.dtype, np.number):
-                        usable &= np.isfinite(col_data)
-                elif col in fixed_params_dict:
-                    value = np.asarray(fixed_params_dict[col])
-                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
-                        usable[:] = False
-                elif col in meta_keys:
-                    value = np.asarray(startable.meta[col])
-                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
-                        usable[:] = False
-                # Absent optional parameter: leave usable alone.
-
-            honored = rows[usable]
-            motion_model_used[honored] = mm.name
-            n_params[honored] = mm.n_params
-            assigned[honored] = True
-
-    # Stars that matched no motion model are dropped, matching the old
-    # behavior of simply never appending an entry for them.
-    motion_model_used = motion_model_used[assigned].tolist()
-    n_params = n_params[assigned].tolist()
-
-    return motion_model_used, n_params
-
-
-def motion_model_param_names(motion_models, with_errors=True, with_fixed=True):
-    """Get the motion model parameter names from a list of MotionModels.
-
-    Parameters
-    ----------
-    motion_models : MotionModel, str, or list of MotionModels/strings.
-        Motion model to query parameter names from. If str, should be the name of a MotionModel class.
-    with_errors : bool, optional
-        Add uncertainty names with '_err' suffix or not, by default True
-    with_fixed : bool, optional
-        Add fixed param names with '_fixed' suffix or not, by default True
-
-    Returns
-    -------
-    list
-        List of all unique parameter names across all motion models
-    """
-    list_of_parameters = []
-
-    def list_add(name):
-        if name not in list_of_parameters:
-            list_of_parameters.append(name)
-
-    motion_models = np.atleast_1d(motion_models)
-
-    # Callers (e.g. align.update_ref_table_aggregates) may pass one entry per
-    # star -- mostly repeats of the same handful of motion model names/classes.
-    # Re-expanding fit_param_names/fixed_param_names for every repeat is pure
-    # waste, since list_add() is a no-op for names already seen. Dedup up front
-    # (preserving first-occurrence order, which is what determines the order of
-    # list_of_parameters below) so each distinct motion model is expanded once.
-    seen = set()
-    unique_motion_models = []
-    for mm in motion_models:
-        key = mm if isinstance(mm, str) else id(mm)
-        if key not in seen:
-            seen.add(key)
-            unique_motion_models.append(mm)
-    motion_models = unique_motion_models
-
-    mm_map = motion_model_map()
-    for mm in motion_models:
-        if isinstance(mm, str):
-            mm = mm_map[mm]
-        for param in mm.fit_param_names:
-            # Fitter params
-            list_add(param)
-            # Error params
-            if with_errors:
-                list_add(param + '_err')
-        # Fixed params
-        if with_fixed:
-            for param in mm.fixed_param_names:
-                list_add(param)
-    return list_of_parameters
-
-
-def all_motion_model_param_names(with_errors=True, with_fixed=True):
-    """Get all motion model parameter names from all available MotionModels.
-
-    Parameters
-    ----------
-    with_errors : bool, optional
-        Add uncertainty names with '_err' suffix or not, by default True
-    with_fixed : bool, optional
-        Add fixed param names with '_fixed' suffix or not, by default True
-
-    Returns
-    -------
-    list
-        List of all unique parameter names across all motion models
-    """
-    return motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
-
-def motion_model_map():
-    """Get a dictionary mapping motion model names to MotionModel classes.
-
-    Returns
-    -------
-    mm_map : dict
-        Dictionary mapping motion model names to MotionModel classes.
-    """
-    mm_map = dict(
-        [(mm.__name__, mm) for mm in MotionModel.__subclasses__()]
-    )
-    # Sort by required epochs
-    mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].n_params))
-    return mm_map
-
-def organize_motion_models(motion_models):
-    """
-    Organize a list of motion models of type str or MotionModel into a list of MotionModel classes,
-    sorted by increasing number of required parameters. Empty and Fixed are always added if not already present.
-    To be used in align and StarTable.fit_motion_models.
-
-    Parameters
-    ----------
-    motion_models : MotionModel, str, or list of MotionModels/strings.
-        Motion model(s) to organize. Names are matched case-insensitively --
-        'linear' and 'Linear' are the same model -- and only the canonical
-        spelling propagates, so the caller's casing never reaches the output.
-
-    Returns
-    -------
-    list
-        List of MotionModel classes sorted by increasing number of required parameters.
-    """
-
-    all_mm_map = motion_model_map()
-
-    def class_from_name(name):
-        """
-        Resolve one model name to its class, case-insensitively.
-
-        Every model name is a single word ('Empty', 'Fixed', 'Linear',
-        'Acceleration', 'Parallax'), so str.capitalize() is an exact
-        normalization: it upper-cases the first character and lower-cases the
-        rest, mapping 'linear', 'LINEAR' and 'lInEaR' all onto 'Linear'. Only
-        the canonical name goes any further -- what is returned is the class
-        itself, and the name that reaches the ref_table comes from that class's
-        .name attribute, so nothing downstream ever sees the caller's casing.
-        """
-        canonical = name.capitalize()
-        assert canonical in all_mm_map.keys(), \
-            f"motion_model must be in {list(all_mm_map.keys())}, but got '{name}'"
-        return all_mm_map[canonical]
-
-    # Change to list if not
-    motion_model_classes = []
-    if motion_models is None:
-        motion_models = [Empty, Fixed]
-    elif isinstance(motion_models, str):
-        motion_model_classes = [class_from_name(motion_models)]
-    elif isinstance(motion_models, type) and issubclass(motion_models, MotionModel):
-        motion_model_classes = [motion_models]
-    elif isinstance(motion_models, (list, tuple, np.ndarray)):
-        for mm in motion_models:
-            if isinstance(mm, str):
-                motion_model_classes.append(class_from_name(mm))
-            else:
-                assert issubclass(mm, MotionModel), f"motion_model must be a string or a MotionModel object, but got {type(mm)}"
-                motion_model_classes.append(mm)
-
-    mm_names = [mm.name for mm in motion_model_classes]
-    if 'Empty' not in mm_names:
-        motion_model_classes.append(all_mm_map['Empty'])
-    if 'Fixed' not in mm_names:
-        motion_model_classes.append(all_mm_map['Fixed'])
-
-    # Sort by increasing n_params
-    motion_model_classes = sorted(motion_model_classes, key=lambda mm: mm.n_params)
-    return motion_model_classes
-
-# Orbit and the freeze mask. Newtonian sky positions come from
-# flystar.orbits. Fixed versus fit is not a second class.
-
-_FIT_MOTION_VALUES = ('fixed', 'fit')
-
-
-def frozen_motion_mask(table, fixed_motion_models=None):
-    """Stars that must not be refit.
-
-    Parameters
-    ----------
-    table : astropy.table.Table
-        Catalog. Reads ``motion_model_input`` and, when present,
-        ``fit_motion``.
-    fixed_motion_models : sequence of str or None, optional
-        Model names to freeze. ``None`` or empty freezes nobody by
-        itself, by default None.
-
-    Returns
-    -------
-    frozen : ndarray of bool, shape (n_stars,)
-        True where the star is held fixed.
-
-    Notes
-    -----
-    A non-blank ``fit_motion`` cell overrides the list. A missing
-    column, or a masked or blank cell, follows the list. Any other
-    non-blank string raises ``ValueError``. The accepted spellings
-    are exactly ``'fixed'`` and ``'fit'``.
-    """
-    n_stars = len(table)
-    # None and an empty sequence both mean "the list freezes nobody".
-    # Names are compared as strings against motion_model_input.
-    names = []
-    if fixed_motion_models:
-        names = [str(name) for name in fixed_motion_models]
-
-    # Default: nobody is frozen. The list can only freeze a star when
-    # the catalog actually says which model that star requested.
-    frozen = np.zeros(n_stars, dtype=bool)
-    if names and ('motion_model_input' in table.colnames):
-        requested = np.asarray(table['motion_model_input']).astype(str)
-        frozen = np.isin(requested, names)
-
-    # No per-star opinion. The list, or the all-false default, is
-    # the whole answer. A missing column is not an error.
-    if 'fit_motion' not in table.colnames:
-        return frozen
-
-    column = table['fit_motion']
-    # MaskedColumn carries a mask. A plain column does not, and every
-    # cell is then a real value that the loop below has to read.
-    # getmaskarray on a column whose mask has the wrong shape (a
-    # scalar mask, or a mask left over from a different length) would
-    # not line up with the stars, so that case is treated as unmasked.
-    if hasattr(column, 'mask'):
-        masked = np.ma.getmaskarray(np.ma.asarray(column)).astype(bool)
-        if masked.shape != (n_stars,):
-            masked = np.zeros(n_stars, dtype=bool)
-    else:
-        masked = np.zeros(n_stars, dtype=bool)
-
-    # One normalized string per star. Blank means "no opinion", which
-    # is the same state as a missing column: follow the list.
-    text = []
-    for i in range(n_stars):
-        # A masked cell has no mode. Do not read through the mask.
-        if masked[i]:
-            text.append('')
-            continue
-        value = column[i]
-        # None is how an object column stores a null. Same as blank.
-        if value is None:
-            text.append('')
-            continue
-        # FITS and some numpy string dtypes yield bytes. Decode before
-        # the spelling check, or b'fixed' would look like a typo.
-        if isinstance(value, (bytes, np.bytes_)):
-            value = value.decode('utf-8', 'replace')
-        # A float NaN is the masked-numeric case, not a mode string.
-        # str(nan) is 'nan', which would be raised as a bad spelling.
-        if isinstance(value, (float, np.floating)) and not np.isfinite(value):
-            text.append('')
-            continue
-        # Whitespace-only is blank. ' fixed ' is still the word fixed.
-        text.append(str(value).strip())
-    text = np.asarray(text, dtype=object)
-
-    # Collect every bad spelling and raise once, so one typo does not
-    # hide the next. A blank cell is skipped and the list decision
-    # already stored in ``frozen`` stays. 'fixed' forces True, 'fit'
-    # forces False, including when the list said the opposite.
-    bad = []
-    for i, cell in enumerate(text):
-        if cell == '':
-            continue
-        if cell not in _FIT_MOTION_VALUES:
-            bad.append(cell)
-            continue
-        frozen[i] = (cell == 'fixed')
-    if bad:
-        raise ValueError(
-            "fit_motion must be 'fixed', 'fit', or blank; "
-            f"got {sorted(set(bad))}."
-        )
-    return frozen
-
-
 def _angdiff(angle, reference):
     """Signed difference ``angle - reference`` in (-180, 180].
 
@@ -3042,3 +2564,481 @@ class Orbit(MotionModel):
             'orb_cov': cov,
         }
         return params, param_errs, chi2x, chi2y, diagnostics
+
+
+def determine_motion_models(startable, motion_models=None, fixed_params_dict=None):
+    """Determine, per star, which motion model to use.
+
+    Precedence:
+
+    1. A ``motion_model_input`` column -- the caller's explicit per-star
+       request -- wherever that model can actually be evaluated for that star
+       (every parameter it needs present and finite). This is the same
+       priority fit_motion_models gives the column.
+    2. Otherwise the most complex model in `motion_models` whose parameters
+       are all present and finite for that star.
+    3. `motion_models=None` means "any model", so step 2 becomes "the most
+       complex model this star's parameters support".
+
+    The distinction between a restricted list and None is what separates the
+    two questions this answers. Which model a star was FIT with is confined to
+    the models that were requested, so callers pass their list. How far a star
+    must move to reach some other epoch is a property of the star, not of what
+    you chose to fit -- a reference imported from an external catalog can carry
+    vx/vy/t0 that were never fit here and still has to move with Linear -- so
+    propagation passes None.
+
+    Parameters
+    ----------
+    startable : startable
+        Startable with motion model parameter columns
+    motion_models : list of MotionModel or str, optional
+        List of motion model classes or their names to select from.
+        If None, all available motion models will be considered, by default None
+    fixed_params_dict : dict, optional
+        Dictionary of fixed parameters, by default None
+
+    Returns
+    -------
+    motion_model_used : list
+        List of motion model used for each star
+    n_params : list
+        List of n parameters per direction for each star
+    """
+
+    # Needed unconditionally: both for resolving a list of model names and for
+    # resolving 'motion_model_input' requests further down, which are looked up
+    # against every known model rather than just the ones passed in.
+    all_mm_map = motion_model_map()
+
+    if motion_models is None:
+        motion_models = MotionModel.__subclasses__()
+    elif all(isinstance(mm, str) for mm in motion_models):
+        motion_models = [all_mm_map[mm] for mm in motion_models]
+
+    if fixed_params_dict is None:
+        fixed_params_dict = {}
+
+    # A fixed parameter counts as available from any of the three places the
+    # rest of the code will actually look it up in: fixed_params_dict, a table
+    # column, or table metadata. Metadata has to be included here or this
+    # function contradicts the lookup it is gating: fit_motion_models stores a
+    # fixed parameter that is uniform across stars in meta (only a per-star one
+    # becomes a column), so after fitting Parallax with a single ra/dec/pa for
+    # the whole table, 'pa' and 'obsLocation' live in meta -- and omitting meta
+    # made Parallax un-selectable, silently demoting those stars to Linear and
+    # dropping the parallax term from infer_positions.
+    meta_keys = set(getattr(startable, 'meta', None) or {})
+
+    motion_models_possible = []
+    for mm in motion_models:
+        # Optional fixed parameters are not required to be present. A missing
+        # one falls through to the class default after this gate. A present
+        # one that is non-finite still rejects the model, same as a required
+        # parameter. Orbit's mass and dist, and Parallax's pa, use this.
+        required_columns = list(mm.fit_param_names) + list(mm.required_fixed_param_names)
+        optional_names = list(mm.optional_fixed_params)
+
+        def _present(col):
+            return ((col in startable.colnames)
+                    or (col in fixed_params_dict)
+                    or (col in meta_keys))
+
+        if not all(_present(col) for col in required_columns):
+            continue
+
+        check_columns = list(required_columns)
+        for col in optional_names:
+            if _present(col):
+                check_columns.append(col)
+
+        req_col_in_table = [col for col in check_columns if (col in startable.colnames)]
+        req_col_in_dict = [col for col in check_columns
+                           if (col not in startable.colnames)
+                           and (col in fixed_params_dict.keys())]
+        req_col_in_meta = [col for col in check_columns
+                           if (col not in startable.colnames)
+                           and (col not in fixed_params_dict.keys())
+                           and (col in meta_keys)]
+        req_cols = startable[req_col_in_table]
+        motion_models_possible.append(
+            (mm, req_col_in_table, req_cols, req_col_in_dict, req_col_in_meta))
+
+    # Vectorized replacement for the old per-star Python loop (which called
+    # np.isfinite/np.issubdtype once per star per required column -- millions
+    # of times for large mosaics). For each candidate motion model, checked in
+    # the same priority order as before (last-declared model first), compute a
+    # whole-table boolean mask of which stars have all of that model's required
+    # *numeric* columns finite, then assign that model to every not-yet-assigned
+    # star the mask covers. Whether the fixed_params_dict/meta entries are
+    # finite doesn't depend on which star is being assigned, so each is checked
+    # once per model instead of once per star. This makes the `processes`/`chunksize` arguments unnecessary for
+    # this function; they are kept in the signature for backward compatibility.
+    n_stars = len(startable)
+    motion_model_used = np.empty(n_stars, dtype=object)
+    n_params = np.empty(n_stars, dtype=int)
+    assigned = np.zeros(n_stars, dtype=bool)
+
+    for mm, req_col_in_table, req_cols, req_col_in_dict, req_col_in_meta in motion_models_possible[::-1]:
+        # np.all(), not the bare truth value: a fixed parameter may legitimately
+        # be an array of length n_stars (fit_motion_models documents scalars as
+        # applying to every star and arrays as per-star), and np.isfinite() of
+        # an array cannot be used in a boolean context -- which raised
+        # "truth value of an array ... is ambiguous" for exactly the per-star
+        # form the API invites.
+        def _finite(value):
+            arr = np.asarray(value)
+            if not np.issubdtype(arr.dtype, np.number):
+                return True          # strings such as obsLocation: nothing to check
+            return bool(np.all(np.isfinite(arr)))
+
+        fixed_ok = (all(_finite(fixed_params_dict[col]) for col in req_col_in_dict)
+                    and all(_finite(startable.meta[col]) for col in req_col_in_meta))
+        if not fixed_ok:
+            continue
+
+        satisfies = np.ones(n_stars, dtype=bool)
+        for col in req_col_in_table:
+            col_data = req_cols[col]
+            if np.issubdtype(col_data.dtype, np.number):
+                satisfies &= np.isfinite(col_data)
+
+        newly_assigned = satisfies & ~assigned
+        motion_model_used[newly_assigned] = mm.name
+        n_params[newly_assigned] = mm.n_params
+        assigned |= newly_assigned
+
+    # Highest priority: an explicit per-star request in 'motion_model_input',
+    # wherever that model can actually be evaluated for that star. Applied
+    # last so it overrides the choice made from `motion_models` above.
+    #
+    # This is the same priority fit_motion_models already gives the column --
+    # it resolves requests through the full model map rather than the
+    # restricted list -- so honoring it here keeps the two in agreement
+    # instead of having this function silently re-derive something else.
+    #
+    # "Can be evaluated" means every parameter that model needs is present (a
+    # table column or a fixed_params_dict entry) and finite for that star. So
+    # a request downgrades by itself when its parameters are missing: a star
+    # asking for Acceleration with no ax/ay, or with ax nan because it had too
+    # few epochs to fit, falls through to the choice above rather than
+    # silently producing nan positions.
+    if 'motion_model_input' in startable.colnames:
+        requested = np.asarray(startable['motion_model_input'])
+        for name in np.unique(requested):
+            if name not in all_mm_map:
+                # Unrecognized request -- leave those rows as assigned above.
+                continue
+            mm = all_mm_map[name]
+            rows = np.flatnonzero(requested == name)
+            if rows.size == 0:
+                continue
+
+            usable = np.ones(rows.size, dtype=bool)
+            # Required names, including fit parameters. Optional names are
+            # a second loop: missing is fine, present and non-finite is not.
+            # Meta is consulted here, as the candidate loop already does.
+            for col in list(mm.fit_param_names) + list(mm.required_fixed_param_names):
+                if col in startable.colnames:
+                    col_data = np.asarray(startable[col][rows])
+                    if np.issubdtype(col_data.dtype, np.number):
+                        usable &= np.isfinite(col_data)
+                elif col in fixed_params_dict:
+                    value = np.asarray(fixed_params_dict[col])
+                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+                        usable[:] = False
+                elif col in meta_keys:
+                    value = np.asarray(startable.meta[col])
+                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+                        usable[:] = False
+                else:
+                    # The requested model needs something this table lacks.
+                    usable[:] = False
+                    break
+            for col in mm.optional_fixed_params:
+                if col in startable.colnames:
+                    col_data = np.asarray(startable[col][rows])
+                    if np.issubdtype(col_data.dtype, np.number):
+                        usable &= np.isfinite(col_data)
+                elif col in fixed_params_dict:
+                    value = np.asarray(fixed_params_dict[col])
+                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+                        usable[:] = False
+                elif col in meta_keys:
+                    value = np.asarray(startable.meta[col])
+                    if np.issubdtype(value.dtype, np.number) and not np.all(np.isfinite(value)):
+                        usable[:] = False
+                # Absent optional parameter: leave usable alone.
+
+            honored = rows[usable]
+            motion_model_used[honored] = mm.name
+            n_params[honored] = mm.n_params
+            assigned[honored] = True
+
+    # Stars that matched no motion model are dropped, matching the old
+    # behavior of simply never appending an entry for them.
+    motion_model_used = motion_model_used[assigned].tolist()
+    n_params = n_params[assigned].tolist()
+
+    return motion_model_used, n_params
+
+
+def motion_model_param_names(motion_models, with_errors=True, with_fixed=True):
+    """Get the motion model parameter names from a list of MotionModels.
+
+    Parameters
+    ----------
+    motion_models : MotionModel, str, or list of MotionModels/strings.
+        Motion model to query parameter names from. If str, should be the name of a MotionModel class.
+    with_errors : bool, optional
+        Add uncertainty names with '_err' suffix or not, by default True
+    with_fixed : bool, optional
+        Add fixed param names with '_fixed' suffix or not, by default True
+
+    Returns
+    -------
+    list
+        List of all unique parameter names across all motion models
+    """
+    list_of_parameters = []
+
+    def list_add(name):
+        if name not in list_of_parameters:
+            list_of_parameters.append(name)
+
+    motion_models = np.atleast_1d(motion_models)
+
+    # Callers (e.g. align.update_ref_table_aggregates) may pass one entry per
+    # star -- mostly repeats of the same handful of motion model names/classes.
+    # Re-expanding fit_param_names/fixed_param_names for every repeat is pure
+    # waste, since list_add() is a no-op for names already seen. Dedup up front
+    # (preserving first-occurrence order, which is what determines the order of
+    # list_of_parameters below) so each distinct motion model is expanded once.
+    seen = set()
+    unique_motion_models = []
+    for mm in motion_models:
+        key = mm if isinstance(mm, str) else id(mm)
+        if key not in seen:
+            seen.add(key)
+            unique_motion_models.append(mm)
+    motion_models = unique_motion_models
+
+    mm_map = motion_model_map()
+    for mm in motion_models:
+        if isinstance(mm, str):
+            mm = mm_map[mm]
+        for param in mm.fit_param_names:
+            # Fitter params
+            list_add(param)
+            # Error params
+            if with_errors:
+                list_add(param + '_err')
+        # Fixed params
+        if with_fixed:
+            for param in mm.fixed_param_names:
+                list_add(param)
+    return list_of_parameters
+
+
+def all_motion_model_param_names(with_errors=True, with_fixed=True):
+    """Get all motion model parameter names from all available MotionModels.
+
+    Parameters
+    ----------
+    with_errors : bool, optional
+        Add uncertainty names with '_err' suffix or not, by default True
+    with_fixed : bool, optional
+        Add fixed param names with '_fixed' suffix or not, by default True
+
+    Returns
+    -------
+    list
+        List of all unique parameter names across all motion models
+    """
+    return motion_model_param_names(MotionModel.__subclasses__(), with_errors=with_errors, with_fixed=with_fixed)
+
+def motion_model_map():
+    """Get a dictionary mapping motion model names to MotionModel classes.
+
+    Returns
+    -------
+    mm_map : dict
+        Dictionary mapping motion model names to MotionModel classes.
+    """
+    mm_map = dict(
+        [(mm.__name__, mm) for mm in MotionModel.__subclasses__()]
+    )
+    # Sort by required epochs
+    mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].n_params))
+    return mm_map
+
+def organize_motion_models(motion_models):
+    """
+    Organize a list of motion models of type str or MotionModel into a list of MotionModel classes,
+    sorted by increasing number of required parameters. Empty and Fixed are always added if not already present.
+    To be used in align and StarTable.fit_motion_models.
+
+    Parameters
+    ----------
+    motion_models : MotionModel, str, or list of MotionModels/strings.
+        Motion model(s) to organize. Names are matched case-insensitively --
+        'linear' and 'Linear' are the same model -- and only the canonical
+        spelling propagates, so the caller's casing never reaches the output.
+
+    Returns
+    -------
+    list
+        List of MotionModel classes sorted by increasing number of required parameters.
+    """
+
+    all_mm_map = motion_model_map()
+
+    def class_from_name(name):
+        """
+        Resolve one model name to its class, case-insensitively.
+
+        Every model name is a single word ('Empty', 'Fixed', 'Linear',
+        'Acceleration', 'Parallax'), so str.capitalize() is an exact
+        normalization: it upper-cases the first character and lower-cases the
+        rest, mapping 'linear', 'LINEAR' and 'lInEaR' all onto 'Linear'. Only
+        the canonical name goes any further -- what is returned is the class
+        itself, and the name that reaches the ref_table comes from that class's
+        .name attribute, so nothing downstream ever sees the caller's casing.
+        """
+        canonical = name.capitalize()
+        assert canonical in all_mm_map.keys(), \
+            f"motion_model must be in {list(all_mm_map.keys())}, but got '{name}'"
+        return all_mm_map[canonical]
+
+    # Change to list if not
+    motion_model_classes = []
+    if motion_models is None:
+        motion_models = [Empty, Fixed]
+    elif isinstance(motion_models, str):
+        motion_model_classes = [class_from_name(motion_models)]
+    elif isinstance(motion_models, type) and issubclass(motion_models, MotionModel):
+        motion_model_classes = [motion_models]
+    elif isinstance(motion_models, (list, tuple, np.ndarray)):
+        for mm in motion_models:
+            if isinstance(mm, str):
+                motion_model_classes.append(class_from_name(mm))
+            else:
+                assert issubclass(mm, MotionModel), f"motion_model must be a string or a MotionModel object, but got {type(mm)}"
+                motion_model_classes.append(mm)
+
+    mm_names = [mm.name for mm in motion_model_classes]
+    if 'Empty' not in mm_names:
+        motion_model_classes.append(all_mm_map['Empty'])
+    if 'Fixed' not in mm_names:
+        motion_model_classes.append(all_mm_map['Fixed'])
+
+    # Sort by increasing n_params
+    motion_model_classes = sorted(motion_model_classes, key=lambda mm: mm.n_params)
+    return motion_model_classes
+
+# Orbit and the freeze mask. Newtonian sky positions come from
+# flystar.orbits. Fixed versus fit is not a second class.
+
+_FIT_MOTION_VALUES = ('fixed', 'fit')
+
+
+def frozen_motion_mask(table, fixed_motion_models=None):
+    """Stars that must not be refit.
+
+    Parameters
+    ----------
+    table : astropy.table.Table
+        Catalog. Reads ``motion_model_input`` and, when present,
+        ``fit_motion``.
+    fixed_motion_models : sequence of str or None, optional
+        Model names to freeze. ``None`` or empty freezes nobody by
+        itself, by default None.
+
+    Returns
+    -------
+    frozen : ndarray of bool, shape (n_stars,)
+        True where the star is held fixed.
+
+    Notes
+    -----
+    A non-blank ``fit_motion`` cell overrides the list. A missing
+    column, or a masked or blank cell, follows the list. Any other
+    non-blank string raises ``ValueError``. The accepted spellings
+    are exactly ``'fixed'`` and ``'fit'``.
+    """
+    n_stars = len(table)
+    # None and an empty sequence both mean "the list freezes nobody".
+    # Names are compared as strings against motion_model_input.
+    names = []
+    if fixed_motion_models:
+        names = [str(name) for name in fixed_motion_models]
+
+    # Default: nobody is frozen. The list can only freeze a star when
+    # the catalog actually says which model that star requested.
+    frozen = np.zeros(n_stars, dtype=bool)
+    if names and ('motion_model_input' in table.colnames):
+        requested = np.asarray(table['motion_model_input']).astype(str)
+        frozen = np.isin(requested, names)
+
+    # No per-star opinion. The list, or the all-false default, is
+    # the whole answer. A missing column is not an error.
+    if 'fit_motion' not in table.colnames:
+        return frozen
+
+    column = table['fit_motion']
+    # MaskedColumn carries a mask. A plain column does not, and every
+    # cell is then a real value that the loop below has to read.
+    # getmaskarray on a column whose mask has the wrong shape (a
+    # scalar mask, or a mask left over from a different length) would
+    # not line up with the stars, so that case is treated as unmasked.
+    if hasattr(column, 'mask'):
+        masked = np.ma.getmaskarray(np.ma.asarray(column)).astype(bool)
+        if masked.shape != (n_stars,):
+            masked = np.zeros(n_stars, dtype=bool)
+    else:
+        masked = np.zeros(n_stars, dtype=bool)
+
+    # One normalized string per star. Blank means "no opinion", which
+    # is the same state as a missing column: follow the list.
+    text = []
+    for i in range(n_stars):
+        # A masked cell has no mode. Do not read through the mask.
+        if masked[i]:
+            text.append('')
+            continue
+        value = column[i]
+        # None is how an object column stores a null. Same as blank.
+        if value is None:
+            text.append('')
+            continue
+        # FITS and some numpy string dtypes yield bytes. Decode before
+        # the spelling check, or b'fixed' would look like a typo.
+        if isinstance(value, (bytes, np.bytes_)):
+            value = value.decode('utf-8', 'replace')
+        # A float NaN is the masked-numeric case, not a mode string.
+        # str(nan) is 'nan', which would be raised as a bad spelling.
+        if isinstance(value, (float, np.floating)) and not np.isfinite(value):
+            text.append('')
+            continue
+        # Whitespace-only is blank. ' fixed ' is still the word fixed.
+        text.append(str(value).strip())
+    text = np.asarray(text, dtype=object)
+
+    # Collect every bad spelling and raise once, so one typo does not
+    # hide the next. A blank cell is skipped and the list decision
+    # already stored in ``frozen`` stays. 'fixed' forces True, 'fit'
+    # forces False, including when the list said the opposite.
+    bad = []
+    for i, cell in enumerate(text):
+        if cell == '':
+            continue
+        if cell not in _FIT_MOTION_VALUES:
+            bad.append(cell)
+            continue
+        frozen[i] = (cell == 'fixed')
+    if bad:
+        raise ValueError(
+            "fit_motion must be 'fixed', 'fit', or blank; "
+            f"got {sorted(set(bad))}."
+        )
+    return frozen
