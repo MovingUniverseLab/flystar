@@ -231,6 +231,7 @@ def test_kep2xyz_matches_orbit_model_on_a_grid():
     x0, y0 = model.model(circular[1], circular)
     np.testing.assert_allclose(x0, 0.0, atol=1e-12)
     np.testing.assert_allclose(y0, a_as, rtol=0.0, atol=1e-12)
+
     return None
 
 
@@ -265,6 +266,7 @@ def test_black_hole_offset_is_added_in_the_flystar_frame():
     dt = 10.0
     np.testing.assert_allclose(x, 0.01 + 0.001 * dt - r_au[0, 0])
     np.testing.assert_allclose(y, -0.02 - 0.002 * dt + r_au[0, 1])
+
     return None
 
 
@@ -292,6 +294,7 @@ def test_fixed_star_position_errors_are_zero():
     np.testing.assert_allclose(ye, 0.0)
     # The plan removed any pos_err knob from the optional parameters.
     assert 'pos_err' not in Orbit.optional_fixed_params
+
     return None
 
 
@@ -358,6 +361,7 @@ def test_mass_and_dist_defaults_and_override_order():
         2010.0, fixed_params_dict={'mass': 4.0e6 * 27.0},
     )
     np.testing.assert_allclose(y_dict, 3.0 * y_default, rtol=1e-12, atol=0.0)
+
     return None
 
 
@@ -386,6 +390,7 @@ def test_printed_a_matches_default_mass_and_distance():
     for banned in ('a', 'orb_a', 'search', 'orb_search'):
         assert banned not in table.colnames
         assert banned not in table.meta
+
     return None
 
 
@@ -668,4 +673,5 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
     assert tab_bad['motion_model_used'][0] == 'Orbit'
     assert not tab_bad['orb_fit_converged'][0]
     assert np.isfinite(tab_bad['orb_P'][0])
+    
     return None

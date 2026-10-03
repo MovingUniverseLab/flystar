@@ -48,8 +48,6 @@ _ELEMENT_COLUMNS = (
 def semimajor_axis_mas(period_yr, mass_msun, dist_pc):
     """Semi-major axis in milliarcseconds.
 
-    Gaussian year / solar-mass / AU relation, then divide by distance.
-
     Parameters
     ----------
     period_yr : float or ndarray
@@ -74,28 +72,24 @@ def semimajor_axis_mas(period_yr, mass_msun, dist_pc):
     period into the Gaussian formula overestimates ``a`` by about
     1.3e-5.
 
-    That overestimate is kept on purpose. gcwork and the printed
-    ``a`` column of ``orbits.dat`` use this same relation. Switching
-    to ``(G M P**2 / 4 pi**2)`` with a Julian year would remove the
-    offset, miss the 0.02 mas file tolerance (up to about 0.05 mas
-    on S0-103), and shift sky positions by up to about 9e-5 arcsec,
-    past the gcwork fixture tolerance of 1e-12 arcsec.
-
-    ``a_mas = a_AU / dist_pc * _MAS_PER_ARCSEC``.
+    This uses the definition for a year = 365.25 days. It is
+    not ``(G M P**2 / 4 pi**2)`` with ``_G_CGS`` and ``_MSUN_G``.
+    That physical axis is smaller by about 1.3e-5. 
     """
     period_yr = np.asarray(period_yr, dtype=float)
     # Gaussian-year formula, applied to a Julian period on purpose.
     # See Notes. Do not replace this with G*M.
     a_au = (period_yr**2 * float(mass_msun))**(1.0 / 3.0)
     a_mas = a_au / float(dist_pc) * _MAS_PER_ARCSEC
+
     return a_mas
 
 
 def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
     """Solve Kepler's equation for the eccentric anomaly.
 
-    Port of gcwork ``Orbit.eccen_anomaly``: a starter approximation
-    followed by Newton-Raphson. Circular orbits return the mean
+    ``Orbit.eccen_anomaly``: a starter approximation
+    followed by Newton-Raphson integration. Circular orbits return the mean
     anomaly reduced to ``(-pi, pi]``.
 
     Parameters
@@ -112,10 +106,6 @@ def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
     eccentric_anomaly : ndarray, shape (n_epochs,)
         Eccentric anomaly in radians, on ``(-pi, pi]``.
 
-    Notes
-    -----
-    A negative cube root is taken with ``sign * abs**(1/3)``. Python's
-    ``**(1/3)`` would return a complex value for a negative base.
     """
     ecc = float(ecc)
     if ecc < 0.0 or ecc >= 1.0:
@@ -124,6 +114,7 @@ def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
         )
 
     mean_anomaly = np.atleast_1d(np.asarray(mean_anomaly, dtype=float))
+
     # Range reduction to -pi < m <= pi, matching the gcwork port.
     mx = np.array(mean_anomaly, dtype=float, copy=True)
     mx = np.where(mx > np.pi, np.mod(mx, 2.0 * np.pi), mx)
@@ -234,13 +225,6 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
         Acceleration in milliarcseconds per year squared, same axes.
         Named ``acc`` so it is not the semi-major axis ``a``.
 
-    Notes
-    -----
-    Semi-major axis in AU is the Gaussian ``(P**2 * M)**(1/3)``.
-    See :func:`semimajor_axis_mas` for why that is not ``G M``.
-    Thiele-Innes constants follow the gcwork port.
-    ``sqrt(1 - e**2)`` is guarded by rejecting ``e >= 1`` before
-    the division.
     """
     epochs = np.atleast_1d(np.asarray(epochs, dtype=float))
     period = float(period)
@@ -307,6 +291,7 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
     r = r / dist
     v = v * _MAS_PER_ARCSEC / dist
     acc = acc * _MAS_PER_ARCSEC * _SEC_IN_YR**2 / (_CM_IN_AU * dist)
+
     return r, v, acc
 
 
@@ -362,6 +347,7 @@ def read_orbits_dat(path):
     table['name'] = names
     for j, col in enumerate(_ELEMENT_COLUMNS):
         table[col] = rows[:, j] if len(rows) else np.array([], dtype=float)
+        
     return table
 
 
