@@ -2343,15 +2343,6 @@ def test_trans_args_per_list_reaches_the_transform():
             f'starlist {ii} was fitted at order {trans.order}, not {order}'
 
 
-def _orbit_xy(epochs, elements, mass=4.0e6, dist=8.0e3):
-    """FlyStar-frame position of one orbit at ``epochs``."""
-    model = motion_model.Orbit()
-    return model.model(
-        epochs, np.asarray(elements, dtype=float),
-        fixed_params_dict={'mass': mass, 'dist': dist},
-    )
-
-
 def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
                  detection_shift=0.0, include_zero=False):
     """Anchors plus one frozen orbit, one optional fit orbit, and one Linear.
@@ -2402,7 +2393,13 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
     # Catalog x/y for the orbit is the seed prediction at the first epoch,
     # so the initial name match is near the detection.
     seed_for_fixed = orb_true
-    x0, y0 = _orbit_xy(epochs[0], seed_for_fixed)
+    # Orbit.model at the first epoch: FlyStar frame, x = -east and
+    # y = +north, default mass and distance. The catalog position is
+    # this prediction so the name match starts next to the detection.
+    x0, y0 = motion_model.Orbit().model(
+        epochs[0], np.asarray(seed_for_fixed, dtype=float),
+        fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+    )
     x_ref[-1] = float(np.asarray(x0).reshape(-1)[0])
     y_ref[-1] = float(np.asarray(y0).reshape(-1)[0])
     elements_by_name = {'orb_fixed': seed_for_fixed}
@@ -2410,7 +2407,12 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
         names.append('orb_fit')
         mm.append('Orbit')
         fit_col.append('fit')
-        x1, y1 = _orbit_xy(epochs[0], orb_seed)
+        # Same prediction for the offset seed, not the injected truth.
+        # The initial match uses the catalog elements.
+        x1, y1 = motion_model.Orbit().model(
+            epochs[0], np.asarray(orb_seed, dtype=float),
+            fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+        )
         x_ref.append(float(np.asarray(x1).reshape(-1)[0]))
         y_ref.append(float(np.asarray(y1).reshape(-1)[0]))
         elements_by_name['orb_fit'] = orb_seed
@@ -2466,11 +2468,20 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
         y_s = np.array(y_ref, dtype=float)
         # Drop the never-detected star from the science lists.
         keep = np.array([name != 'orb_none' for name in names])
-        x_orb, y_orb = _orbit_xy(epoch, orb_true)
+        # Science position of the frozen star: Orbit.model on the
+        # true elements, FlyStar frame, same mass and distance.
+        x_orb, y_orb = motion_model.Orbit().model(
+            epoch, np.asarray(orb_true, dtype=float),
+            fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+        )
         x_s[names.index('orb_fixed')] = float(np.asarray(x_orb).reshape(-1)[0])
         y_s[names.index('orb_fixed')] = float(np.asarray(y_orb).reshape(-1)[0])
         if fit_orbit:
-            x_fit, y_fit = _orbit_xy(epoch, fit_true)
+            # Detections follow the injected orbit, not the catalog seed.
+            x_fit, y_fit = motion_model.Orbit().model(
+                epoch, np.asarray(fit_true, dtype=float),
+                fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+            )
             x_s[names.index('orb_fit')] = float(np.asarray(x_fit).reshape(-1)[0])
             y_s[names.index('orb_fit')] = float(np.asarray(y_fit).reshape(-1)[0])
         dt = epoch - 2010.0
@@ -2542,7 +2553,12 @@ def test_mosaic_frozen_orbit_and_linear_share_dr_tol():
         ref_at = mosaic.get_ref_list_from_table(epoch)
         j = _row(ref_at, 'orb_fixed')
         k = _row(ref_at, 'lin')
-        x_orb, y_orb = _orbit_xy(epoch, truth['orb_true'])
+        # Expected reference position: Orbit.model on the catalog
+        # elements. x = -east, y = +north, default mass and distance.
+        x_orb, y_orb = motion_model.Orbit().model(
+            epoch, np.asarray(truth['orb_true'], dtype=float),
+            fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+        )
         np.testing.assert_allclose(
             ref_at['x'][j], np.asarray(x_orb).reshape(-1)[0], atol=1e-8,
         )
@@ -2594,7 +2610,12 @@ def test_original_orbit_held_when_update_ref_orig_is_false():
     """No freeze list. update_ref_orig=False holds an original Orbit row."""
     epochs = np.array([2010.0, 2012.0, 2014.0])
     elements = np.array([16.0, 2010.0, 0.3, 50.0, 20.0, 40.0])
-    x0, y0 = _orbit_xy(epochs[0], elements)
+    # Catalog sky position at the first epoch from Orbit.model.
+    # FlyStar frame, default mass and distance.
+    x0, y0 = motion_model.Orbit().model(
+        epochs[0], np.asarray(elements, dtype=float),
+        fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+    )
     ref = starlists.StarList(
         name=['orb'], x=np.array([float(np.asarray(x0).reshape(-1)[0])]),
         y=np.array([float(np.asarray(y0).reshape(-1)[0])]),
@@ -2631,7 +2652,16 @@ def test_original_orbit_held_when_update_ref_orig_is_false():
     for epoch in epochs:
         x_s = x_ref.copy()
         y_s = y_ref.copy()
-        xo, yo = _orbit_xy(epoch, elements + np.array([0.4, 0.0, 0.0, 0.0, 0.0, 0.0]))
+        # Orbit.model of a period 0.4 yr longer than the catalog.
+        # A real fit would follow this. update_ref_orig=False must not.
+        xo, yo = motion_model.Orbit().model(
+            epoch,
+            np.asarray(
+                elements + np.array([0.4, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                dtype=float,
+            ),
+            fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+        )
         # Detections are a different orbit, so a fit would move the elements.
         # update_ref_orig=False must ignore that and keep the catalog.
         x_s[0] = float(np.asarray(xo).reshape(-1)[0])

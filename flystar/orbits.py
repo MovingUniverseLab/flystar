@@ -9,7 +9,7 @@ redshift. Index 0 of each returned vector is east, 1 is north, and
 Positions use the Gaussian axis, not G or Msun. Those two
 constants, with the AU and the Julian year, convert only the
 acceleration. The mas-per-arcsec factor converts velocity and
-acceleration, and ``semi_major_mas``.
+acceleration, and ``semimajor_axis_mas``.
 
 The FlyStar frame is applied by ``Orbit.model``, not here:
 ``x = -east``, ``y = +north``.
@@ -45,7 +45,7 @@ _ELEMENT_COLUMNS = (
 )
 
 
-def semi_major_mas(period_yr, mass_msun, dist_pc):
+def semimajor_axis_mas(period_yr, mass_msun, dist_pc):
     """Semi-major axis in milliarcseconds.
 
     Gaussian year / solar-mass / AU relation, then divide by distance.
@@ -53,7 +53,8 @@ def semi_major_mas(period_yr, mass_msun, dist_pc):
     Parameters
     ----------
     period_yr : float or ndarray
-        Period in years.
+        Period in years. Catalog values are Julian years, not
+        Gaussian years. See Notes.
     mass_msun : float
         Central mass in solar masses.
     dist_pc : float
@@ -66,19 +67,25 @@ def semi_major_mas(period_yr, mass_msun, dist_pc):
 
     Notes
     -----
-    ``a_au = (P**2 * M)**(1/3)`` and
-    ``a_mas = a_au / dist_pc * _MAS_PER_ARCSEC``.
+    ``a_AU = (P**2 * M)**(1/3)`` is exact only when ``P`` is in
+    Gaussian years. A Gaussian year is ``2*pi/k``, where ``k`` is the
+    Gaussian gravitational constant, about 365.2569 days. Periods
+    passed here are Julian years, 365.25 days. Putting a Julian
+    period into the Gaussian formula overestimates ``a`` by about
+    1.3e-5.
 
-    This stays the Gaussian year / solar-mass / AU relation. It is
-    not ``(G M P**2 / 4 pi**2)`` with ``_G_CGS`` and ``_MSUN_G``.
-    That physical axis is smaller by about 1.3e-5. Against
-    ``orbits.dat`` v2.0.2 the miss is up to 0.05 mas (S0-103), past
-    the 0.02 mas tolerance. Sky positions would move by up to about
-    9e-5 arcsec, past the gcwork fixture tolerance of 1e-12 arcsec.
-    The printed ``a`` column was computed from the Gaussian form.
+    That overestimate is kept on purpose. gcwork and the printed
+    ``a`` column of ``orbits.dat`` use this same relation. Switching
+    to ``(G M P**2 / 4 pi**2)`` with a Julian year would remove the
+    offset, miss the 0.02 mas file tolerance (up to about 0.05 mas
+    on S0-103), and shift sky positions by up to about 9e-5 arcsec,
+    past the gcwork fixture tolerance of 1e-12 arcsec.
+
+    ``a_mas = a_AU / dist_pc * _MAS_PER_ARCSEC``.
     """
     period_yr = np.asarray(period_yr, dtype=float)
-    # Gaussian axis. Do not replace this with G*M. See Notes.
+    # Gaussian-year formula, applied to a Julian period on purpose.
+    # See Notes. Do not replace this with G*M.
     a_au = (period_yr**2 * float(mass_msun))**(1.0 / 3.0)
     a_mas = a_au / float(dist_pc) * _MAS_PER_ARCSEC
     return a_mas
@@ -230,7 +237,7 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
     Notes
     -----
     Semi-major axis in AU is the Gaussian ``(P**2 * M)**(1/3)``.
-    See :func:`semi_major_mas` for why that is not ``G M``.
+    See :func:`semimajor_axis_mas` for why that is not ``G M``.
     Thiele-Innes constants follow the gcwork port.
     ``sqrt(1 - e**2)`` is guarded by rejecting ``e >= 1`` before
     the division.
@@ -246,7 +253,7 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
     mass = float(mass)
     dist = float(dist)
     # Semi-major axis in AU. Gaussian (P**2 * M)**(1/3), not G*M.
-    # See semi_major_mas. The physical axis misses the fixtures.
+    # See semimajor_axis_mas. The physical axis misses the fixtures.
     axis = (period**2 * mass)**(1.0 / 3.0)
     mean_motion = 2.0 * np.pi / period
     ecc_sqrt = np.sqrt(1.0 - ecc**2)
