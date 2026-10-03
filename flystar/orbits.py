@@ -6,8 +6,10 @@ It is Newtonian only: no GR periapse advance and no relativistic
 redshift. Index 0 of each returned vector is east, 1 is north, and
 2 is the line of sight, matching that code.
 
-Positions do not depend on the physical constants below. Those
-constants are used only for the acceleration vector.
+Positions use the Gaussian axis, not G or Msun. Those two
+constants, with the AU and the Julian year, convert only the
+acceleration. The mas-per-arcsec factor converts velocity and
+acceleration, and ``semi_major_mas``.
 
 The FlyStar frame is applied by ``Orbit.model``, not here:
 ``x = -east``, ``y = +north``.
@@ -15,21 +17,28 @@ The FlyStar frame is applied by ``Orbit.model``, not here:
 
 import warnings
 
+import astropy.constants as const
+import astropy.units as u
 import numpy as np
 from astropy.table import Table, Column
 
 
-# cgs constants used only when converting the acceleration to mas/yr^2.
-# r (arcsec) and v (mas/yr) depend on mass and distance alone.
-_G_CGS = 6.67430e-8
-_MSUN_G = 1.98847e33
-_CM_IN_AU = 1.495978707e13
-_SEC_IN_YR = 365.25 * 24.0 * 3600.0
+# From astropy at import, then stored as plain floats. The hot path
+# must not build Quantity objects. G and Msun are cgs. The AU is in
+# cm. The year is the Julian year (365.25 d). mas-per-arcsec replaces
+# the literal 1000. Positions do not use G or Msun.
+_G_CGS = float(const.G.cgs.value)
+_MSUN_G = float(const.M_sun.cgs.value)
+_CM_IN_AU = float(const.au.cgs.value)
+_SEC_IN_YR = float((1 * u.yr).to(u.s).value)
+_MAS_PER_ARCSEC = float((1 * u.arcsec).to(u.mas).value)
 
-# Nine whitespace-separated fields, no header. A and search are parsed
-# so a short line fails, then dropped. They are not catalog columns.
+# Nine whitespace-separated fields, no header. The file itself is
+# unchanged. ``a`` is the semi-major axis (the old name was ``A``)
+# and ``search`` is the last field. Both are parsed so a short line
+# fails, then dropped. They are not catalog columns.
 _ORBIT_FILE_FIELDS = (
-    'name', 'P', 'A', 't0', 'e', 'i', 'Omega', 'omega', 'search',
+    'name', 'P', 'a', 't0', 'e', 'i', 'Omega', 'omega', 'search',
 )
 _ELEMENT_COLUMNS = (
     'orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega',
@@ -57,11 +66,21 @@ def semi_major_mas(period_yr, mass_msun, dist_pc):
 
     Notes
     -----
-    ``a_AU = (P**2 * M)**(1/3)`` and ``a_mas = a_AU / dist_pc * 1000``.
+    ``a_au = (P**2 * M)**(1/3)`` and
+    ``a_mas = a_au / dist_pc * _MAS_PER_ARCSEC``.
+
+    This stays the Gaussian year / solar-mass / AU relation. It is
+    not ``(G M P**2 / 4 pi**2)`` with ``_G_CGS`` and ``_MSUN_G``.
+    That physical axis is smaller by about 1.3e-5. Against
+    ``orbits.dat`` v2.0.2 the miss is up to 0.05 mas (S0-103), past
+    the 0.02 mas tolerance. Sky positions would move by up to about
+    9e-5 arcsec, past the gcwork fixture tolerance of 1e-12 arcsec.
+    The printed ``a`` column was computed from the Gaussian form.
     """
     period_yr = np.asarray(period_yr, dtype=float)
+    # Gaussian axis. Do not replace this with G*M. See Notes.
     a_au = (period_yr**2 * float(mass_msun))**(1.0 / 3.0)
-    a_mas = a_au / float(dist_pc) * 1000.0
+    a_mas = a_au / float(dist_pc) * _MAS_PER_ARCSEC
     return a_mas
 
 
@@ -204,14 +223,17 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
         1 is north, 2 is the line of sight.
     v_mas_yr : ndarray, shape (n_epochs, 3)
         Velocity in milliarcseconds per year, same axes.
-    a_mas_yr2 : ndarray, shape (n_epochs, 3)
+    acc_mas_yr2 : ndarray, shape (n_epochs, 3)
         Acceleration in milliarcseconds per year squared, same axes.
+        Named ``acc`` so it is not the semi-major axis ``a``.
 
     Notes
     -----
-    Semi-major axis in AU is ``(P**2 * M)**(1/3)``. Thiele-Innes
-    constants follow the gcwork port. ``sqrt(1 - e**2)`` is guarded
-    by rejecting ``e >= 1`` before the division.
+    Semi-major axis in AU is the Gaussian ``(P**2 * M)**(1/3)``.
+    See :func:`semi_major_mas` for why that is not ``G M``.
+    Thiele-Innes constants follow the gcwork port.
+    ``sqrt(1 - e**2)`` is guarded by rejecting ``e >= 1`` before
+    the division.
     """
     epochs = np.atleast_1d(np.asarray(epochs, dtype=float))
     period = float(period)
@@ -223,7 +245,8 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
 
     mass = float(mass)
     dist = float(dist)
-    # Semi-major axis in AU. Years and solar masses, Gaussian constant.
+    # Semi-major axis in AU. Gaussian (P**2 * M)**(1/3), not G*M.
+    # See semi_major_mas. The physical axis misses the fixtures.
     axis = (period**2 * mass)**(1.0 / 3.0)
     mean_motion = 2.0 * np.pi / period
     ecc_sqrt = np.sqrt(1.0 - ecc**2)
@@ -254,7 +277,8 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
     n_epochs = epochs.size
     r = np.zeros((n_epochs, 3), dtype=float)
     v = np.zeros((n_epochs, 3), dtype=float)
-    a = np.zeros((n_epochs, 3), dtype=float)
+    # acc, not a: a is the semi-major axis.
+    acc = np.zeros((n_epochs, 3), dtype=float)
 
     r[:, 0] = (con_b * x_orb) + (con_g * y_orb)
     r[:, 1] = (con_a * x_orb) + (con_f * y_orb)
@@ -264,18 +288,19 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
     v[:, 1] = edot * ((-con_a * sin_e) + (con_f * ecc_sqrt * cos_e))
     v[:, 2] = edot * ((-con_c * sin_e) + (con_h * ecc_sqrt * cos_e))
 
-    # Acceleration in the AU frame, then convert with the cgs constants.
+    # Acceleration in the AU frame, then convert with the cgs floats.
     # GM / r^2 points at the black hole. r is still in AU here.
     gm = mass * _MSUN_G * _G_CGS
     for ii in range(n_epochs):
         rmag_cm = np.sqrt(np.sum(r[ii, :]**2)) * _CM_IN_AU
-        a[ii, :] = -gm * r[ii, :] * _CM_IN_AU / rmag_cm**3
+        acc[ii, :] = -gm * r[ii, :] * _CM_IN_AU / rmag_cm**3
 
-    # r from AU to arcsec, v from AU/yr to mas/yr, a from cm/s^2 to mas/yr^2.
+    # r: AU to arcsec (1 AU at 1 pc is 1 arcsec). v: AU/yr to mas/yr.
+    # acc: cm/s^2 to mas/yr^2. Factors are the import-time floats.
     r = r / dist
-    v = v * 1000.0 / dist
-    a = a * 1000.0 * _SEC_IN_YR**2 / (_CM_IN_AU * dist)
-    return r, v, a
+    v = v * _MAS_PER_ARCSEC / dist
+    acc = acc * _MAS_PER_ARCSEC * _SEC_IN_YR**2 / (_CM_IN_AU * dist)
+    return r, v, acc
 
 
 def read_orbits_dat(path):
@@ -284,15 +309,16 @@ def read_orbits_dat(path):
     Parameters
     ----------
     path : str or path-like
-        Whitespace-separated file, no header. Each data line has nine
-        fields: name, P (yr), A (mas), t0, e, i (deg), Omega (deg),
-        omega (deg), search (pix).
+        Whitespace-separated file, no header. The on-disk layout is
+        unchanged. Each data line has nine fields: name, P (yr),
+        a (mas), t0, e, i (deg), Omega (deg), omega (deg),
+        search (pix). ``a`` is the semi-major axis.
 
     Returns
     -------
     table : astropy.table.Table
         Columns ``name``, ``orb_P``, ``orb_t0``, ``orb_e``, ``orb_i``,
-        ``orb_Omega``, ``orb_omega``. ``A`` and ``search`` are not
+        ``orb_Omega``, ``orb_omega``. ``a`` and ``search`` are not
         columns and are not stored in ``table.meta``.
 
     Notes
@@ -313,7 +339,7 @@ def read_orbits_dat(path):
                     f"{path}:{line_number}: expected 9 fields, "
                     f"got {len(fields)}."
                 )
-            # A (fields[2]) and search (fields[8]) are checked by being
+            # a (fields[2]) and search (fields[8]) are checked by being
             # parsed, then discarded. They never become columns.
             name = fields[0]
             period, _a_mas, t0, ecc, incl, big_omega, arg_peri, _search = (

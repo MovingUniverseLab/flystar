@@ -8,6 +8,7 @@ from astropy.table import Table
 
 from flystar.motion_model import Orbit
 from flystar.orbits import (
+    _MAS_PER_ARCSEC,
     attach_orbits,
     kep2xyz,
     read_orbits_dat,
@@ -100,7 +101,7 @@ def _orbit_table(epochs, elements, x, y, sigma):
 
 
 def _parse_file_a(path):
-    """Name, period, and the printed ``A`` field. ``A`` is not stored.
+    """Name, period, and the printed ``a`` field. ``a`` is not stored.
 
     Parameters
     ----------
@@ -144,7 +145,7 @@ def test_kep2xyz_matches_orbit_model_on_a_grid():
 
     # Face-on circular at periapse sits on the north axis: x = 0, y = a.
     circular = cases[0]
-    a_as = semi_major_mas(circular[0], 4.0e6, 8.0e3) / 1000.0
+    a_as = semi_major_mas(circular[0], 4.0e6, 8.0e3) / _MAS_PER_ARCSEC
     x0, y0 = model.model(circular[1], circular)
     np.testing.assert_allclose(x0, 0.0, atol=1e-12)
     np.testing.assert_allclose(y0, a_as, rtol=0.0, atol=1e-12)
@@ -189,7 +190,7 @@ def test_mass_and_dist_defaults_and_override_order():
     assert Orbit.optional_fixed_params['dist'] == 8.0e3
     elements = np.array([16.0, 2010.0, 0.0, 0.0, 0.0, 0.0])
     # y at periapse is the semi-major axis in arcseconds.
-    y_default = semi_major_mas(16.0, 4.0e6, 8.0e3) / 1000.0
+    y_default = semi_major_mas(16.0, 4.0e6, 8.0e3) / _MAS_PER_ARCSEC
     epochs = np.array([2010.0])
     n_ep = 1
     tab = StarTable(
@@ -228,13 +229,13 @@ def test_mass_and_dist_defaults_and_override_order():
 
 
 def test_printed_a_matches_default_mass_and_distance():
-    """File A is within 0.02 mas of a_mas(P) at the default mass and distance."""
+    """File a is within 0.02 mas of a_mas(P) at the default mass and distance."""
     names, period, a_file = _parse_file_a(DATA)
     a_model = semi_major_mas(period, 4.0e6, 8.0e3)
     np.testing.assert_allclose(a_model, a_file, rtol=0.0, atol=0.02)
     assert len(names) == 32
     table = read_orbits_dat(DATA)
-    for banned in ('A', 'orb_A', 'search', 'orb_search'):
+    for banned in ('a', 'orb_a', 'search', 'orb_search'):
         assert banned not in table.colnames
         assert banned not in table.meta
     return None
@@ -289,7 +290,7 @@ def test_read_and_attach_orbits_dat():
     with pytest.warns(UserWarning, match='not in the catalog'):
         attach_orbits(catalog, table)
     assert 'fit_motion' not in catalog.colnames
-    for banned in ('A', 'orb_A', 'search', 'orb_search'):
+    for banned in ('a', 'orb_a', 'search', 'orb_search'):
         assert banned not in catalog.colnames
         assert banned not in catalog.meta
     assert catalog['motion_model_input'][0] == 'Orbit'

@@ -56,7 +56,7 @@ How a model is selected and used:
 | Fit parameters | none | `x0`, `y0` | `x0`, `vx`, `y0`, `vy` | `x0`, `vx0`, `ax`, `y0`, `vy0`, `ay` | `x0`, `vx`, `y0`, `vy`, `pi` | `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, `orb_omega`. A fit writes the solution back into these columns, the same way `Linear` writes `x0` and `vx`. A fixed star is not refit, so the columns stay at the catalog values |
 | Required fixed | none | none | `t0` | `t0` | `t0`, `ra`, `dec` | none. The elements are fit parameters, not fixed parameters. A fixed star is predicted from those same columns, which the fitter does not rewrite |
 | Optional fixed | none | none | none | none | `pa=0`, `obsLocation='earth'` | `mass=4.0e6` Msun, `dist=8.0e3` pc, `x_bh=0`, `y_bh=0`, `vx_bh=0`, `vy_bh=0`, `t_bh=2000`. `mass`, `dist`, and the black-hole offsets are not fit. A joint black-hole fit across stars is future work |
-| Catalog columns | none | `x0`, `y0` and `_err` | those plus `vx`, `vy` and `_err`, and `t0` | those plus `vx0`, `ax`, `vy0`, `ay` and `_err`, and `t0` | Linear's columns plus `pi`, `pi_err`, `ra`, `dec`, `pa`, `obsLocation` | the six `orb_*` elements, their `orb_*_err` columns, `orb_cov` (6×6), `orb_fit_converged`, and `orb_fit_n_iter`. `chi2_x` and `chi2_y` are the existing chi-squared columns. `mass`, `dist`, and the black-hole offsets land in `meta` when uniform, otherwise in columns. File fields `A` and `search` are parsed to check the line and are not written to the catalog |
+| Catalog columns | none | `x0`, `y0` and `_err` | those plus `vx`, `vy` and `_err`, and `t0` | those plus `vx0`, `ax`, `vy0`, `ay` and `_err`, and `t0` | Linear's columns plus `pi`, `pi_err`, `ra`, `dec`, `pa`, `obsLocation` | the six `orb_*` elements, their `orb_*_err` columns, `orb_cov` (6×6), `orb_fit_converged`, and `orb_fit_n_iter`. `chi2_x` and `chi2_y` are the existing chi-squared columns. `mass`, `dist`, and the black-hole offsets land in `meta` when uniform, otherwise in columns. File fields `a` and `search` are parsed to check the line and are not written to the catalog |
 | Meaning of `t0` | none | none | Epoch of `x0`, `y0`, `vx`, `vy`. `fit` fills the weighted-mean epoch when `t0` is missing (`motion_model.py:364-365`) | Epoch of `x0`, `y0`, `vx0`, `vy0`, `ax`, `ay`. Same default fill | Same epoch as `Linear`, plus the epoch subtracted before the parallax vector | `orb_t0` is periapse time. A fit updates that same column. It is not stellar `t0`. `t_bh` is the epoch of the black-hole offset |
 | `n_params` and demotion | `n_params` is the fewest distinct epochs the model needs. `Empty` needs 0, which is the floor. | `Fixed` needs 1. A star with one valid epoch stays `Fixed`. A star with none becomes `Empty`. | `Linear` needs 2. A star with fewer than two distinct valid epochs is demoted to `Fixed` or `Empty` (`startables.py:1244-1255`). A frozen `Linear` star is removed before that test, so one detection stays `Linear`. | `Acceleration` needs 3. That is the same number as `Parallax`. With no `motion_model_input` column the fitter chooses by `n_params` alone and requires unique values, so both in one list raises (`startables.py:1082-1086`). | `Parallax` needs 3. Same collision with `Acceleration` when the column is absent. A frozen star is not demoted. | `Orbit` has six fit parameters, so the class formula gives `n_params = 3`. Each epoch supplies two sky coordinates, so three epochs are the algebraic minimum. That is the same `n_params` as `Acceleration` and `Parallax`, and a list with no `motion_model_input` column raises (`startables.py:1082-1086`). The reader always writes `motion_model_input`. A fixed star is removed before demotion, so the test never sees it and the star is never demoted, including with zero epochs. A fit star with fewer than three epochs is not demoted to `Linear`. `Orbit` sets `demote = False`. The solver is skipped and prediction uses `orb_*`. Four epochs are where the covariance is finite. See section 2.5. |
 | Fittable | `run_fit` returns the fill value. Nothing is solved | Closed-form weighted mean | Closed-form 2x2 normal equations | Closed-form quadratic | Closed-form joint 5-parameter fit. `pi` is shared by x and y | A fixed star does not call `run_fit`. A fit star, in phase B, calls `scipy.optimize.least_squares` once per star inside `run_fit`, seeded from the current `orb_*`. On failure it returns those same values and sets `orb_fit_converged` false. The batch signature is unchanged. Other models stay closed-form |
@@ -161,7 +161,7 @@ class Orbit(MotionModel):
 
     The sky frame is hardcoded: ``x = -east``, ``y = +north``.
     ``mass`` and ``dist`` default to the pair that reproduces the
-    ``A`` column of ``orbits.dat`` v2.0.2.
+    ``a`` column of ``orbits.dat`` v2.0.2.
     """
 
     name = "Orbit"
@@ -411,7 +411,7 @@ fixed_motion_models=None,   # None means freeze nobody
 
    Existing models. Callers that do not pass the new argument get today's refit. Passing `['Orbit']` freezes stars whose `motion_model_input` is `Orbit`, except rows whose `fit_motion` is `'fit'`.
 
-6. **`orb_*` are fit parameters, so the reset and `keep_orig` already know them.** The reader writes `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega`. It does not write `A` or `search`, and it does not write a second set of element columns. No `catalog_meta_names` hook is added. That hook is not needed: `A` is checked inside the reader test and then dropped, `search` is not a match radius, and uniform values such as `mass` and `dist` already go to `table.meta` through `fit_motion_models` (`startables.py:1422-1429`).
+6. **`orb_*` are fit parameters, so the reset and `keep_orig` already know them.** The reader writes `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega`. It does not write `a` or `search`, and it does not write a second set of element columns. No `catalog_meta_names` hook is added. That hook is not needed: `a` is checked inside the reader test and then dropped, `search` is not a match radius, and uniform values such as `mass` and `dist` already go to `table.meta` through `fit_motion_models` (`startables.py:1422-1429`).
 
    The reset builds its column set from `fit_param_names` of every subclass (`startables.py:1450-1452`). `Orbit` adds the six `orb_*` names to that set. A star whose `motion_model_used` is `Orbit` owns them, so the reset does not clear them. The seed is still in the columns when `run_fit` reads it. The ordinary write at `startables.py:1667-1669` then stores whatever `run_fit` returned, which is the same write that stores `x0` and `vx` for `Linear`. On success that is the solution. On failure `run_fit` returns the seed, so the write puts the same numbers back. `orb_*_err` follows the framework's `_err` suffix and is created with the other error columns (`startables.py:1350-1353`).
 
@@ -625,7 +625,7 @@ Phase A implements `model` and a `run_fit` that returns the current `orb_*` valu
 | `vy_bh` | `0.0` | arcsec/yr, FlyStar frame | Black-hole proper motion. Not fit. |
 | `t_bh` | `2000.0` | decimal year | Epoch of `(x_bh, y_bh)`. Not fit. |
 
-`mass = 4.0e6` and `dist = 8.0e3` are the values that reproduce the `A` column of `orbits.dat` v2.0.2. They are not the gcwork `Constants` pair (`4.07e6` Msun, `7960.1` pc). A caller who wants the gcwork pair passes them explicitly:
+`mass = 4.0e6` and `dist = 8.0e3` are the values that reproduce the `a` column of `orbits.dat` v2.0.2. They are not the gcwork `Constants` pair (`4.07e6` Msun, `7960.1` pc). A caller who wants the gcwork pair passes them explicitly:
 
 ```python
 MosaicToRef(..., fixed_params_dict={'mass': 4.07e6, 'dist': 7960.1})
@@ -655,7 +655,7 @@ v2.0.2, whitespace-separated, no header. Thirty-two stars. Columns in order:
 |---|---|---|---|
 | name | | `name` | match key only |
 | P | yr | `orb_P` | yes. A fit updates this column |
-| A | mas | not stored | parsed so the line can be checked. The `a_mas` test compares it with `P` and the default mass and distance, then drops it |
+| a | mas | not stored | parsed so the line can be checked. The on-disk file is unchanged; code calls this field `a` (it used to be written `A`). The `a_mas` test compares it with `P` and the default mass and distance, then drops it |
 | t0 | decimal year | `orb_t0` | yes, time of periapse. A fit updates this column |
 | e | | `orb_e` | yes. A fit updates this column |
 | i | deg | `orb_i` | yes. A fit updates this column |
@@ -663,7 +663,7 @@ v2.0.2, whitespace-separated, no header. Thirty-two stars. Columns in order:
 | omega | deg | `orb_omega` | yes, argument of periapse |
 | search | pix | not stored | parsed so the line can be checked. Not a match radius |
 
-`A` and `search` never become catalog columns, metadata, or model parameters. No `catalog_meta_names` list is added for them. Nothing else in this plan needs that hook: the six elements are ordinary columns, and `mass`, `dist`, and the black-hole offsets already use the fixed-parameter lookup in section 1.3.
+`a` and `search` never become catalog columns, metadata, or model parameters. No `catalog_meta_names` list is added for them. Nothing else in this plan needs that hook: the six elements are ordinary columns, and `mass`, `dist`, and the black-hole offsets already use the fixed-parameter lookup in section 1.3.
 
 Do not reuse `t0`, `x0`, `y0`, `vx`, or `vy` for elements. `t0` is the epoch of the linear model and is replaced by the weighted mean detection time when a star is actually fit (`startables.py:1672`). `x0` and `vx` are the linear model's position and proper motion. An instantaneous orbital velocity is a different number; writing it into `vx` would make `x0 + vx*(t - t0)` wrong for any star later demoted to `Linear`. `Orbit` is not demoted, but the columns stay distinct anyway.
 
@@ -752,25 +752,27 @@ New module `flystar/orbits.py`. Port the Newtonian solver from the gcwork `Orbit
 ```text
 a_AU = (P_yr**2 * M_Msun) ** (1/3)      # Gaussian: years, solar masses, AU
 a_arcsec = a_AU / dist_pc
-a_mas = a_arcsec * 1000
+a_mas = a_arcsec * mas_per_arcsec       # mas_per_arcsec from astropy, stored as a float
 ```
 
-`kep2xyz` takes arrays of epochs and scalar elements. It returns `r_arcsec`, `v_mas_yr`, and `a_mas_yr2`, each shape `(N, 3)`, with index 0 east, 1 north, 2 line of sight. The anomaly is solved with Newton-Raphson. Guard the `sqrt(1 - e**2)` division; the largest eccentricity in this file is about 0.98.
+`G`, `Msun`, the AU, the Julian year, and mas-per-arcsec are read from astropy once at import and stored as plain floats. The Gaussian axis above is not replaced by `(G M P**2 / 4 pi**2)`. That physical axis is about 1.3e-5 smaller and misses both the 0.02 mas `a`-column tolerance and the gcwork position tolerance. Positions do not use `G` or `Msun`. Those two constants convert only the acceleration.
+
+`kep2xyz` takes arrays of epochs and scalar elements. It returns `r_arcsec`, `v_mas_yr`, and `acc_mas_yr2`, each shape `(N, 3)`, with index 0 east, 1 north, 2 line of sight. The acceleration array is `acc`, not `a`, so it does not collide with the semi-major axis. The anomaly is solved with Newton-Raphson. Guard the `sqrt(1 - e**2)` division; the largest eccentricity in this file is about 0.98.
 
 The port is Newtonian only. It has no GR periapse-advance term and no relativistic redshift term, and no flags that would turn them on. Those paths are future work (section 9).
 
-With `M = 4.0e6` and `R0 = 8000`, `a_mas` from the printed `P` matches column `A` for all 32 stars to well under 0.02 mas. The largest residual is S0-105, about 0.013 mas, because `P` is printed as `152.76` (0.01 yr). That is the rounding of `P`, not a different mass. The test asserts `abs(a_mas - A) <= 0.02` for every star. It reads `A` from the file while it parses the line. It does not write `A` onto a catalog. The gcwork cross-check does not use these defaults; it passes `mass=4.07e6` and `dist=7960.1` and compares sky positions to `kep2xyz`.
+With `M = 4.0e6` and `R0 = 8000`, `a_mas` from the printed `P` matches column `a` for all 32 stars to well under 0.02 mas. The largest residual is S0-105, about 0.013 mas, because `P` is printed as `152.76` (0.01 yr). That is the rounding of `P`, not a different mass. The test asserts `abs(a_mas - a) <= 0.02` for every star. It reads `a` from the file while it parses the line. It does not write `a` onto a catalog. The gcwork cross-check does not use these defaults; it passes `mass=4.07e6` and `dist=7960.1` and compares sky positions to `kep2xyz`.
 
 ## 4. Reader
 
-`flystar/orbits.py` function `read_orbits_dat(path) -> astropy.Table`. Each data line has nine whitespace-separated fields and no header. The parser reads all nine, so a short or long line fails. The returned table has `name`, `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega` only. Names stay as written (`S0-2`, not a different spelling). `A` and `search` are not columns of that table.
+`flystar/orbits.py` function `read_orbits_dat(path) -> astropy.Table`. Each data line has nine whitespace-separated fields and no header. The parser reads all nine, so a short or long line fails. The returned table has `name`, `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega` only. Names stay as written (`S0-2`, not a different spelling). `a` and `search` are not columns of that table. The file on disk still has nine numeric fields and no header.
 
 `attach_orbits(starlist, orbits)` matches on `name`:
 
 - Matched rows: set `motion_model_input` to `'Orbit'` and copy the six element columns. Do not set `fit_motion`. Fixed versus fit stays with the caller.
 - Unmatched catalog rows: leave `motion_model_input` unchanged and set those six columns to NaN.
 - Names in the orbit file that are not in the catalog: warn, do not add rows.
-- Do not add `orb_A`, `orb_search`, or any metadata entry for `A` or `search`.
+- Do not add `orb_a`, `orb_search`, or any metadata entry for `a` or `search`.
 - Do not add `orb_*_err`, `orb_cov`, `orb_fit_converged`, or `orb_fit_n_iter`. The fitter creates the error columns. The diagnostics appear when a fit runs.
 
 Attach is explicit. Loading a starlist does not look for `orbits.dat`.
@@ -882,7 +884,7 @@ Solver and model, phase A:
 - With the black hole at the origin, `x` equals minus the east offset and `y` equals the north offset. The class has no `x_sign` or `y_sign` to override.
 - A fixed star, asked for errors, returns `xe = ye = 0`. `optional_fixed_params` has no `pos_err`. Prediction reads `orb_*`. It does not need `orb_*_err`.
 - `Orbit()` has `optional_fixed_params['mass'] == 4.0e6` and `optional_fixed_params['dist'] == 8.0e3`. `model` with no `mass` or `dist` uses those. A `fixed_params_dict` override, a column, and a `meta` entry each win in that order.
-- For every star in `orbits.dat` v2.0.2, `a_mas` from the printed `P` with those defaults is within 0.02 mas of the file's `A` field. The test reads `A` during the parse. After `read_orbits_dat` and after `attach_orbits`, the table has no `A`, `orb_A`, `search`, or `orb_search` column and no metadata entry for either field.
+- For every star in `orbits.dat` v2.0.2, `a_mas` from the printed `P` with those defaults is within 0.02 mas of the file's `a` field. The test reads `a` during the parse. After `read_orbits_dat` and after `attach_orbits`, the table has no `a`, `orb_a`, `search`, or `orb_search` column and no metadata entry for either field.
 - Against gcwork `kep2xyz`, pass `mass=4.07e6` and `dist=7960.1` explicitly. Compare east and north at several epochs, including periapse and a time far from it. Do not use the FlyStar defaults for this comparison.
 - `read_orbits_dat` returns 32 rows and the S0-2 elements. `attach_orbits` sets `motion_model_input` only on name matches, and does not set `fit_motion`.
 - An orbit star and a linear star in one `MosaicToRef` are matched with the same `dr_tol`. No column on the orbit star changes that radius.
@@ -920,7 +922,7 @@ Fitting, phase B. The phase A tests above still pass.
 ## 7. Decisions
 
 1. **Coordinate frame.** Resolved. Hardcoded inside `Orbit.model`: `x = -east`, `y = +north`. There is no `x_sign` or `y_sign` parameter.
-2. **Black-hole mass and distance.** Resolved. Optional fixed parameters, defaults `mass=4.0e6` Msun and `dist=8.0e3` pc, same lookup as `Parallax`'s `pa` and `obsLocation`. These defaults reproduce the `A` field of `orbits.dat`. The gcwork pair is an explicit override, not the default. They are not fit. A joint black-hole fit across stars is future work.
+2. **Black-hole mass and distance.** Resolved. Optional fixed parameters, defaults `mass=4.0e6` Msun and `dist=8.0e3` pc, same lookup as `Parallax`'s `pa` and `obsLocation`. These defaults reproduce the `a` field of `orbits.dat`. The gcwork pair is an explicit override, not the default. They are not fit. A joint black-hole fit across stars is future work.
 3. **Fixed versus fitted elements.** Resolved. One class. `fit_param_names` are `orb_P`, `orb_t0`, `orb_e`, `orb_i`, `orb_Omega`, and `orb_omega`. A fit updates those columns in place. They are not also required fixed parameters. A fixed star is predicted from the same columns because it is not refit. Original values survive through `update_ref_orig` / `keep_orig`, `fixed_motion_models`, and `fit_motion='fixed'`, the same mechanisms that preserve `x0` and `vx`. A failed fit returns the seed and sets `orb_fit_converged` false. Class `n_params` stays 3. A fit star below that is not demoted. Finite `orb_*_err` starts at four epochs. A fit `Orbit` star still loses pre-existing `x0` and `vx` to the reset. That does not affect the orbit prediction. Callers who need those linear columns freeze the star or hold the row.
 4. **Which stars are frozen.** Resolved. `fixed_motion_models` names whole classes. The string column `fit_motion` is `'fixed'` or `'fit'`. A non-blank cell overrides the list. A missing column, or a null or blank cell, follows the list. Both unset means fit, which is today's behavior. The recommended align passes `fixed_motion_models=['Orbit']`. The same column and list freeze or refit `Linear` and the other models. `fit_motion` does not override `update_ref_orig`.
 5. **Match radius.** Resolved. Every star, fixed orbit or fitted orbit, uses the same `MosaicToRef` `dr_tol`. The file's `search` column is parsed and discarded. There is no per-star search radius.
@@ -936,7 +938,7 @@ Phase A is the `Orbit` class with fixed prediction, plus the freeze list and the
 
 Phase A:
 
-1. `flystar/orbits.py`: Newtonian solver only, `kep2xyz`, `read_orbits_dat`, `attach_orbits`. Parse `A` and `search`, do not store them. Tests against the analytic orbit, the `a_mas` check against file `A`, and gcwork with explicit mass and distance.
+1. `flystar/orbits.py`: Newtonian solver only, `kep2xyz`, `read_orbits_dat`, `attach_orbits`. Parse `a` and `search`, do not store them. Tests against the analytic orbit, the `a_mas` check against file `a`, and gcwork with explicit mass and distance.
 2. `Orbit` in `motion_model.py`. `fit_param_names` are the six `orb_*` names, `required_fixed_param_names` is empty, `n_params` is 3, and `demote = False`. `model` predicts from `orb_*` and returns `xe = ye = 0`. `run_fit` returns the current elements and does not call `least_squares`. Tests for defaults, overrides, and `infer_positions` when `orb_*_err` is absent.
 3. `determine_motion_models`: optional defaults count as available, and the explicit-request loop reads `meta`. `infer_positions` treats a missing `orb_*_err` column as `inf` and passes `orb_cov` through when the column exists.
 4. `fixed_motion_models` and `fit_motion` on `MosaicToRef` and `fit_motion_models`. Honor precedence, the one-epoch path, demotion (frozen rows out; `demote = False` for `Orbit`), and all four `update_ref_orig` settings. The same mask freezes `Linear`.
@@ -960,4 +962,4 @@ A second orbit class. A boolean `fix_motion` column. Any exception that pulls on
 4. An all-NaN `orb_cov` means the fitter never wrote that star, so `xe = ye = 0`. A failed fit stores inf, and `xe = ye = inf`. One column has to carry both, because a mixed table creates `orb_cov` for every row.
 5. `fit_motion` is kept one-dimensional in `MosaicSelfRef.setup_ref_table_from_starlist`, next to `motion_model_input`. A two-dimensional column is cleared when the per-list values are reset, which erased the mode before the freeze mask could read it.
 6. `MosaicToRef.fit` still removes stars with `n_detect == 0`. A frozen orbit with no detections is unchanged inside `fit_motion_models` and `update_ref_table_aggregates`, and is then dropped by that existing cleanup. The zero-detection check does not expect the star to survive `fit`.
-7. The acceleration vector uses the cgs constants written in `flystar/orbits.py`. The uploaded gcwork `Constants` class was not in the dependency file. Positions and velocities do not use those constants. The gcwork cross-check compares east and north only.
+7. The acceleration vector uses `_G_CGS`, `_MSUN_G`, `_CM_IN_AU`, and `_SEC_IN_YR`, each taken from astropy at import and stored as a float. The uploaded gcwork `Constants` class was not in the dependency file. Positions do not use `G` or `Msun`. The gcwork cross-check compares east and north only. `semi_major_mas` and the AU axis inside `kep2xyz` keep the Gaussian `(P**2 * M)**(1/3)` relation. The physical `G M` form misses the 0.02 mas `a`-column tolerance and the 1e-12 arcsec gcwork tolerance. The semi-major-axis symbol in code, comments, and this plan is `a`. The orbits.dat file layout is unchanged. The acceleration array is `acc`, so it does not share that name.

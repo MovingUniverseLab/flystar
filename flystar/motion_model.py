@@ -2767,7 +2767,7 @@ class Orbit(MotionModel):
 
     The sky frame is hardcoded: ``x = -east``, ``y = +north``.
     ``mass`` and ``dist`` default to the pair that reproduces the
-    ``A`` column of ``orbits.dat`` v2.0.2.
+    ``a`` column of ``orbits.dat`` v2.0.2.
     """
 
     name = "Orbit"

@@ -190,17 +190,18 @@ def kep2xyz_east_north(epochs, period, t0, ecc, incl, big_omega, omega,
 
 
 def read_elements(path):
-    """Nine-field orbits.dat rows, including the printed ``A``.
+    """Nine-field orbits.dat rows, including the printed ``a``.
 
     Parameters
     ----------
     path : path-like
-        Whitespace-separated file, no header.
+        Whitespace-separated file, no header. The on-disk field
+        order is unchanged. The third number is the semi-major axis.
 
     Returns
     -------
     rows : list of tuple
-        ``(name, P, A, t0, e, i, Omega, omega)``. ``search`` is parsed
+        ``(name, P, a, t0, e, i, Omega, omega)``. ``search`` is parsed
         so a short line fails, then dropped.
     """
     rows = []
