@@ -2341,3 +2341,443 @@ def test_trans_args_per_list_reaches_the_transform():
     for ii, (trans, order) in enumerate(zip(msc.trans_list, orders)):
         assert trans.order == order, \
             f'starlist {ii} was fitted at order {trans.order}, not {order}'
+
+
+def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
+                 detection_shift=0.0, include_zero=False):
+    """Anchors plus one frozen orbit, one optional fit orbit, and one Linear.
+
+    Parameters
+    ----------
+    update_ref_orig : bool or str
+        Passed straight through to MosaicToRef.
+    fit_orbit : bool
+        When True, a second orbit row is marked ``fit_motion='fit'`` and
+        its catalog elements are offset from the detections.
+    n_epochs : int
+        Number of science lists.
+    dr_tol : float
+        Matching radius, the same value for every star.
+    detection_shift : float
+        Added to the orbit and linear detections, not to the anchors.
+    include_zero : bool
+        Add an original orbit star that is in no science list.
+
+    Returns
+    -------
+    mosaic : MosaicToRef
+        After ``fit``.
+    truth : dict
+        Catalog elements and the linear slope the detections were drawn from.
+    """
+    epochs = 2010.0 + np.arange(n_epochs, dtype=float)
+    anchor_x = np.array([5., 8., 12., 15., 6., 14., 9., 11.])
+    anchor_y = np.array([5., 6., 7., 9., 12., 13., 15., 4.])
+    n_anchor = anchor_x.size
+    # Two different orbits. Sharing one sky track makes the match ambiguous
+    # and the final pass drops both stars.
+    orb_true = np.array([16.0, 2010.0, 0.3, 50.0, 20.0, 40.0])
+    # S0-2-like. A short arc of a milder orbit does not pull P back.
+    fit_true = np.array([16.0, 2010.0, 0.88, 134.7, 48.4, 246.7])
+    orb_seed = fit_true + np.array([0.15, 0.01, 0.005, 0.3, 0.3, -0.3])
+    lin_x0, lin_y0 = 3.0, -2.0
+    # Catalog slope is close to the data, so every epoch stays inside dr_tol
+    # before the refit. The refit still has to move vx.
+    lin_vx_cat, lin_vy_cat = 0.018, -0.008
+    lin_vx, lin_vy = 0.02, -0.01
+    names = [f'a{i}' for i in range(n_anchor)] + ['orb_fixed']
+    mm = ['Fixed'] * n_anchor + ['Orbit']
+    fit_col = [''] * n_anchor + ['']
+    x_ref = list(anchor_x) + [0.0]
+    y_ref = list(anchor_y) + [0.0]
+    # Catalog x/y for the orbit is the seed prediction at the first epoch,
+    # so the initial name match is near the detection.
+    seed_for_fixed = orb_true
+    # Orbit.model at the first epoch: FlyStar frame, x = -east and
+    # y = +north, default mass and distance. The catalog position is
+    # this prediction so the name match starts next to the detection.
+    x0, y0 = motion_model.Orbit().model(
+        epochs[0], np.asarray(seed_for_fixed, dtype=float),
+        fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+    )
+    x_ref[-1] = float(np.asarray(x0).reshape(-1)[0])
+    y_ref[-1] = float(np.asarray(y0).reshape(-1)[0])
+    elements_by_name = {'orb_fixed': seed_for_fixed}
+    if fit_orbit:
+        names.append('orb_fit')
+        mm.append('Orbit')
+        fit_col.append('fit')
+        # Same prediction for the offset seed, not the injected truth.
+        # The initial match uses the catalog elements.
+        x1, y1 = motion_model.Orbit().model(
+            epochs[0], np.asarray(orb_seed, dtype=float),
+            fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+        )
+        x_ref.append(float(np.asarray(x1).reshape(-1)[0]))
+        y_ref.append(float(np.asarray(y1).reshape(-1)[0]))
+        elements_by_name['orb_fit'] = orb_seed
+    names.append('lin')
+    mm.append('Linear')
+    fit_col.append('')
+    x_ref.append(lin_x0)
+    y_ref.append(lin_y0)
+    if include_zero:
+        names.append('orb_none')
+        mm.append('Orbit')
+        fit_col.append('')
+        x_ref.append(1.0)
+        y_ref.append(1.0)
+        elements_by_name['orb_none'] = orb_true.copy()
+
+    n = len(names)
+    x_ref = np.asarray(x_ref, dtype=float)
+    y_ref = np.asarray(y_ref, dtype=float)
+    ref = starlists.StarList(
+        name=names, x=x_ref, y=y_ref, m=np.full(n, 15.0),
+        xe=np.full(n, 0.001), ye=np.full(n, 0.001), me=np.full(n, 0.01),
+    )
+    ref['motion_model_input'] = np.array(mm, dtype='U12')
+    ref['fit_motion'] = np.array(fit_col, dtype='U8')
+    ref['t0'] = np.full(n, 2010.0)
+    ref['x0'] = x_ref.copy()
+    ref['y0'] = y_ref.copy()
+    ref['vx'] = np.zeros(n)
+    ref['vy'] = np.zeros(n)
+    ref['vx'][names.index('lin')] = lin_vx_cat
+    ref['vy'][names.index('lin')] = lin_vy_cat
+    ref['x0'][names.index('lin')] = lin_x0
+    ref['y0'][names.index('lin')] = lin_y0
+    # Distinctive linear columns on the fit orbit, so a real fit is obvious.
+    if fit_orbit:
+        ref['x0'][names.index('orb_fit')] = 7.0
+        ref['vx'][names.index('orb_fit')] = 0.5
+    for key, idx_name in (
+        ('orb_P', 0), ('orb_t0', 1), ('orb_e', 2),
+        ('orb_i', 3), ('orb_Omega', 4), ('orb_omega', 5),
+    ):
+        column = np.full(n, np.nan)
+        for star, elements in elements_by_name.items():
+            column[names.index(star)] = elements[idx_name]
+        ref[key] = column
+    # A private search radius must not change who matches.
+    ref['search'] = np.full(n, 1.0e-6)
+
+    lists = []
+    for epoch in epochs:
+        x_s = np.array(x_ref, dtype=float)
+        y_s = np.array(y_ref, dtype=float)
+        # Drop the never-detected star from the science lists.
+        keep = np.array([name != 'orb_none' for name in names])
+        # Science position of the frozen star: Orbit.model on the
+        # true elements, FlyStar frame, same mass and distance.
+        x_orb, y_orb = motion_model.Orbit().model(
+            epoch, np.asarray(orb_true, dtype=float),
+            fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+        )
+        x_s[names.index('orb_fixed')] = float(np.asarray(x_orb).reshape(-1)[0])
+        y_s[names.index('orb_fixed')] = float(np.asarray(y_orb).reshape(-1)[0])
+        if fit_orbit:
+            # Detections follow the injected orbit, not the catalog seed.
+            x_fit, y_fit = motion_model.Orbit().model(
+                epoch, np.asarray(fit_true, dtype=float),
+                fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+            )
+            x_s[names.index('orb_fit')] = float(np.asarray(x_fit).reshape(-1)[0])
+            y_s[names.index('orb_fit')] = float(np.asarray(y_fit).reshape(-1)[0])
+        dt = epoch - 2010.0
+        x_s[names.index('lin')] = lin_x0 + lin_vx * dt
+        y_s[names.index('lin')] = lin_y0 + lin_vy * dt
+        x_s[names.index('orb_fixed')] += detection_shift
+        x_s[names.index('lin')] += detection_shift
+        if fit_orbit:
+            x_s[names.index('orb_fit')] += detection_shift
+        sl = starlists.StarList(
+            name=np.array(names)[keep], x=x_s[keep], y=y_s[keep],
+            m=np.full(int(keep.sum()), 15.0),
+            xe=np.full(int(keep.sum()), 0.001),
+            ye=np.full(int(keep.sum()), 0.001),
+            me=np.full(int(keep.sum()), 0.01),
+        )
+        sl.meta['list_time'] = float(epoch)
+        lists.append(sl)
+
+    mosaic = align.MosaicToRef(
+        ref, lists,
+        dr_tol=[dr_tol], dm_tol=None, outlier_tol=[None],
+        trans_class=transforms.PolyTransform, trans_args={'order': 1},
+        init_guess_mode='name', mag_trans=False,
+        motion_models=['Empty', 'Fixed', 'Linear', 'Orbit'],
+        fixed_motion_models=['Orbit'],
+        update_ref_orig=update_ref_orig,
+        verbose=False,
+    )
+    mosaic.fit()
+    truth = {
+        'orb_true': orb_true,
+        'fit_true': fit_true,
+        'orb_seed': orb_seed,
+        'lin_vx': lin_vx,
+        'lin_vx_cat': lin_vx_cat,
+        'names': names,
+    }
+    return mosaic, truth
+
+
+def _row(table, name):
+    """Integer row of ``name`` in ``table``."""
+    names = np.asarray(table['name']).astype(str)
+    hits = np.flatnonzero(names == name)
+    assert hits.size == 1, name
+    return int(hits[0])
+
+
+def test_mosaic_frozen_orbit_and_linear_share_dr_tol():
+    """One frozen orbit and one Linear star match inside the same dr_tol."""
+    mosaic, truth = _tiny_mosaic(
+        False, fit_orbit=False, n_epochs=3, dr_tol=0.08, detection_shift=0.03,
+    )
+    tab = mosaic.ref_table
+    assert float(np.max(mosaic.dr_tol)) == pytest.approx(0.08)
+    i_orb = _row(tab, 'orb_fixed')
+    i_lin = _row(tab, 'lin')
+    assert tab['n_detect'][i_orb] == 3
+    assert tab['n_detect'][i_lin] == 3
+    assert 'orb_search' not in tab.colnames
+    # The orbit reference at each epoch is the orbit, not a linear drift.
+    elements = np.array([
+        tab[name][i_orb]
+        for name in ('orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega')
+    ])
+    np.testing.assert_array_equal(elements, truth['orb_true'])
+    for epoch in (2010.0, 2011.0, 2012.0):
+        ref_at = mosaic.get_ref_list_from_table(epoch)
+        j = _row(ref_at, 'orb_fixed')
+        k = _row(ref_at, 'lin')
+        # Expected reference position: Orbit.model on the catalog
+        # elements. x = -east, y = +north, default mass and distance.
+        x_orb, y_orb = motion_model.Orbit().model(
+            epoch, np.asarray(truth['orb_true'], dtype=float),
+            fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+        )
+        np.testing.assert_allclose(
+            ref_at['x'][j], np.asarray(x_orb).reshape(-1)[0], atol=1e-8,
+        )
+        np.testing.assert_allclose(
+            ref_at['y'][j], np.asarray(y_orb).reshape(-1)[0], atol=1e-8,
+        )
+        np.testing.assert_allclose(
+            ref_at['x'][k], 3.0 + 0.018 * (epoch - 2010.0), atol=1e-6,
+        )
+        np.testing.assert_allclose(
+            ref_at['y'][k], -2.0 - 0.008 * (epoch - 2010.0), atol=1e-6,
+        )
+    return None
+
+
+def test_update_ref_orig_holds_or_refits_around_a_frozen_orbit():
+    """Frozen orbit elements survive all four settings. Linear follows the setting."""
+    for setting in (False, True, 'periter', 'atend'):
+        mosaic, truth = _tiny_mosaic(
+            setting, fit_orbit=True, n_epochs=8, dr_tol=0.03,
+        )
+        tab = mosaic.ref_table
+        i_fix = _row(tab, 'orb_fixed')
+        i_fit = _row(tab, 'orb_fit')
+        i_lin = _row(tab, 'lin')
+        fixed_el = np.array([
+            tab[name][i_fix]
+            for name in ('orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega')
+        ])
+        np.testing.assert_array_equal(fixed_el, truth['orb_true'])
+        assert tab['motion_model_used'][i_fix] == 'Orbit'
+        fit_el = np.array([
+            tab[name][i_fit]
+            for name in ('orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega')
+        ])
+        if setting is False:
+            np.testing.assert_array_equal(fit_el, truth['orb_seed'])
+            assert tab['vx'][i_lin] == truth['lin_vx_cat']
+            assert tab['x0'][i_fit] == 7.0
+            assert tab['vx'][i_fit] == 0.5
+        else:
+            assert not np.array_equal(fit_el, truth['orb_seed'])
+            assert tab['vx'][i_lin] != truth['lin_vx_cat']
+            assert tab['x0'][i_fit] != 7.0
+    return None
+
+
+def test_original_orbit_held_when_update_ref_orig_is_false():
+    """No freeze list. update_ref_orig=False holds an original Orbit row."""
+    epochs = np.array([2010.0, 2012.0, 2014.0])
+    elements = np.array([16.0, 2010.0, 0.3, 50.0, 20.0, 40.0])
+    # Catalog sky position at the first epoch from Orbit.model.
+    # FlyStar frame, default mass and distance.
+    x0, y0 = motion_model.Orbit().model(
+        epochs[0], np.asarray(elements, dtype=float),
+        fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+    )
+    ref = starlists.StarList(
+        name=['orb'], x=np.array([float(np.asarray(x0).reshape(-1)[0])]),
+        y=np.array([float(np.asarray(y0).reshape(-1)[0])]),
+        m=np.array([15.0]), xe=np.array([0.001]), ye=np.array([0.001]),
+        me=np.array([0.01]),
+    )
+    # Extra anchors so the polynomial is determined. Built as extra rows.
+    anchor_x = np.array([5., 8., 12., 15., 6., 14.])
+    anchor_y = np.array([5., 6., 7., 9., 12., 13.])
+    names = ['orb'] + [f'a{i}' for i in range(anchor_x.size)]
+    x_ref = np.concatenate([[ref['x'][0]], anchor_x])
+    y_ref = np.concatenate([[ref['y'][0]], anchor_y])
+    n = len(names)
+    ref = starlists.StarList(
+        name=names, x=x_ref, y=y_ref, m=np.full(n, 15.0),
+        xe=np.full(n, 0.001), ye=np.full(n, 0.001), me=np.full(n, 0.01),
+    )
+    ref['motion_model_input'] = np.array(
+        ['Orbit'] + ['Fixed'] * anchor_x.size, dtype='U12',
+    )
+    ref['fit_motion'] = np.array(['fit'] + [''] * anchor_x.size, dtype='U8')
+    ref['x0'] = x_ref.copy()
+    ref['vx'] = np.zeros(n)
+    ref['x0'][0] = 4.0
+    ref['vx'][0] = 0.3
+    for key, value in zip(
+        ('orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega'),
+        elements,
+    ):
+        column = np.full(n, np.nan)
+        column[0] = value
+        ref[key] = column
+    lists = []
+    for epoch in epochs:
+        x_s = x_ref.copy()
+        y_s = y_ref.copy()
+        # Orbit.model of a period 0.4 yr longer than the catalog.
+        # A real fit would follow this. update_ref_orig=False must not.
+        xo, yo = motion_model.Orbit().model(
+            epoch,
+            np.asarray(
+                elements + np.array([0.4, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                dtype=float,
+            ),
+            fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
+        )
+        # Detections are a different orbit, so a fit would move the elements.
+        # update_ref_orig=False must ignore that and keep the catalog.
+        x_s[0] = float(np.asarray(xo).reshape(-1)[0])
+        y_s[0] = float(np.asarray(yo).reshape(-1)[0])
+        sl = starlists.StarList(
+            name=names, x=x_s, y=y_s, m=np.full(n, 15.0),
+            xe=np.full(n, 0.001), ye=np.full(n, 0.001), me=np.full(n, 0.01),
+        )
+        sl.meta['list_time'] = float(epoch)
+        lists.append(sl)
+    mosaic = align.MosaicToRef(
+        ref, lists, dr_tol=[0.5], dm_tol=None, outlier_tol=[None],
+        trans_class=transforms.PolyTransform, trans_args={'order': 1},
+        init_guess_mode='name', mag_trans=False,
+        motion_models=['Empty', 'Fixed', 'Linear', 'Orbit'],
+        fixed_motion_models=None, update_ref_orig=False, verbose=False,
+    )
+    mosaic.fit()
+    tab = mosaic.ref_table
+    i = _row(tab, 'orb')
+    assert tab['orb_P'][i] == 16.0
+    assert tab['x0'][i] == 4.0
+    assert tab['vx'][i] == 0.3
+    assert tab['fit_motion'][i] == 'fit'
+    return None
+
+
+def test_mosaic_fit_and_fixed_orbit_with_update_ref_orig():
+    """Blank Orbit stays put. fit_motion='fit' is solved. Linear is refit."""
+    mosaic, truth = _tiny_mosaic(
+        True, fit_orbit=True, n_epochs=8, dr_tol=0.03,
+    )
+    tab = mosaic.ref_table
+    i_fix = _row(tab, 'orb_fixed')
+    i_fit = _row(tab, 'orb_fit')
+    i_lin = _row(tab, 'lin')
+    assert tab['n_detect'][i_fix] == 8
+    assert tab['n_detect'][i_fit] == 8
+    assert tab['n_detect'][i_lin] == 8
+    fixed_el = np.array([tab[c][i_fix] for c in (
+        'orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega')])
+    np.testing.assert_array_equal(fixed_el, truth['orb_true'])
+    fit_el = np.array([tab[c][i_fit] for c in (
+        'orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega')])
+    assert abs(fit_el[0] - truth['fit_true'][0]) < abs(
+        truth['orb_seed'][0] - truth['fit_true'][0]
+    )
+    for name in ('orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega'):
+        err = tab[name + '_err'][i_fit]
+        assert np.isfinite(err) and err > 0.0
+    assert tab['orb_cov'][i_fit].shape == (6, 6)
+    assert tab['orb_fit_converged'][i_fit]
+    assert tab['x0'][i_fit] != 7.0
+    assert tab['vx'][i_fit] != 0.5
+    assert tab['vx'][i_lin] != truth['lin_vx_cat']
+
+    held, _truth = _tiny_mosaic(
+        False, fit_orbit=True, n_epochs=8, dr_tol=0.03,
+    )
+    htab = held.ref_table
+    j = _row(htab, 'orb_fit')
+    k = _row(htab, 'lin')
+    held_el = np.array([htab[c][j] for c in (
+        'orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega')])
+    np.testing.assert_array_equal(held_el, truth['orb_seed'])
+    assert htab['vx'][k] == truth['lin_vx_cat']
+    assert htab['x0'][j] == 7.0
+    return None
+
+
+def test_zero_detection_frozen_orbit_is_unchanged_then_dropped():
+    """Aggregates leave a never-matched frozen orbit alone. fit() then drops it."""
+    epochs = np.array([2010.0, 2012.0])
+    elements = np.array([16.0, 2010.0, 0.2, 40.0, 10.0, 20.0])
+    names = ['orb_none', 'a0', 'a1', 'a2', 'a3']
+    x_ref = np.array([0.1, 5.0, 8.0, 12.0, 15.0])
+    y_ref = np.array([0.1, 5.0, 6.0, 7.0, 9.0])
+    ref = starlists.StarList(
+        name=names, x=x_ref, y=y_ref, m=np.full(5, 15.0),
+        xe=np.full(5, 0.001), ye=np.full(5, 0.001), me=np.full(5, 0.01),
+    )
+    ref['motion_model_input'] = np.array(
+        ['Orbit', 'Fixed', 'Fixed', 'Fixed', 'Fixed'], dtype='U12',
+    )
+    ref['x0'] = x_ref.copy()
+    ref['vx'] = np.array([0.2, 0.0, 0.0, 0.0, 0.0])
+    for key, value in zip(
+        ('orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega'),
+        elements,
+    ):
+        column = np.full(5, np.nan)
+        column[0] = value
+        ref[key] = column
+    lists = []
+    for epoch in epochs:
+        sl = starlists.StarList(
+            name=names[1:], x=x_ref[1:], y=y_ref[1:], m=np.full(4, 15.0),
+            xe=np.full(4, 0.001), ye=np.full(4, 0.001), me=np.full(4, 0.01),
+        )
+        sl.meta['list_time'] = float(epoch)
+        lists.append(sl)
+    mosaic = align.MosaicToRef(
+        ref, lists, dr_tol=[0.2], dm_tol=None, outlier_tol=[None],
+        trans_class=transforms.PolyTransform, trans_args={'order': 1},
+        init_guess_mode='name', mag_trans=False,
+        motion_models=['Empty', 'Fixed', 'Orbit'],
+        fixed_motion_models=['Orbit'], update_ref_orig=True, verbose=False,
+    )
+    mosaic.ref_table = mosaic.setup_ref_table_from_starlist(mosaic.ref_list)
+    assert mosaic.ref_table['orb_P'][0] == 16.0
+    assert mosaic.ref_table['vx'][0] == 0.2
+    mosaic.update_ref_table_aggregates()
+    assert mosaic.ref_table['orb_P'][0] == 16.0
+    assert mosaic.ref_table['orb_e'][0] == 0.2
+    assert mosaic.ref_table['vx'][0] == 0.2
+    assert mosaic.ref_table['x0'][0] == 0.1
+    mosaic.fit()
+    assert 'orb_none' not in np.asarray(mosaic.ref_table['name']).astype(str)
+    return None

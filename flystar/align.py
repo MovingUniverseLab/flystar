@@ -470,6 +470,9 @@ class MosaicSelfRef(object):
         self.absolute_sigma = absolute_sigma
         self.inherit_n_detect = inherit_n_detect
         self.fixed_params_dict = fixed_params_dict
+        # MosaicToRef overwrites this when the caller passes a list.
+        # An empty value freezes nobody, which is today's refit.
+        self.fixed_motion_models = None
         self.init_guess_mode = init_guess_mode
         self.briteN = briteN
         self.ignore_contains = ignore_contains
@@ -1437,11 +1440,22 @@ class MosaicSelfRef(object):
         StarTable
             The seeded reference table. Per-list quantities get a length-1
             epoch axis that grows as further starlists are added; motion
-            model parameters stay 1D.
+            model parameters stay 1D. ``fit_motion`` stays 1D as well, so
+            the per-list reset does not erase it.
         """
         col_arrays = {}
 
-        motion_model_col_names = motion_model.all_motion_model_param_names(with_errors=True, with_fixed=True) + ['m0','m0_err','use_in_trans', 'motion_model_input', 'motion_model_used']
+        # fit_motion is a per-star mode, like motion_model_input. Left as a
+        # 2D column it is wiped to None when the per-list values are reset.
+        motion_model_col_names = (
+            motion_model.all_motion_model_param_names(
+                with_errors=True, with_fixed=True,
+            )
+            + [
+                'm0', 'm0_err', 'use_in_trans',
+                'motion_model_input', 'motion_model_used', 'fit_motion',
+            ]
+        )
         for col_name in star_list.colnames:
             if col_name == 'name':
                 # The "name" column is 1D. Per-list identity is carried by
@@ -1847,6 +1861,18 @@ class MosaicSelfRef(object):
         -------
         None
         """
+        # Frozen stars are held on every pass, for every model. A
+        # fit_motion cell overrides the list. Union into keep_orig
+        # before the save so the restore covers them.
+        frozen = motion_model.frozen_motion_mask(
+            self.ref_table, getattr(self, 'fixed_motion_models', None),
+        )
+        if np.any(frozen):
+            if keep_orig is None:
+                keep_orig = frozen
+            else:
+                keep_orig = np.asarray(keep_orig, dtype=bool) | frozen
+
         # Keep track of the original reference values.
         # In certain cases, we will NOT update these.
         if (keep_orig is not None) and (np.count_nonzero(keep_orig) > 0):
@@ -1922,6 +1948,18 @@ class MosaicSelfRef(object):
             needs_error_fallback = xe_bad.all(axis=1) & ye_bad.all(axis=1)
             guaranteed_simple &= ~needs_error_fallback
 
+        # A model that sets demote=False (Orbit) must not be averaged by
+        # combine_lists_xym, which would replace x0/y0 and ignore the orbit.
+        # Frozen stars are already outside need_update.
+        if 'motion_model_input' in self.ref_table.colnames:
+            mm_map = motion_model.motion_model_map()
+            requested = np.asarray(self.ref_table['motion_model_input']).astype(str)
+            no_simple = np.array([
+                (name in mm_map) and (not getattr(mm_map[name], 'demote', True))
+                for name in requested
+            ])
+            guaranteed_simple = guaranteed_simple & ~no_simple
+
         need_update = fit_star_idxs if fit_star_idxs is not None else np.ones(len(self.ref_table), dtype=bool)
         simple_idxs = guaranteed_simple & need_update
         complex_idxs = (~guaranteed_simple) & need_update
@@ -1941,6 +1979,7 @@ class MosaicSelfRef(object):
             self.ref_table.fit_motion_models(
                 motion_models=self.motion_models,
                 fixed_params_dict=self.fixed_params_dict,
+                fixed_motion_models=getattr(self, 'fixed_motion_models', None),
                 weighting=self.vel_weighting,
                 absolute_sigma=self.absolute_sigma,
                 select_stars=complex_idxs,
@@ -2703,6 +2742,7 @@ class MosaicToRef(MosaicSelfRef):
         # Motion model parameters
         motion_models=['Empty', 'Fixed'],
         fixed_params_dict=None,
+        fixed_motion_models=None,
         vel_weights='var',
         absolute_sigma=True,
         # Advanced options
@@ -2943,6 +2983,10 @@ class MosaicToRef(MosaicSelfRef):
         fixed_params_dict : None or dict, optional
             Dictionary of fixed parameters for motion models
 
+        fixed_motion_models : sequence of str or None, optional
+            Motion-model names that are not refit. A non-blank ``fit_motion``
+            cell overrides the list. ``None`` freezes nobody. By default None.
+
         vel_weights : str, optional
             Either 'var' (def) or 'std', depending on whether you want to weight the motion model
             fits by the variance or standard deviation of the position data
@@ -3108,6 +3152,9 @@ class MosaicToRef(MosaicSelfRef):
         self.fix_ref_mag_lim()
         self.update_ref_orig = update_ref_orig
         self.use_ref_new = use_ref_new
+        # None freezes nobody. A name in the list is held unless that
+        # row's fit_motion cell says 'fit'.
+        self.fixed_motion_models = fixed_motion_models
 
         if reflist_vertex is not None:
             import shapely
