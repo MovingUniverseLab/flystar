@@ -16,6 +16,7 @@ from flystar.motion_model import Orbit
 from flystar.orbits import (
     _MAS_PER_ARCSEC,
     attach_orbits,
+    eccen_anomaly,
     kep2xyz,
     read_orbits_dat,
     semimajor_axis_mas,
@@ -673,5 +674,50 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
     assert tab_bad['motion_model_used'][0] == 'Orbit'
     assert not tab_bad['orb_fit_converged'][0]
     assert np.isfinite(tab_bad['orb_P'][0])
-    
+
+    return None
+
+
+def test_eccen_anomaly_at_half_eccentricity_and_zero_mean():
+    """Mean anomaly 0 at e just below 1/2 must return the root.
+
+    Notes
+    -----
+    This is the evaluation that used to raise on the three-epoch fit.
+    ``least_squares`` steps off a seed eccentricity of 0.5 to
+    ``e = 0.49999999999999084`` while the star is at periapse, so the
+    mean anomaly is 0. The Mikkola starter then returns about
+    ``-1e-32``. The gcwork wrap ``E < 0 → E + 2π`` turns that into
+    ``2π``. The residual against ``M = 0`` is ``2π``, and the Newton
+    step ``2π / (1 - e)`` swaps ``+2π`` and ``-2π`` forever. The step
+    stays near ``4π``, so it never falls below ``1e-10``, and 50
+    iterations raised ``RuntimeError``. The same wrap at ``e = 0.9``
+    makes the step grow instead of oscillate. Both roots are ``E = 0``.
+    The residual tolerance is ``1e-10`` radians, the Newton ``thresh``.
+    That is the failure the old code hit. It is much tighter than the
+    ``1e-12`` arcsec gcwork position check, which does not include
+    this particular eccentricity.
+    """
+    # The float the macOS fit actually evaluated. Not a rounded 0.5.
+    ecc = 0.49999999999999084
+    mean_anomaly = np.array([0.0])
+    eccentric = eccen_anomaly(mean_anomaly, ecc)
+    # Kepler residual at the returned angle. E = 0 is the root.
+    residual = (
+        eccentric[0] - ecc * np.sin(eccentric[0]) - mean_anomaly[0]
+    )
+    assert np.isfinite(eccentric[0])
+    assert abs(float(residual)) < 1e-10
+
+    # Same mean anomaly, higher e: the old Newton step ran away.
+    ecc_runaway = 0.9
+    eccentric_high = eccen_anomaly(mean_anomaly, ecc_runaway)
+    residual_high = (
+        eccentric_high[0]
+        - ecc_runaway * np.sin(eccentric_high[0])
+        - mean_anomaly[0]
+    )
+    assert np.isfinite(eccentric_high[0])
+    assert abs(float(residual_high)) < 1e-10
+
     return None

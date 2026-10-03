@@ -85,12 +85,109 @@ def semimajor_axis_mas(period_yr, mass_msun, dist_pc):
     return a_mas
 
 
+def _kepler_residual(eccentric_anomaly, mean_anomaly, ecc):
+    """Residual of Kepler's equation, ``E - e sin E - M``.
+
+    Parameters
+    ----------
+    eccentric_anomaly, mean_anomaly : float
+        Angles in radians. They must already share one 2π convention.
+    ecc : float
+        Eccentricity.
+
+    Returns
+    -------
+    residual : float
+        Radians. Zero at the eccentric anomaly that belongs to
+        ``mean_anomaly``.
+    """
+    residual = (
+        float(eccentric_anomaly)
+        - float(ecc) * np.sin(eccentric_anomaly)
+        - float(mean_anomaly)
+    )
+
+    return residual
+
+
+def _fold_two_pi(angle, reference):
+    """Shift ``angle`` by multiples of 2π onto the turn nearest ``reference``.
+
+    Parameters
+    ----------
+    angle, reference : float
+        Radians.
+
+    Returns
+    -------
+    folded : float
+        ``angle - 2π * round((angle - reference) / 2π)``.
+    """
+    turns = np.round((angle - reference) / (2.0 * np.pi))
+    folded = float(angle) - float(turns) * (2.0 * np.pi)
+
+    return folded
+
+
+def _bisect_kepler(mean_anomaly, ecc, thresh):
+    """Eccentric anomaly by bisection.
+
+    Parameters
+    ----------
+    mean_anomaly : float
+        Mean anomaly in radians, on ``(-π, π]``.
+    ecc : float
+        Eccentricity, ``0 <= ecc < 1``.
+    thresh : float
+        Residual, in radians, that counts as converged.
+
+    Returns
+    -------
+    eccentric_anomaly : float
+        Root of ``E - e sin E - M``, in radians.
+
+    Notes
+    -----
+    ``|E - M| = |e sin E| <= e``, so the root lies in
+    ``[M - e, M + e]``. The residual is strictly increasing, so
+    the bracket cannot be escaped. This is the fallback when a
+    Newton step oscillates or runs away.
+    """
+    mean_anomaly = float(mean_anomaly)
+    ecc = float(ecc)
+    lo = mean_anomaly - ecc
+    hi = mean_anomaly + ecc
+    # f(M - e) = -e - e sin(M - e) <= 0, and f(M + e) >= 0.
+    flo = _kepler_residual(lo, mean_anomaly, ecc)
+    if abs(flo) <= thresh:
+        return lo
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        fmid = _kepler_residual(mid, mean_anomaly, ecc)
+        if abs(fmid) <= thresh or abs(hi - lo) <= thresh:
+            return mid
+        # Keep the bound whose residual still brackets zero.
+        if flo * fmid <= 0.0:
+            hi = mid
+        else:
+            lo = mid
+            flo = fmid
+
+    return 0.5 * (lo + hi)
+
+
 def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
     """Solve Kepler's equation for the eccentric anomaly.
 
     ``Orbit.eccen_anomaly``: a starter approximation
     followed by Newton-Raphson integration. Circular orbits return the mean
     anomaly reduced to ``(-pi, pi]``.
+
+    A starter a hair below zero is wrapped to ``2π``. At mean anomaly
+    0 the residual is then ``2π``, and Newton oscillates (``e`` near
+    0.5, step ``4π``) or runs away (higher ``e``). That start is folded
+    back onto the mean anomaly first. If the step still never drops
+    below ``thresh``, bisection replaces the raise.
 
     Parameters
     ----------
@@ -168,19 +265,41 @@ def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
     needs = np.flatnonzero(np.abs(diff) > 1e-10)
 
     for i in needs:
-        # A few Newton steps close the residual. The gcwork loop allows
-        # a huge iteration cap; bound orbits here converge in a handful.
+        # Prefer the 2π image closer to this mean anomaly. The gcwork
+        # wrap above turns a tiny negative root into 2π. Against M = 0
+        # the residual is then 2π, and the Newton step is 2π / (1 - e),
+        # which swaps 2π and -2π forever when e = 0.5.
+        folded = _fold_two_pi(eccanom[i], mmm[i])
+        if abs(_kepler_residual(folded, mmm[i], ecc)) < abs(
+            _kepler_residual(eccanom[i], mmm[i], ecc)
+        ):
+            eccanom[i] = folded
+        # Same Newton update and the same step test as the gcwork
+        # port. A start that already converges is not perturbed.
+        settled = False
         for _ in range(50):
             fe = eccanom[i] - ecc * np.sin(eccanom[i]) - mmm[i]
             fs = 1.0 - ecc * np.cos(eccanom[i])
+            # 1 - e cos E is at least 1 - e. A zero here is roundoff,
+            # which used to divide and raise. Bisect that case.
+            if (not np.isfinite(fs)) or fs == 0.0:
+                break
             oldval = eccanom[i]
             eccanom[i] = oldval - fe / fs
             if abs(oldval - eccanom[i]) < thresh:
+                settled = True
                 break
-        else:
-            raise RuntimeError(
-                f"eccen_anomaly did not converge for e = {ecc}."
-            )
+        # Not settled, and the residual is still outside thresh.
+        # A step that only chatters at roundoff keeps the Newton
+        # value. Anything else is bisected on the (-π, π] anomaly
+        # instead of raising.
+        if not settled and abs(
+            _kepler_residual(eccanom[i], mmm[i], ecc)
+        ) > thresh:
+            # Tighter than the Newton step test. A 1e-10 residual
+            # at high e is a larger angle error than the gcwork
+            # position tolerance can absorb.
+            eccanom[i] = _bisect_kepler(float(mx[i]), ecc, 1.0e-14)
         while eccanom[i] >= np.pi:
             eccanom[i] = eccanom[i] - 2.0 * np.pi
         while eccanom[i] < -np.pi:

@@ -2173,19 +2173,30 @@ def frozen_motion_mask(table, fixed_motion_models=None):
     are exactly ``'fixed'`` and ``'fit'``.
     """
     n_stars = len(table)
+    # None and an empty sequence both mean "the list freezes nobody".
+    # Names are compared as strings against motion_model_input.
     names = []
     if fixed_motion_models:
         names = [str(name) for name in fixed_motion_models]
 
+    # Default: nobody is frozen. The list can only freeze a star when
+    # the catalog actually says which model that star requested.
     frozen = np.zeros(n_stars, dtype=bool)
     if names and ('motion_model_input' in table.colnames):
         requested = np.asarray(table['motion_model_input']).astype(str)
         frozen = np.isin(requested, names)
 
+    # No per-star opinion. The list, or the all-false default, is
+    # the whole answer. A missing column is not an error.
     if 'fit_motion' not in table.colnames:
         return frozen
 
     column = table['fit_motion']
+    # MaskedColumn carries a mask. A plain column does not, and every
+    # cell is then a real value that the loop below has to read.
+    # getmaskarray on a column whose mask has the wrong shape (a
+    # scalar mask, or a mask left over from a different length) would
+    # not line up with the stars, so that case is treated as unmasked.
     if hasattr(column, 'mask'):
         masked = np.ma.getmaskarray(np.ma.asarray(column)).astype(bool)
         if masked.shape != (n_stars,):
@@ -2193,24 +2204,36 @@ def frozen_motion_mask(table, fixed_motion_models=None):
     else:
         masked = np.zeros(n_stars, dtype=bool)
 
+    # One normalized string per star. Blank means "no opinion", which
+    # is the same state as a missing column: follow the list.
     text = []
     for i in range(n_stars):
+        # A masked cell has no mode. Do not read through the mask.
         if masked[i]:
             text.append('')
             continue
         value = column[i]
+        # None is how an object column stores a null. Same as blank.
         if value is None:
             text.append('')
             continue
+        # FITS and some numpy string dtypes yield bytes. Decode before
+        # the spelling check, or b'fixed' would look like a typo.
         if isinstance(value, (bytes, np.bytes_)):
             value = value.decode('utf-8', 'replace')
         # A float NaN is the masked-numeric case, not a mode string.
+        # str(nan) is 'nan', which would be raised as a bad spelling.
         if isinstance(value, (float, np.floating)) and not np.isfinite(value):
             text.append('')
             continue
+        # Whitespace-only is blank. ' fixed ' is still the word fixed.
         text.append(str(value).strip())
     text = np.asarray(text, dtype=object)
 
+    # Collect every bad spelling and raise once, so one typo does not
+    # hide the next. A blank cell is skipped and the list decision
+    # already stored in ``frozen`` stays. 'fixed' forces True, 'fit'
+    # forces False, including when the list said the opposite.
     bad = []
     for i, cell in enumerate(text):
         if cell == '':
@@ -2639,7 +2662,10 @@ def _solve_one_orbit(t, x, y, xe, ye, valid, seed, mass, dist, bh,
             xs, ys = _sky_xy(
                 t[idx], elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh,
             )
-        except ValueError:
+        except (ValueError, RuntimeError):
+            # kep2xyz / eccen_anomaly reject a bad element or, if the
+            # anomaly solver still gives up, raise. Chi-squared of the
+            # seed is then undefined. The fit still returns the seed.
             return np.nan, np.nan
         chi2x = float(np.sum(wx * (xs - x[idx])**2))
         chi2y = float(np.sum(wy * (ys - y[idx])**2))
@@ -2700,7 +2726,11 @@ def _solve_one_orbit(t, x, y, xe, ye, valid, seed, mass, dist, bh,
             xs, ys = _sky_xy(
                 t[idx], elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh,
             )
-        except ValueError:
+        except (ValueError, RuntimeError):
+            # One trial that cannot be integrated must not abort the
+            # fit. A large residual pushes the solver off that point.
+            # An exception that still escapes least_squares is caught
+            # below and becomes a failed fit: the seed is kept.
             return np.full(2 * idx.size, 1.0e3)
         rx = np.sqrt(wx) * (xs - x[idx])
         ry = np.sqrt(wy) * (ys - y[idx])
@@ -2708,17 +2738,25 @@ def _solve_one_orbit(t, x, y, xe, ye, valid, seed, mass, dist, bh,
 
     bounds_lo = np.array([-np.inf, -np.inf, -np.inf, -np.inf, 0.0, -np.inf])
     bounds_hi = np.array([np.inf, np.inf, np.inf, np.inf, 180.0, np.inf])
-    result = least_squares(
-        residual,
-        internal0,
-        method='trf',
-        bounds=(bounds_lo, bounds_hi),
-        x_scale=np.array([1.0, 1.0, 0.1, 0.1, 10.0, 10.0]),
-        ftol=1e-12,
-        xtol=1e-12,
-        gtol=1e-12,
-        max_nfev=200,
-    )
+    try:
+        result = least_squares(
+            residual,
+            internal0,
+            method='trf',
+            bounds=(bounds_lo, bounds_hi),
+            x_scale=np.array([1.0, 1.0, 0.1, 0.1, 10.0, 10.0]),
+            ftol=1e-12,
+            xtol=1e-12,
+            gtol=1e-12,
+            max_nfev=200,
+        )
+    except (ValueError, RuntimeError):
+        # The anomaly solver or kep2xyz raised inside a residual or a
+        # Jacobian probe. That is a failed fit, not an uncaught error.
+        return _fail(
+            0,
+            "Orbit fit failed while evaluating the orbit; keeping the seed.",
+        )
     n_iter = int(result.nfev)
     if (not result.success) or (not np.all(np.isfinite(result.x))):
         return _fail(n_iter, "Orbit fit did not converge; keeping the seed.")
