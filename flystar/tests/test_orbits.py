@@ -263,6 +263,7 @@ def test_black_hole_offset_is_added_in_the_flystar_frame():
             'vx_bh': 0.001, 'vy_bh': -0.002, 't_bh': 2000.0,
         },
     )
+
     # Ten years of black-hole motion, then the FlyStar sign on the orbit.
     dt = 10.0
     np.testing.assert_allclose(x, 0.01 + 0.001 * dt - r_au[0, 0])
@@ -289,10 +290,12 @@ def test_fixed_star_position_errors_are_zero():
     x, y, xe, ye = Orbit().model(
         np.array([2010.0, 2012.0]), elements, fit_param_errs=errs,
     )
+
     # Two epochs, one star: model flattens to shape (n_epochs,).
     assert x.shape == (2,)
     np.testing.assert_allclose(xe, 0.0)
     np.testing.assert_allclose(ye, 0.0)
+
     # The plan removed any pos_err knob from the optional parameters.
     assert 'pos_err' not in Orbit.optional_fixed_params
 
@@ -322,6 +325,7 @@ def test_mass_and_dist_defaults_and_override_order():
     assert Orbit.optional_fixed_params['mass'] == 4.0e6
     assert Orbit.optional_fixed_params['dist'] == 8.0e3
     elements = np.array([16.0, 2010.0, 0.0, 0.0, 0.0, 0.0])
+    
     # y at periapse is the semi-major axis in arcseconds.
     # Divide mas by the astropy mas-per-arcsec factor.
     y_default = semimajor_axis_mas(16.0, 4.0e6, 8.0e3) / _MAS_PER_ARCSEC
@@ -338,6 +342,7 @@ def test_mass_and_dist_defaults_and_override_order():
     for name, value in zip(_NAMES, elements):
         tab[name] = np.array([value])
     tab['motion_model_input'] = np.array(['Orbit'], dtype='U12')
+    
     # Present so infer_positions takes the error-returning path.
     # They are not the orbit's covariance.
     tab['x0_err'] = np.array([0.001])

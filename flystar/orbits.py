@@ -210,15 +210,19 @@ def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
             f"Eccentricity must satisfy 0 <= e < 1, got {ecc}."
         )
 
+    # One column of epochs. Scalars become shape (1,).
     mean_anomaly = np.atleast_1d(np.asarray(mean_anomaly, dtype=float))
 
     # Range reduction to -pi < m <= pi, matching the gcwork port.
+    # Values above pi are reduced mod 2pi, then shifted into the upper half.
     mx = np.array(mean_anomaly, dtype=float, copy=True)
     mx = np.where(mx > np.pi, np.mod(mx, 2.0 * np.pi), mx)
     mx = np.where(mx > np.pi, mx - 2.0 * np.pi, mx)
+    # Values at or below -pi wrap the same way, then shift up by 2pi.
     mx = np.where(mx <= -np.pi, np.mod(mx, 2.0 * np.pi), mx)
     mx = np.where(mx <= -np.pi, mx + 2.0 * np.pi, mx)
 
+    # A circle has E = M. Skip the starter and the Newton loop.
     if ecc == 0.0:
         return mx
 
@@ -227,15 +231,18 @@ def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
     aux = (4.0 * ecc) + 0.50
     alpha = (1.0 - ecc) / aux
     beta = mx / (2.0 * aux)
+    # Discriminant of the cubic starter. The sign of z picks the real root.
     aux_root = np.sqrt(beta**2 + alpha**3)
     z = beta + aux_root
     z = np.where(z <= 0.0, beta - aux_root, z)
     # Real cube root. Do not use z**(1/3): negatives become complex.
     z = np.sign(z) * np.abs(z)**(1.0 / 3.0)
     s0 = z - alpha / z
+    # Small fifth-order correction before the first E guess.
     s1 = s0 - (0.0780 * s0**5) / (1.0 + ecc)
     e0 = mx + ecc * ((3.0 * s1) - (4.0 * s1**3))
 
+    # Residual of Kepler's equation and its first four derivatives.
     se0 = np.sin(e0)
     ce0 = np.cos(e0)
     f = e0 - (ecc * se0) - mx
@@ -243,6 +250,8 @@ def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
     f2 = ecc * se0
     f3 = ecc * ce0
     f4 = -1.0 * f2
+    # Four nested corrections. Each divides f by a longer Taylor
+    # denominator built from the previous correction.
     u1 = -1.0 * f / f1
     u2 = -1.0 * f / (f1 + 0.50 * f2 * u1)
     u3 = -1.0 * f / (
@@ -254,6 +263,7 @@ def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
         + 0.0416666666666670 * f4 * u3**3
     )
     eccanom = e0 + u4
+    # Fold the corrected starter onto [0, 2pi).
     eccanom = np.where(eccanom >= 2.0 * np.pi, eccanom - 2.0 * np.pi, eccanom)
     eccanom = np.where(eccanom < 0.0, eccanom + 2.0 * np.pi, eccanom)
 
@@ -300,6 +310,7 @@ def eccen_anomaly(mean_anomaly, ecc, thresh=1e-10):
             # at high e is a larger angle error than the gcwork
             # position tolerance can absorb.
             eccanom[i] = _bisect_kepler(float(mx[i]), ecc, 1.0e-14)
+        # Reduce the accepted root onto (-pi, pi].
         while eccanom[i] >= np.pi:
             eccanom[i] = eccanom[i] - 2.0 * np.pi
         while eccanom[i] < -np.pi:
@@ -348,6 +359,7 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
     epochs = np.atleast_1d(np.asarray(epochs, dtype=float))
     period = float(period)
     ecc = float(ecc)
+    # Bound orbits only. Parabolic and hyperbolic cases are not solved here.
     if not np.isfinite(period) or period <= 0.0:
         raise ValueError(f"Period must be positive and finite, got {period}.")
     if ecc < 0.0 or ecc >= 1.0:
@@ -358,17 +370,23 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
     # Semi-major axis in AU. Gaussian (P**2 * M)**(1/3), not G*M.
     # See semimajor_axis_mas. The physical axis misses the fixtures.
     axis = (period**2 * mass)**(1.0 / 3.0)
+    # Mean motion in rad/yr. ecc_sqrt scales the conjugate axis.
     mean_motion = 2.0 * np.pi / period
     ecc_sqrt = np.sqrt(1.0 - ecc**2)
 
+    # Mean anomaly from periapse, then Kepler's equation for E.
     mean_anom = mean_motion * (epochs - float(t0))
     ecc_anom = eccen_anomaly(mean_anom, ecc)
     cos_e = np.cos(ecc_anom)
     sin_e = np.sin(ecc_anom)
+    # dE/dt = n / (1 - e cos E). Used only for the velocity.
     edot = mean_motion / (1.0 - ecc * cos_e)
+    # Orbital-plane offsets, in units of the semi-major axis.
+    # x_orb points at periapse; y_orb is along the conjugate radius.
     x_orb = cos_e - ecc
     y_orb = ecc_sqrt * sin_e
 
+    # omega, Omega, and i are degrees. Convert once for the rotation.
     cos_om = np.cos(np.radians(omega))
     sin_om = np.sin(np.radians(omega))
     cos_big = np.cos(np.radians(big_omega))
@@ -390,10 +408,12 @@ def kep2xyz(epochs, period, t0, ecc, incl, big_omega, omega,
     # acc, not a: a is the semi-major axis.
     acc = np.zeros((n_epochs, 3), dtype=float)
 
+    # Sky position in AU: 0 east, 1 north, 2 line of sight.
     r[:, 0] = (con_b * x_orb) + (con_g * y_orb)
     r[:, 1] = (con_a * x_orb) + (con_f * y_orb)
     r[:, 2] = (con_c * x_orb) + (con_h * y_orb)
 
+    # Same Thiele-Innes mix, times dE/dt, for the velocity in AU/yr.
     v[:, 0] = edot * ((-con_b * sin_e) + (con_g * ecc_sqrt * cos_e))
     v[:, 1] = edot * ((-con_a * sin_e) + (con_f * ecc_sqrt * cos_e))
     v[:, 2] = edot * ((-con_c * sin_e) + (con_h * ecc_sqrt * cos_e))
@@ -442,6 +462,7 @@ def read_orbits_dat(path):
     with open(path, 'r', encoding='utf-8') as handle:
         for line_number, line in enumerate(handle, start=1):
             stripped = line.strip()
+            # Blank lines and comments are not data rows.
             if stripped == '' or stripped.startswith('#'):
                 continue
             fields = stripped.split()
@@ -461,6 +482,7 @@ def read_orbits_dat(path):
             names.append(name)
             rows.append((period, t0, ecc, incl, big_omega, arg_peri))
 
+    # An empty file still returns six element columns and zero rows.
     rows = np.asarray(rows, dtype=float) if rows else np.zeros((0, 6))
     table = Table()
     table['name'] = names
@@ -520,6 +542,7 @@ def attach_orbits(starlist, orbits):
             name='motion_model_input',
         ))
 
+    # Last row wins if the orbit file repeats a name.
     orbit_index = {name: i for i, name in enumerate(orbit_names)}
     matched = set()
     for i_star, name in enumerate(catalog_names):
@@ -527,10 +550,12 @@ def attach_orbits(starlist, orbits):
             continue
         i_orb = orbit_index[name]
         matched.add(name)
+        # Copy the six elements and mark this row as an orbit model.
         for col in _ELEMENT_COLUMNS:
             starlist[col][i_star] = orbits[col][i_orb]
         starlist['motion_model_input'][i_star] = 'Orbit'
 
+    # Orbit names with no catalog row are reported, not inserted.
     missing = [name for name in orbit_names if name not in matched]
     if missing:
         warnings.warn(
