@@ -6,6 +6,7 @@ import pickle
 import warnings
 import datetime
 import numpy as np
+import re
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from flystar import match, transforms, plots, motion_model
@@ -117,6 +118,9 @@ class MosaicSelfRef(object):
             dchi2_tol=9.0,
             match_sigma_pos=None,
             match_sigma_mag=None,
+            name_match=False,
+            name_match_dr_tol=None,
+            name_match_exclude=('star',),
             # Transformation parameters
             trans_class=transforms.PolyTransform,
             trans_args={'order': 1},
@@ -217,6 +221,28 @@ class MosaicSelfRef(object):
             matching='chi2' only. Magnitude scale for the chi^2. None (default)
             measures it the same way.
             If not provided, will be None for each iteration, by default None.
+        name_match : bool or {'override', 'tiebreak'}, optional
+            Match stars by name. 'override' (or True): a starlist star with a
+            name that is not anonymous and is unique in its list is paired
+            with the same-name reference row within ``name_match_dr_tol``
+            before positional matching, overriding the dr_tol/dm_tol checks
+            (no magnitude check on name pairs). 'tiebreak': java align's
+            rule, names decide only matches that position and magnitude
+            leave ambiguous. See match.match, Notes. Names starting with any
+            string in ``name_match_exclude`` are anonymous. Rows added during
+            the alignment keep their plain starlist name in a 'name_key'
+            column, so later lists can match them by name. Name pairs enter
+            the transformation only for use_in_trans rows, and are still
+            subject to outlier rejection. By default False (positions and
+            magnitudes only; output unchanged).
+        name_match_dr_tol : float or list of float, optional
+            Largest separation for a same-name pair, in reference coordinate
+            units; one value, or one per iteration (the last is used for the
+            final matching). Independent of, and may exceed, dr_tol.
+            Required when name_match is on.
+        name_match_exclude : tuple of str, optional
+            Name prefixes that mark a star as anonymous, by default
+            ('star',).
         trans_class : transforms.Transform2D object (or subclass), optional
             The transform class that will be used to when deriving the optimal
             transformation parameters between each list and the reference list, by default transforms.PolyTransform.
@@ -512,6 +538,14 @@ class MosaicSelfRef(object):
         self.dchi2_tol = dchi2_tol
         self.match_sigma_pos = match_sigma_pos
         self.match_sigma_mag = match_sigma_mag
+        if name_match is True:
+            name_match = 'override'
+        if name_match not in (False, None, 'override', 'tiebreak'):
+            raise ValueError("name_match must be False, True, 'override' or "
+                             f"'tiebreak', got {name_match!r}")
+        self.name_match = name_match if name_match else False
+        self.name_match_dr_tol = name_match_dr_tol
+        self.name_match_exclude = tuple(name_match_exclude)
 
         # Organize motion models into a list of MotionModel classes, sorted by increasing number of parameters.
         self.motion_models = motion_model.organize_motion_models(motion_models)
@@ -532,6 +566,7 @@ class MosaicSelfRef(object):
         # Error checking for parameters.
         ##########
         self.fix_iterable_conditions()  # fix dr_tol, dm_tol, outlier_tol, mag_lim, trans_args to be iterable.
+        self.fix_name_match_dr_tol()
 
         # A single transformation object means "use this one as the initial
         # guess for every starlist", so replicate it up to one per list before
@@ -745,6 +780,10 @@ class MosaicSelfRef(object):
             'dchi2_tol': self.dchi2_tol,
             'match_sigma_pos': self.match_sigma_pos,
             'match_sigma_mag': self.match_sigma_mag,
+            **({'name_match': self.name_match,
+                'name_match_dr_tol': self.name_match_dr_tol,
+                'name_match_exclude': self.name_match_exclude}
+               if self.name_match else {}),
             'trans_class': self.trans_class,
             'trans_args': self.trans_args,
             'trans_input': self.trans_input,
@@ -1149,7 +1188,9 @@ class MosaicSelfRef(object):
                 ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
                 dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
                 matching=self.matching, dchi2_tol=self.dchi2_tol,
-                sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag
+                sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag,
+                **self.name_match_kwargs(star_list_T, nn,
+                                         ref_rows=np.asarray(use_in_trans, dtype=bool))
             )
             # Restore idx2 to the full reference list indices
             idx2 = np.where(use_in_trans)[0][idx2]
@@ -1335,7 +1376,8 @@ class MosaicSelfRef(object):
                 ref_list['x'], ref_list['y'], ref_list['m'],
                 dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
                 matching=self.matching, dchi2_tol=self.dchi2_tol,
-                sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag
+                sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag,
+                **self.name_match_kwargs(star_list_T, nn)
             )
 
             if self.verbose > 1:
@@ -1393,6 +1435,80 @@ class MosaicSelfRef(object):
             #         pickle.dump(self, file)
 
         return
+
+    def fix_name_match_dr_tol(self):
+        """
+        Check name_match_dr_tol and make it one value per iteration.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError
+            If name_match is True and name_match_dr_tol is missing or has the
+            wrong length.
+        """
+        if not self.name_match:
+            return None
+        gate = self.name_match_dr_tol
+        if gate is None:
+            raise ValueError('name_match requires name_match_dr_tol')
+        if np.ndim(gate) == 0:
+            gate = [float(gate)] * self.iters
+        gate = [float(gg) for gg in gate]
+        if len(gate) != self.iters:
+            raise ValueError(f'name_match_dr_tol has {len(gate)} entries; '
+                             f'expected 1 or iters={self.iters}')
+        self.name_match_dr_tol = gate
+
+        return None
+
+    def name_match_kwargs(self, star_list, nn, ref_rows=None):
+        """
+        Keywords that switch on name matching in match.match.
+
+        Creates the 'name_key' column (plain star names) on first use.
+
+        Parameters
+        ----------
+        star_list : StarList
+            The (transformed) starlist being matched; supplies 'name'.
+        nn : int or None
+            Iteration index; -1 or None for the final matching.
+        ref_rows : array of bool, optional
+            Reference-table rows passed to the match (e.g. the use_in_trans
+            rows), by default None (all rows).
+
+        Returns
+        -------
+        dict
+            Empty when name_match is off, else names1, names2, name_dr_tol,
+            name_exclude, name_prefer2 and name_mode for match.match.
+        """
+        if not self.name_match:
+            return {}
+
+        if 'name_key' not in self.ref_table.colnames:
+            self.ref_table['name_key'] = ref_name_keys(self.ref_table)
+        keys = np.asarray(self.ref_table['name_key']).astype(str)
+        if 'ref_orig' in self.ref_table.colnames:
+            prefer = np.asarray(self.ref_table['ref_orig'], dtype=bool)
+        else:
+            prefer = np.zeros(len(keys), dtype=bool)
+        if ref_rows is not None:
+            keys, prefer = keys[ref_rows], prefer[ref_rows]
+
+        if (nn is None) or (nn < 0):
+            gate = self.name_match_dr_tol[-1]
+        else:
+            gate = self.name_match_dr_tol[nn]
+
+        return {'names1': np.asarray(star_list['name']).astype(str),
+                'names2': keys, 'name_dr_tol': gate,
+                'name_exclude': self.name_match_exclude,
+                'name_prefer2': prefer, 'name_mode': self.name_match}
 
     def setup_trans_info(self):
         """ Setup transformation info into a usable format.
@@ -1821,6 +1937,10 @@ class MosaicSelfRef(object):
             self.ref_table['m0'][idx_ref_new] = star_list_T['m'][idx_lis_new]
 
             self.ref_table['name'] = update_old_and_new_names(self.ref_table, star_list, ii, idx_ref_new)
+            if 'name_key' in self.ref_table.colnames:
+                self.ref_table['name_key'] = set_name_keys(
+                    self.ref_table['name_key'], idx_ref_new,
+                    np.asarray(star_list['name']).astype(str)[idx_lis_new])
 
             if self.use_ref_new == True:
                 self.ref_table['use_in_trans'][idx_ref_new] = True
@@ -2158,7 +2278,9 @@ class MosaicSelfRef(object):
                                                    verbose=self.verbose,
                                                    matching=self.matching, dchi2_tol=self.dchi2_tol,
                                                    sigma_pos=self.match_sigma_pos,
-                                                   sigma_mag=self.match_sigma_mag)
+                                                   sigma_mag=self.match_sigma_mag,
+                                                   **self.name_match_kwargs(
+                                                       star_list_T, -1))
 
             if self.verbose > 0:
                 fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} ± {4:6.4f}, dm = {5:5.2f} ± {6:4.2f}]'
@@ -2722,6 +2844,9 @@ class MosaicToRef(MosaicSelfRef):
         dchi2_tol=9.0,
         match_sigma_pos=None,
         match_sigma_mag=None,
+        name_match=False,
+        name_match_dr_tol=None,
+        name_match_exclude=('star',),
         # Reference behavior (MosiacToRef specific)
         use_ref_new=False,
         update_ref_orig=False,
@@ -2836,6 +2961,28 @@ class MosaicToRef(MosaicSelfRef):
         match_sigma_mag : float or None, optional
             matching='chi2' only. Magnitude scale for the chi^2. None (default)
             measures it the same way.
+        name_match : bool or {'override', 'tiebreak'}, optional
+            Match stars by name. 'override' (or True): a starlist star with a
+            name that is not anonymous and is unique in its list is paired
+            with the same-name reference row within ``name_match_dr_tol``
+            before positional matching, overriding the dr_tol/dm_tol checks
+            (no magnitude check on name pairs). 'tiebreak': java align's
+            rule, names decide only matches that position and magnitude
+            leave ambiguous. See match.match, Notes. Names starting with any
+            string in ``name_match_exclude`` are anonymous. Rows added during
+            the alignment keep their plain starlist name in a 'name_key'
+            column, so later lists can match them by name. Name pairs enter
+            the transformation only for use_in_trans rows, and are still
+            subject to outlier rejection. By default False (positions and
+            magnitudes only; output unchanged).
+        name_match_dr_tol : float or list of float, optional
+            Largest separation for a same-name pair, in reference coordinate
+            units; one value, or one per iteration (the last is used for the
+            final matching). Independent of, and may exceed, dr_tol.
+            Required when name_match is on.
+        name_match_exclude : tuple of str, optional
+            Name prefixes that mark a star as anonymous, by default
+            ('star',).
 
         use_ref_new : boolean, optional
             Each pass, new stars are matched and added to the ref_table. However, we don't
@@ -3116,6 +3263,9 @@ class MosaicToRef(MosaicSelfRef):
             dchi2_tol=dchi2_tol,
             match_sigma_pos=match_sigma_pos,
             match_sigma_mag=match_sigma_mag,
+            name_match=name_match,
+            name_match_dr_tol=name_match_dr_tol,
+            name_match_exclude=name_match_exclude,
             # Transformation parameters
             trans_class=trans_class,
             trans_args=trans_args,
@@ -3298,6 +3448,10 @@ class MosaicToRef(MosaicSelfRef):
             'outlier_tol': self.outlier_tol,
             'use_ref_new': self.use_ref_new,
             'update_ref_orig': self.update_ref_orig,
+            **({'name_match': self.name_match,
+                'name_match_dr_tol': self.name_match_dr_tol,
+                'name_match_exclude': self.name_match_exclude}
+               if self.name_match else {}),
             'trans_class': self.trans_class,
             'trans_args': self.trans_args,
             'trans_input': self.trans_input,
@@ -5375,6 +5529,67 @@ def update_old_and_new_names(ref_table, star_list, list_index, idx_ref_new):
     all_names[idx_ref_new] = new_names
 
     return all_names
+
+_NEW_ROW_PREFIX = re.compile(r'^\s*\d+_')
+
+
+def ref_name_keys(ref_table):
+    """
+    Plain star names for reference-table rows (initial 'name_key').
+
+    Rows added during an alignment are named ``"<list_index:3d>_<name>"``
+    (:func:`update_old_and_new_names`); their key is ``<name>``. Original
+    reference rows (``ref_orig``) keep their names. Normally called once,
+    before any row has been added.
+
+    Parameters
+    ----------
+    ref_table : StarTable
+        Reference table with 'name' (and optionally 'ref_orig').
+
+    Returns
+    -------
+    numpy.ndarray of str
+        One key per row.
+    """
+    names = np.char.strip(np.asarray(ref_table['name']).astype(str))
+    if 'ref_orig' in ref_table.colnames:
+        new = ~np.asarray(ref_table['ref_orig'], dtype=bool)
+    else:
+        new = np.zeros(len(names), dtype=bool)
+    keys = names.copy()
+    keys[new] = [_NEW_ROW_PREFIX.sub('', nm, count=1) for nm in names[new]]
+
+    return keys
+
+
+def set_name_keys(name_key, idx_ref_new, new_names):
+    """
+    Fill 'name_key' for new rows, widening the string dtype if needed.
+
+    Parameters
+    ----------
+    name_key : array-like of str
+        Current 'name_key' column.
+    idx_ref_new : array of int
+        Rows to fill.
+    new_names : array of str
+        Plain starlist names for those rows.
+
+    Returns
+    -------
+    numpy.ndarray of str
+        The updated column.
+    """
+    keys = np.asarray(name_key).astype(str)
+    new_names = np.char.strip(np.asarray(new_names).astype(str))
+    u1 = np.dtype('U1').itemsize
+    width = max(keys.dtype.itemsize, new_names.dtype.itemsize) // u1
+    keys = keys.astype(f'U{max(width, 1)}')
+    keys[idx_ref_new] = new_names
+
+    return keys
+
 
 def copy_and_rename_for_ref(star_list):
     """
