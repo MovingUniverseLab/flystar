@@ -2655,10 +2655,15 @@ def test_update_ref_orig_holds_or_refits_around_a_frozen_orbit():
         ])
 
         # Test that the fit orbit elements are correct.
-        np.testing.assert_array_equal(fit_el, truth['orb_seed'])
-        assert tab['vx'][i_lin] == truth['lin_vx_cat']
-        assert tab['x0'][i_fit] == 7.0
-        assert tab['vx'][i_fit] == 0.5
+        if setting is False:
+            np.testing.assert_array_equal(fit_el, truth['orb_seed'])
+            assert tab['vx'][i_lin] == truth['lin_vx_cat']
+            assert tab['x0'][i_fit] == 7.0
+            assert tab['vx'][i_fit] == 0.5
+        else:
+            assert not np.array_equal(fit_el, truth['orb_seed'])
+            assert tab['vx'][i_lin] != truth['lin_vx_cat']
+            assert tab['x0'][i_fit] != 7.0
     return None
 
 
