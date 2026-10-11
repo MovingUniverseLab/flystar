@@ -405,9 +405,6 @@ class MosaicSelfRef(object):
             star_list_T = apply_mag_lim(star_list, self.mag_lim[ii])  # trimmed, will be transformed copy
 
             ### Initial match and transform: 1st order (if we haven't already).
-            if ii == 5:
-                import pdb
-                pdb.set_trace()
             if trans is None:
                 # Only use "use_in_trans" reference stars, even for initial guessing.
                 keepers = np.where(ref_list['use_in_trans'] == True)[0]
