@@ -336,12 +336,16 @@ class MosaicSelfRef(object):
             ``(N_iters, 2)`` so that one axis means the same thing across every
             schedule argument, by default None.
         motion_models : list of MotionModel or str, or str, optional
-            Motion models or their names to use for new or unassigned stars. 'Empty' and 'Fixed' will always be added.
-            Can be a single string (e.g., 'Linear') or a list of motion models string or class (e.g., ['Linear', 'Parallax'], [Linear, Acceleration])
-            Note that the provided motion models have to have different numbers of parameters, otherwise the code will not know which one to use for new stars.
+            Motion models or their names to use for new or unassigned stars. 
+            'Empty' and 'Fixed' will always be added. Can be a single string (e.g., 
+            'Linear') or a list of motion models string or class 
+            (e.g., ['Linear', 'Parallax'], [Linear, Acceleration])
+            Note that the provided motion models have to have different numbers of 
+            parameters, otherwise the code will not know which one to use for new stars.
             The most complex motion model will be used for new stars, by default None.
         fixed_params_dict : None or dict, optional
-            Dictionary of motion model fixed parameters, e.g., ra, dec, pa, obsLocation, t0, etc. See motion_model classes for details.
+            Dictionary of motion model fixed parameters, e.g., ra, dec, pa, obsLocation, 
+            t0, etc. See motion_model classes for details.
             By default None.
         vel_weights : str, optional
             Either 'var' (def) or 'std', depending on whether you want to weight the motion model
@@ -1457,7 +1461,8 @@ class MosaicSelfRef(object):
             raise ValueError('name_match requires name_match_dr_tol')
         if np.ndim(gate) == 0:
             gate = [float(gate)] * self.iters
-        gate = [float(gg) for gg in gate]
+        else:
+            gate = [float(gg) for gg in gate]
         if len(gate) != self.iters:
             raise ValueError(f'name_match_dr_tol has {len(gate)} entries; '
                              f'expected 1 or iters={self.iters}')
@@ -1487,24 +1492,33 @@ class MosaicSelfRef(object):
             Empty when name_match is off, else names1, names2, name_dr_tol,
             name_exclude, name_prefer2 and name_mode for match.match.
         """
+        # Name matching is off. match.match gets no name keywords.
         if not self.name_match:
             return {}
 
+        # Plain names, built once and reused on later calls.
         if 'name_key' not in self.ref_table.colnames:
             self.ref_table['name_key'] = ref_name_keys(self.ref_table)
         keys = np.asarray(self.ref_table['name_key']).astype(str)
+
+        # Original catalog rows win a name collision. Without ref_orig,
+        # no row is preferred.
         if 'ref_orig' in self.ref_table.colnames:
             prefer = np.asarray(self.ref_table['ref_orig'], dtype=bool)
         else:
             prefer = np.zeros(len(keys), dtype=bool)
+
+        # The match may see only a subset of the reference table.
         if ref_rows is not None:
             keys, prefer = keys[ref_rows], prefer[ref_rows]
 
+        # -1 and None are the final match, which uses the last gate.
         if (nn is None) or (nn < 0):
             gate = self.name_match_dr_tol[-1]
         else:
             gate = self.name_match_dr_tol[nn]
 
+        # names1 is the starlist; names2 is the reference.
         return {'names1': np.asarray(star_list['name']).astype(str),
                 'names2': keys, 'name_dr_tol': gate,
                 'name_exclude': self.name_match_exclude,
