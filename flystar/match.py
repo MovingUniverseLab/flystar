@@ -447,8 +447,116 @@ def calibrate_match_scales(pair_i, dx, dy, dm, n_stars, dr_tol, dm_tol,
     return sigma_pos, sigma_mag
 
 
+def is_named(names, exclude=('star',)):
+    """
+    Flag names that identify a star across lists (i.e. are not anonymous).
+
+    Parameters
+    ----------
+    names : array-like of str
+        Star names. Leading/trailing blanks are ignored.
+    exclude : tuple of str, optional
+        A name that STARTS WITH any of these strings is anonymous. By default
+        ('star',), the convention for unlabeled starfinder/calibrate stars
+        (e.g. 'star_123').
+
+    Returns
+    -------
+    numpy.ndarray of bool
+        True where the name is non-empty and starts with none of ``exclude``.
+    """
+    names = np.char.strip(np.asarray(names).astype(str))
+    named = np.char.str_len(names) > 0
+    for prefix in exclude:
+        named &= ~np.char.startswith(names, prefix)
+
+    return named
+
+
+def same_name_candidates(i1, names1, names2, x1, y1, x2, y2, name_dr_tol,
+                         exclude=('star',), prefer2=None, avail2=None,
+                         m1=None, m2=None, dm_tol=None):
+    """
+    For catalog-1 stars ``i1``, find the catalog-2 star with the same name.
+
+    Only names that are not anonymous (:func:`is_named`) and that occur once
+    in catalog 1 take part. A catalog-2 star qualifies if it carries the same
+    name, lies within ``name_dr_tol`` (and ``dm_tol``, if given) and is
+    flagged in ``avail2``. If several qualify, ``prefer2`` rows win, then the
+    nearest.
+
+    Parameters
+    ----------
+    i1 : array of int
+        Catalog-1 indices that need a tie-breaker.
+    names1, names2 : array-like of str
+        Names in catalog 1 and 2.
+    x1, y1, x2, y2 : array-like of float
+        Positions on a common system.
+    name_dr_tol : float
+        Largest separation for a same-name candidate, in the units of x1.
+    exclude : tuple of str, optional
+        Anonymous-name prefixes, by default ('star',).
+    prefer2 : array-like of bool or None, optional
+        Catalog-2 rows preferred among same-name candidates, by default None.
+    avail2 : array-like of bool or None, optional
+        Catalog-2 rows still free to be matched, by default None (all).
+    m1, m2 : array-like of float or None, optional
+        Magnitudes, used only with ``dm_tol``.
+    dm_tol : float or None, optional
+        Magnitude tolerance for a same-name candidate, by default None.
+
+    Returns
+    -------
+    numpy.ndarray of int
+        Catalog-2 index for each entry of ``i1``, -1 where there is none.
+    """
+    i1 = np.asarray(i1, dtype=int)
+    out = np.full(len(i1), -1, dtype=int)
+    if len(i1) == 0:
+        return out
+
+    names1 = np.char.strip(np.asarray(names1).astype(str))
+    names2 = np.char.strip(np.asarray(names2).astype(str))
+    ok2 = is_named(names2, exclude)
+    if avail2 is not None:
+        ok2 &= np.asarray(avail2, dtype=bool)
+    pref = (np.zeros(len(names2), dtype=bool) if prefer2 is None
+            else np.asarray(prefer2, dtype=bool))
+
+    # Names that are unique (and not anonymous) in catalog 1.
+    named1 = is_named(names1, exclude)
+    u1, cnt1 = np.unique(names1[named1], return_counts=True)
+    unique1 = set(u1[cnt1 == 1])
+
+    i2_all = np.flatnonzero(ok2)
+    srt = np.argsort(names2[i2_all], kind='stable')
+    i2_srt = i2_all[srt]
+    n2_srt = names2[i2_srt]
+    lo = np.searchsorted(n2_srt, names1[i1], side='left')
+    hi = np.searchsorted(n2_srt, names1[i1], side='right')
+
+    for kk, (ii, aa, bb) in enumerate(zip(i1, lo, hi)):
+        if (bb == aa) or (names1[ii] not in unique1):
+            continue
+        jj = i2_srt[aa:bb]
+        dr = np.hypot(x2[jj] - x1[ii], y2[jj] - y1[ii])
+        good = np.isfinite(dr) & (dr <= name_dr_tol)
+        if (dm_tol is not None) and (m1 is not None) and (m2 is not None):
+            good &= np.abs(m2[jj] - m1[ii]) < dm_tol
+        if not good.any():
+            continue
+        jj, dr = jj[good], dr[good]
+        if pref[jj].any():
+            dr = np.where(pref[jj], dr, np.inf)
+        out[kk] = jj[np.argmin(dr)]
+
+    return out
+
+
 def match_chi2(x1, y1, m1, x2, y2, m2, i2_match, dr_tol, dm_tol,
-               dchi2_tol=9.0, sigma_pos=None, sigma_mag=None, verbose=True):
+               dchi2_tol=9.0, sigma_pos=None, sigma_mag=None, verbose=True,
+               names=None):
     r"""
     Resolve candidate matches by chi^2, keeping only reciprocal best pairs.
 
@@ -493,11 +601,26 @@ def match_chi2(x1, y1, m1, x2, y2, m2, i2_match, dr_tol, dm_tol,
     sigma_pos, sigma_mag : float or None
         Scales for the chi^2. None (the default) measures them from the
         unambiguous pairs of these two catalogs -- no error columns needed, by default 9.0.
+    names : dict or None, optional
+        Name tie-breaker settings from :func:`match` (keys names1, names2,
+        name_dr_tol, name_exclude, name_prefer2). None (default) disables it.
 
     Returns
     ----------
     idxs1, idxs2, dr, dm : arrays
         As match().
+
+    Notes
+    -----
+    Name tie-breaker (``names`` given), the chi^2 version of java align's
+    rule. A pair kept by the reciprocal-best-with-margin test is
+    unambiguous and stands, even if a same-name candidate exists. A
+    catalog-1 star that had at least one candidate within dr_tol but was
+    left unmatched is ambiguous -- its best pair lost the dchi2_tol margin
+    on either side, or was not reciprocal (its best candidate preferred
+    another star). Only such a star is tie-broken: it takes the catalog-2
+    star with the same name within name_dr_tol, if that star is still
+    unmatched.
     """
     n_cand = np.array([len(c) for c in i2_match])
     n_pairs_total = int(n_cand.sum())
@@ -564,11 +687,106 @@ def match_chi2(x1, y1, m1, x2, y2, m2, i2_match, dr_tol, dm_tol,
     idxs1 = pair_i[keep]
     idxs2 = pair_j[keep]
 
+    if names is not None:
+        # Ambiguous = had a candidate within dr_tol, but no unambiguous pair.
+        contested = np.zeros(len(x1), dtype=bool)
+        contested[pair_i] = True
+        contested[idxs1] = False
+        avail2 = np.ones(len(x2), dtype=bool)
+        avail2[idxs2] = False
+        i_amb = np.flatnonzero(contested)
+        j_nm = same_name_candidates(
+            i_amb, names['names1'], names['names2'], x1, y1, x2, y2,
+            names['name_dr_tol'], exclude=names['name_exclude'],
+            prefer2=names['name_prefer2'], avail2=avail2, m1=m1, m2=m2,
+            dm_tol=dm_tol)
+        tb = j_nm >= 0
+        if verbose > 2:
+            print(f'    chi2 name tie-breaker: {int(tb.sum())} of {len(i_amb)} '
+                  f'ambiguous stars matched by name')
+        idxs1 = np.concatenate([idxs1, i_amb[tb]]).astype(int)
+        idxs2 = np.concatenate([idxs2, j_nm[tb]]).astype(int)
+
+        return (idxs1, idxs2, np.hypot(x2[idxs2] - x1[idxs1], y2[idxs2] - y1[idxs1]),
+                m2[idxs2] - m1[idxs1])
+
     return idxs1, idxs2, np.hypot(dx[keep], dy[keep]), dm[keep]
 
 
+def match_name_override(x1, y1, m1, x2, y2, m2, dr_tol, names1, names2,
+                        name_dr_tol, name_exclude=('star',), name_prefer2=None,
+                        dm_tol=None, workers=1, verbose=True, matching='legacy',
+                        dchi2_tol=9.0, sigma_pos=None, sigma_mag=None):
+    """
+    Pair same-name stars first, then match the rest by position.
+
+    A catalog-1 star whose name is not anonymous (:func:`is_named`) and is
+    unique in catalog 1 is paired with the same-name catalog-2 star within
+    ``name_dr_tol`` (``name_prefer2`` rows first, then the nearest). These
+    name pairs ignore dr_tol and dm_tol. They are removed from both
+    catalogs, and :func:`match` matches the remaining stars by position.
+
+    Parameters
+    ----------
+    x1, y1, m1, x2, y2, m2 : array-like of float
+        The two catalogs, on a common system.
+    dr_tol : float
+        Positional matching radius for the stars not paired by name.
+    names1, names2 : array-like of str
+        Star names in catalog 1 and 2.
+    name_dr_tol : float
+        Largest separation for a name pair, in the units of x1.
+    name_exclude : tuple of str, optional
+        Anonymous-name prefixes, by default ('star',).
+    name_prefer2 : array-like of bool or None, optional
+        Preferred catalog-2 rows among same-name candidates, by default None.
+    dm_tol, workers, verbose, matching, dchi2_tol, sigma_pos, sigma_mag
+        Passed to :func:`match` for the positional matching only.
+
+    Returns
+    -------
+    idx1, idx2, dr, dm : arrays
+        As :func:`match`; the name pairs come first.
+    """
+    x1 = np.asarray(x1, dtype=float)
+    y1 = np.asarray(y1, dtype=float)
+    m1 = np.asarray(m1, dtype=float)
+    x2 = np.asarray(x2, dtype=float)
+    y2 = np.asarray(y2, dtype=float)
+    m2 = np.asarray(m2, dtype=float)
+
+    i_named = np.flatnonzero(is_named(names1, name_exclude))
+    j_nm = same_name_candidates(i_named, names1, names2, x1, y1, x2, y2,
+                                name_dr_tol, exclude=name_exclude,
+                                prefer2=name_prefer2)
+    ok = j_nm >= 0
+    in1, in2 = i_named[ok], j_nm[ok]
+
+    r1 = np.setdiff1d(np.arange(len(x1)), in1)
+    r2 = np.setdiff1d(np.arange(len(x2)), in2)
+    p1 = p2 = np.zeros(0, dtype=int)
+    if np.isfinite(x1[r1]).any() and np.isfinite(x2[r2]).any():
+        p1, p2, _, _ = match(x1[r1], y1[r1], m1[r1], x2[r2], y2[r2], m2[r2],
+                             dr_tol, dm_tol=dm_tol, workers=workers,
+                             verbose=verbose, matching=matching,
+                             dchi2_tol=dchi2_tol, sigma_pos=sigma_pos,
+                             sigma_mag=sigma_mag)
+    if verbose > 2:
+        print(f'    name override: {len(in1)} name pairs (gate {name_dr_tol:.5f}), '
+              f'{len(p1)} positional matches')
+
+    idx1 = np.concatenate([in1, r1[p1]]).astype(int)
+    idx2 = np.concatenate([in2, r2[p2]]).astype(int)
+    dr = np.hypot(x2[idx2] - x1[idx1], y2[idx2] - y1[idx1])
+    dm = m2[idx2] - m1[idx1]
+
+    return idx1, idx2, dr, dm
+
+
 def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
-          matching='legacy', dchi2_tol=9.0, sigma_pos=None, sigma_mag=None):
+          matching='legacy', dchi2_tol=9.0, sigma_pos=None, sigma_mag=None,
+          names1=None, names2=None, name_dr_tol=None, name_exclude=('star',),
+          name_prefer2=None, name_mode='override'):
     """
     Finds matches between two different catalogs. No transformations are done and it
     is assumed that the two catalogs are already on the same coordinate system
@@ -633,6 +851,24 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
     sigma_mag : float or None, optional
         matching='chi2' only. Magnitude scale for the chi^2. None (default)
         measures it the same way, by default None.
+    names1, names2 : array-like of str or None, optional
+        Star names in catalog 1 and 2. When both are given, same-name stars
+        are matched as set by ``name_mode`` (see Notes). By default None
+        (positions and magnitudes only).
+    name_dr_tol : float or None, optional
+        Largest separation for a same-name candidate to count, in the units
+        of x1, independent of (and possibly larger than) dr_tol. Required
+        when names are given.
+    name_exclude : tuple of str, optional
+        Names starting with any of these strings are anonymous and never
+        matched by name, by default ('star',).
+    name_prefer2 : array-like of bool or None, optional
+        Catalog-2 rows preferred when several share a name (e.g. original
+        reference rows), by default None.
+    name_mode : {'override', 'tiebreak'}, optional
+        'override' (default): name pairs are made first and override the
+        dr_tol/dm_tol checks. 'tiebreak': java align's rule, names only
+        decide ambiguous matches. See Notes.
 
     Returns
     -------
@@ -652,7 +888,50 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
     ValueError
         If the input arrays do not have the same shape or if they do not contain any finite values.
         Or when no match is found between the two catalogs.
+
+    Notes
+    -----
+    name_mode='override': every catalog-1 star whose name is not anonymous
+    and is unique in catalog 1 is paired with the same-name catalog-2 star
+    within name_dr_tol (preferred rows first, then the nearest) BEFORE any
+    positional matching, whatever dr_tol, dm_tol or the ambiguity of the
+    positions say: there is no magnitude check on name pairs. Name pairs are
+    removed from both catalogs and the rest are matched by position with
+    ``matching``, unchanged.
+
+    name_mode='tiebreak', ported from java align (Align.java match_data): a
+    same-name candidate counts only within name_dr_tol. The positional
+    choice is taken whenever it is unambiguous, even if a same-name
+    candidate exists; the name decides only when position and magnitude do
+    not. For 'legacy', ambiguous means (a) a star with >= 2 candidates whose
+    nearest in position is not its nearest in magnitude, or (b) a catalog-2
+    star claimed by several catalog-1 stars with no claimant nearest in both.
+    In (a) the star takes its same-name candidate; in (b) the same-name
+    claimant keeps the catalog-2 star if there is exactly one. For 'chi2',
+    see :func:`match_chi2`.
     """
+    use_names = (names1 is not None) and (names2 is not None)
+    if use_names:
+        if name_dr_tol is None:
+            raise ValueError('name_dr_tol is required when names1/names2 are given')
+        names1 = np.char.strip(np.asarray(names1).astype(str))
+        names2 = np.char.strip(np.asarray(names2).astype(str))
+        if name_mode == 'override':
+            return match_name_override(
+                x1, y1, m1, x2, y2, m2, dr_tol, names1, names2, name_dr_tol,
+                name_exclude=name_exclude, name_prefer2=name_prefer2,
+                dm_tol=dm_tol, workers=workers, verbose=verbose,
+                matching=matching, dchi2_tol=dchi2_tol, sigma_pos=sigma_pos,
+                sigma_mag=sigma_mag)
+        elif name_mode != 'tiebreak':
+            raise ValueError("name_mode must be 'override' or 'tiebreak', got "
+                             f"{name_mode!r}")
+        name_opts = {'names1': names1, 'names2': names2,
+                     'name_dr_tol': name_dr_tol,
+                     'name_exclude': tuple(name_exclude),
+                     'name_prefer2': name_prefer2}
+    else:
+        name_opts = None
 
     x1 = np.array(x1, copy=False)
     y1 = np.array(y1, copy=False)
@@ -701,11 +980,13 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
     if matching == 'chi2':
         return match_chi2(x1, y1, m1, x2, y2, m2, i2_match, dr_tol, dm_tol,
                           dchi2_tol=dchi2_tol, sigma_pos=sigma_pos,
-                          sigma_mag=sigma_mag, verbose=verbose)
+                          sigma_mag=sigma_mag, verbose=verbose,
+                          names=name_opts)
     elif matching != 'legacy':
         raise ValueError(f"matching must be 'legacy' or 'chi2', got {matching!r}")
 
     Nmatch = np.array([len(idxs) for idxs in i2_match])
+    amb1 = []  # legacy ambiguous multi-candidate stars (name tie-breaker)
 
     # What is the largest number of matches we have for a given star?
     Nmatch_max = Nmatch.max()
@@ -761,11 +1042,18 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
                 dm_tmp = np.array([dm.T[dm_min[I]][I] for I in np.ndindex(dm_min.shape)])
 
                 keep = (dm_min == dr_min) & (dm_tmp < dm_tol)
+                n_ok = (dm <= dm_tol).sum(axis=1)
             else:
                 dm_min = dm.argmin(axis=1)
                 dr_min = dr.argmin(axis=1)
 
                 keep = (dm_min == dr_min)
+                n_ok = np.full(len(i1_nn), nn)
+
+            if use_names:
+                # Ambiguous: >= 2 usable candidates, nearest in position is
+                # not nearest in magnitude.
+                amb1.append(i1_nn[(~keep) & (n_ok >= 2)])
 
             i2_keep_2D = i2_tmp[keep]
             dr_keep = dr_min[keep]  # which i2 star for a given i1 star
@@ -773,6 +1061,19 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
 
             idxs1[i1_nn[keep]] = i1_nn[keep]
             idxs2[i1_nn[keep]] = i2_keep_2D[ii_keep, dr_keep]
+
+    if use_names and len(amb1) > 0:
+        i_amb = np.concatenate(amb1).astype(int)
+        j_nm = same_name_candidates(i_amb, names1, names2, x1, y1, x2, y2,
+                                    name_dr_tol, exclude=name_exclude,
+                                    prefer2=name_prefer2, m1=m1, m2=m2,
+                                    dm_tol=dm_tol)
+        tb = j_nm >= 0
+        idxs1[i_amb[tb]] = i_amb[tb]
+        idxs2[i_amb[tb]] = j_nm[tb]
+        if verbose > 2:
+            print(f'    legacy name tie-breaker: {int(tb.sum())} of {len(i_amb)} '
+                  f'ambiguous stars matched by name')
 
     idxs1 = idxs1[idxs1 >= 0]
     idxs2 = idxs2[idxs2 >= 0]
@@ -798,6 +1099,16 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
         # keep it and dump the other duplicates. Otherwise, drop the match as confused.
         if best_dm == best_dr:
             keep[dups[best_dm]] = True
+        elif use_names:
+            j_dup = duplicates[dd]
+            i_dup = idxs1[dups]
+            same = (names1[i_dup] == names2[j_dup]) & \
+                is_named(names1[i_dup], name_exclude) & \
+                (np.hypot(x2[j_dup] - x1[i_dup], y2[j_dup] - y1[i_dup]) <= name_dr_tol)
+            if same.sum() == 1:
+                keep[dups[same]] = True
+            elif verbose > 3:
+                print('    confused, dropping star at', x2[j_dup], y2[j_dup])
         elif verbose > 3:
             print('    confused, dropping star at',x2[idxs2[dups]][0],y2[idxs2[dups]][0])
 

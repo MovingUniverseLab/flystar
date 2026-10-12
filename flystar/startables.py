@@ -18,6 +18,128 @@ _MOTION_MODEL_NAME_WIDTH = max(
     (len(_n) for _n in motion_model.motion_model_map()), default=20
 )
 
+
+def _with_fit_seed(table, fixed_params, index, param_names):
+    """Copy current fit-parameter columns into the dict passed to ``fit``.
+
+    Parameters
+    ----------
+    table : StarTable
+        Catalog that holds the columns.
+    fixed_params : dict
+        Dict about to be handed to ``MotionModel.fit``. Not mutated.
+    index : int or array-like
+        Row or rows whose current values are the seed.
+    param_names : sequence of str
+        Fit-parameter names for the model being solved.
+
+    Returns
+    -------
+    seeded : dict
+        ``fixed_params`` plus any of ``param_names`` that exist as
+        columns and were not already in the dict.
+
+    Notes
+    -----
+    Orbit reads ``orb_P`` and the other elements from this dict because
+    ``run_fit`` otherwise only sees the measurements. Linear and the
+    other closed-form models ignore keys they do not use. An explicit
+    entry already in ``fixed_params`` is left alone.
+    """
+    # Copy so the caller's dict is not mutated.
+    seeded = dict(fixed_params)
+
+    for name in param_names:
+        # An explicit fixed value, or a missing column, stays out.
+        if name in seeded or name not in table.colnames:
+            continue
+
+        # Current table value for this row is the seed.
+        seeded[name] = np.asarray(table[name][index], dtype=float)
+
+    return seeded
+
+
+def _stack_fit_diagnostics(rows):
+    """Stack per-star diagnostics dicts into batch arrays.
+
+    Parameters
+    ----------
+    rows : sequence of dict
+        One dict per star, as returned by ``fit(..., return_chi2=True)``.
+        Empty means the model returned no fifth value.
+
+    Returns
+    -------
+    diagnostics : dict or None
+        Each value stacked on a new leading axis, or None when ``rows``
+        is empty.
+    """
+    # The model returned no fifth value.
+    if not rows:
+        return None
+
+    # One stacked array per diagnostic. Axis 0 is the star.
+    stacked = {}
+    for key in rows[0]:
+        stacked[key] = np.stack([np.asarray(row[key]) for row in rows])
+
+    return stacked
+
+
+def _write_fit_diagnostics(table, index, diagnostics):
+    """Write a ``run_fit`` diagnostics dict onto ``index``.
+
+    Parameters
+    ----------
+    table : StarTable
+        Table being fit. Columns are created for the whole table.
+    index : array-like of int
+        Rows that were just fit.
+    diagnostics : dict or None
+        Keys become column names. None does nothing.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    A new bool column defaults to False, an int column to -1, and a
+    float column (including ``orb_cov``) to NaN. NaN covariance means
+    the fitter never wrote that star. A failed fit stores inf instead,
+    so prediction can tell the two apart.
+    """
+    # Nothing was returned, or the dict is empty.
+    if not diagnostics:
+        return None
+
+    n_stars = len(table)
+    index = np.asarray(index)
+    for key, value in diagnostics.items():
+        value = np.asarray(value)
+        if key not in table.colnames:
+            # A new column covers every star. Unfitted rows stay at
+            # the sentinel: False, -1, or NaN.
+            if value.ndim <= 1:
+                if value.dtype == bool:
+                    full = np.zeros(n_stars, dtype=bool)
+                elif np.issubdtype(value.dtype, np.integer):
+                    full = np.full(n_stars, -1, dtype=int)
+                else:
+                    full = np.full(n_stars, np.nan, dtype=float)
+            else:
+                # orb_cov and other per-star arrays. NaN means unwritten.
+                full = np.full(
+                    (n_stars,) + value.shape[1:], np.nan, dtype=float)
+            table.add_column(Column(data=full, name=key))
+            
+        # Only the rows that were just fit.
+        table[key][index] = value
+
+    return None
+
+
 class StarTable(Table):
     """
     A catalog of stars matched across several starlists.
@@ -857,6 +979,7 @@ class StarTable(Table):
             self,
             motion_models=None,
             fixed_params_dict=None,
+            fixed_motion_models=None,
             weighting='var',
             absolute_sigma=True,
             select_stars=None,
@@ -899,6 +1022,12 @@ class StarTable(Table):
             - The keys should match the fixed parameter names in the motion models. See MotionModel class for details.
             - Each parameter is resolved in the order fixed_params_dict -> table column -> table metadata, so an entry here outranks a same-named column or metadata entry.
             - The values actually used are written back under '<param>': to metadata if uniform and no such column exists, otherwise to the column, with a disagreeing caller's column moved aside to '<param>_orig', by default None
+        fixed_motion_models : sequence of str or None, optional
+            Motion-model names that are not refit. A star whose
+            ``motion_model_input`` is in this list is left unchanged,
+            unless its ``fit_motion`` cell is ``'fit'``. A ``fit_motion``
+            cell of ``'fixed'`` freezes that star even when the model is
+            not in the list. ``None`` freezes nobody. By default None.
         weighting : str, optional
             Uncertainty weighting, 'std' for weight=1/xe(ye) or 'var' for weight=1/xe(ye)**2, by default 'var'
         absolute_sigma : bool, optional
@@ -997,6 +1126,18 @@ class StarTable(Table):
         else:
             select_idx = None
 
+        # Frozen stars never enter the subtable, so demotion, the
+        # fit-parameter reset, and the scatter-back all skip them.
+        frozen = motion_model.frozen_motion_mask(self, fixed_motion_models)
+        if np.any(frozen):
+            if select_idx is None:
+                select_idx = np.flatnonzero(~frozen)
+            else:
+                select_idx = np.asarray(select_idx, dtype=int)
+                select_idx = select_idx[~frozen[select_idx]]
+            if len(select_idx) == 0:
+                return None
+
         N_stars = len(self)
         if (select_idx is not None) and (len(select_idx) < N_stars):
             # Everything below this point -- the masked-array data prep,
@@ -1025,6 +1166,7 @@ class StarTable(Table):
             orig_meta_keys = set(self.meta.keys())
             sub_table.fit_motion_models(
                 motion_models=motion_models, fixed_params_dict=sub_fixed_params_dict,
+                fixed_motion_models=fixed_motion_models,
                 weighting=weighting, absolute_sigma=absolute_sigma,
                 select_stars=None, keep_existing=keep_existing,
                 bootstrap=bootstrap, seed=seed, mask_value=mask_value, mask_lists=mask_lists,
@@ -1034,15 +1176,28 @@ class StarTable(Table):
 
             for col_name in sub_table.colnames:
                 if col_name not in self.colnames:
-                    default = np.inf if (col_name.endswith('_err')) else fill_value
-                    dtype = sub_table[col_name].dtype
-                    if dtype.kind in 'US':
-                        default = ''
-                    elif dtype.kind == 'i':
-                        default = -1
-                    elif dtype.kind == 'b':
-                        default = False
-                    self.add_column(Column(data=np.full(N_stars, default, dtype=dtype), name=col_name))
+                    sub_col = sub_table[col_name]
+                    # orb_cov is (n_sub, 6, 6). A 1d fill would not broadcast.
+                    if getattr(sub_col, 'ndim', 1) > 1:
+                        data = np.full(
+                            (N_stars,) + tuple(sub_col.shape[1:]),
+                            np.nan,
+                            dtype=sub_col.dtype,
+                        )
+                        self.add_column(Column(data=data, name=col_name))
+                    else:
+                        default = np.inf if (col_name.endswith('_err')) else fill_value
+                        dtype = sub_col.dtype
+                        if dtype.kind in 'US':
+                            default = ''
+                        elif dtype.kind == 'i':
+                            default = -1
+                        elif dtype.kind == 'b':
+                            default = False
+                        self.add_column(Column(
+                            data=np.full(N_stars, default, dtype=dtype),
+                            name=col_name,
+                        ))
                 self[col_name][select_idx] = sub_table[col_name]
 
             # Only propagate meta keys fit_motion_models itself newly added
@@ -1244,6 +1399,12 @@ class StarTable(Table):
             # If n_fit < n_params for the input motion model, use the most complicated motion model with n_fit >= n_params
             required_params = np.array([all_mm_map[mm_name].n_params for mm_name in self['motion_model_input']])
             reassign_mm = n_fit < required_params
+            # Missing attribute means True. Only Orbit sets demote = False,
+            # so a fit orbit with too few epochs is not rewritten as Linear.
+            reassign_mm = reassign_mm & np.array([
+                getattr(all_mm_map[name], 'demote', True)
+                for name in self['motion_model_input']
+            ])
 
             mm_digitized = np.digitize(
                 x=n_fit[reassign_mm],
@@ -1541,6 +1702,7 @@ class StarTable(Table):
                 # Initialize arrays to store results
                 n_stars_this_model = len(unique_index)
                 n_params = len(param_names)
+                diagnostics = None
 
                 params_array = np.full((n_stars_this_model, n_params), fill_value, dtype=float)
                 param_errs_array = np.full((n_stars_this_model, n_params), np.inf, dtype=float)
@@ -1568,6 +1730,7 @@ class StarTable(Table):
                         n_epochs = t_data_arr.shape[1]
                         xe_batch = xe_data_arr[unique_index] if with_xe_ye else np.ones((n_stars_this_model, n_epochs))
                         ye_batch = ye_data_arr[unique_index] if with_xe_ye else np.ones((n_stars_this_model, n_epochs))
+
                         # Same {scalar params} + {array params sliced to this
                         # group} construction as fixed_params_stars above, but
                         # kept batched (not exploded into one dict per star)
@@ -1576,21 +1739,34 @@ class StarTable(Table):
                             **scalar_params,
                             **{k: v[unique_index] for k, v in array_params.items()}
                         }
+
+                        # Orbit reads its seed from these keys. Other models
+                        # ignore fit-parameter names they do not use.
+                        fixed_params_batch = _with_fit_seed(
+                            self, fixed_params_batch, unique_index, param_names,
+                        )
+
                         # No mask is passed -- fit()'s batch path derives
                         # validity from nan in x/y directly (x_data_arr/
                         # y_data_arr already have real nan at every invalid
                         # cell, including mask_value/near-zero-error cells,
                         # which were explicitly nan-ed above for exactly this).
-                        params_array, param_errs_array, chi2_x_array, chi2_y_array = motion_model_instance.fit(
+                        fit_result = motion_model_instance.fit(
                             t_data_arr[unique_index], x_data_arr[unique_index], y_data_arr[unique_index],
                             xe_batch, ye_batch,
                             fixed_params_dict=fixed_params_batch,
                             weighting=weighting, absolute_sigma=absolute_sigma, fill_value=fill_value, verbose=verbose
                         )
+                        params_array, param_errs_array, chi2_x_array, chi2_y_array = fit_result[:4]
+                        diagnostics = fit_result[4] if len(fit_result) > 4 else None
 
                     elif pool is not None:
                         # Use multiprocessing to fit stars in parallel
-                        arguments = [(i_star, unique_motion_model, fixed_params_stars[i_star]) for i_star in unique_index]
+                        arguments = [
+                            (i_star, unique_motion_model,
+                             _with_fit_seed(self, fixed_params_stars[i_star], i_star, param_names))
+                            for i_star in unique_index
+                        ]
 
                         results = pool.starmap(
                             _fit_motion_models_worker,
@@ -1602,11 +1778,16 @@ class StarTable(Table):
                             chunksize=chunksize
                         )
 
-                        for idx, (params, param_errs, chi2_x, chi2_y) in enumerate(results):
+                        diag_rows = []
+                        for idx, result in enumerate(results):
+                            params, param_errs, chi2_x, chi2_y = result[:4]
                             params_array[idx] = params
                             param_errs_array[idx] = param_errs
                             chi2_x_array[idx] = chi2_x
                             chi2_y_array[idx] = chi2_y
+                            if len(result) > 4:
+                                diag_rows.append(result[4])
+                        diagnostics = _stack_fit_diagnostics(diag_rows)
 
                     else:
                         # Prepare data as lists of arrays for faster access during fitting
@@ -1617,15 +1798,18 @@ class StarTable(Table):
                         ye_stars = [ye_data_arr[i][unmasked_idx[i]] for i in unique_index] if with_xe_ye else [np.ones_like(y_star) for y_star in y_stars]
 
                         # Expensive for loop! Prepare everything beforehand to speed up.
+                        diag_rows = []
                         for idx, i_star in enumerate(tqdm(unique_index, disable=not verbose, desc=f"Fitting {unique_motion_model} motion model")):
                             # Fit the star
-                            params, param_errs, chi2_x, chi2_y = motion_model_instance.fit(
+                            fit_result = motion_model_instance.fit(
                                 t=t_stars[idx],
                                 x=x_stars[idx],
                                 y=y_stars[idx],
                                 xe=xe_stars[idx],
                                 ye=ye_stars[idx],
-                                fixed_params_dict=fixed_params_stars[i_star],
+                                fixed_params_dict=_with_fit_seed(
+                                    self, fixed_params_stars[i_star], i_star, param_names,
+                                ),
                                 weighting=weighting,
                                 absolute_sigma=absolute_sigma,
                                 fill_value=fill_value,
@@ -1634,10 +1818,14 @@ class StarTable(Table):
                                 seed=seed,
                                 verbose=verbose
                             )
+                            params, param_errs, chi2_x, chi2_y = fit_result[:4]
                             params_array[idx] = params
                             param_errs_array[idx] = param_errs
                             chi2_x_array[idx] = chi2_x
                             chi2_y_array[idx] = chi2_y
+                            if len(fit_result) > 4:
+                                diag_rows.append(fit_result[4])
+                        diagnostics = _stack_fit_diagnostics(diag_rows)
 
                 # These stars were fit with a substituted unit error (sigma=1)
                 # rather than a real measurement uncertainty -- either the
@@ -1667,9 +1855,11 @@ class StarTable(Table):
                 for j, param_name in enumerate(param_names):
                     self[param_name][unique_index] = params_array[:, j]
                     self[param_name + '_err'][unique_index] = param_errs_array[:, j]
+
                 self['chi2_x'][unique_index] = chi2_x_array
                 self['chi2_y'][unique_index] = chi2_y_array
                 self['t0'][unique_index] = t0[unique_index]
+                _write_fit_diagnostics(self, unique_index, diagnostics)
         finally:
             if pool is not None:
                 pool.close()
@@ -1771,6 +1961,7 @@ class StarTable(Table):
         for unique_motion_model, unique_index in indices_by_motion_model.items():
             # Create motion model instance
             motion_model_instance = mm_map[unique_motion_model]()
+
             # Prepare parameters for prediction. Empty has no fit params at
             # all, and np.array([]).T would collapse to shape (0,) no matter
             # how many stars this model covers -- atleast_2d then reads that
@@ -1782,9 +1973,22 @@ class StarTable(Table):
                     self[param_name][unique_index] for param_name in motion_model_instance.fit_param_names
                 ]).T # shape (N_stars_this_model, N_params)
 
-                fit_param_errs = np.array([
-                    self[param_name + '_err'][unique_index] for param_name in motion_model_instance.fit_param_names
-                ]).T if with_xe_ye else None # shape (N_stars_this_model, N_params)
+                # A missing *_err column is inf, the same default the fitter
+                # uses when it creates an error column. orbits.dat has no
+                # uncertainties, and a frozen star never creates orb_P_err.
+                if with_xe_ye:
+                    err_rows = []
+                    for param_name in motion_model_instance.fit_param_names:
+                        err_name = param_name + '_err'
+                        if err_name in self.colnames:
+                            err_rows.append(np.asarray(
+                                self[err_name][unique_index], dtype=float,
+                            ))
+                        else:
+                            err_rows.append(np.full(len(unique_index), np.inf))
+                    fit_param_errs = np.array(err_rows).T
+                else:
+                    fit_param_errs = None
             else:
                 fit_params = np.empty((len(unique_index), 0))
                 fit_param_errs = np.empty((len(unique_index), 0)) if with_xe_ye else None
@@ -1819,6 +2023,12 @@ class StarTable(Table):
                 else:
                     fixed_params[param] = fixed_params_dict[param]
 
+            # Extra columns the model needs in order to propagate errors.
+            # Orbit lists orb_cov. A missing column is left out, and the
+            # model then returns the fixed-star errors (xe = ye = 0).
+            for col in getattr(motion_model_instance, 'prediction_columns', ()):
+                if col in self.colnames and col not in fixed_params:
+                    fixed_params[col] = self[col][unique_index]
 
             # Predict positions
             # shape = (N_stars_this_model, N_times) or (N_stars_this_model,) if N_times=1 or (N_times,) if N_stars_this_model=1 or scalar
@@ -1869,56 +2079,34 @@ class StarTable(Table):
         return x_pred, y_pred, xe_pred, ye_pred
 
 
-    # New function, to use in align
-    def get_star_positions_at_time(self, t, motion_model_dict, allow_alt_models=True):
-        """ Get current x,y positions of each star according to its motion_model
+    def get_star_positions_at_time(self, t, motion_model_dict=None, allow_alt_models=True):
+        """Predict x, y and their uncertainties at time ``t``.
+
+        Parameters
+        ----------
+        t : scalar or array-like
+            Time or times, in the shapes ``infer_positions`` accepts.
+        motion_model_dict : dict, optional
+            Unused. Kept so older callers still run. The previous body
+            called ``get_batch_pos_at_time`` and
+            ``get_one_motion_model_param_names``, which are gone, and the
+            fallback path raised ``AttributeError``.
+        allow_alt_models : bool, optional
+            Unused. ``infer_positions`` already honors
+            ``motion_model_input`` and falls back per star when that
+            request cannot be evaluated. By default True.
+
+        Returns
+        -------
+        x, y, xe, ye : ndarray
+            Same arrays ``infer_positions`` returns.
+
+        Notes
+        -----
+        This is a thin wrapper. It does not grow a second prediction path.
         """
-        # Start with empty arrays so we can fill them in batches
-        N_stars = len(self)
-        if hasattr(t, "__len__"):
-            x = np.full((N_stars,len(t)), np.nan, dtype=float)
-            y = np.full((N_stars,len(t)), np.nan, dtype=float)
-            xe = np.full((N_stars,len(t)), np.nan, dtype=float)
-            ye = np.full((N_stars,len(t)), np.nan, dtype=float)
-        else:
-            x = np.full(N_stars, np.nan, dtype=float)
-            y = np.full(N_stars, np.nan, dtype=float)
-            xe = np.full(N_stars, np.nan, dtype=float)
-            ye = np.full(N_stars, np.nan, dtype=float)
-
-        # TODO: probably worth some additional testing here
-        # Check which motion models we need
-        # use complex_mms to collect models besides Fixed and Linear
-        unique_mms = np.unique(self['motion_model_input']).tolist()
-        # Calculate current position in batches by motion model
-        for mm in unique_mms:
-            try:
-                # Identify stars with this model & get class
-                idx = np.where(self['motion_model_input']==mm)[0]
-                mod = motion_model_dict[mm]
-                # Set up parameters
-                param_dict = {}
-                for par in mod.fit_param_names + mod.fixed_param_names + [pm+'_err' for pm in mod.fit_param_names]:
-                    param_dict[par] = self[par][idx]
-                x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
-            except:
-                pass
-        if np.isnan(x).any() and allow_alt_models:
-            re_calc = np.where(np.isnan(x))[0]
-            unique_mms = np.unique(self['motion_model_used'][re_calc]).tolist()
-            # Calculate current position in batches by motion model
-            for mm in unique_mms:
-                # Identify stars with this model & get class
-                idx_0 = np.where(self['motion_model_used']==mm)[0]
-                idx = np.intersect1d(re_calc, idx_0)
-                mod = motion_model_dict[mm]
-                # Set up parameters
-                param_dict = {}
-                for par in motion_model.get_one_motion_model_param_names(mm,with_errors=True,with_fixed=True):
-                    param_dict[par] = self[par][idx]
-                x[idx],y[idx],xe[idx],ye[idx] = mod.get_batch_pos_at_time(t,**param_dict)
-
-        return x, y, xe, ye
+        del motion_model_dict, allow_alt_models
+        return self.infer_positions(t)
 
 
 
@@ -1944,10 +2132,14 @@ class StarTable(Table):
             print("No shifts input, reference frame unchanged.")
             print("Specify delta_vx, delta_vy, and/or delta_pi to perform a reference frame shift.")
             return
+
+        # Update the velocity and position columns
         self['vx'] += delta_vx
         self['x'] += delta_vx*(self['t']-self['t0'][:, np.newaxis])
         self['vy'] += delta_vy
         self['y'] += delta_vy*(self['t']-self['t0'][:, np.newaxis])
+
+        # Update the parallax column and position columns for parallax shift
         if delta_pi!=0.0:
             fixed_params_dict = {} if fixed_params_dict is None else fixed_params_dict
             if 'ra' not in fixed_params_dict or 'dec' not in fixed_params_dict:
@@ -1958,6 +2150,7 @@ class StarTable(Table):
             pa = fixed_params_dict.get('pa', 0.0)
             obsLocation = fixed_params_dict.get('obsLocation', 'earth')
             t_all = self['t'][np.where(~np.any(np.isnan(self['t']), axis=1))[0][0]]
+
             # Observation epochs come from UTC timestamps, so convert UTC -> TDB
             # properly rather than relabelling the number. parallax_in_direction
             # declares its input TDB without converting, so handing it a bare UTC
@@ -1990,29 +2183,47 @@ def shift_reference_frame(table, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed
     delta_pi : float, optional
         parallax shift (as), by default 0.0.
     """
+    # Check if no shifts input, if so, return the table unchanged
     if delta_vx==0.0 and delta_vy==0.0 and delta_pi==0.0:
         print("No shifts input, reference frame unchanged.")
         print("Specify delta_vx, delta_vy, and/or delta_pi to perform a reference frame shift.")
         return
+
+    # Update the velocity and position columns  
     table['vx'] += delta_vx
     table['x'] += delta_vx*(table['t']-table['t0'][:, np.newaxis])
     table['vy'] += delta_vy
     table['y'] += delta_vy*(table['t']-table['t0'][:, np.newaxis])
+
+    # Update the parallax column and position columns for parallax shift
     if delta_pi!=0.0:
         from .motion_model import Parallax
         fixed_params_dict = {} if fixed_params_dict is None else fixed_params_dict
+
+        # Check if ra and dec are provided in fixed_params_dict
         if 'ra' not in fixed_params_dict or 'dec' not in fixed_params_dict:
             raise KeyError("shift_reference_frame: 'ra' and 'dec' must be provided in fixed_params_dict for parallax shift.")
+
+        # Get the ra and dec values
         ra = fixed_params_dict['ra']
         dec = fixed_params_dict['dec']
         pa = fixed_params_dict.get('pa', 0.0)
         obsLocation = fixed_params_dict.get('obsLocation', 'earth')
+
+        # Get the observation epochs
         t_all = table['t'][np.where(~np.any(np.isnan(table['t']), axis=1))[0][0]]
+
+        # Convert the observation epochs to TDB MJD
         t_mjd = Time(t_all, format='decimalyear', scale='utc').tdb.mjd
+
+        # Calculate the parallax vector
         pvec = Parallax().calc_parallax_vector(t_mjd, ra=ra, dec=dec, pa=pa, obsLocation=obsLocation)
+
+        # Update the parallax column and position columns for parallax shift
         table['pi'] += delta_pi
         table['x'] += delta_pi*pvec[:, 0, :] # Shape (N_stars, N_times)
         table['y'] += delta_pi*pvec[:, 1, :] # Shape (N_stars, N_times)
+
     return table
 
 
@@ -2047,11 +2258,16 @@ def _fit_motion_models_worker(i_star, motion_model_name, fixed_params_dict):
     (ragged -- stars have different numbers of valid epochs) data from the
     shared arrays stashed by _fit_motion_models_init(), then fits it.
     """
+    # Arrays stashed once per worker by the pool initializer.
     s = _fmm_worker_state
+
+    # This star's valid epochs. The mask is ragged across stars.
     idx = s['unmasked_idx'][i_star]
     t = np.array(s['t_data'][i_star][idx])
     x = np.array(s['x_data'][i_star][idx])
     y = np.array(s['y_data'][i_star][idx])
+
+    # Missing errors become unit weights.
     if s['xe_data'] is not None:
         xe = np.array(s['xe_data'][i_star][idx])
         ye = np.array(s['ye_data'][i_star][idx])
@@ -2059,6 +2275,7 @@ def _fit_motion_models_worker(i_star, motion_model_name, fixed_params_dict):
         xe = np.ones_like(x)
         ye = np.ones_like(y)
 
+    # One model instance per star, then the fit with chi-squared.
     motion_model_instance = s['input_mm_map'][motion_model_name]()
     return motion_model_instance.fit(
         t=t, x=x, y=y, xe=xe, ye=ye,

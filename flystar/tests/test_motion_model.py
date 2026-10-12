@@ -1,5 +1,6 @@
 from flystar import motion_model
 import numpy as np
+import pytest
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
@@ -1045,3 +1046,372 @@ def test_fixed_param_string_column_not_truncated():
     assert set(np.asarray(tab['obsLocation']).astype(str)) == {'earth'}, \
         'used value was truncated to the old column width'
     assert set(np.asarray(tab['obsLocation_orig']).astype(str)) == {'e'}
+
+
+def _two_star_table(x, y, epochs, xe=0.001):
+    """Two-row StarTable. ``x`` and ``y`` have shape (2, n_epochs)."""
+    from flystar.startables import StarTable
+    epochs = np.asarray(epochs, dtype=float)
+    n_ep = epochs.size
+    return StarTable(
+        name=np.array(['a', 'b']),
+        x=np.asarray(x, dtype=float),
+        y=np.asarray(y, dtype=float),
+        m=np.full((2, n_ep), 15.0),
+        xe=np.full((2, n_ep), xe),
+        ye=np.full((2, n_ep), xe),
+        me=np.full((2, n_ep), 0.01),
+        t=np.tile(epochs, (2, 1)),
+    )
+
+
+def test_organize_motion_models_accepts_orbit():
+    """``orbit`` capitalizes to the Orbit class. Name width still fits it."""
+    from flystar.motion_model import organize_motion_models
+    from flystar.startables import _MOTION_MODEL_NAME_WIDTH
+    names = [mm.name for mm in organize_motion_models('orbit')]
+    assert 'Orbit' in names
+    assert len('Orbit') <= _MOTION_MODEL_NAME_WIDTH
+    assert len('Acceleration') <= _MOTION_MODEL_NAME_WIDTH
+    return None
+
+
+def test_determine_motion_models_optional_orbit_and_parallax():
+    """Missing optional params do not reject. A present non-finite value does."""
+    from flystar.motion_model import determine_motion_models
+    from flystar.startables import StarTable
+
+    n_ep = 4
+    epochs = np.linspace(2010.0, 2016.0, n_ep)
+    tab = StarTable(
+        name=np.array(['orb', 'lin', 'par']),
+        x=np.zeros((3, n_ep)), y=np.zeros((3, n_ep)),
+        m=np.full((3, n_ep), 15.0),
+        xe=np.full((3, n_ep), 0.001), ye=np.full((3, n_ep), 0.001),
+        me=np.full((3, n_ep), 0.01),
+        t=np.tile(epochs, (3, 1)),
+    )
+    elements = [16.0, 2010.0, 0.2, 40.0, 10.0, 20.0]
+    for name, value in zip(
+        ['orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega'],
+        elements,
+    ):
+        tab[name] = np.array([value, np.nan, np.nan])
+    tab['x0'] = np.array([0.0, 1.0, 2.0])
+    tab['y0'] = np.array([0.0, 1.0, 2.0])
+    tab['vx'] = np.array([0.0, 0.01, 0.01])
+    tab['vy'] = np.array([0.0, 0.0, 0.0])
+    tab['t0'] = np.full(3, 2010.0)
+    tab['pi'] = np.array([np.nan, np.nan, 0.01])
+    tab['ra'] = np.array([np.nan, np.nan, 17.7])
+    tab['dec'] = np.array([np.nan, np.nan, -29.0])
+    tab['x0_err'] = np.full(3, 0.001)
+    tab['y0_err'] = np.full(3, 0.001)
+    tab['motion_model_input'] = np.array(
+        ['Orbit', 'Linear', 'Parallax'], dtype='U12',
+    )
+    # mass, dist, and pa are absent. orb_*_err is absent. All three requests
+    # stay, because the optional parameters have defaults.
+    used, _n = determine_motion_models(tab, None)
+    assert list(used) == ['Orbit', 'Linear', 'Parallax']
+
+    tab.meta['pa'] = 12.0
+    tab.meta['mass'] = 4.0e6
+    tab.meta['dist'] = 8000.0
+    used, _n = determine_motion_models(tab, None)
+    assert list(used) == ['Orbit', 'Linear', 'Parallax']
+
+    tab['orb_e'][0] = np.nan
+    used, _n = determine_motion_models(tab, None)
+    assert used[0] != 'Orbit'
+
+    tab['vx'][1] = np.nan
+    used, _n = determine_motion_models(tab, None)
+    assert used[1] != 'Linear'
+
+    tab.meta['pa'] = np.nan
+    used, _n = determine_motion_models(tab, None)
+    assert used[2] != 'Parallax'
+    return None
+
+
+def test_infer_positions_fixed_orbit_without_element_errors():
+    """x0_err is present, orb_P_err is not. Errors are zero and nothing raises."""
+    from flystar.startables import StarTable
+    elements = [16.0, 2010.0, 0.0, 0.0, 0.0, 0.0]
+    tab = StarTable(
+        name=np.array(['S']),
+        x=np.zeros((1, 2)), y=np.zeros((1, 2)),
+        m=np.full((1, 2), 15.0),
+        xe=np.full((1, 2), 0.001), ye=np.full((1, 2), 0.001),
+        me=np.full((1, 2), 0.01),
+        t=np.array([[2010.0, 2012.0]]),
+    )
+    for name, value in zip(
+        ['orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega'],
+        elements,
+    ):
+        tab[name] = np.array([value])
+    tab['motion_model_input'] = np.array(['Orbit'], dtype='U12')
+    tab['x0_err'] = np.array([0.01])
+    tab['y0_err'] = np.array([0.01])
+    assert 'orb_P_err' not in tab.colnames
+    x, y, xe, ye = tab.infer_positions(2010.0)
+    assert np.isfinite(x) and np.isfinite(y)
+    np.testing.assert_allclose(xe, 0.0)
+    np.testing.assert_allclose(ye, 0.0)
+    x2, y2, xe2, ye2 = tab.get_star_positions_at_time(
+        2010.0, motion_model_dict={'unused': 1}, allow_alt_models=False,
+    )
+    np.testing.assert_allclose(x2, x)
+    np.testing.assert_allclose(y2, y)
+    np.testing.assert_allclose(xe2, 0.0)
+    np.testing.assert_allclose(ye2, 0.0)
+    return None
+
+
+def test_fit_motion_column_and_list_freeze_linear_and_orbit():
+    """The column overrides the list. The default, with neither set, still fits."""
+    epochs = np.array([2010.0, 2012.0, 2014.0, 2016.0])
+    # Catalog vx is 0. The measurements move.
+    x = np.vstack([
+        10.0 + 0.01 * (epochs - 2010.0),
+        20.0 - 0.02 * (epochs - 2010.0),
+    ])
+    y = np.vstack([
+        np.full(4, 5.0),
+        np.full(4, 6.0),
+    ])
+    tab = _two_star_table(x, y, epochs)
+    tab['x0'] = np.array([10.0, 20.0])
+    tab['y0'] = np.array([5.0, 6.0])
+    tab['vx'] = np.array([0.0, 0.0])
+    tab['vy'] = np.array([0.0, 0.0])
+    tab['t0'] = np.array([2010.0, 2010.0])
+    tab['motion_model_input'] = np.array(['Linear', 'Linear'], dtype='U12')
+    tab['motion_model_used'] = np.array(['Linear', 'Linear'], dtype='U12')
+    tab['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    tab.fit_motion_models(motion_models=['Linear'], verbose=False)
+    assert tab['x0'][0] == 10.0
+    assert tab['vx'][0] == 0.0
+    assert tab['motion_model_used'][0] == 'Linear'
+    assert tab['vx'][1] != 0.0
+
+    # The list freezes every Linear star when the column is absent.
+    tab_list = _two_star_table(x, y, epochs)
+    tab_list['x0'] = np.array([10.0, 20.0])
+    tab_list['y0'] = np.array([5.0, 6.0])
+    tab_list['vx'] = np.array([0.0, 0.0])
+    tab_list['vy'] = np.array([0.0, 0.0])
+    tab_list['t0'] = np.array([2010.0, 2010.0])
+    tab_list['motion_model_input'] = np.array(['Linear', 'Linear'], dtype='U12')
+    tab_list.fit_motion_models(
+        motion_models=['Linear'], fixed_motion_models=['Linear'], verbose=False,
+    )
+    np.testing.assert_array_equal(tab_list['vx'], [0.0, 0.0])
+    np.testing.assert_array_equal(tab_list['x0'], [10.0, 20.0])
+
+    # Neither the list nor the column: both stars are refit. This is today's default.
+    tab_free = _two_star_table(x, y, epochs)
+    tab_free['x0'] = np.array([10.0, 20.0])
+    tab_free['y0'] = np.array([5.0, 6.0])
+    tab_free['vx'] = np.array([0.0, 0.0])
+    tab_free['vy'] = np.array([0.0, 0.0])
+    tab_free['t0'] = np.array([2010.0, 2010.0])
+    tab_free.fit_motion_models(motion_models=['Linear'], verbose=False)
+    assert tab_free['vx'][0] != 0.0
+    assert tab_free['vx'][1] != 0.0
+
+    # List says Linear, one cell says fit, the blank cell follows the list.
+    tab_over = _two_star_table(x, y, epochs)
+    tab_over['x0'] = np.array([10.0, 20.0])
+    tab_over['y0'] = np.array([5.0, 6.0])
+    tab_over['vx'] = np.array([0.0, 0.0])
+    tab_over['vy'] = np.array([0.0, 0.0])
+    tab_over['t0'] = np.array([2010.0, 2010.0])
+    tab_over['motion_model_input'] = np.array(['Linear', 'Linear'], dtype='U12')
+    tab_over['motion_model_used'] = np.array(['Linear', 'Linear'], dtype='U12')
+    tab_over['fit_motion'] = np.array(['fit', ''], dtype='U8')
+    tab_over.fit_motion_models(
+        motion_models=['Linear'], fixed_motion_models=['Linear'], verbose=False,
+    )
+    assert tab_over['vx'][0] != 0.0
+    assert tab_over['vx'][1] == 0.0
+    assert tab_over['x0'][1] == 20.0
+
+    bad = _two_star_table(x, y, epochs)
+    bad['fit_motion'] = np.array(['hold', 'fit'], dtype='U8')
+    with pytest.raises(ValueError, match='fit_motion'):
+        bad.fit_motion_models(motion_models=['Linear'], verbose=False)
+    return None
+
+
+def test_frozen_one_epoch_is_not_demoted():
+    """A frozen one-epoch Linear stays Linear. Its unfrozen neighbor becomes Fixed."""
+    epochs = np.array([2015.0])
+    x = np.array([[1.0], [2.0]])
+    y = np.array([[3.0], [4.0]])
+    tab = _two_star_table(x, y, epochs)
+    tab['x0'] = np.array([1.0, 2.0])
+    tab['y0'] = np.array([3.0, 4.0])
+    tab['vx'] = np.array([0.01, 0.02])
+    tab['vy'] = np.array([0.0, 0.0])
+    tab['t0'] = np.array([2015.0, 2015.0])
+    tab['motion_model_input'] = np.array(['Linear', 'Linear'], dtype='U12')
+    tab['motion_model_used'] = np.array(['Linear', 'Linear'], dtype='U12')
+    tab['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    tab.fit_motion_models(motion_models=['Linear'], verbose=False)
+    assert tab['motion_model_used'][0] == 'Linear'
+    assert tab['vx'][0] == 0.01
+    assert tab['x0'][0] == 1.0
+    assert tab['motion_model_used'][1] == 'Fixed'
+    return None
+
+
+def test_frozen_fixed_acceleration_and_parallax_keep_their_parameters():
+    """The same switch freezes Fixed, Acceleration, and Parallax."""
+    epochs = np.linspace(2015.0, 2024.0, 8)
+    n_ep = epochs.size
+    # Fixed: catalog x0 is not the mean of the data.
+    x = np.vstack([np.full(n_ep, 1.5), np.full(n_ep, 2.5)])
+    y = np.vstack([np.full(n_ep, 1.5), np.full(n_ep, 2.5)])
+    tab = _two_star_table(x, y, epochs)
+    tab['x0'] = np.array([0.0, 0.0])
+    tab['y0'] = np.array([0.0, 0.0])
+    tab['motion_model_input'] = np.array(['Fixed', 'Fixed'], dtype='U12')
+    tab['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    tab.fit_motion_models(motion_models=['Fixed'], verbose=False)
+    assert tab['x0'][0] == 0.0
+    assert tab['y0'][0] == 0.0
+    assert abs(tab['x0'][1] - 2.5) < 1e-8
+
+    # Acceleration: catalog ax is 0, the data has ax = 0.002.
+    dt = epochs - 2015.0
+    ax_true = 0.002
+    x_acc = np.vstack([
+        0.5 * ax_true * dt**2,
+        0.5 * ax_true * dt**2,
+    ])
+    y_acc = np.zeros_like(x_acc)
+    acc = _two_star_table(x_acc, y_acc, epochs, xe=1e-4)
+    for col, val in (
+        ('x0', 0.0), ('y0', 0.0), ('vx', 0.0), ('vy', 0.0),
+        ('ax', 0.0), ('ay', 0.0),
+    ):
+        acc[col] = np.array([val, val])
+    acc['t0'] = np.array([2015.0, 2015.0])
+    acc['motion_model_input'] = np.array(['Acceleration', 'Acceleration'], dtype='U16')
+    acc['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    acc.fit_motion_models(motion_models=['Acceleration'], verbose=False)
+    assert acc['ax'][0] == 0.0
+    assert acc['x0'][0] == 0.0
+    assert acc['ax'][1] != 0.0
+
+    # Parallax: wrong pi on both rows. Only the unfrozen row is replaced.
+    para_mod = motion_model.Parallax()
+    truth = np.array([1.0, 0.0, -0.5, 0.0, 0.2])
+    fixed = {
+        't0': 2020.0, 'ra': 17.76, 'dec': -28.933,
+        'pa': 0.0, 'obsLocation': 'earth',
+    }
+    x_p, y_p = para_mod.model(epochs, truth, fixed_params_dict=fixed)
+    par = _two_star_table(np.vstack([x_p, x_p]), np.vstack([y_p, y_p]), epochs, xe=1e-4)
+    par['x0'] = np.array([1.0, 1.0])
+    par['vx'] = np.array([0.0, 0.0])
+    par['y0'] = np.array([-0.5, -0.5])
+    par['vy'] = np.array([0.0, 0.0])
+    par['pi'] = np.array([0.9, 0.9])
+    par['t0'] = np.array([2020.0, 2020.0])
+    par['ra'] = np.array([17.76, 17.76])
+    par['dec'] = np.array([-28.933, -28.933])
+    par.meta['pa'] = 0.0
+    par.meta['obsLocation'] = 'earth'
+    par['motion_model_input'] = np.array(['Parallax', 'Parallax'], dtype='U12')
+    par['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    par.fit_motion_models(motion_models=['Parallax'], verbose=False)
+    assert par['pi'][0] == 0.9
+    assert par['x0'][0] == 1.0
+    assert par['pi'][1] != 0.9
+    return None
+
+
+def test_frozen_orbit_is_bitwise_unchanged_with_few_detections():
+    """A listed Orbit star is not solved, with one detection or with none."""
+    elements = [16.0, 2002.31, 0.88, 134.7, 48.4, 246.7]
+    names = ['orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega']
+
+    def _one(n_ep, x_value):
+        if n_ep:
+            epochs = np.linspace(2010.0, 2010.0 + n_ep - 1, n_ep)
+        else:
+            epochs = np.array([2010.0])
+        # Zero detections: the only epoch is non-finite, so n_fit is 0.
+        if n_ep == 0:
+            epochs = np.array([2010.0])
+            x = np.array([[np.nan]])
+            y = np.array([[np.nan]])
+        else:
+            x = np.full((1, n_ep), x_value)
+            y = np.full((1, n_ep), 0.2)
+        from flystar.startables import StarTable
+        tab = StarTable(
+            name=np.array(['S0-2']),
+            x=x, y=y, m=np.full_like(x, 15.0),
+            xe=np.full_like(x, 0.001), ye=np.full_like(y, 0.001),
+            me=np.full_like(x, 0.01),
+            t=epochs[np.newaxis, :],
+        )
+        for name, value in zip(names, elements):
+            tab[name] = np.array([value])
+        tab['x0'] = np.array([1.25])
+        tab['vx'] = np.array([-0.4])
+        tab['y0'] = np.array([0.2])
+        tab['vy'] = np.array([0.1])
+        tab['t0'] = np.array([2000.0])
+        tab['x0_err'] = np.array([0.01])
+        tab['y0_err'] = np.array([0.01])
+        tab['motion_model_input'] = np.array(['Orbit'], dtype='U12')
+        tab['motion_model_used'] = np.array(['Orbit'], dtype='U12')
+        before = {name: tab[name][0] for name in names}
+        result = tab.fit_motion_models(
+            motion_models=['Orbit'], fixed_motion_models=['Orbit'], verbose=False,
+        )
+        assert result is None
+        for name in names:
+            assert tab[name][0] == before[name]
+        assert tab['x0'][0] == 1.25
+        assert tab['vx'][0] == -0.4
+        assert tab['motion_model_used'][0] == 'Orbit'
+        assert 'orb_fit_converged' not in tab.colnames
+        _, _, xe, ye = tab.infer_positions(2011.0)
+        np.testing.assert_allclose(xe, 0.0)
+        np.testing.assert_allclose(ye, 0.0)
+        return None
+
+    _one(1, 0.1)
+    _one(0, 0.1)
+
+    # The column alone, with the list unset, freezes the same way.
+    from flystar.startables import StarTable
+    epochs = np.array([2010.0, 2014.0, 2018.0])
+    tab = StarTable(
+        name=np.array(['S']),
+        x=np.zeros((1, 3)), y=np.zeros((1, 3)),
+        m=np.full((1, 3), 15.0),
+        xe=np.full((1, 3), 0.001), ye=np.full((1, 3), 0.001),
+        me=np.full((1, 3), 0.01),
+        t=epochs[np.newaxis, :],
+    )
+    for name, value in zip(names, elements):
+        tab[name] = np.array([value])
+    tab['x0'] = np.array([1.25])
+    tab['vx'] = np.array([-0.4])
+    tab['motion_model_input'] = np.array(['Orbit'], dtype='U12')
+    tab['motion_model_used'] = np.array(['Orbit'], dtype='U12')
+    tab['fit_motion'] = np.array(['fixed'], dtype='U8')
+    tab.fit_motion_models(motion_models=['Orbit'], verbose=False)
+    assert tab['orb_P'][0] == 16.0
+    assert tab['x0'][0] == 1.25
+    assert tab['vx'][0] == -0.4
+    assert 'orb_fit_n_iter' not in tab.colnames
+    return None
