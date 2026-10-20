@@ -1415,3 +1415,81 @@ def test_frozen_orbit_is_bitwise_unchanged_with_few_detections():
     assert tab['vx'][0] == -0.4
     assert 'orb_fit_n_iter' not in tab.colnames
     return None
+
+
+def test_orbit_star_not_in_reference_demoted_to_linear():
+    """A starlist star absent from the reference gets Orbit label but few detections.
+
+    When align adds a new star to the reference, it assigns ``motion_model_input='Orbit'``
+    but the star has been detected in only a handful of epochs (fewer than the six
+    orbital elements require).  With ``Orbit.demote = True``, ``fit_motion_models``
+    must demote that star to a lower model (Linear) because ``n_fit < n_params = 6``.
+
+    A frozen orbit star (in ``fixed_motion_models``) with the same few detections
+    must NOT be demoted; that case is covered by
+    ``test_frozen_orbit_is_bitwise_unchanged_with_few_detections``.
+    """
+    from flystar.startables import StarTable
+
+    # Star 0: 8 unique epochs — enough for Orbit (n_params = 6).
+    epochs_0 = np.linspace(2010.0, 2022.0, 8)
+    # Star 1: only 3 unique epochs — newly discovered, fewer than n_params = 6.
+    epochs_1 = np.array([2018.0, 2019.0, 2020.0])
+
+    elements = [16.0, 2002.31, 0.88, 134.7, 48.4, 246.7]
+    elem_names = ['orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega']
+
+    N_ep = 8  # use the longer epoch grid; pad star 1 with NaN positions
+    x = np.full((2, N_ep), np.nan)
+    y = np.full((2, N_ep), np.nan)
+    xe = np.full((2, N_ep), np.nan)
+    ye = np.full((2, N_ep), np.nan)
+    t = np.tile(epochs_0, (2, 1))
+
+    x[0, :] = 0.0
+    y[0, :] = 0.0
+    xe[0, :] = 0.001
+    ye[0, :] = 0.001
+
+    # Star 1 detected at only its 3 epochs (last 3 columns here)
+    x[1, -3:] = 0.5
+    y[1, -3:] = 0.3
+    xe[1, -3:] = 0.001
+    ye[1, -3:] = 0.001
+
+    tab = StarTable(
+        name=np.array(['S0-2', 'new_star']),
+        x=x, y=y,
+        m=np.where(np.isfinite(x), 15.0, np.nan),
+        xe=xe, ye=ye,
+        me=np.where(np.isfinite(x), 0.01, np.nan),
+        t=t,
+    )
+    for name, value in zip(elem_names, elements):
+        tab[name] = np.array([value, np.nan])
+
+    tab['x0'] = np.array([0.0, 0.5])
+    tab['vx'] = np.array([0.0, 0.01])
+    tab['y0'] = np.array([0.0, 0.3])
+    tab['vy'] = np.array([0.0, 0.0])
+    tab['t0'] = np.full(2, 2010.0)
+    tab['x0_err'] = np.full(2, 0.001)
+    tab['y0_err'] = np.full(2, 0.001)
+    # Both stars carry the Orbit label (as align assigns to all new stars).
+    tab['motion_model_input'] = np.array(['Orbit', 'Orbit'], dtype='U12')
+    tab['motion_model_used'] = np.array(['Orbit', 'Orbit'], dtype='U12')
+
+    tab.fit_motion_models(motion_models=['Linear', 'Orbit'], verbose=False)
+
+    # Star 0 has 8 epochs (>= n_params=6): keep Orbit.
+    assert tab['motion_model_used'][0] == 'Orbit', (
+        f"Expected Orbit for well-detected star, got {tab['motion_model_used'][0]}"
+    )
+    # Star 1 has only 3 epochs (< n_params=6): demoted because demote=True.
+    assert tab['motion_model_used'][1] != 'Orbit', (
+        f"Expected demotion for newly-added star, got {tab['motion_model_used'][1]}"
+    )
+    assert tab['motion_model_used'][1] == 'Linear', (
+        f"Expected Linear after demotion, got {tab['motion_model_used'][1]}"
+    )
+    return None

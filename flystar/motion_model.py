@@ -2797,8 +2797,8 @@ class Orbit(MotionModel):
         required_fixed_param_names + list(optional_fixed_params.keys())
     )
     n_fit_params = len(fit_param_names)
-    n_params = int((n_fit_params + 1) / 2)  # 3; covariance needs 4 epochs
-    demote = False
+    n_params = n_fit_params  # 6 free orbital elements
+    demote = True
     prediction_columns = ['orb_cov']
 
     def __init__(self):
