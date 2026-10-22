@@ -1194,16 +1194,12 @@ class MosaicSelfRef(object):
             use_in_trans = ref_list['use_in_trans']
             if self.name_match:
                 _keys = np.asarray(self.ref_table['name_key']).astype(str)
-                _prefer = (np.asarray(self.ref_table['ref_orig'], dtype=bool)
-                           if 'ref_orig' in self.ref_table.colnames
-                           else np.zeros(len(_keys), dtype=bool))
                 _use = np.asarray(use_in_trans, dtype=bool)
                 name_kws = {
                     'names1': np.asarray(star_list_T['name']).astype(str),
                     'names2': _keys[_use],
                     'name_dr_tol': self.name_match_dr_tol[nn],
                     'name_exclude': self.name_match_exclude,
-                    'name_prefer2': _prefer[_use],
                     'name_mode': self.name_match,
                 }
             else:
@@ -1397,15 +1393,11 @@ class MosaicSelfRef(object):
 
             if self.name_match:
                 _keys = np.asarray(self.ref_table['name_key']).astype(str)
-                _prefer = (np.asarray(self.ref_table['ref_orig'], dtype=bool)
-                           if 'ref_orig' in self.ref_table.colnames
-                           else np.zeros(len(_keys), dtype=bool))
                 name_kws = {
                     'names1': np.asarray(star_list_T['name']).astype(str),
                     'names2': _keys,
                     'name_dr_tol': self.name_match_dr_tol[nn],
                     'name_exclude': self.name_match_exclude,
-                    'name_prefer2': _prefer,
                     'name_mode': self.name_match,
                 }
             else:
@@ -2272,15 +2264,11 @@ class MosaicSelfRef(object):
 
             if self.name_match:
                 _keys = np.asarray(self.ref_table['name_key']).astype(str)
-                _prefer = (np.asarray(self.ref_table['ref_orig'], dtype=bool)
-                           if 'ref_orig' in self.ref_table.colnames
-                           else np.zeros(len(_keys), dtype=bool))
                 name_kws = {
                     'names1': np.asarray(star_list_T['name']).astype(str),
                     'names2': _keys,
                     'name_dr_tol': self.name_match_dr_tol[-1],
                     'name_exclude': self.name_match_exclude,
-                    'name_prefer2': _prefer,
                     'name_mode': self.name_match,
                 }
             else:
@@ -3310,6 +3298,16 @@ class MosaicToRef(MosaicSelfRef):
 
         self.starlist_vertices = starlist_vertices
         self.ref_list = StarList(ref_list, copy=True)
+        if 'name' in self.ref_list.colnames:
+            names = np.asarray(self.ref_list['name']).astype(str)
+            unique, counts = np.unique(names, return_counts=True)
+            dupes = unique[counts > 1]
+            if len(dupes) > 0:
+                raise ValueError(
+                    f'ref_list contains {len(dupes)} duplicate name(s): '
+                    f'{list(dupes[:5])}{"..." if len(dupes) > 5 else ""}. '
+                    f'Each star in the reference list must have a unique name.'
+                )
         self.ref_mag_lim = ref_mag_lim
         self.fix_ref_mag_lim()
         self.update_ref_orig = update_ref_orig
