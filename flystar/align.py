@@ -1192,25 +1192,20 @@ class MosaicSelfRef(object):
             # Match stars between the transformed, trimmed lists.
             # Only use stars specified by "use_in_trans" column.
             use_in_trans = ref_list['use_in_trans']
+            _use = np.asarray(use_in_trans, dtype=bool)
             if self.name_match:
                 _keys = np.asarray(self.ref_table['name_key']).astype(str)
-                _use = np.asarray(use_in_trans, dtype=bool)
-                name_kws = {
-                    'names1': np.asarray(star_list_T['name']).astype(str),
-                    'names2': _keys[_use],
-                    'name_dr_tol': self.name_match_dr_tol[nn],
-                    'name_exclude': self.name_match_exclude,
-                    'name_mode': self.name_match,
-                }
-            else:
-                name_kws = {}
             idx1, idx2, dr, dm = match.match(
                 star_list_T['x'], star_list_T['y'], star_list_T['m'],
                 ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
                 dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
                 matching=self.matching, dchi2_tol=self.dchi2_tol,
                 sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag,
-                **name_kws
+                names1=np.asarray(star_list_T['name']).astype(str) if self.name_match else None,
+                names2=_keys[_use] if self.name_match else None,
+                name_dr_tol=self.name_match_dr_tol[nn] if self.name_match else None,
+                name_exclude=self.name_match_exclude if self.name_match else ('star',),
+                name_mode=self.name_match if self.name_match else 'override',
             )
             # Restore idx2 to the full reference list indices
             idx2 = np.where(use_in_trans)[0][idx2]
@@ -1393,22 +1388,17 @@ class MosaicSelfRef(object):
 
             if self.name_match:
                 _keys = np.asarray(self.ref_table['name_key']).astype(str)
-                name_kws = {
-                    'names1': np.asarray(star_list_T['name']).astype(str),
-                    'names2': _keys,
-                    'name_dr_tol': self.name_match_dr_tol[nn],
-                    'name_exclude': self.name_match_exclude,
-                    'name_mode': self.name_match,
-                }
-            else:
-                name_kws = {}
             idx_lis, idx_ref, dr, dm = match.match(
                 star_list_T['x'], star_list_T['y'], star_list_T['m'],
                 ref_list['x'], ref_list['y'], ref_list['m'],
                 dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
                 matching=self.matching, dchi2_tol=self.dchi2_tol,
                 sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag,
-                **name_kws
+                names1=np.asarray(star_list_T['name']).astype(str) if self.name_match else None,
+                names2=_keys if self.name_match else None,
+                name_dr_tol=self.name_match_dr_tol[nn] if self.name_match else None,
+                name_exclude=self.name_match_exclude if self.name_match else ('star',),
+                name_mode=self.name_match if self.name_match else 'override',
             )
 
             if self.verbose > 1:
@@ -2264,23 +2254,19 @@ class MosaicSelfRef(object):
 
             if self.name_match:
                 _keys = np.asarray(self.ref_table['name_key']).astype(str)
-                name_kws = {
-                    'names1': np.asarray(star_list_T['name']).astype(str),
-                    'names2': _keys,
-                    'name_dr_tol': self.name_match_dr_tol[-1],
-                    'name_exclude': self.name_match_exclude,
-                    'name_mode': self.name_match,
-                }
-            else:
-                name_kws = {}
-            idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
-                                                   xref, yref, mref,
-                                                   dr_tol=dr_tol, dm_tol=dm_tol, workers=workers,
-                                                   verbose=self.verbose,
-                                                   matching=self.matching, dchi2_tol=self.dchi2_tol,
-                                                   sigma_pos=self.match_sigma_pos,
-                                                   sigma_mag=self.match_sigma_mag,
-                                                   **name_kws)
+            idx_lis, idx_ref, dr, dm = match.match(
+                star_list_T['x'], star_list_T['y'], star_list_T['m'],
+                xref, yref, mref,
+                dr_tol=dr_tol, dm_tol=dm_tol, workers=workers,
+                verbose=self.verbose,
+                matching=self.matching, dchi2_tol=self.dchi2_tol,
+                sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag,
+                names1=np.asarray(star_list_T['name']).astype(str) if self.name_match else None,
+                names2=_keys if self.name_match else None,
+                name_dr_tol=self.name_match_dr_tol[-1] if self.name_match else None,
+                name_exclude=self.name_match_exclude if self.name_match else ('star',),
+                name_mode=self.name_match if self.name_match else 'override',
+            )
 
             if self.verbose > 0:
                 fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} ± {4:6.4f}, dm = {5:5.2f} ± {6:4.2f}]'
@@ -3298,6 +3284,8 @@ class MosaicToRef(MosaicSelfRef):
 
         self.starlist_vertices = starlist_vertices
         self.ref_list = StarList(ref_list, copy=True)
+
+        # Check for duplicate names in the reference list.
         if 'name' in self.ref_list.colnames:
             names = np.asarray(self.ref_list['name']).astype(str)
             unique, counts = np.unique(names, return_counts=True)
@@ -3308,11 +3296,14 @@ class MosaicToRef(MosaicSelfRef):
                     f'{list(dupes[:5])}{"..." if len(dupes) > 5 else ""}. '
                     f'Each star in the reference list must have a unique name.'
                 )
+
+        # Setup magnitude limits on the reference list. 
         self.ref_mag_lim = ref_mag_lim
         self.fix_ref_mag_lim()
         self.update_ref_orig = update_ref_orig
         self.use_ref_new = use_ref_new
-        # None freezes nobody. A name in the list is held unless that
+
+        # None freezes no stars. A name in the list is held fixed unless that
         # row's fit_motion cell says 'fit'.
         self.fixed_motion_models = fixed_motion_models
 
@@ -3321,14 +3312,6 @@ class MosaicToRef(MosaicSelfRef):
             self.reflist_polygon = shapely.make_valid(shapely.Polygon(reflist_vertex))
         else:
             self.reflist_polygon = None
-
-        # If motion_model_used in columns but params columns are missing, raise a warning and remove motion_model_used column to avoid confusion.
-        # if 'motion_model_used' in self.ref_list.colnames:
-        #     motion_model_params = motion_model.motion_model_param_names(np.unique(self.ref_list['motion_model_used']), with_errors=False, with_fixed=True)
-        #     missing_params = [param for param in motion_model_params if (param not in self.ref_list.colnames) and (f'{param}_err' not in self.ref_list.colnames) and (param not in self.fixed_params_dict.keys())]
-        #     if len(missing_params) > 0:
-        #         warnings.warn("Warning: 'motion_model_used' column found in ref_list, but the following motion model parameter columns are missing: " + ", ".join(missing_params) + ". Removing 'motion_model_used' column to avoid confusion.")
-        #         self.ref_list.remove_column('motion_model_used')
 
         # If motion_model_used in columns, remove it and raise a warning, since it will only be determined after the fit.
         if 'motion_model_used' in self.ref_list.colnames:
