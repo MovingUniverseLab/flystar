@@ -19,46 +19,6 @@ _MOTION_MODEL_NAME_WIDTH = max(
 )
 
 
-def _with_fit_seed(table, fixed_params, index, param_names):
-    """Copy current fit-parameter columns into the dict passed to ``fit``.
-
-    Parameters
-    ----------
-    table : StarTable
-        Catalog that holds the columns.
-    fixed_params : dict
-        Dict about to be handed to ``MotionModel.fit``. Not mutated.
-    index : int or array-like
-        Row or rows whose current values are the seed.
-    param_names : sequence of str
-        Fit-parameter names for the model being solved.
-
-    Returns
-    -------
-    seeded : dict
-        ``fixed_params`` plus any of ``param_names`` that exist as
-        columns and were not already in the dict.
-
-    Notes
-    -----
-    Orbit reads ``orb_P`` and the other elements from this dict because
-    ``run_fit`` otherwise only sees the measurements. Linear and the
-    other closed-form models ignore keys they do not use. An explicit
-    entry already in ``fixed_params`` is left alone.
-    """
-    # Copy so the caller's dict is not mutated.
-    seeded = dict(fixed_params)
-
-    for name in param_names:
-        # An explicit fixed value, or a missing column, stays out.
-        if name in seeded or name not in table.colnames:
-            continue
-
-        # Current table value for this row is the seed.
-        seeded[name] = np.asarray(table[name][index], dtype=float)
-
-    return seeded
-
 
 def _stack_fit_diagnostics(rows):
     """Stack per-star diagnostics dicts into batch arrays.
@@ -1742,31 +1702,34 @@ class StarTable(Table):
                             **{k: v[unique_index] for k, v in array_params.items()}
                         }
 
-                        # Orbit reads its seed from these keys. Other models
-                        # ignore fit-parameter names they do not use.
-                        fixed_params_batch = _with_fit_seed(
-                            self, fixed_params_batch, unique_index, param_names,
-                        )
-
                         # No mask is passed -- fit()'s batch path derives
                         # validity from nan in x/y directly (x_data_arr/
                         # y_data_arr already have real nan at every invalid
                         # cell, including mask_value/near-zero-error cells,
                         # which were explicitly nan-ed above for exactly this).
+                        params_init_guess_dict = {
+                            name: np.asarray(self[name][unique_index], dtype=float)
+                            for name in param_names
+                            if name in self.colnames
+                        }
                         fit_result = motion_model_instance.fit(
                             t_data_arr[unique_index], x_data_arr[unique_index], y_data_arr[unique_index],
                             xe_batch, ye_batch,
                             fixed_params_dict=fixed_params_batch,
+                            params_init_guess_dict=params_init_guess_dict,
                             weighting=weighting, absolute_sigma=absolute_sigma, fill_value=fill_value, verbose=verbose
                         )
                         params_array, param_errs_array, chi2_x_array, chi2_y_array = fit_result[:4]
-                        diagnostics = fit_result[4] if len(fit_result) > 4 else None
+                        diagnostics = fit_result[4]
 
                     elif pool is not None:
                         # Use multiprocessing to fit stars in parallel
                         arguments = [
-                            (i_star, unique_motion_model,
-                             _with_fit_seed(self, fixed_params_stars[i_star], i_star, param_names))
+                            (i_star, unique_motion_model, fixed_params_stars[i_star], {
+                                name: np.asarray(self[name][i_star], dtype=float)
+                                for name in param_names
+                                if name in self.colnames
+                            })
                             for i_star in unique_index
                         ]
 
@@ -1787,8 +1750,7 @@ class StarTable(Table):
                             param_errs_array[idx] = param_errs
                             chi2_x_array[idx] = chi2_x
                             chi2_y_array[idx] = chi2_y
-                            if len(result) > 4:
-                                diag_rows.append(result[4])
+                            diag_rows.append(result[4])
                         diagnostics = _stack_fit_diagnostics(diag_rows)
 
                     else:
@@ -1809,9 +1771,12 @@ class StarTable(Table):
                                 y=y_stars[idx],
                                 xe=xe_stars[idx],
                                 ye=ye_stars[idx],
-                                fixed_params_dict=_with_fit_seed(
-                                    self, fixed_params_stars[i_star], i_star, param_names,
-                                ),
+                                fixed_params_dict=fixed_params_stars[i_star],
+                                params_init_guess_dict={
+                                    name: np.asarray(self[name][i_star], dtype=float)
+                                    for name in param_names
+                                    if name in self.colnames
+                                },
                                 weighting=weighting,
                                 absolute_sigma=absolute_sigma,
                                 fill_value=fill_value,
@@ -1825,8 +1790,7 @@ class StarTable(Table):
                             param_errs_array[idx] = param_errs
                             chi2_x_array[idx] = chi2_x
                             chi2_y_array[idx] = chi2_y
-                            if len(fit_result) > 4:
-                                diag_rows.append(fit_result[4])
+                            diag_rows.append(fit_result[4])
                         diagnostics = _stack_fit_diagnostics(diag_rows)
 
                 # These stars were fit with a substituted unit error (sigma=1)
@@ -2254,7 +2218,7 @@ def _fit_motion_models_init(t_data, x_data, y_data, xe_data, ye_data, unmasked_i
     )
 
 
-def _fit_motion_models_worker(i_star, motion_model_name, fixed_params_dict):
+def _fit_motion_models_worker(i_star, motion_model_name, fixed_params_dict, params_init_guess_dict=None):
     """
     Pool worker for fit_motion_models(). Slices out this one star's own
     (ragged -- stars have different numbers of valid epochs) data from the
@@ -2282,6 +2246,7 @@ def _fit_motion_models_worker(i_star, motion_model_name, fixed_params_dict):
     return motion_model_instance.fit(
         t=t, x=x, y=y, xe=xe, ye=ye,
         fixed_params_dict=fixed_params_dict,
+        params_init_guess_dict=params_init_guess_dict,
         weighting=s['weighting'],
         absolute_sigma=s['absolute_sigma'],
         fill_value=s['fill_value'],

@@ -251,7 +251,7 @@ class MotionModel(ABC):
             
         return np.full_like(t, np.nan), np.full_like(t, np.nan), np.full_like(t, np.inf), np.full_like(t, np.inf)
 
-    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, params_init_guess_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
         """
         Fit a batch of stars at once (used both for the main fit and for
@@ -274,6 +274,7 @@ class MotionModel(ABC):
     def fit(
         self, t, x, y, xe, ye,
         fixed_params_dict=None,
+        params_init_guess_dict=None,
         weighting='var',
         absolute_sigma=True,
         fill_value=np.nan,
@@ -361,7 +362,8 @@ class MotionModel(ABC):
             valid = np.isfinite(x) & np.isfinite(y)
             result = self.run_fit(
                 t, x, y, xe, ye, valid,
-                fixed_params_dict=fixed_params_dict, weighting=weighting, absolute_sigma=absolute_sigma,
+                fixed_params_dict=fixed_params_dict, params_init_guess_dict=params_init_guess_dict,
+                weighting=weighting, absolute_sigma=absolute_sigma,
                 fill_value=fill_value, verbose=verbose
             )
             if not verbose:
@@ -388,12 +390,12 @@ class MotionModel(ABC):
         valid = np.ones((1, n_obs), dtype=bool)
         result = self.run_fit(
             t[np.newaxis, :], x[np.newaxis, :], y[np.newaxis, :], xe[np.newaxis, :], ye[np.newaxis, :], valid,
-            fixed_params_dict=fixed_params_dict, weighting=weighting, absolute_sigma=absolute_sigma,
+            fixed_params_dict=fixed_params_dict, params_init_guess_dict=params_init_guess_dict,
+            weighting=weighting, absolute_sigma=absolute_sigma,
             fill_value=fill_value, verbose=verbose
         )
-        # A fifth value is optional. Existing models return four arrays.
-        params, param_errs, chi2_x, chi2_y = result[:4]
-        diagnostics = result[4] if len(result) > 4 else None
+        # All run_fit implementations return a 5-tuple; diagnostics is {} for non-Orbit models.
+        params, param_errs, chi2_x, chi2_y, diagnostics = result
         params, param_errs, chi2_x, chi2_y = params[0], param_errs[0], chi2_x[0], chi2_y[0]
 
         # Bootstrap errors
@@ -421,7 +423,8 @@ class MotionModel(ABC):
             valid_boot = np.ones_like(bdx_all, dtype=bool)
             bb_result = self.run_fit(
                 t[bdx_all], x[bdx_all], y[bdx_all], xe[bdx_all], ye[bdx_all], valid_boot,
-                fixed_params_dict=fixed_params_dict, weighting=weighting, absolute_sigma=absolute_sigma,
+                fixed_params_dict=fixed_params_dict, params_init_guess_dict=params_init_guess_dict,
+                weighting=weighting, absolute_sigma=absolute_sigma,
                 fill_value=fill_value, verbose=verbose
             )
             bb_params, bb_param_errs = bb_result[0], bb_result[1]
@@ -437,19 +440,18 @@ class MotionModel(ABC):
             warnings.resetwarnings()
 
         if return_chi2:
-            if diagnostics is not None:
-                # Drop the length-1 star axis so a per-star caller sees
-                # scalars and a (6, 6) covariance, not a batch of one.
-                squeezed = {}
-                for key, val in diagnostics.items():
-                    arr = np.asarray(val)
-                    if arr.shape[:1] == (1,):
-                        squeezed[key] = arr[0]
-                    else:
-                        squeezed[key] = arr
-                return params, param_errs, chi2_x, chi2_y, squeezed
-            return params, param_errs, chi2_x, chi2_y
-            
+            # Drop the length-1 star axis so a per-star caller sees
+            # scalars and a (6, 6) covariance, not a batch of one.
+            # diagnostics is {} for non-Orbit models.
+            squeezed = {}
+            for key, val in diagnostics.items():
+                arr = np.asarray(val)
+                if arr.shape[:1] == (1,):
+                    squeezed[key] = arr[0]
+                else:
+                    squeezed[key] = arr
+            return params, param_errs, chi2_x, chi2_y, squeezed
+
         return params, param_errs
 
 
@@ -558,7 +560,7 @@ class Empty(MotionModel):
             return x, y
         return x, y, np.full_like(x, np.inf), np.full_like(y, np.inf)
 
-    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, params_init_guess_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
         """
         Batch fit for many stars at once. Empty's "fit" never looks at any
@@ -592,7 +594,7 @@ class Empty(MotionModel):
         param_errs = np.full((n_stars, self.n_fit_params), np.inf)
         chi2x = np.full(n_stars, np.nan)
         chi2y = np.full(n_stars, np.nan)
-        return params, param_errs, chi2x, chi2y
+        return params, param_errs, chi2x, chi2y, {}
 
 
 class Fixed(MotionModel):
@@ -697,7 +699,7 @@ class Fixed(MotionModel):
 
         return x, y, x_err, y_err
 
-    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, params_init_guess_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
         """
         Batch fit for many stars at once. Fixed's fit is closed-form (a
@@ -797,7 +799,7 @@ class Fixed(MotionModel):
         chi2x[~has_data] = np.nan
         chi2y[~has_data] = np.nan
 
-        return params, param_errs, chi2x, chi2y
+        return params, param_errs, chi2x, chi2y, {}
 
 class Linear(MotionModel):
     """
@@ -905,7 +907,7 @@ class Linear(MotionModel):
         return x, y, x_err, y_err
 
 
-    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, params_init_guess_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
         """
         Batch fit for many stars at once. Linear's weighted least-squares
@@ -1060,7 +1062,7 @@ class Linear(MotionModel):
         param_errs[singular_y, 2] = np.inf
         param_errs[singular_y, 3] = np.inf
 
-        return params, param_errs, chi2x, chi2y
+        return params, param_errs, chi2x, chi2y, {}
 
 class Acceleration(MotionModel):
     """
@@ -1172,7 +1174,7 @@ class Acceleration(MotionModel):
 
 
 
-    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, params_init_guess_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
         """
         Batch fit for many stars at once. Acceleration's model
@@ -1340,7 +1342,7 @@ class Acceleration(MotionModel):
             param_errs[singular_x, jj] = np.inf
             param_errs[singular_y, 3 + jj] = np.inf
 
-        return params, param_errs, chi2x, chi2y
+        return params, param_errs, chi2x, chi2y, {}
 
 class Parallax(MotionModel):
     """
@@ -1549,7 +1551,7 @@ class Parallax(MotionModel):
 
 
 
-    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
+    def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, params_init_guess_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
         """
         Batch fit for many stars at once. Parallax's model
@@ -1783,7 +1785,7 @@ class Parallax(MotionModel):
         chi2y[~has_data] = np.nan
         param_errs[singular] = np.inf
 
-        return params, param_errs, chi2x, chi2y
+        return params, param_errs, chi2x, chi2y, {}
 
 
 def determine_motion_models(startable, motion_models=None, fixed_params_dict=None):
@@ -2752,8 +2754,8 @@ class Orbit(MotionModel):
 
 
     def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None,
-                weighting='var', absolute_sigma=True, fill_value=np.nan,
-                verbose=True):
+                params_init_guess_dict=None, weighting='var',
+                absolute_sigma=True, fill_value=np.nan, verbose=True):
         """Per-star ``least_squares``, seeded from the current ``orb_*``.
 
         On failure, return that seed and flag non-convergence. Do not
@@ -2826,7 +2828,7 @@ class Orbit(MotionModel):
         status = np.full(n_stars, 3, dtype=int)
 
         fp = self._broadcast_fixed(fixed_params_dict, n_stars)
-        seeds = self._broadcast_seeds(fixed_params_dict, n_stars)
+        seeds = self._broadcast_seeds(params_init_guess_dict, n_stars)
         for i in range(n_stars):
             seed = seeds[i]
             mass = fp['mass'][i]

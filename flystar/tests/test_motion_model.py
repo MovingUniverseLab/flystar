@@ -461,7 +461,7 @@ def test_Fixed_run_fit():
 
     for weighting, absolute_sigma in [('var', True), ('std', True), ('var', False)]:
         mod = motion_model.Fixed()
-        got_params, got_errs, got_chi2x, got_chi2y = mod.run_fit(
+        got_params, got_errs, got_chi2x, got_chi2y, *_ = mod.run_fit(
             t, x, y, xe, ye, valid, weighting=weighting, absolute_sigma=absolute_sigma,
             fill_value=np.nan, verbose=False
         )
@@ -472,7 +472,7 @@ def test_Fixed_run_fit():
         want_chi2y = np.full(n_stars, np.nan)
         for i in range(n_stars):
             idx = np.flatnonzero(valid[i])
-            params, errs, chi2x, chi2y = mod.fit(
+            params, errs, chi2x, chi2y, *_ = mod.fit(
                 t=t[i][idx], x=x[i][idx], y=y[i][idx], xe=xe[i][idx], ye=ye[i][idx],
                 weighting=weighting, absolute_sigma=absolute_sigma,
                 fill_value=np.nan, return_chi2=True, bootstrap=0, verbose=False
@@ -565,13 +565,13 @@ def _check_independent(name, cls, basis, n_par, n_epochs, weighting,
     if nan_count:
         # nan padding is only supported on the 2D batch path -- the 1D path's
         # contract is data the caller already filtered down to real epochs.
-        gp, ge, gx2, gy2 = model.fit(
+        gp, ge, gx2, gy2, *_ = model.fit(
             t[None, :], x[None, :], y[None, :], xe[None, :], ye[None, :],
             fixed_params_dict={'t0': t0}, weighting=weighting,
             absolute_sigma=absolute_sigma, verbose=False)
         gp, ge, gx2, gy2 = gp[0], ge[0], gx2[0], gy2[0]
     else:
-        gp, ge, gx2, gy2 = model.fit(
+        gp, ge, gx2, gy2, *_ = model.fit(
             t, x, y, xe, ye, fixed_params_dict={'t0': t0}, weighting=weighting,
             absolute_sigma=absolute_sigma, return_chi2=True, verbose=False)
 
@@ -647,7 +647,7 @@ def test_scipy_agreement_parallax():
                 tag = (f'Parallax N={n_epochs} weighting={weighting} '
                        f'absolute_sigma={absolute_sigma}')
 
-                gp, ge, gx2, gy2 = model.fit(
+                gp, ge, gx2, gy2, *_ = model.fit(
                     t, x, y, xe, ye,
                     fixed_params_dict={'t0': t0, 'ra': ra, 'dec': dec},
                     weighting=weighting, absolute_sigma=absolute_sigma,
