@@ -116,16 +116,6 @@ def test_tiebreak_legacy_duplicate_claim_resolved_by_name():
     assert pairs(i1, i2) == {1: 0}
 
 
-def test_prefer_original_row_and_availability():
-    x2 = np.array([0.0, 0.3]); y2 = np.zeros(2)
-    n2 = np.array(["S0-2", "S0-2"]); pref = np.array([True, False])
-    j = match.same_name_candidates([0], np.array(["S0-2"]), n2, np.array([0.25]),
-                                   np.array([0.0]), x2, y2, 1.0, prefer2=pref)
-    assert j.tolist() == [0]
-    j = match.same_name_candidates([0], np.array(["S0-2"]), n2, np.array([0.25]),
-                                   np.array([0.0]), x2, y2, 1.0, prefer2=pref,
-                                   avail2=np.array([False, True]))
-    assert j.tolist() == [1]
 
 
 def test_duplicate_list_names_not_used():
@@ -249,13 +239,6 @@ def test_override_exclusion_and_duplicates():
                               names2=np.array(["S0-2", "S0-3"]),
                               name_dr_tol=2.0, verbose=0)
     assert len(i1) == 0
-    # Duplicate ref rows: the original (preferred) row wins over the nearer.
-    i1, i2, _, _ = match.match(x1[:1], y1[:1], m1[:1], x2, y2, m2, 0.01,
-                               names1=np.array(["S0-2"]),
-                               names2=np.array(["S0-2", "S0-2"]),
-                               name_prefer2=np.array([False, True]),
-                               name_dr_tol=2.0, verbose=0)
-    assert pairs(i1, i2) == {0: 1}
 
 
 def test_bad_name_mode():
