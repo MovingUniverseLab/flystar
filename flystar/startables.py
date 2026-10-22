@@ -311,6 +311,10 @@ class StarTable(Table):
                 all_col_names.append(arg)
                 all_col_data.append(data)
 
+            if 'update_ref_motion' not in all_col_names:
+                all_col_names.append('update_ref_motion')
+                all_col_data.append(np.ones(n_stars, dtype=bool))
+
             super().__init__(tuple(all_col_data), names=tuple(all_col_names), copy=copy)
             # Names get written in place elsewhere (analysis.py assigns label
             # names into an existing column), so keep the historical U30 of
@@ -941,7 +945,6 @@ class StarTable(Table):
             self,
             motion_models=None,
             fixed_params_dict=None,
-            fixed_motion_models=None,
             weighting='var',
             absolute_sigma=True,
             select_stars=None,
@@ -984,12 +987,6 @@ class StarTable(Table):
             - The keys should match the fixed parameter names in the motion models. See MotionModel class for details.
             - Each parameter is resolved in the order fixed_params_dict -> table column -> table metadata, so an entry here outranks a same-named column or metadata entry.
             - The values actually used are written back under '<param>': to metadata if uniform and no such column exists, otherwise to the column, with a disagreeing caller's column moved aside to '<param>_orig', by default None
-        fixed_motion_models : sequence of str or None, optional
-            Motion-model names that are not refit. A star whose
-            ``motion_model_input`` is in this list is left unchanged,
-            unless its ``fit_motion`` cell is ``'fit'``. A ``fit_motion``
-            cell of ``'fixed'`` freezes that star even when the model is
-            not in the list. ``None`` freezes nobody. By default None.
         weighting : str, optional
             Uncertainty weighting, 'std' for weight=1/xe(ye) or 'var' for weight=1/xe(ye)**2, by default 'var'
         absolute_sigma : bool, optional
@@ -1090,7 +1087,7 @@ class StarTable(Table):
 
         # Frozen stars never enter the subtable, so demotion, the
         # fit-parameter reset, and the scatter-back all skip them.
-        frozen = motion_model.frozen_motion_mask(self, fixed_motion_models)
+        frozen = motion_model.frozen_motion_mask(self)
         if np.any(frozen):
             if select_idx is None:
                 select_idx = np.flatnonzero(~frozen)
@@ -1128,7 +1125,6 @@ class StarTable(Table):
             orig_meta_keys = set(self.meta.keys())
             sub_table.fit_motion_models(
                 motion_models=motion_models, fixed_params_dict=sub_fixed_params_dict,
-                fixed_motion_models=fixed_motion_models,
                 weighting=weighting, absolute_sigma=absolute_sigma,
                 select_stars=None, keep_existing=keep_existing,
                 bootstrap=bootstrap, seed=seed, mask_value=mask_value, mask_lists=mask_lists,

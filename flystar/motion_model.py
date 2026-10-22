@@ -2161,93 +2161,31 @@ def organize_motion_models(motion_models):
 # Orbit and the freeze mask. Newtonian sky positions come from
 # flystar.orbits. Fixed versus fit is not a second class.
 
-_FIT_MOTION_VALUES = ('fixed', 'fit')
 
-
-def frozen_motion_mask(table, fixed_motion_models=None):
+def frozen_motion_mask(table):
     """Stars that must not be refit.
 
     Parameters
     ----------
     table : astropy.table.Table
-        Catalog. Reads ``motion_model_input`` and, when present,
-        ``fit_motion``.
-    fixed_motion_models : sequence of str or None, optional
-        Model names to freeze. ``None`` or empty freezes nobody by
-        itself, by default None.
+        Catalog. Reads ``update_ref_motion`` when present.
 
     Returns
     -------
     frozen : ndarray of bool, shape (n_stars,)
-        True where the star is held fixed.
-
-    Notes
-    -----
-    A non-blank ``fit_motion`` cell overrides the list. A missing
-    column, or a masked or blank cell, follows the list. Any other
-    non-blank string raises ``ValueError``. The accepted spellings
-    are exactly ``'fixed'`` and ``'fit'``.
+        True where the star is held fixed (``update_ref_motion`` is False).
+        Stars without an ``update_ref_motion`` column are never frozen.
     """
-    n_stars = len(table)
-    names = []
-    if fixed_motion_models:
-        names = [str(name) for name in fixed_motion_models]
-
-    frozen = np.zeros(n_stars, dtype=bool)
-    if names and ('motion_model_input' in table.colnames):
-        requested = np.asarray(table['motion_model_input']).astype(str)
-        frozen = np.isin(requested, names)
-
-    if 'fit_motion' not in table.colnames:
-        return frozen
-
-    column = table['fit_motion']
-    if hasattr(column, 'mask'):
-        masked = np.ma.getmaskarray(np.ma.asarray(column)).astype(bool)
-        if masked.shape != (n_stars,):
-            masked = np.zeros(n_stars, dtype=bool)
-    else:
-        masked = np.zeros(n_stars, dtype=bool)
-
-    text = []
-    for i in range(n_stars):
-        if masked[i]:
-            text.append('')
-            continue
-        value = column[i]
-        if value is None:
-            text.append('')
-            continue
-        if isinstance(value, (bytes, np.bytes_)):
-            value = value.decode('utf-8', 'replace')
-        # A float NaN is the masked-numeric case, not a mode string.
-        if isinstance(value, (float, np.floating)) and not np.isfinite(value):
-            text.append('')
-            continue
-        text.append(str(value).strip())
-    text = np.asarray(text, dtype=object)
-
-    bad = []
-    for i, cell in enumerate(text):
-        if cell == '':
-            continue
-        if cell not in _FIT_MOTION_VALUES:
-            bad.append(cell)
-            continue
-        frozen[i] = (cell == 'fixed')
-    if bad:
-        raise ValueError(
-            "fit_motion must be 'fixed', 'fit', or blank; "
-            f"got {sorted(set(bad))}."
-        )
-    return frozen
+    if 'update_ref_motion' not in table.colnames:
+        return np.zeros(len(table), dtype=bool)
+    return ~np.asarray(table['update_ref_motion'], dtype=bool)
 
 
 
 class Orbit(MotionModel):
     """Newtonian orbit. Fixed or fit is chosen per star, not here.
 
-    ``fixed_motion_models`` and the ``fit_motion`` column decide.
+    The ``update_ref_motion`` column on the reference table decides.
     Both modes read ``orb_*``. A fit updates those columns in place.
     A failed fit returns the values it was seeded with.
 

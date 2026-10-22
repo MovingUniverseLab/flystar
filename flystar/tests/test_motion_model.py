@@ -1171,7 +1171,7 @@ def test_infer_positions_fixed_orbit_without_element_errors():
 
 
 def test_fit_motion_column_and_list_freeze_linear_and_orbit():
-    """The column overrides the list. The default, with neither set, still fits."""
+    """update_ref_motion=False freezes a star. True (default) allows refit."""
     epochs = np.array([2010.0, 2012.0, 2014.0, 2016.0])
     # Catalog vx is 0. The measurements move.
     x = np.vstack([
@@ -1190,14 +1190,14 @@ def test_fit_motion_column_and_list_freeze_linear_and_orbit():
     tab['t0'] = np.array([2010.0, 2010.0])
     tab['motion_model_input'] = np.array(['Linear', 'Linear'], dtype='U12')
     tab['motion_model_used'] = np.array(['Linear', 'Linear'], dtype='U12')
-    tab['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    tab['update_ref_motion'] = np.array([False, True])
     tab.fit_motion_models(motion_models=['Linear'], verbose=False)
     assert tab['x0'][0] == 10.0
     assert tab['vx'][0] == 0.0
     assert tab['motion_model_used'][0] == 'Linear'
     assert tab['vx'][1] != 0.0
 
-    # The list freezes every Linear star when the column is absent.
+    # update_ref_motion=False on both stars freezes both.
     tab_list = _two_star_table(x, y, epochs)
     tab_list['x0'] = np.array([10.0, 20.0])
     tab_list['y0'] = np.array([5.0, 6.0])
@@ -1205,13 +1205,12 @@ def test_fit_motion_column_and_list_freeze_linear_and_orbit():
     tab_list['vy'] = np.array([0.0, 0.0])
     tab_list['t0'] = np.array([2010.0, 2010.0])
     tab_list['motion_model_input'] = np.array(['Linear', 'Linear'], dtype='U12')
-    tab_list.fit_motion_models(
-        motion_models=['Linear'], fixed_motion_models=['Linear'], verbose=False,
-    )
+    tab_list['update_ref_motion'] = np.array([False, False])
+    tab_list.fit_motion_models(motion_models=['Linear'], verbose=False)
     np.testing.assert_array_equal(tab_list['vx'], [0.0, 0.0])
     np.testing.assert_array_equal(tab_list['x0'], [10.0, 20.0])
 
-    # Neither the list nor the column: both stars are refit. This is today's default.
+    # No update_ref_motion column: both stars are refit. This is the default.
     tab_free = _two_star_table(x, y, epochs)
     tab_free['x0'] = np.array([10.0, 20.0])
     tab_free['y0'] = np.array([5.0, 6.0])
@@ -1221,28 +1220,6 @@ def test_fit_motion_column_and_list_freeze_linear_and_orbit():
     tab_free.fit_motion_models(motion_models=['Linear'], verbose=False)
     assert tab_free['vx'][0] != 0.0
     assert tab_free['vx'][1] != 0.0
-
-    # List says Linear, one cell says fit, the blank cell follows the list.
-    tab_over = _two_star_table(x, y, epochs)
-    tab_over['x0'] = np.array([10.0, 20.0])
-    tab_over['y0'] = np.array([5.0, 6.0])
-    tab_over['vx'] = np.array([0.0, 0.0])
-    tab_over['vy'] = np.array([0.0, 0.0])
-    tab_over['t0'] = np.array([2010.0, 2010.0])
-    tab_over['motion_model_input'] = np.array(['Linear', 'Linear'], dtype='U12')
-    tab_over['motion_model_used'] = np.array(['Linear', 'Linear'], dtype='U12')
-    tab_over['fit_motion'] = np.array(['fit', ''], dtype='U8')
-    tab_over.fit_motion_models(
-        motion_models=['Linear'], fixed_motion_models=['Linear'], verbose=False,
-    )
-    assert tab_over['vx'][0] != 0.0
-    assert tab_over['vx'][1] == 0.0
-    assert tab_over['x0'][1] == 20.0
-
-    bad = _two_star_table(x, y, epochs)
-    bad['fit_motion'] = np.array(['hold', 'fit'], dtype='U8')
-    with pytest.raises(ValueError, match='fit_motion'):
-        bad.fit_motion_models(motion_models=['Linear'], verbose=False)
     return None
 
 
@@ -1259,7 +1236,7 @@ def test_frozen_one_epoch_is_not_demoted():
     tab['t0'] = np.array([2015.0, 2015.0])
     tab['motion_model_input'] = np.array(['Linear', 'Linear'], dtype='U12')
     tab['motion_model_used'] = np.array(['Linear', 'Linear'], dtype='U12')
-    tab['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    tab['update_ref_motion'] = np.array([False, True])
     tab.fit_motion_models(motion_models=['Linear'], verbose=False)
     assert tab['motion_model_used'][0] == 'Linear'
     assert tab['vx'][0] == 0.01
@@ -1279,7 +1256,7 @@ def test_frozen_fixed_acceleration_and_parallax_keep_their_parameters():
     tab['x0'] = np.array([0.0, 0.0])
     tab['y0'] = np.array([0.0, 0.0])
     tab['motion_model_input'] = np.array(['Fixed', 'Fixed'], dtype='U12')
-    tab['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    tab['update_ref_motion'] = np.array([False, True])
     tab.fit_motion_models(motion_models=['Fixed'], verbose=False)
     assert tab['x0'][0] == 0.0
     assert tab['y0'][0] == 0.0
@@ -1301,7 +1278,7 @@ def test_frozen_fixed_acceleration_and_parallax_keep_their_parameters():
         acc[col] = np.array([val, val])
     acc['t0'] = np.array([2015.0, 2015.0])
     acc['motion_model_input'] = np.array(['Acceleration', 'Acceleration'], dtype='U16')
-    acc['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    acc['update_ref_motion'] = np.array([False, True])
     acc.fit_motion_models(motion_models=['Acceleration'], verbose=False)
     assert acc['ax'][0] == 0.0
     assert acc['x0'][0] == 0.0
@@ -1327,7 +1304,7 @@ def test_frozen_fixed_acceleration_and_parallax_keep_their_parameters():
     par.meta['pa'] = 0.0
     par.meta['obsLocation'] = 'earth'
     par['motion_model_input'] = np.array(['Parallax', 'Parallax'], dtype='U12')
-    par['fit_motion'] = np.array(['fixed', 'fit'], dtype='U8')
+    par['update_ref_motion'] = np.array([False, True])
     par.fit_motion_models(motion_models=['Parallax'], verbose=False)
     assert par['pi'][0] == 0.9
     assert par['x0'][0] == 1.0
@@ -1372,9 +1349,10 @@ def test_frozen_orbit_is_bitwise_unchanged_with_few_detections():
         tab['y0_err'] = np.array([0.01])
         tab['motion_model_input'] = np.array(['Orbit'], dtype='U12')
         tab['motion_model_used'] = np.array(['Orbit'], dtype='U12')
+        tab['update_ref_motion'] = np.array([False])
         before = {name: tab[name][0] for name in names}
         result = tab.fit_motion_models(
-            motion_models=['Orbit'], fixed_motion_models=['Orbit'], verbose=False,
+            motion_models=['Orbit'], verbose=False,
         )
         assert result is None
         for name in names:
@@ -1408,7 +1386,7 @@ def test_frozen_orbit_is_bitwise_unchanged_with_few_detections():
     tab['vx'] = np.array([-0.4])
     tab['motion_model_input'] = np.array(['Orbit'], dtype='U12')
     tab['motion_model_used'] = np.array(['Orbit'], dtype='U12')
-    tab['fit_motion'] = np.array(['fixed'], dtype='U8')
+    tab['update_ref_motion'] = np.array([False])
     tab.fit_motion_models(motion_models=['Orbit'], verbose=False)
     assert tab['orb_P'][0] == 16.0
     assert tab['x0'][0] == 1.25
@@ -1425,7 +1403,7 @@ def test_orbit_star_not_in_reference_demoted_to_linear():
     orbital elements require).  With ``Orbit.demote = True``, ``fit_motion_models``
     must demote that star to a lower model (Linear) because ``n_fit < n_params = 6``.
 
-    A frozen orbit star (in ``fixed_motion_models``) with the same few detections
+    A frozen orbit star (``update_ref_motion=False``) with the same few detections
     must NOT be demoted; that case is covered by
     ``test_frozen_orbit_is_bitwise_unchanged_with_few_detections``.
     """

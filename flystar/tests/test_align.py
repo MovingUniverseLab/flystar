@@ -2353,7 +2353,7 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
     update_ref_orig : bool or str
         Passed straight through to MosaicToRef.
     fit_orbit : bool
-        When True, a second orbit row is marked ``fit_motion='fit'`` and
+        When True, a second orbit row is marked ``update_ref_motion=True`` and
         its catalog elements are offset from the detections.
     n_epochs : int
         Number of science lists.
@@ -2395,7 +2395,7 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
     lin_vx, lin_vy = 0.02, -0.01
     names = [f'a{i}' for i in range(n_anchor)] + ['orb_fixed']
     mm = ['Fixed'] * n_anchor + ['Orbit']
-    fit_col = [''] * n_anchor + ['']
+    update_col = [True] * n_anchor + [False]  # anchors refit, orb_fixed frozen
     x_ref = list(anchor_x) + [0.0]
     y_ref = list(anchor_y) + [0.0]
 
@@ -2418,7 +2418,7 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
     if fit_orbit:
         names.append('orb_fit')
         mm.append('Orbit')
-        fit_col.append('fit')
+        update_col.append(True)  # orb_fit refit
         # Same prediction for the offset orbit parameters, not the injected truth.
         # The initial match uses the catalog elements.
         x1, y1 = motion_model.Orbit().model(
@@ -2432,7 +2432,7 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
     # Linear star.
     names.append('lin')
     mm.append('Linear')
-    fit_col.append('')
+    update_col.append(True)
     x_ref.append(lin_x0)
     y_ref.append(lin_y0)
 
@@ -2440,7 +2440,7 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
     if include_zero:
         names.append('orb_none')
         mm.append('Orbit')
-        fit_col.append('')
+        update_col.append(False)  # orb_none frozen
         x_ref.append(1.0)
         y_ref.append(1.0)
         elements_by_name['orb_none'] = orb_params_true.copy()
@@ -2454,9 +2454,9 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
         xe=np.full(n, 0.001), ye=np.full(n, 0.001), me=np.full(n, 0.01),
     )
 
-    # Set the motion model and fit motion columns.
+    # Set the motion model and update_ref_motion columns.
     ref['motion_model_input'] = np.array(mm, dtype='U12')
-    ref['fit_motion'] = np.array(fit_col, dtype='U8')
+    ref['update_ref_motion'] = np.array(update_col, dtype=bool)
     ref['t0'] = np.full(n, 2010.0)
 
     # Set the initial position and velocity columns.
@@ -2548,7 +2548,6 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
         trans_class=transforms.PolyTransform, trans_args={'order': 1},
         init_guess_mode='name', mag_trans=False,
         motion_models=['Empty', 'Fixed', 'Linear', 'Orbit'],
-        fixed_motion_models=['Orbit'],
         update_ref_orig=update_ref_orig,
         verbose=False,
     )
@@ -2702,11 +2701,11 @@ def test_original_orbit_held_when_update_ref_orig_is_false():
         xe=np.full(n, 0.001), ye=np.full(n, 0.001), me=np.full(n, 0.01),
     )
 
-    # Set the motion model and fit motion columns.
+    # Set the motion model and update_ref_motion columns.
     ref['motion_model_input'] = np.array(
         ['Orbit'] + ['Fixed'] * anchor_x.size, dtype='U12',
     )
-    ref['fit_motion'] = np.array(['fit'] + [''] * anchor_x.size, dtype='U8')
+    ref['update_ref_motion'] = np.array([True] + [True] * anchor_x.size, dtype=bool)
 
     # Set the initial position and velocity columns.
     ref['x0'] = x_ref.copy()
@@ -2759,7 +2758,7 @@ def test_original_orbit_held_when_update_ref_orig_is_false():
         trans_class=transforms.PolyTransform, trans_args={'order': 1},
         init_guess_mode='name', mag_trans=False,
         motion_models=['Empty', 'Fixed', 'Linear', 'Orbit'],
-        fixed_motion_models=None, update_ref_orig=False, verbose=False,
+        update_ref_orig=False, verbose=False,
     )
     mosaic.fit()
 
@@ -2771,13 +2770,12 @@ def test_original_orbit_held_when_update_ref_orig_is_false():
     np.testing.assert_array_equal(tab['orb_P'][i], elements[0])
     np.testing.assert_array_equal(tab['x0'][i], 4.0)
     np.testing.assert_array_equal(tab['vx'][i], 0.3)
-    np.testing.assert_array_equal(tab['fit_motion'][i], 'fit')
 
     return None
 
 
 def test_mosaic_fit_and_fixed_orbit_with_update_ref_orig():
-    """Blank Orbit stays put. fit_motion='fit' is solved. Linear is refit."""
+    """update_ref_motion=False orbit stays put. True orbit is solved. Linear is refit."""
 
     mosaic, truth = _tiny_mosaic(
         True, fit_orbit=True, n_epochs=8, dr_tol=0.03,
@@ -2882,13 +2880,16 @@ def test_zero_detection_frozen_orbit_is_unchanged_then_dropped():
         sl.meta['list_time'] = float(epoch)
         lists.append(sl)
 
+    # Mark the never-matched orbit star as frozen.
+    ref['update_ref_motion'] = np.array([False, True, True, True, True])
+
     # Build the mosaic.
     mosaic = align.MosaicToRef(
         ref, lists, dr_tol=[0.2], dm_tol=None, outlier_tol=[None],
         trans_class=transforms.PolyTransform, trans_args={'order': 1},
         init_guess_mode='name', mag_trans=False,
         motion_models=['Empty', 'Fixed', 'Orbit'],
-        fixed_motion_models=['Orbit'], update_ref_orig=True, verbose=False,
+        update_ref_orig=True, verbose=False,
     )
 
     # Test that the orbit elements are correct.
