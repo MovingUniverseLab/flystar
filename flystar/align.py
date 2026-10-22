@@ -831,6 +831,11 @@ class MosaicSelfRef(object):
         # Repeat transform + match of all the starlists several times.
         #
         ##########
+        # Build the name_key column once before the iteration loop so the
+        # match.match call sites can read it directly (updated when new stars
+        # are added inside the loop via set_name_keys).
+        if self.name_match and 'name_key' not in self.ref_table.colnames:
+            self.ref_table['name_key'] = ref_name_keys(self.ref_table)
         for nn in range(self.iters):
 
             # If we are on subsequent iterations, remove matching results from the
@@ -1187,14 +1192,29 @@ class MosaicSelfRef(object):
             # Match stars between the transformed, trimmed lists.
             # Only use stars specified by "use_in_trans" column.
             use_in_trans = ref_list['use_in_trans']
+            if self.name_match:
+                _keys = np.asarray(self.ref_table['name_key']).astype(str)
+                _prefer = (np.asarray(self.ref_table['ref_orig'], dtype=bool)
+                           if 'ref_orig' in self.ref_table.colnames
+                           else np.zeros(len(_keys), dtype=bool))
+                _use = np.asarray(use_in_trans, dtype=bool)
+                name_kws = {
+                    'names1': np.asarray(star_list_T['name']).astype(str),
+                    'names2': _keys[_use],
+                    'name_dr_tol': self.name_match_dr_tol[nn],
+                    'name_exclude': self.name_match_exclude,
+                    'name_prefer2': _prefer[_use],
+                    'name_mode': self.name_match,
+                }
+            else:
+                name_kws = {}
             idx1, idx2, dr, dm = match.match(
                 star_list_T['x'], star_list_T['y'], star_list_T['m'],
                 ref_list['x'][use_in_trans], ref_list['y'][use_in_trans], ref_list['m'][use_in_trans],
                 dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
                 matching=self.matching, dchi2_tol=self.dchi2_tol,
                 sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag,
-                **self.name_match_kwargs(star_list_T, nn,
-                                         ref_rows=np.asarray(use_in_trans, dtype=bool))
+                **name_kws
             )
             # Restore idx2 to the full reference list indices
             idx2 = np.where(use_in_trans)[0][idx2]
@@ -1375,13 +1395,28 @@ class MosaicSelfRef(object):
                                      dm=(star_t['m'] - star_r['m']),
                                      xo=star_s['x'], yo=star_s['y'], mo=star_s['m']))
 
+            if self.name_match:
+                _keys = np.asarray(self.ref_table['name_key']).astype(str)
+                _prefer = (np.asarray(self.ref_table['ref_orig'], dtype=bool)
+                           if 'ref_orig' in self.ref_table.colnames
+                           else np.zeros(len(_keys), dtype=bool))
+                name_kws = {
+                    'names1': np.asarray(star_list_T['name']).astype(str),
+                    'names2': _keys,
+                    'name_dr_tol': self.name_match_dr_tol[nn],
+                    'name_exclude': self.name_match_exclude,
+                    'name_prefer2': _prefer,
+                    'name_mode': self.name_match,
+                }
+            else:
+                name_kws = {}
             idx_lis, idx_ref, dr, dm = match.match(
                 star_list_T['x'], star_list_T['y'], star_list_T['m'],
                 ref_list['x'], ref_list['y'], ref_list['m'],
                 dr_tol=dr_tol, dm_tol=dm_tol, workers=match_workers, verbose=self.verbose,
                 matching=self.matching, dchi2_tol=self.dchi2_tol,
                 sigma_pos=self.match_sigma_pos, sigma_mag=self.match_sigma_mag,
-                **self.name_match_kwargs(star_list_T, nn)
+                **name_kws
             )
 
             if self.verbose > 1:
@@ -1469,60 +1504,6 @@ class MosaicSelfRef(object):
         self.name_match_dr_tol = gate
 
         return None
-
-    def name_match_kwargs(self, star_list, nn, ref_rows=None):
-        """
-        Keywords that switch on name matching in match.match.
-
-        Creates the 'name_key' column (plain star names) on first use.
-
-        Parameters
-        ----------
-        star_list : StarList
-            The (transformed) starlist being matched; supplies 'name'.
-        nn : int or None
-            Iteration index; -1 or None for the final matching.
-        ref_rows : array of bool, optional
-            Reference-table rows passed to the match (e.g. the use_in_trans
-            rows), by default None (all rows).
-
-        Returns
-        -------
-        dict
-            Empty when name_match is off, else names1, names2, name_dr_tol,
-            name_exclude, name_prefer2 and name_mode for match.match.
-        """
-        # Name matching is off. match.match gets no name keywords.
-        if not self.name_match:
-            return {}
-
-        # Plain names, built once and reused on later calls.
-        if 'name_key' not in self.ref_table.colnames:
-            self.ref_table['name_key'] = ref_name_keys(self.ref_table)
-        keys = np.asarray(self.ref_table['name_key']).astype(str)
-
-        # Original catalog rows win a name collision. Without ref_orig,
-        # no row is preferred.
-        if 'ref_orig' in self.ref_table.colnames:
-            prefer = np.asarray(self.ref_table['ref_orig'], dtype=bool)
-        else:
-            prefer = np.zeros(len(keys), dtype=bool)
-
-        # The match may see only a subset of the reference table.
-        if ref_rows is not None:
-            keys, prefer = keys[ref_rows], prefer[ref_rows]
-
-        # -1 and None are the final match, which uses the last gate.
-        if (nn is None) or (nn < 0):
-            gate = self.name_match_dr_tol[-1]
-        else:
-            gate = self.name_match_dr_tol[nn]
-
-        # names1 is the starlist; names2 is the reference.
-        return {'names1': np.asarray(star_list['name']).astype(str),
-                'names2': keys, 'name_dr_tol': gate,
-                'name_exclude': self.name_match_exclude,
-                'name_prefer2': prefer, 'name_mode': self.name_match}
 
     def setup_trans_info(self):
         """ Setup transformation info into a usable format.
@@ -2271,6 +2252,9 @@ class MosaicSelfRef(object):
         -------
         None
         """
+        # Ensure name_key exists (match_lists may be called without a prior align).
+        if self.name_match and 'name_key' not in self.ref_table.colnames:
+            self.ref_table['name_key'] = ref_name_keys(self.ref_table)
         for ii in range(self.N_lists):
             # Apply the XY transformation to a new copy of the starlist and
             # do one final match between the two (now transformed) lists.
@@ -2286,6 +2270,21 @@ class MosaicSelfRef(object):
             )
             mref = self.ref_table['m0']
 
+            if self.name_match:
+                _keys = np.asarray(self.ref_table['name_key']).astype(str)
+                _prefer = (np.asarray(self.ref_table['ref_orig'], dtype=bool)
+                           if 'ref_orig' in self.ref_table.colnames
+                           else np.zeros(len(_keys), dtype=bool))
+                name_kws = {
+                    'names1': np.asarray(star_list_T['name']).astype(str),
+                    'names2': _keys,
+                    'name_dr_tol': self.name_match_dr_tol[-1],
+                    'name_exclude': self.name_match_exclude,
+                    'name_prefer2': _prefer,
+                    'name_mode': self.name_match,
+                }
+            else:
+                name_kws = {}
             idx_lis, idx_ref, dr, dm = match.match(star_list_T['x'], star_list_T['y'], star_list_T['m'],
                                                    xref, yref, mref,
                                                    dr_tol=dr_tol, dm_tol=dm_tol, workers=workers,
@@ -2293,8 +2292,7 @@ class MosaicSelfRef(object):
                                                    matching=self.matching, dchi2_tol=self.dchi2_tol,
                                                    sigma_pos=self.match_sigma_pos,
                                                    sigma_mag=self.match_sigma_mag,
-                                                   **self.name_match_kwargs(
-                                                       star_list_T, -1))
+                                                   **name_kws)
 
             if self.verbose > 0:
                 fmt = 'Matched {0:5d} out of {1:5d} stars in list {2:2d} [dr = {3:7.4f} ± {4:6.4f}, dm = {5:5.2f} ± {6:4.2f}]'
