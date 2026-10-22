@@ -2541,16 +2541,13 @@ def _choose_branch(elements, seed):
     return out
 
 
-def _element_jacobian(internal, seed, n_wrap):
+def _element_jacobian(internal, n_wrap):
     """Analytic ``d(reported elements) / d(internal parameters)``.
 
     Parameters
     ----------
     internal : ndarray, shape (6,)
         Solver vector at the accepted solution.
-    seed : ndarray, shape (6,)
-        Unused except to document the wrap. The wrap's derivative is
-        carried by ``n_wrap``.
     n_wrap : float
         Periods subtracted from ``t0``.
 
@@ -2565,7 +2562,6 @@ def _element_jacobian(internal, seed, n_wrap):
     Angle wrapping is locally the identity, so those derivatives are 1.
     ``d(omega)/d(h, k)`` is the derivative of ``atan2`` in degrees.
     """
-    del seed  # the wrap derivative is n_wrap, not a finite difference
     period = float(np.exp(internal[0]))
     h = float(internal[2])
     k = float(internal[3])
@@ -2750,7 +2746,7 @@ def _solve_one_orbit(t, x, y, xe, ye, valid, seed, mass, dist, bh,
         except np.linalg.LinAlgError:
             cov_internal = None
         if cov_internal is not None and np.all(np.isfinite(cov_internal)):
-            deriv = _element_jacobian(result.x, seed, n_wrap)
+            deriv = _element_jacobian(result.x, n_wrap)
             cov = deriv @ cov_internal @ deriv.T
             cov = 0.5 * (cov + cov.T)
             if not absolute_sigma:
@@ -2966,7 +2962,6 @@ class Orbit(MotionModel):
         already in the table are what a failed fit returns only when
         those columns were copied in.
         """
-        del fill_value  # a failed fit returns the seed, never this
         t = np.asarray(t, dtype=float)
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
