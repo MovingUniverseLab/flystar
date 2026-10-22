@@ -106,9 +106,10 @@ def _write_fit_diagnostics(table, index, diagnostics):
     Notes
     -----
     A new bool column defaults to False, an int column to -1, and a
-    float column (including ``orb_cov``) to NaN. NaN covariance means
-    the fitter never wrote that star. A failed fit stores inf instead,
-    so prediction can tell the two apart.
+    float column (including ``orb_cov``) to NaN. The ``orb_fit_status`` int
+    column is the source of truth for fit outcome: 0 = success, 1 = singular
+    covariance, 2 = optimizer failed, 3 = skipped / no data. Its sentinel
+    fill value of -1 means this star was never included in a fit run.
     """
     # Nothing was returned, or the dict is empty.
     if not diagnostics:
@@ -129,7 +130,8 @@ def _write_fit_diagnostics(table, index, diagnostics):
                 else:
                     full = np.full(n_stars, np.nan, dtype=float)
             else:
-                # orb_cov and other per-star arrays. NaN means unwritten.
+                # orb_cov and other multi-dim per-star arrays. NaN fill for
+                # unfitted rows; orb_fit_status encodes the fit outcome.
                 full = np.full(
                     (n_stars,) + value.shape[1:], np.nan, dtype=float)
             table.add_column(Column(data=full, name=key))

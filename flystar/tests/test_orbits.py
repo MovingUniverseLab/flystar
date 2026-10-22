@@ -573,6 +573,7 @@ def test_recover_s02_like_and_s016_like():
     assert d_peri < 5.0
     # Four or more epochs: a converged fit records diagnostics.
     assert s02['orb_fit_converged'][0]
+    assert s02['orb_fit_status'][0] == 0  # success: finite covariance
     assert s02['orb_fit_n_iter'][0] > 0
     assert s02['orb_cov'][0].shape == (6, 6)
     # The covariance of the reported elements is symmetric.
@@ -644,6 +645,7 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
     assert np.array_equal(after, before)
     assert tab2['motion_model_used'][0] == 'Orbit'
     assert not tab2['orb_fit_converged'][0]
+    assert tab2['orb_fit_status'][0] == 3  # skipped: too few epochs
     assert tab2['orb_fit_n_iter'][0] == 0
     # Prediction uses the kept seed, not the noise-free truth.
     x_seed, y_seed = Orbit().model(2010.0, seed)
@@ -660,6 +662,7 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
     tab3.fit_motion_models(motion_models=['Orbit'], verbose=False)
     assert tab3['motion_model_used'][0] == 'Orbit'
     assert tab3['orb_fit_converged'][0]
+    assert tab3['orb_fit_status'][0] == 1  # singular covariance: dof = 0
     for name in _NAMES:
         assert not np.isfinite(tab3[name + '_err'][0])
     assert not np.all(np.isfinite(tab3['orb_cov'][0]))
@@ -678,6 +681,7 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
     assert tab_bad['orb_e'][0] == pytest.approx(1.2)
     assert tab_bad['motion_model_used'][0] == 'Orbit'
     assert not tab_bad['orb_fit_converged'][0]
+    assert tab_bad['orb_fit_status'][0] == 3  # skipped: seed could not be integrated
     assert np.isfinite(tab_bad['orb_P'][0])
 
     return None

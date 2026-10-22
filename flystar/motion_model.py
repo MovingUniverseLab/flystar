@@ -2273,8 +2273,10 @@ class Orbit(MotionModel):
     )
     n_fit_params = len(fit_param_names)
     n_params = n_fit_params  # 6 free orbital elements
-    demote = True
-    prediction_columns = ['orb_cov']
+    # Keep the star as Orbit even when too few epochs to solve: the seed
+    # (current orbital solution) is preserved and used as the prediction.
+    demote = False
+    prediction_columns = ['orb_cov', 'orb_fit_status']
 
     def __init__(self):
         """Build one Orbit model. No constructor arguments.
@@ -2389,6 +2391,17 @@ class Orbit(MotionModel):
             xe = np.empty((n_stars, n_times), dtype=float)
             ye = np.empty((n_stars, n_times), dtype=float)
 
+        # Pre-broadcast the orbit_fit_status column when it is available so
+        # error propagation can use it instead of the NaN/inf encoding in
+        # orb_cov (which no longer distinguishes "never fit" from "failed").
+        fit_status_arr = None
+        if want_err and fixed_params_dict is not None and 'orb_fit_status' in fixed_params_dict:
+            sa = np.asarray(fixed_params_dict['orb_fit_status']).ravel()
+            fit_status_arr = (
+                sa if sa.size == n_stars
+                else np.full(n_stars, sa[0], dtype=int)
+            )
+
         fp = self._broadcast_fixed(fixed_params_dict, n_stars)
         for i in range(n_stars):
             elements = fit_params[i]
@@ -2407,19 +2420,41 @@ class Orbit(MotionModel):
             y[i] = ys
             if not want_err:
                 continue
-            cov = _cov_for_star(fixed_params_dict, i, n_stars)
-            state = _cov_state(cov)
-            if state == 'missing':
-                xe[i] = 0.0
-                ye[i] = 0.0
-            elif state == 'bad':
-                xe[i] = np.inf
-                ye[i] = np.inf
+            if fit_status_arr is not None:
+                fs = int(fit_status_arr[i])
+                if fs == 0:
+                    # Successful fit: propagate the element covariance.
+                    cov = _cov_for_star(fixed_params_dict, i, n_stars)
+                    xe[i], ye[i] = _position_sigma(
+                        t_grid[i], elements, cov, mass, dist,
+                        (x_bh, y_bh, vx_bh, vy_bh, t_bh),
+                    )
+                elif fs < 0:
+                    # Sentinel (-1): this star was never part of a fit run.
+                    # Treat like a fixed-position star: no error to propagate.
+                    xe[i] = 0.0
+                    ye[i] = 0.0
+                else:
+                    # 1 = singular covariance, 2 = optimizer failed,
+                    # 3 = skipped (too few epochs, bad seed, or no valid data).
+                    xe[i] = np.inf
+                    ye[i] = np.inf
             else:
-                xe[i], ye[i] = _position_sigma(
-                    t_grid[i], elements, cov, mass, dist,
-                    (x_bh, y_bh, vx_bh, vy_bh, t_bh),
-                )
+                # Fallback for tables that predate orb_fit_status: use the
+                # NaN/inf encoding in orb_cov.
+                cov = _cov_for_star(fixed_params_dict, i, n_stars)
+                state = _cov_state(cov)
+                if state == 'missing':
+                    xe[i] = 0.0
+                    ye[i] = 0.0
+                elif state == 'bad':
+                    xe[i] = np.inf
+                    ye[i] = np.inf
+                else:
+                    xe[i], ye[i] = _position_sigma(
+                        t_grid[i], elements, cov, mass, dist,
+                        (x_bh, y_bh, vx_bh, vy_bh, t_bh),
+                    )
 
         if n_stars == 1 or n_times == 1:
             x = x.flatten()
@@ -2484,7 +2519,7 @@ class Orbit(MotionModel):
         x_bh, y_bh, vx_bh, vy_bh, t_bh = bh
         idx = np.flatnonzero(np.asarray(valid, dtype=bool))
         inf6 = np.full(6, np.inf)
-        cov_bad = np.full((6, 6), np.inf)
+        cov_nan = np.full((6, 6), np.nan)
 
         def _chi2(elements):
             if idx.size == 0:
@@ -2502,15 +2537,15 @@ class Orbit(MotionModel):
             chi2y = float(np.sum(wy * (ys - y[idx])**2))
             return chi2x, chi2y
 
-        def _fail(n_iter, warn_text):
+        def _fail(n_iter, warn_text, status):
             if verbose and warn_text:
                 warnings.warn(warn_text, OptimizeWarning, stacklevel=3)
             chi2x, chi2y = _chi2(seed)
             # converged False even when the seed itself is the catalog orbit.
-            return seed, inf6, chi2x, chi2y, False, int(n_iter), cov_bad
+            return seed, inf6, chi2x, chi2y, False, int(n_iter), cov_nan, status
 
         if idx.size == 0:
-            return _fail(0, None)
+            return _fail(0, None, 3)
         n_fit = np.unique(np.asarray(t[idx], dtype=float)).size
         usable_seed = (
             np.all(np.isfinite(seed))
@@ -2526,7 +2561,7 @@ class Orbit(MotionModel):
                     why = (
                         f"Orbit fit skipped: {n_fit} distinct epochs, need at least 3."
                     )
-            return _fail(0, why)
+            return _fail(0, why, 3)
 
         # Internal start. Inclination is clipped into the open interval the
         # bounded solver accepts; the reported seed on failure is unclipped.
@@ -2578,7 +2613,7 @@ class Orbit(MotionModel):
         )
         n_iter = int(result.nfev)
         if (not result.success) or (not np.all(np.isfinite(result.x))):
-            return _fail(n_iter, "Orbit fit did not converge; keeping the seed.")
+            return _fail(n_iter, "Orbit fit did not converge; keeping the seed.", 2)
 
         elements, n_wrap = _elements_from_internal(result.x, seed)
         elements = _choose_branch(elements, seed)
@@ -2588,8 +2623,11 @@ class Orbit(MotionModel):
         # the covariance is defined to be non-finite. Four epochs is the
         # threshold (2*4 - 6 = 2).
         dof = 2 * int(n_fit) - 6
-        cov = cov_bad
+        cov = cov_nan
         errs = inf6
+        # status 0 = success, 1 = singular covariance.  Only promoted to 0
+        # when the full covariance is finite and all diagonal entries are > 0.
+        fit_status = 1
         if dof > 0 and result.jac is not None:
             jac = np.asarray(result.jac, dtype=float)
             gram = jac.T @ jac
@@ -2608,11 +2646,12 @@ class Orbit(MotionModel):
                 diag = np.diag(cov)
                 if np.all(np.isfinite(cov)) and np.all(diag > 0.0):
                     errs = np.sqrt(diag)
+                    fit_status = 0
                 else:
-                    cov = cov_bad
+                    cov = cov_nan
                     errs = inf6
 
-        return elements, errs, chi2x, chi2y, True, n_iter, cov
+        return elements, errs, chi2x, chi2y, True, n_iter, cov, fit_status
 
 
 
@@ -2686,7 +2725,9 @@ class Orbit(MotionModel):
         chi2y = np.empty(n_stars, dtype=float)
         converged = np.zeros(n_stars, dtype=bool)
         n_iter = np.zeros(n_stars, dtype=int)
-        cov = np.full((n_stars, 6, 6), np.inf, dtype=float)
+        cov = np.full((n_stars, 6, 6), np.nan, dtype=float)
+        # 3 = skipped / no data; updated by fit_one_star for every star.
+        status = np.full(n_stars, 3, dtype=int)
 
         fp = self._broadcast_fixed(fixed_params_dict, n_stars)
         seeds = self._broadcast_seeds(fixed_params_dict, n_stars)
@@ -2703,7 +2744,7 @@ class Orbit(MotionModel):
             )
             (
                 params[i], param_errs[i], chi2x[i], chi2y[i],
-                converged[i], n_iter[i], cov[i],
+                converged[i], n_iter[i], cov[i], status[i],
             ) = self.fit_one_star(
                 t[i], x[i], y[i], xe[i], ye[i], valid[i], seed,
                 mass, dist, bh, weighting, absolute_sigma, verbose,
@@ -2713,5 +2754,6 @@ class Orbit(MotionModel):
             'orb_fit_converged': converged,
             'orb_fit_n_iter': n_iter,
             'orb_cov': cov,
+            'orb_fit_status': status,
         }
         return params, param_errs, chi2x, chi2y, diagnostics
