@@ -602,44 +602,6 @@ def _nearest_angle(angle, reference):
     return float(reference) + _angdiff(angle, reference)
 
 
-def _sky_xy(epochs, elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh):
-    """FlyStar-frame sky position of one star.
-
-    Parameters
-    ----------
-    epochs : ndarray, shape (n_epochs,)
-        Decimal years.
-    elements : array-like, shape (6,)
-        ``orb_P, orb_t0, orb_e, orb_i, orb_Omega, orb_omega``.
-    mass : float
-        Black-hole mass in solar masses.
-    dist : float
-        Distance in parsecs.
-    x_bh, y_bh : float
-        Black-hole offset in arcseconds at ``t_bh``. ``+x`` is west.
-    vx_bh, vy_bh : float
-        Black-hole proper motion in arcseconds per year.
-    t_bh : float
-        Epoch of the black-hole offset.
-
-    Returns
-    -------
-    x, y : ndarray, shape (n_epochs,)
-        ``x = -east``, ``y = +north``, in arcseconds.
-    """
-    r_au, _, _ = kep2xyz(
-        epochs,
-        elements[0], elements[1], elements[2],
-        elements[3], elements[4], elements[5],
-        mass=mass, dist=dist,
-    )
-    dt = np.asarray(epochs, dtype=float) - float(t_bh)
-    x = float(x_bh) + float(vx_bh) * dt - r_au[:, 0]
-    y = float(y_bh) + float(vy_bh) * dt + r_au[:, 1]
-    return x, y
-
-
-
 def _cov_for_star(mapping, index, n_stars):
     """One star's ``orb_cov``, or None if the caller did not pass it.
 
@@ -700,68 +662,6 @@ def _cov_state(cov):
     if np.all(np.isfinite(cov)):
         return 'finite'
     return 'bad'
-
-
-def _position_sigma(epochs, elements, cov, mass, dist, bh):
-    """Numerical Jacobian of (x, y) times ``cov``.
-
-    Parameters
-    ----------
-    epochs : ndarray, shape (n_epochs,)
-        Decimal years.
-    elements : ndarray, shape (6,)
-        Reported elements.
-    cov : ndarray, shape (6, 6)
-        Element covariance. Must be finite.
-    mass, dist : float
-        Black-hole mass and distance.
-    bh : tuple of float
-        ``(x_bh, y_bh, vx_bh, vy_bh, t_bh)``.
-
-    Returns
-    -------
-    xe, ye : ndarray, shape (n_epochs,)
-        One-sigma position errors in arcseconds.
-
-    Notes
-    -----
-    Central differences of the same ``kep2xyz`` path the prediction
-    uses. Diagonal element errors are not the input: the elements are
-    correlated, and ``Omega`` with ``omega`` is degenerate on the sky.
-    """
-    x_bh, y_bh, vx_bh, vy_bh, t_bh = bh
-    n_epochs = len(epochs)
-    jac_x = np.zeros((n_epochs, 6))
-    jac_y = np.zeros((n_epochs, 6))
-    # Relative step on the period, absolute steps on the other elements.
-    steps = np.array([
-        max(abs(float(elements[0])) * 1e-6, 1e-8),
-        1e-4,
-        1e-6,
-        1e-4,
-        1e-4,
-        1e-4,
-    ])
-    for j in range(6):
-        step = steps[j]
-        up = np.array(elements, dtype=float, copy=True)
-        dn = np.array(elements, dtype=float, copy=True)
-        up[j] += step
-        dn[j] -= step
-        # Keep the perturbed copy inside the domain kep2xyz accepts.
-        for trial in (up, dn):
-            trial[0] = max(trial[0], 1e-8)
-            trial[2] = min(max(trial[2], 0.0), 0.999999)
-        xu, yu = _sky_xy(epochs, up, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh)
-        xd, yd = _sky_xy(epochs, dn, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh)
-        jac_x[:, j] = (xu - xd) / (2.0 * step)
-        jac_y[:, j] = (yu - yd) / (2.0 * step)
-
-    xe2 = np.einsum('ta,ab,tb->t', jac_x, cov, jac_x)
-    ye2 = np.einsum('ta,ab,tb->t', jac_y, cov, jac_y)
-    xe = np.sqrt(np.maximum(xe2, 0.0))
-    ye = np.sqrt(np.maximum(ye2, 0.0))
-    return xe, ye
 
 
 def _elements_from_internal(internal, seed):

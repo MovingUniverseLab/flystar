@@ -6,8 +6,8 @@ from astropy.time import Time
 from scipy.optimize import OptimizeWarning, least_squares
 from flystar import orbits
 from flystar.orbits import (
-    _angdiff, _nearest_angle, _sky_xy, _cov_for_star,
-    _cov_state, _position_sigma, _elements_from_internal,
+    _angdiff, _nearest_angle, _cov_for_star,
+    _cov_state, _elements_from_internal,
     _choose_branch, _element_jacobian,
 )
 
@@ -2331,6 +2331,103 @@ class Orbit(MotionModel):
                 )
         return seeds
 
+    def _sky_xy(self, epochs, elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh):
+        """FlyStar-frame sky position of one star.
+
+        Parameters
+        ----------
+        epochs : ndarray, shape (n_epochs,)
+            Decimal years.
+        elements : array-like, shape (6,)
+            ``orb_P, orb_t0, orb_e, orb_i, orb_Omega, orb_omega``.
+        mass : float
+            Black-hole mass in solar masses.
+        dist : float
+            Distance in parsecs.
+        x_bh, y_bh : float
+            Black-hole offset in arcseconds at ``t_bh``. ``+x`` is west.
+        vx_bh, vy_bh : float
+            Black-hole proper motion in arcseconds per year.
+        t_bh : float
+            Epoch of the black-hole offset.
+
+        Returns
+        -------
+        x, y : ndarray, shape (n_epochs,)
+            ``x = -east``, ``y = +north``, in arcseconds.
+        """
+        r_au, _, _ = orbits.kep2xyz(
+            epochs,
+            elements[0], elements[1], elements[2],
+            elements[3], elements[4], elements[5],
+            mass=mass, dist=dist,
+        )
+        dt = np.asarray(epochs, dtype=float) - float(t_bh)
+        x = float(x_bh) + float(vx_bh) * dt - r_au[:, 0]
+        y = float(y_bh) + float(vy_bh) * dt + r_au[:, 1]
+        return x, y
+
+    def _position_sigma(self, epochs, elements, cov, mass, dist, bh):
+        """Numerical Jacobian of (x, y) w.r.t. orbital elements, folded through cov.
+
+        Parameters
+        ----------
+        epochs : ndarray, shape (n_epochs,)
+            Decimal years.
+        elements : ndarray, shape (6,)
+            Reported elements.
+        cov : ndarray, shape (6, 6)
+            Element covariance. Must be finite.
+        mass, dist : float
+            Black-hole mass and distance.
+        bh : tuple of float
+            ``(x_bh, y_bh, vx_bh, vy_bh, t_bh)``.
+
+        Returns
+        -------
+        xe, ye : ndarray, shape (n_epochs,)
+            One-sigma position errors in arcseconds.
+
+        Notes
+        -----
+        Central differences of the same ``kep2xyz`` path the prediction
+        uses. Diagonal element errors are not the input: the elements are
+        correlated, and ``Omega`` with ``omega`` is degenerate on the sky.
+        """
+        x_bh, y_bh, vx_bh, vy_bh, t_bh = bh
+        n_epochs = len(epochs)
+        jac_x = np.zeros((n_epochs, 6))
+        jac_y = np.zeros((n_epochs, 6))
+        # Relative step on the period, absolute steps on the other elements.
+        steps = np.array([
+            max(abs(float(elements[0])) * 1e-6, 1e-8),
+            1e-4,
+            1e-6,
+            1e-4,
+            1e-4,
+            1e-4,
+        ])
+        for j in range(6):
+            step = steps[j]
+            up = np.array(elements, dtype=float, copy=True)
+            dn = np.array(elements, dtype=float, copy=True)
+            up[j] += step
+            dn[j] -= step
+            # Keep the perturbed copy inside the domain kep2xyz accepts.
+            for trial in (up, dn):
+                trial[0] = max(trial[0], 1e-8)
+                trial[2] = min(max(trial[2], 0.0), 0.999999)
+            xu, yu = self._sky_xy(epochs, up, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh)
+            xd, yd = self._sky_xy(epochs, dn, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh)
+            jac_x[:, j] = (xu - xd) / (2.0 * step)
+            jac_y[:, j] = (yu - yd) / (2.0 * step)
+
+        xe2 = np.einsum('ta,ab,tb->t', jac_x, cov, jac_x)
+        ye2 = np.einsum('ta,ab,tb->t', jac_y, cov, jac_y)
+        xe = np.sqrt(np.maximum(xe2, 0.0))
+        ye = np.sqrt(np.maximum(ye2, 0.0))
+        return xe, ye
+
     def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Predict from the current ``orb_*`` elements.
 
@@ -2412,7 +2509,7 @@ class Orbit(MotionModel):
             vx_bh = fp['vx_bh'][i]
             vy_bh = fp['vy_bh'][i]
             t_bh = fp['t_bh'][i]
-            xs, ys = _sky_xy(
+            xs, ys = self._sky_xy(
                 t_grid[i], elements, mass, dist,
                 x_bh, y_bh, vx_bh, vy_bh, t_bh,
             )
@@ -2425,7 +2522,7 @@ class Orbit(MotionModel):
                 if fs == 0:
                     # Successful fit: propagate the element covariance.
                     cov = _cov_for_star(fixed_params_dict, i, n_stars)
-                    xe[i], ye[i] = _position_sigma(
+                    xe[i], ye[i] = self._position_sigma(
                         t_grid[i], elements, cov, mass, dist,
                         (x_bh, y_bh, vx_bh, vy_bh, t_bh),
                     )
@@ -2451,7 +2548,7 @@ class Orbit(MotionModel):
                     xe[i] = np.inf
                     ye[i] = np.inf
                 else:
-                    xe[i], ye[i] = _position_sigma(
+                    xe[i], ye[i] = self._position_sigma(
                         t_grid[i], elements, cov, mass, dist,
                         (x_bh, y_bh, vx_bh, vy_bh, t_bh),
                     )
@@ -2467,9 +2564,8 @@ class Orbit(MotionModel):
         return x, y, xe, ye
 
 
-    @staticmethod
-    def fit_one_star(t, x, y, xe, ye, valid, seed, mass, dist, bh,
-                    weighting, absolute_sigma, verbose):
+    def fit_one_star(self, t, x, y, xe, ye, valid, seed, mass, dist, bh,
+                     weighting, absolute_sigma, verbose):
         """Fit one star. On failure, return ``seed`` unchanged.
 
         Parameters
@@ -2528,7 +2624,7 @@ class Orbit(MotionModel):
             wx = weight_from_sigma(sigma_x)
             wy = weight_from_sigma(sigma_y)
             try:
-                xs, ys = _sky_xy(
+                xs, ys = self._sky_xy(
                     t[idx], elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh,
                 )
             except ValueError:
@@ -2589,7 +2685,7 @@ class Orbit(MotionModel):
                 return np.full(2 * idx.size, 1.0e3 * (1.0 + max(ecc, 1.0)))
             elements, _n_wrap = _elements_from_internal(internal, seed)
             try:
-                xs, ys = _sky_xy(
+                xs, ys = self._sky_xy(
                     t[idx], elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh,
                 )
             except ValueError:
