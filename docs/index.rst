@@ -276,6 +276,7 @@ Where to go next
 
    examples/alignment_example
    examples/motion_model_example
+   examples/name_match_example
 
 .. toctree::
    :maxdepth: 2
