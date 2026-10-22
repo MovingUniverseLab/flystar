@@ -2213,9 +2213,7 @@ class Orbit(MotionModel):
     )
     n_fit_params = len(fit_param_names)
     n_params = n_fit_params  # 6 free orbital elements
-    # Keep the star as Orbit even when too few epochs to solve: the seed
-    # (current orbital solution) is preserved and used as the prediction.
-    demote = False
+    demote = True
     prediction_columns = ['orb_cov', 'orb_fit_status']
 
     def __init__(self):
