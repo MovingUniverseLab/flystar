@@ -1956,6 +1956,25 @@ class MosaicSelfRef(object):
         Returns
         -------
         None
+
+        Notes
+        -----
+        **Interaction between** update_ref_orig **and** update_ref_motion:
+
+        update_ref_orig (a :class:`MosaicToRef` instance attribute) controls
+        whether stars originally from the reference catalog (ref_orig=True)
+        have their positions and velocities updated each iteration.  It acts on
+        a *group* of stars based on catalog membership.
+
+        update_ref_motion=False on an individual star (a boolean column of
+        ref_table) is an unconditional per-star freeze: that star's position
+        *and* motion-model parameters are preserved on every iteration,
+        regardless of update_ref_orig.  Internally, the frozen mask is
+        OR-ed into the keep_orig boolean array so that the restore step
+        covers both controls simultaneously.
+
+        In short: update_ref_orig manages catalog-level update policy;
+        update_ref_motion is a per-star override that always takes precedence.
         """
         # Frozen stars are held on every pass, for every model. A
         # fit_motion cell overrides the list. Union into keep_orig
@@ -2807,6 +2826,14 @@ class MosaicToRef(MosaicSelfRef):
     ``update_ref_orig``. Set both to False to hold the input catalog fixed
     and simply transform everything onto it.
 
+    Individual stars can also be frozen regardless of ``update_ref_orig`` by
+    setting the ``update_ref_motion`` column to ``False`` in the input
+    ``ref_list``.  A frozen star's position and motion-model parameters are
+    never updated, even if ``update_ref_orig=True``.  Stars without this column,
+    or with ``update_ref_motion=True``, follow the normal ``update_ref_orig``
+    logic.  Stars newly added to the reference frame during alignment always start
+    with ``update_ref_motion=True``.
+
     See :meth:`__init__` for the full list of settings, and
     :class:`MosaicSelfRef` for the attributes left behind by :meth:`fit` and
     for worked examples of the per-iteration and per-starlist forms that
@@ -2983,6 +3010,25 @@ class MosaicToRef(MosaicSelfRef):
             Note that this only impacts the stars that are in the original reference list... the
             newly identified stars that end up in ref_table will always be updated; but not always
             used for transformation fitting.
+
+            See also update_ref_motion in ref_list below.
+
+        update_ref_motion (ref_list column) : bool per star, optional
+            A boolean column on the input ref_list (and ref_table) that
+            provides per-star control over whether a star's motion model is
+            refit each iteration.
+
+                True  (default) — refit this star normally, subject to
+                      update_ref_orig.
+                False — freeze this star: its position and all motion-model
+                        parameters are preserved unconditionally on every
+                        iteration, regardless of update_ref_orig.
+
+            Stars without this column are treated as True.  Stars added
+            to the reference frame during alignment are always initialised to
+            True.  Setting update_ref_motion=False is the recommended
+            way to anchor specific high-quality stars while still letting the
+            rest of the catalog evolve.
 
         trans_class : transforms.Transform2D object (or subclass), optional
             The transform class that will be used to when deriving the optimal
@@ -4085,6 +4131,12 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
     fixed_params_dict : dict, optional
         The default fixed parameters to assign to the new stars, by default None.
 
+    Notes
+    -----
+    New stars always receive update_ref_motion=True (refittable).  The
+    generic boolean-column fallback would assign False (frozen), so
+    update_ref_motion is handled explicitly before that fallback.
+
     Returns
     -------
     ref_table : StarTable
@@ -4155,6 +4207,11 @@ def add_rows_for_new_stars(ref_table, star_list, idx_list, motion_model_name='Fi
                 new_col_empty = np.nan
             elif dtype.kind in 'iu':
                 new_col_empty = -1
+            elif col_name == 'update_ref_motion':
+                # New stars discovered during alignment are refittable by default.
+                # The generic boolean fallback below would freeze them (False),
+                # so this explicit case must come first.
+                new_col_empty = True
             elif dtype.kind == 'b':
                 new_col_empty = False
             elif dtype.kind in 'US':
