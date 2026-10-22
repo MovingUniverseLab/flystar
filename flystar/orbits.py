@@ -565,3 +565,353 @@ def attach_orbits(starlist, orbits):
             stacklevel=2,
         )
     return starlist
+
+# ---------------------------------------------------------------------------
+# Orbit-fitting helpers (used by motion_model.Orbit)
+# ---------------------------------------------------------------------------
+
+def _angdiff(angle, reference):
+    """Signed difference ``angle - reference`` in (-180, 180].
+
+    Parameters
+    ----------
+    angle, reference : float
+        Angles in degrees.
+
+    Returns
+    -------
+    delta : float
+        ``angle`` minus ``reference``, wrapped into (-180, 180].
+    """
+    return (float(angle) - float(reference) + 180.0) % 360.0 - 180.0
+
+
+def _nearest_angle(angle, reference):
+    """Wrap ``angle`` onto the turn nearest ``reference``.
+
+    Parameters
+    ----------
+    angle, reference : float
+        Angles in degrees.
+
+    Returns
+    -------
+    wrapped : float
+        Equivalent angle closest to ``reference``.
+    """
+    return float(reference) + _angdiff(angle, reference)
+
+
+def _sky_xy(epochs, elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh):
+    """FlyStar-frame sky position of one star.
+
+    Parameters
+    ----------
+    epochs : ndarray, shape (n_epochs,)
+        Decimal years.
+    elements : array-like, shape (6,)
+        ``orb_P, orb_t0, orb_e, orb_i, orb_Omega, orb_omega``.
+    mass : float
+        Black-hole mass in solar masses.
+    dist : float
+        Distance in parsecs.
+    x_bh, y_bh : float
+        Black-hole offset in arcseconds at ``t_bh``. ``+x`` is west.
+    vx_bh, vy_bh : float
+        Black-hole proper motion in arcseconds per year.
+    t_bh : float
+        Epoch of the black-hole offset.
+
+    Returns
+    -------
+    x, y : ndarray, shape (n_epochs,)
+        ``x = -east``, ``y = +north``, in arcseconds.
+    """
+    r_au, _, _ = kep2xyz(
+        epochs,
+        elements[0], elements[1], elements[2],
+        elements[3], elements[4], elements[5],
+        mass=mass, dist=dist,
+    )
+    dt = np.asarray(epochs, dtype=float) - float(t_bh)
+    x = float(x_bh) + float(vx_bh) * dt - r_au[:, 0]
+    y = float(y_bh) + float(vy_bh) * dt + r_au[:, 1]
+    return x, y
+
+
+def _row_value(mapping, name, default, index, n_stars):
+    """One star's fixed parameter, from a scalar or a per-star array.
+
+    Parameters
+    ----------
+    mapping : dict or None
+        Fixed parameters for the batch.
+    name : str
+        Parameter name.
+    default : float
+        Value used when ``name`` is absent.
+    index : int
+        Star index inside the batch.
+    n_stars : int
+        Batch length. An array of this length is per-star.
+
+    Returns
+    -------
+    value : float
+        The scalar used for this star.
+    """
+    if mapping is None or name not in mapping:
+        return float(default)
+    value = np.asarray(mapping[name], dtype=float)
+    if value.ndim == 0 or value.size == 1:
+        return float(value.reshape(-1)[0])
+    if value.shape[0] == n_stars:
+        return float(value[index])
+    raise ValueError(
+        f"Fixed parameter {name} has shape {value.shape}, "
+        f"expected a scalar or length {n_stars}."
+    )
+
+
+def _cov_for_star(mapping, index, n_stars):
+    """One star's ``orb_cov``, or None if the caller did not pass it.
+
+    Parameters
+    ----------
+    mapping : dict or None
+        Fixed-parameter dict handed to ``model``.
+    index : int
+        Star index.
+    n_stars : int
+        Batch length.
+
+    Returns
+    -------
+    cov : ndarray, shape (6, 6), or None
+        None when ``orb_cov`` is not in ``mapping``.
+    """
+    if mapping is None or 'orb_cov' not in mapping:
+        return None
+    cov = np.asarray(mapping['orb_cov'], dtype=float)
+    if cov.shape == (6, 6):
+        return cov
+    if cov.ndim == 3 and cov.shape[1:] == (6, 6):
+        if cov.shape[0] == n_stars:
+            return cov[index]
+        if cov.shape[0] == 1:
+            return cov[0]
+    raise ValueError(
+        f"orb_cov has shape {cov.shape}; expected (6, 6) or (n_stars, 6, 6)."
+    )
+
+
+def _cov_state(cov):
+    """Classify a covariance as missing, finite, or unusable.
+
+    Parameters
+    ----------
+    cov : ndarray or None
+        One star's 6x6 covariance, or None.
+
+    Returns
+    -------
+    state : {'missing', 'finite', 'bad'}
+        All-NaN means the fitter never wrote this star (treat like a
+        missing column). Any other non-finite matrix is a failed or
+        singular fit.
+
+    Notes
+    -----
+    A frozen star on a table where some other star was fit still has
+    an ``orb_cov`` column, filled with NaN. That must not look like a
+    failed fit, which writes inf.
+    """
+    if cov is None or cov.shape != (6, 6):
+        return 'missing' if cov is None else 'bad'
+    if np.all(np.isnan(cov)):
+        return 'missing'
+    if np.all(np.isfinite(cov)):
+        return 'finite'
+    return 'bad'
+
+
+def _position_sigma(epochs, elements, cov, mass, dist, bh):
+    """Numerical Jacobian of (x, y) times ``cov``.
+
+    Parameters
+    ----------
+    epochs : ndarray, shape (n_epochs,)
+        Decimal years.
+    elements : ndarray, shape (6,)
+        Reported elements.
+    cov : ndarray, shape (6, 6)
+        Element covariance. Must be finite.
+    mass, dist : float
+        Black-hole mass and distance.
+    bh : tuple of float
+        ``(x_bh, y_bh, vx_bh, vy_bh, t_bh)``.
+
+    Returns
+    -------
+    xe, ye : ndarray, shape (n_epochs,)
+        One-sigma position errors in arcseconds.
+
+    Notes
+    -----
+    Central differences of the same ``kep2xyz`` path the prediction
+    uses. Diagonal element errors are not the input: the elements are
+    correlated, and ``Omega`` with ``omega`` is degenerate on the sky.
+    """
+    x_bh, y_bh, vx_bh, vy_bh, t_bh = bh
+    n_epochs = len(epochs)
+    jac_x = np.zeros((n_epochs, 6))
+    jac_y = np.zeros((n_epochs, 6))
+    # Relative step on the period, absolute steps on the other elements.
+    steps = np.array([
+        max(abs(float(elements[0])) * 1e-6, 1e-8),
+        1e-4,
+        1e-6,
+        1e-4,
+        1e-4,
+        1e-4,
+    ])
+    for j in range(6):
+        step = steps[j]
+        up = np.array(elements, dtype=float, copy=True)
+        dn = np.array(elements, dtype=float, copy=True)
+        up[j] += step
+        dn[j] -= step
+        # Keep the perturbed copy inside the domain kep2xyz accepts.
+        for trial in (up, dn):
+            trial[0] = max(trial[0], 1e-8)
+            trial[2] = min(max(trial[2], 0.0), 0.999999)
+        xu, yu = _sky_xy(epochs, up, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh)
+        xd, yd = _sky_xy(epochs, dn, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh)
+        jac_x[:, j] = (xu - xd) / (2.0 * step)
+        jac_y[:, j] = (yu - yd) / (2.0 * step)
+
+    xe2 = np.einsum('ta,ab,tb->t', jac_x, cov, jac_x)
+    ye2 = np.einsum('ta,ab,tb->t', jac_y, cov, jac_y)
+    xe = np.sqrt(np.maximum(xe2, 0.0))
+    ye = np.sqrt(np.maximum(ye2, 0.0))
+    return xe, ye
+
+
+def _elements_from_internal(internal, seed):
+    """Map the unconstrained solver vector onto catalog elements.
+
+    Parameters
+    ----------
+    internal : ndarray, shape (6,)
+        ``ln P``, ``delta t0``, ``h``, ``k``, inclination (deg),
+        ``Omega`` (deg, unbounded).
+    seed : ndarray, shape (6,)
+        Elements the fit started from. ``t0`` and the node are wrapped
+        toward this seed. The 180 degree twin is not applied here.
+
+    Returns
+    -------
+    elements : ndarray, shape (6,)
+        ``P, t0, e, i, Omega, omega``.
+    n_wrap : float
+        Integer number of periods removed from ``t0``. Used by the
+        covariance transform.
+
+    Notes
+    -----
+    ``e = h**2 + k**2`` and ``omega = atan2(k, h)`` in degrees.
+    ``t0`` is shifted by an integer number of periods so it lies
+    within half a period of the seed.
+    """
+    period = float(np.exp(internal[0]))
+    t0 = float(seed[1]) + float(internal[1])
+    n_wrap = float(np.round((t0 - float(seed[1])) / period))
+    t0 = t0 - n_wrap * period
+    ecc = float(internal[2]**2 + internal[3]**2)
+    omega = float(np.degrees(np.arctan2(internal[3], internal[2])))
+    incl = float(internal[4])
+    big_omega = _nearest_angle(internal[5], seed[4])
+    elements = np.array([period, t0, ecc, incl, big_omega, omega], dtype=float)
+    return elements, n_wrap
+
+
+def _choose_branch(elements, seed):
+    """Keep the ``(Omega, omega)`` branch closer to the seed.
+
+    Parameters
+    ----------
+    elements : ndarray, shape (6,)
+        Solved elements, before the twin comparison.
+    seed : ndarray, shape (6,)
+        Elements the solver was started from.
+
+    Returns
+    -------
+    elements : ndarray, shape (6,)
+        Copy. ``Omega`` and ``omega`` may each have 180 degrees added,
+        then wrapped to the turn nearest the seed. Inclination is not
+        flipped.
+
+    Notes
+    -----
+    Sky positions are unchanged under ``(Omega + 180, omega + 180)``
+    and the line-of-sight velocity flips. This fit has no radial
+    velocities, so both branches are acceptable. The one closer to the
+    catalog angles is kept.
+    """
+    out = np.array(elements, dtype=float, copy=True)
+    big_omega = out[4]
+    omega = out[5]
+    d_keep = _angdiff(big_omega, seed[4])**2 + _angdiff(omega, seed[5])**2
+    d_twin = (
+        _angdiff(big_omega + 180.0, seed[4])**2
+        + _angdiff(omega + 180.0, seed[5])**2
+    )
+    if d_twin < d_keep:
+        big_omega = big_omega + 180.0
+        omega = omega + 180.0
+    out[4] = _nearest_angle(big_omega, seed[4])
+    out[5] = _nearest_angle(omega, seed[5])
+    return out
+
+
+def _element_jacobian(internal, n_wrap):
+    """Analytic ``d(reported elements) / d(internal parameters)``.
+
+    Parameters
+    ----------
+    internal : ndarray, shape (6,)
+        Solver vector at the accepted solution.
+    n_wrap : float
+        Periods subtracted from ``t0``.
+
+    Returns
+    -------
+    deriv : ndarray, shape (6, 6)
+        Rows are ``P, t0, e, i, Omega, omega``. Columns are
+        ``ln P, delta t0, h, k, i, Omega``.
+
+    Notes
+    -----
+    Angle wrapping is locally the identity, so those derivatives are 1.
+    ``d(omega)/d(h, k)`` is the derivative of ``atan2`` in degrees.
+    """
+    period = float(np.exp(internal[0]))
+    h = float(internal[2])
+    k = float(internal[3])
+    ecc = h * h + k * k
+    deriv = np.zeros((6, 6), dtype=float)
+    deriv[0, 0] = period
+    deriv[1, 0] = -float(n_wrap) * period
+    deriv[1, 1] = 1.0
+    deriv[2, 2] = 2.0 * h
+    deriv[2, 3] = 2.0 * k
+    deriv[3, 4] = 1.0
+    deriv[4, 5] = 1.0
+    if ecc > 0.0:
+        rad2deg = 180.0 / np.pi
+        deriv[5, 2] = rad2deg * (-k / ecc)
+        deriv[5, 3] = rad2deg * (h / ecc)
+    return deriv
+
+
