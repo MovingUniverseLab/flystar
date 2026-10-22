@@ -639,39 +639,6 @@ def _sky_xy(epochs, elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh):
     return x, y
 
 
-def _row_value(mapping, name, default, index, n_stars):
-    """One star's fixed parameter, from a scalar or a per-star array.
-
-    Parameters
-    ----------
-    mapping : dict or None
-        Fixed parameters for the batch.
-    name : str
-        Parameter name.
-    default : float
-        Value used when ``name`` is absent.
-    index : int
-        Star index inside the batch.
-    n_stars : int
-        Batch length. An array of this length is per-star.
-
-    Returns
-    -------
-    value : float
-        The scalar used for this star.
-    """
-    if mapping is None or name not in mapping:
-        return float(default)
-    value = np.asarray(mapping[name], dtype=float)
-    if value.ndim == 0 or value.size == 1:
-        return float(value.reshape(-1)[0])
-    if value.shape[0] == n_stars:
-        return float(value[index])
-    raise ValueError(
-        f"Fixed parameter {name} has shape {value.shape}, "
-        f"expected a scalar or length {n_stars}."
-    )
-
 
 def _cov_for_star(mapping, index, n_stars):
     """One star's ``orb_cov``, or None if the caller did not pass it.

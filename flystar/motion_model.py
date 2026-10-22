@@ -6,7 +6,7 @@ from astropy.time import Time
 from scipy.optimize import OptimizeWarning, least_squares
 from flystar import orbits
 from flystar.orbits import (
-    _angdiff, _nearest_angle, _sky_xy, _row_value, _cov_for_star,
+    _angdiff, _nearest_angle, _sky_xy, _cov_for_star,
     _cov_state, _position_sigma, _elements_from_internal,
     _choose_branch, _element_jacobian,
 )
@@ -2286,6 +2286,49 @@ class Orbit(MotionModel):
         super().__init__()
         return None
 
+    def _broadcast_fixed(self, mapping, n_stars):
+        """Broadcast all optional fixed params to ``(n_stars,)`` float arrays.
+
+        Falls back to ``self.optional_fixed_params`` for absent keys.
+        """
+        out = {}
+        for name, default in self.optional_fixed_params.items():
+            raw = (mapping or {}).get(name, default)
+            v = np.asarray(raw, dtype=float).ravel()
+            if v.size == 1:
+                out[name] = np.full(n_stars, v[0])
+            elif v.size == n_stars:
+                out[name] = v.copy()
+            else:
+                raise ValueError(
+                    f"Fixed parameter {name!r} has {v.size} values, "
+                    f"expected 1 or {n_stars}."
+                )
+        return out
+
+    def _broadcast_seeds(self, mapping, n_stars):
+        """Broadcast orbital-element seeds to ``(n_stars, 6)`` float array.
+
+        Missing seeds are ``np.nan``, which a failed fit returns unchanged.
+        """
+        seeds = np.full((n_stars, len(self.fit_param_names)), np.nan)
+        if not mapping:
+            return seeds
+        for j, name in enumerate(self.fit_param_names):
+            if name not in mapping:
+                continue
+            v = np.asarray(mapping[name], dtype=float).ravel()
+            if v.size == 1:
+                seeds[:, j] = v[0]
+            elif v.size == n_stars:
+                seeds[:, j] = v
+            else:
+                raise ValueError(
+                    f"Fixed parameter {name!r} has {v.size} values, "
+                    f"expected 1 or {n_stars}."
+                )
+        return seeds
+
     def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Predict from the current ``orb_*`` elements.
 
@@ -2346,15 +2389,16 @@ class Orbit(MotionModel):
             xe = np.empty((n_stars, n_times), dtype=float)
             ye = np.empty((n_stars, n_times), dtype=float)
 
+        fp = self._broadcast_fixed(fixed_params_dict, n_stars)
         for i in range(n_stars):
-            mass = _row_value(fixed_params_dict, 'mass', 4.0e6, i, n_stars)
-            dist = _row_value(fixed_params_dict, 'dist', 8.0e3, i, n_stars)
-            x_bh = _row_value(fixed_params_dict, 'x_bh', 0.0, i, n_stars)
-            y_bh = _row_value(fixed_params_dict, 'y_bh', 0.0, i, n_stars)
-            vx_bh = _row_value(fixed_params_dict, 'vx_bh', 0.0, i, n_stars)
-            vy_bh = _row_value(fixed_params_dict, 'vy_bh', 0.0, i, n_stars)
-            t_bh = _row_value(fixed_params_dict, 't_bh', 2000.0, i, n_stars)
             elements = fit_params[i]
+            mass = fp['mass'][i]
+            dist = fp['dist'][i]
+            x_bh = fp['x_bh'][i]
+            y_bh = fp['y_bh'][i]
+            vx_bh = fp['vx_bh'][i]
+            vy_bh = fp['vy_bh'][i]
+            t_bh = fp['t_bh'][i]
             xs, ys = _sky_xy(
                 t_grid[i], elements, mass, dist,
                 x_bh, y_bh, vx_bh, vy_bh, t_bh,
@@ -2644,19 +2688,18 @@ class Orbit(MotionModel):
         n_iter = np.zeros(n_stars, dtype=int)
         cov = np.full((n_stars, 6, 6), np.inf, dtype=float)
 
+        fp = self._broadcast_fixed(fixed_params_dict, n_stars)
+        seeds = self._broadcast_seeds(fixed_params_dict, n_stars)
         for i in range(n_stars):
-            seed = np.array([
-                _row_value(fixed_params_dict, name, np.nan, i, n_stars)
-                for name in self.fit_param_names
-            ], dtype=float)
-            mass = _row_value(fixed_params_dict, 'mass', 4.0e6, i, n_stars)
-            dist = _row_value(fixed_params_dict, 'dist', 8.0e3, i, n_stars)
+            seed = seeds[i]
+            mass = fp['mass'][i]
+            dist = fp['dist'][i]
             bh = (
-                _row_value(fixed_params_dict, 'x_bh', 0.0, i, n_stars),
-                _row_value(fixed_params_dict, 'y_bh', 0.0, i, n_stars),
-                _row_value(fixed_params_dict, 'vx_bh', 0.0, i, n_stars),
-                _row_value(fixed_params_dict, 'vy_bh', 0.0, i, n_stars),
-                _row_value(fixed_params_dict, 't_bh', 2000.0, i, n_stars),
+                fp['x_bh'][i],
+                fp['y_bh'][i],
+                fp['vx_bh'][i],
+                fp['vy_bh'][i],
+                fp['t_bh'][i],
             )
             (
                 params[i], param_errs[i], chi2x[i], chi2y[i],
