@@ -8,7 +8,6 @@ import os
 import sys
 
 from setuptools import setup
-from setuptools.config import read_configuration
 
 
 # First provide helpful messages if contributors try and run legacy commands
@@ -75,5 +74,9 @@ except Exception:
     version = '{version}'
 """.lstrip()
 
+# local_scheme='no-local-version': between tags the version is e.g.
+# 1.0.1.dev3, without setuptools_scm's '+g<hash>' suffix, which PyPI and
+# TestPyPI reject -- so an untagged commit can still be uploaded to TestPyPI.
 setup(use_scm_version={'write_to': os.path.join('flystar', 'version.py'),
-                       'write_to_template': VERSION_TEMPLATE})
+                       'write_to_template': VERSION_TEMPLATE,
+                       'local_scheme': 'no-local-version'})
