@@ -1,0 +1,79 @@
+# Build the distributions and publish them to PyPI.
+#
+# Authentication is PyPI Trusted Publishing (OpenID Connect), so there is no
+# API token to store or rotate: PyPI verifies the workflow's identity directly.
+# That needs a one-time setup on PyPI, under the project's
+# Publishing -> Add a new pending publisher:
+#
+#   PyPI project name : flystar
+#   Owner             : MovingUniverseLab
+#   Repository        : flystar
+#   Workflow name     : publish.yml
+#   Environment       : pypi
+#
+# Publishing is triggered by publishing a GitHub Release, not by pushing a tag,
+# so creating the tag stays a reversible act and the upload takes a deliberate
+# second step. The version comes from the tag via setuptools_scm, so the tag is
+# what decides the version that is uploaded -- and a version can never be
+# re-uploaded to PyPI, so it is worth being sure of.
+
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:        # manual run, for a TestPyPI dry run
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # setuptools_scm needs the tags to find the version
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          twine check dist/*
+      - name: Show what will be uploaded
+        run: ls -l dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    # Manual runs go to TestPyPI, so the whole path can be rehearsed without
+    # burning a version number on PyPI proper.
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
