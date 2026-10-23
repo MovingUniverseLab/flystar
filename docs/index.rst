@@ -24,14 +24,6 @@ uncertainties that mean something.
 That is the whole point of the package: **turn many disagreeing star lists into
 one self-consistent astrometric solution.**
 
-.. admonition:: Which version is this?
-   :class: important
-
-   Built from the ``mm_rework_lingfeng`` branch, and describes *that* branch's
-   API. The motion-model framework in :doc:`motion_models` does not exist on
-   ``main``. Every page here, the :doc:`API reference <api/flystar/index>`
-   included, is generated from this branch's source.
-
 How the pieces fit
 ==================
 
@@ -67,17 +59,14 @@ Getting started
 Installation
 ------------
 
-FlyStar is not on PyPI; install it from the repository:
+Install FlyStar from PyPI:
 
 .. code-block:: bash
 
-   git clone https://github.com/MovingUniverseLab/flystar.git
-   cd flystar
-   pip install -e .
+   pip install flystar
 
 That pulls in the whole runtime set -- numpy, scipy, astropy, matplotlib,
-pandas, joblib and tqdm -- all of which the package imports at module level.
-Python 3.7 or newer.
+pandas, joblib, tqdm, h5py and jplephem. Python 3.9 or newer.
 
 Three further packages are imported lazily, inside the functions that use them,
 so install them only if you want those features: ``shapely``
@@ -87,6 +76,14 @@ so install them only if you want those features: ``shapely``
 
 .. code-block:: bash
 
+   pip install 'flystar[optional]'
+
+To work on the code, install from the repository instead:
+
+.. code-block:: bash
+
+   git clone https://github.com/MovingUniverseLab/flystar.git
+   cd flystar
    pip install -e '.[optional]'
 
 A first alignment, start to finish
