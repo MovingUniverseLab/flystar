@@ -2644,13 +2644,20 @@ class MosaicSelfRef(object):
                 ye_trans_arr[:,jj] = starlist_T['ye']
                 me_trans_arr[:,jj] = starlist_T['me']
 
-            x_boot_sum += x_trans_arr
-            x2_boot_sum += x_trans_arr**2
-            y_boot_sum += y_trans_arr
-            y2_boot_sum += y_trans_arr**2
+            # Sum each value as its difference from the first iteration's.
+            # Summing the raw values (positions up to hundreds of arcsec) and
+            # their squares leaves the variance -- often ~1e-14 -- to
+            # cancellation between two nearly equal sums, which rounds a small
+            # spread to 0, or below 0 and so to a NaN error.
+            if ii == 0:
+                x_shift, y_shift, m_shift = x_trans_arr.copy(), y_trans_arr.copy(), m_trans_arr.copy()
+            x_boot_sum += x_trans_arr - x_shift
+            x2_boot_sum += (x_trans_arr - x_shift)**2
+            y_boot_sum += y_trans_arr - y_shift
+            y2_boot_sum += (y_trans_arr - y_shift)**2
             if self.mag_trans:
-                m_boot_sum += m_trans_arr
-                m2_boot_sum += m_trans_arr**2
+                m_boot_sum += m_trans_arr - m_shift
+                m2_boot_sum += (m_trans_arr - m_shift)**2
 
             # t2 = time.time()
             #print('=================================================')
@@ -2696,10 +2703,14 @@ class MosaicSelfRef(object):
                     verbose=False
                 )
 
-                # Save proper motion fit results to output arrays
+                # Save proper motion fit results to output arrays, as
+                # differences from the first iteration's (see above)
+                if ii == 0:
+                    motion_shift = {col: np.array(star_table[col], dtype=float) for col in motion_col_list}
                 for col in motion_col_list:
-                    motion_boot_sum[col] += star_table[col]
-                    motion2_boot_sum[col] += star_table[col]**2
+                    d = np.asarray(star_table[col], dtype=float) - motion_shift[col]
+                    motion_boot_sum[col] += d
+                    motion2_boot_sum[col] += d**2
 
                 # Quick check to make sure bootstrap calc was valid: output t0 should be
                 # same as input t0_arr, since we used fixed_t0 option
@@ -2710,20 +2721,20 @@ class MosaicSelfRef(object):
                 #print('Time to calc proper motions: {0}s'.format(t3-t2))
                 #print('=================================================')
 
-        # Calculate the bootstrap error values.
-        x_boot_mean = x_boot_sum/n_boot
-        x_err_b = np.sqrt((x2_boot_sum - 2*x_boot_mean*x_boot_sum + n_boot*x_boot_mean**2)/n_boot)
-        y_boot_mean = y_boot_sum/n_boot
-        y_err_b = np.sqrt((y2_boot_sum - 2*y_boot_mean*y_boot_sum + n_boot*y_boot_mean**2)/n_boot)
-        m_boot_mean = m_boot_sum/n_boot
-        m_err_b = np.sqrt((m2_boot_sum - 2*m_boot_mean*m_boot_sum + n_boot*m_boot_mean**2)/n_boot)
+        # Calculate the bootstrap error values: the standard deviation over the
+        # iterations, from the sums of the differences. Clip the variance at 0
+        # so that rounding can never make it negative.
+        def boot_std(s, s2):
+            return np.sqrt(np.clip(s2/n_boot - (s/n_boot)**2, 0, None))
+
+        x_err_b = boot_std(x_boot_sum, x2_boot_sum)
+        y_err_b = boot_std(y_boot_sum, y2_boot_sum)
+        m_err_b = boot_std(m_boot_sum, m2_boot_sum)
 
         motion_data_err = {}
         if calc_vel_in_bootstrap:
             for col in motion_col_list:
-                mot_boot_mean = motion_boot_sum[col]/n_boot
-                motion_data_err[col] = np.sqrt((motion2_boot_sum[col] -
-                    2*mot_boot_mean*motion_boot_sum[col] + n_boot*mot_boot_mean**2)/n_boot)
+                motion_data_err[col] = boot_std(motion_boot_sum[col], motion2_boot_sum[col])
         else:
             for col in motion_col_list:
                 motion_data_err[col] = np.nan

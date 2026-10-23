@@ -657,6 +657,38 @@ def test_bootstrap():
 
     return
 
+def test_bootstrap_errors_far_from_origin():
+    """
+    Bootstrap errors do not depend on where the reference frame's origin is.
+
+    calc_bootstrap_errors used to sum the raw transformed positions and their
+    squares, so the variance was the small difference of two large sums: with
+    the field 10^4 units from the origin, rounding turned some errors into 0
+    or NaN. Summing the differences from the first iteration avoids that.
+    """
+    def run(shift):
+        ref = Table.read(f'{test_data_path}/ref_vel.lis', format='ascii')
+        ref['x'] += shift
+        ref['y'] += shift
+        lists = [starlists.StarList.from_table(Table.read(f'{test_data_path}/{name}.lis', format='ascii'))
+                 for name in ('E', 'F')]
+        msc = align.MosaicToRef(ref, lists, dr_tol=0.08, dm_tol=99, trans_class=transforms.PolyTransform,
+                                trans_args={'order': 2}, mag_trans=False, trans_weights='both,var',
+                                motion_models=['Linear'], use_ref_new=False, update_ref_orig=False,
+                                init_guess_mode='name', verbose=False)
+        msc.fit()
+        msc.calc_bootstrap_errors(n_boot=15, seed=42, verbose=False)
+        return msc.ref_table
+
+    near, far = run(0.0), run(1e4)
+    for col in ('xe_boot', 'ye_boot', 'x0_err_boot', 'y0_err_boot'):
+        a, b = np.asarray(far[col], dtype=float), np.asarray(near[col], dtype=float)
+        ok = np.isfinite(b)
+        assert np.all(np.isfinite(a[ok])) and np.all(a[ok] > 0), col
+        np.testing.assert_allclose(a[ok], b[ok], rtol=1e-3, err_msg=col)
+
+    return
+
 def test_calc_vel_in_bootstrap():
     """
     Check calc_vel_in_bootstrap performance in calc_bootstrap_errors()
