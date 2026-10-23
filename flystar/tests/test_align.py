@@ -2054,6 +2054,13 @@ def test_chi2_matching_reduces_split_stars():
     nearly coincident reference rows, was ambiguous by construction, and split
     again -- so one bad tie-break seeded the next. This builds a field dense
     enough to trigger it and asserts on the number of duplicate rows.
+
+    Fewer duplicates must not come from matching the wrong stars. Every list
+    keeps the stars in the same order, so a detection's idx_in_list is its true
+    star: a correct row holds detections of one star only. On this field
+    legacy matching leaves 429 rows, with 390 of the 400 stars whole (all 4
+    detections in one row); chi2 leaves 400 rows with all 400 whole; neither
+    combines detections of different stars.
     """
     from flystar.align import MosaicSelfRef
     from flystar.starlists import StarList
@@ -2087,17 +2094,27 @@ def test_chi2_matching_reduces_split_stars():
         msc.fit()
         rt = msc.ref_table
         det = np.isfinite(np.asarray(rt['x']))
+        # Against the truth: detections of another star than the row's
+        # majority are wrong matches; a star is whole when one row holds all
+        # n_ep of its detections and nothing else.
+        idx = np.asarray(rt['idx_in_list'])
+        wrong = whole = 0
+        for row_idx, row_det in zip(idx, det):
+            stars, counts = np.unique(row_idx[row_det], return_counts=True)
+            if len(stars):
+                wrong += int(counts.sum() - counts.max())
+                whole += int(len(stars) == 1 and counts[0] == n_ep)
         pairs = cKDTree(np.c_[np.asarray(rt['x0']), np.asarray(rt['y0'])]).query_pairs(
             0.02, output_type='ndarray')
         if len(pairs) == 0:
-            return len(rt), 0
+            return len(rt), 0, wrong, whole
         # Two rows this close that never appear in the same exposure are one
         # star split in two, not two stars.
         disjoint = ~(det[pairs[:, 0]] & det[pairs[:, 1]]).any(axis=1)
-        return len(rt), int(disjoint.sum())
+        return len(rt), int(disjoint.sum()), wrong, whole
 
-    rows_legacy, split_legacy = n_split('legacy')
-    rows_chi2, split_chi2 = n_split('chi2')
+    rows_legacy, split_legacy, wrong_legacy, whole_legacy = n_split('legacy')
+    rows_chi2, split_chi2, wrong_chi2, whole_chi2 = n_split('chi2')
 
     assert split_chi2 < split_legacy, (
         f'chi2 matching did not reduce split stars: {split_chi2} split pairs vs '
@@ -2109,6 +2126,16 @@ def test_chi2_matching_reduces_split_stars():
     # The field really does have only n stars in it.
     assert rows_chi2 < n * 1.5, (
         f'{rows_chi2} reference rows for {n} stars -- still splitting badly'
+    )
+    # And the rows chi2 keeps are right: no detections of different stars
+    # combined, and more stars whole than with legacy matching.
+    assert wrong_chi2 == 0, (
+        f'chi2 matching combined detections of different stars: {wrong_chi2} '
+        f'wrong matches vs {wrong_legacy} with legacy matching'
+    )
+    assert whole_chi2 > whole_legacy, (
+        f'chi2 matching kept {whole_chi2} of {n} stars whole vs {whole_legacy} '
+        f'with legacy matching'
     )
 
 
