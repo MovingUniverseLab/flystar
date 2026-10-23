@@ -279,7 +279,72 @@ Which stars drive the fit
      - :class:`~flystar.align.MosaicToRef` only. Whether to update the reference
        positions and motions as lists are transformed. Keep ``False`` to hold an
        absolute frame such as Gaia; ``True`` treats the reference as an initial
-       guess.
+       guess.  'periter' updates only on the final list pass; 'atend' keeps
+       original values everywhere.  See also update_ref_motion below.
+
+Per-star freeze control: update_ref_motion
+----------------------------------------------
+
+While update_ref_orig applies a *catalog-level* update policy, the
+update_ref_motion column on ref_list (and ref_table) gives
+*per-star* control over whether a star's motion model is refit each iteration.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 86
+
+   * - Value
+     - Meaning
+   * - True (default)
+     - Refit this star normally.  The update_ref_orig setting still applies
+       -- original-catalog stars may or may not be updated depending on
+       update_ref_orig.
+   * - False
+     - Freeze this star unconditionally.  Its position **and** all motion-model
+       parameters are preserved on every iteration regardless of
+       update_ref_orig.  This is an override that takes precedence over
+       everything else.
+
+Stars that do not have this column are treated as True.  Stars added to the
+reference frame during alignment (via use_ref_new=True) always start with
+update_ref_motion=True so that they are immediately refittable.
+
+To freeze a handful of high-quality anchor stars while letting the rest of the
+catalog evolve freely::
+
+    from astropy.table import Column
+    import numpy as np
+
+    # ref_list is your input StarTable / StarList
+    freeze_mask = np.zeros(len(ref_list), dtype=bool)
+    freeze_mask[anchor_indices] = True          # indices of stars to freeze
+    ref_list['update_ref_motion'] = ~freeze_mask
+
+    align_obj = MosaicToRef(
+        ref_list=ref_list,
+        update_ref_orig=True,   # all other stars update normally
+        ...
+    )
+
+.. admonition:: Interaction between update_ref_orig and update_ref_motion
+   :class: note
+
+   Think of update_ref_orig as a policy for the *whole catalog* and
+   update_ref_motion as a per-star veto power:
+
+   * update_ref_orig decides, for each iteration, which stars *may* be
+     updated — it selects based on the ref_orig flag and the pass number.
+   * A star with update_ref_motion=False is *always* frozen, no matter
+     what update_ref_orig says.  Internally, the frozen mask is OR-ed into
+     the keep_orig array before any values are restored, so both controls
+     act through the same code path.
+
+   Combining the two::
+
+       update_ref_orig=False, update_ref_motion=True   # whole catalog frozen (Gaia mode)
+       update_ref_orig=True,  update_ref_motion=True   # whole catalog evolves
+       update_ref_orig=False, update_ref_motion=False  # redundantly frozen; fine
+       update_ref_orig=True,  update_ref_motion=False  # THIS star frozen; rest evolve
 
 Motion fitting
 --------------
