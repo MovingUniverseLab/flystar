@@ -117,7 +117,7 @@ Where fixed parameters live
 
 A fixed parameter can come from three places, and both
 :meth:`~flystar.startables.StarTable.fit_motion_models` and
-:meth:`~flystar.startables.StarTable.infer_positions` resolve them in the same
+:meth:`~flystar.startables.StarTable.get_predicted_positions` resolve them in the same
 order:
 
 1. ``fixed_params_dict``, if the key is there
@@ -130,11 +130,11 @@ For a *required* parameter, exhausting all three raises ``KeyError``. An
 
 The order is worth committing to memory, because the column beats the metadata,
 and ``fixed_params_dict`` beats both. Passing ``fixed_params_dict`` to
-``infer_positions`` therefore overrides whatever the table is carrying, rather
+``get_predicted_positions`` therefore overrides whatever the table is carrying, rather
 than being ignored in its favour.
 
 Fitting writes them back, so a table carries the parameters it was fitted with
-and ``infer_positions`` propagates each star with exactly what its fit used --
+and ``get_predicted_positions`` propagates each star with exactly what its fit used --
 no need to supply them a second time. The single rule is that the values the
 fit used end up under ``<param>``, the name the lookup above searches:
 
@@ -165,7 +165,7 @@ entry in metadata beats the same number repeated down a column of every row.
 Note the asymmetry in the last two rows. A conflicting *column* is preserved
 under ``<param>_orig``; a conflicting *metadata* entry is simply overwritten.
 Metadata is a record of what the table was fitted with, and keeping it in step
-with the fit is what lets ``infer_positions`` propagate without being handed the
+with the fit is what lets ``get_predicted_positions`` propagate without being handed the
 parameters again -- but it does mean that if you need the value the table
 carried before the fit, you have to keep it yourself.
 
@@ -238,8 +238,8 @@ distinct question, and the ``motion_models`` argument separates them:
 The time-argument contract
 ==========================
 
-Every model's :meth:`~flystar.motion_model.MotionModel.model`, and
-:meth:`~flystar.startables.StarTable.infer_positions`, take times under one
+Every model's :meth:`~flystar.motion_model.MotionModel.get_predicted_positions`, and
+:meth:`~flystar.startables.StarTable.get_predicted_positions`, take times under one
 rule: **shape decides meaning.** Nothing is inferred from ``len(t)`` happening
 to equal ``N_stars``.
 
@@ -270,7 +270,7 @@ supply the difference:
 
 .. code-block:: python
 
-   x, y, xe, ye = table.infer_positions(2026.5)
+   x, y, xe, ye = table.get_predicted_positions(2026.5)
 
 .. _uncertainties:
 
@@ -421,27 +421,30 @@ Worth knowing before you call ``fit`` directly, because neither is obvious:
 
 **The batch path does not fill in** :math:`t_0`. The single-star (1D) path
 computes the weighted-mean :math:`t_0` for you and remembers it on
-``self.fixed_params_dict``, so a later ``model(t, params)`` call works with no
-further arguments. The batch (2D) path does neither -- pass
+``self.fixed_params_dict``, so a later ``get_predicted_positions(t, params)`` call works
+with no further arguments. The batch (2D) path does neither -- pass
 ``fixed_params_dict={'t0': ...}`` to ``fit``, and the same ``t0`` again to
-``model``:
+``get_predicted_positions``:
 
 .. code-block:: python
 
    t2d = np.broadcast_to(t, x.shape)                  # fit dispatches on t.ndim
    t0 = np.average(t2d, weights=1./np.hypot(xe, ye), axis=1)
    params, param_errs, chi2_x, chi2_y = mm.fit(t2d, x, y, xe, ye,
-                                               fixed_params_dict={'t0': t0})
-   x_model, y_model, xe_model, ye_model = mm.model(t_new, params, param_errs,
-                                                  {'t0': t0})
+                                               fixed_params_dict={'t0': t0})[:4]
+   x_model, y_model, xe_model, ye_model = mm.get_predicted_positions(t_new, params, param_errs,
+                                                            {'t0': t0})
 
 Note also that dispatch is on ``t.ndim``, not on ``x`` -- a 1D ``t`` with 2D
 ``x`` takes the single-star path and then fails an assertion about ``x``.
 
 **The two paths return different numbers of values.** The single-star path
-returns ``(params, param_errs)``, honouring ``return_chi2``. The batch path
-returns ``(params, param_errs, chi2_x, chi2_y)`` regardless of
-``return_chi2``. Unpack accordingly.
+returns ``(params, param_errs)``, or
+``(params, param_errs, chi2_x, chi2_y, diagnostics)`` with
+``return_chi2=True``. The batch path returns
+``(params, param_errs, chi2_x, chi2_y, diagnostics)`` regardless of
+``return_chi2``. ``diagnostics`` is a dict, empty except for ``Orbit``; slice
+``[:4]`` if you do not need it.
 
 Bootstrap and parallelism
 -------------------------
@@ -816,17 +819,13 @@ What to implement
 
    * - Method
      - Contract
-   * - ``model_fit``
-     - The bare functional form, ``(dt, *params) -> position``. A house
-       convention rather than a requirement: nothing outside your own class
-       calls it, but every model in the tree has one, and keeping the algebra
-       in a single small method is what makes the rest readable.
-   * - ``model``
+   * - ``get_predicted_positions``
      - ``(t, fit_params, fit_param_errs=None, fixed_params_dict=None)``,
        returning ``(x, y)`` -- or ``(x, y, xe, ye)`` when errors are passed in.
        This is what propagation calls, so it must honour the time-argument
        contract above; use :func:`~flystar.motion_model.broadcast_times`
-       rather than reimplementing it.
+       rather than reimplementing it. Write the model's functional form
+       directly here, on ``(N_stars, N_times)`` arrays.
    * - ``run_fit``
      - ``(t, x, y, xe, ye, valid, fixed_params_dict=None, weighting='var',
        absolute_sigma=True, fill_value=np.nan, verbose=True)``, returning
@@ -848,11 +847,9 @@ The skeleton, then, is::
        optional_fixed_params = {'phase': 0.}
        fixed_param_names = required_fixed_param_names + list(optional_fixed_params)
 
-       def model_fit(self, dt, x0, vx, amp, period, phase):
-           return x0 + vx*dt + amp * np.sin(2*np.pi*dt/period + phase)
-
-       def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
-           ...      # broadcast_times(t, ...), then model_fit per direction
+       def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+           ...      # dt = broadcast_times(t, ...) - t0, then per direction
+                    # x = x0 + vx*dt + amp * np.sin(2*np.pi*dt/period + phase)
 
        def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, **kw):
            ...      # whole batch in, (params, param_errs, chi2x, chi2y) out
@@ -934,6 +931,6 @@ Testing a new model
   that each accepted shape of ``t`` gives the documented output shape and that
   anything else raises.
 * **The fixed-parameter round trip** -- fit, then
-  :meth:`~flystar.startables.StarTable.infer_positions` with nothing passed,
+  :meth:`~flystar.startables.StarTable.get_predicted_positions` with nothing passed,
   and confirm the model is still selected. This is what fails when a new fixed
   parameter is written somewhere the lookup does not search.

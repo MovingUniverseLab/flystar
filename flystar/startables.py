@@ -1500,7 +1500,7 @@ class StarTable(Table):
                 coldata = np.full(N_stars, scalar_params[param])
 
             # Wherever the used values land, they have to be readable back
-            # under `param` itself. That is the name infer_positions and
+            # under `param` itself. That is the name get_predicted_positions and
             # determine_motion_models search, so putting them anywhere else
             # means the propagation runs with parameters this fit never saw --
             # either silently demoting the star to a simpler model (the name is
@@ -1832,7 +1832,7 @@ class StarTable(Table):
             self['n_params'][self['motion_model_used'] == mm.name] = mm.n_params
         return
 
-    def infer_positions(self, times, fixed_params_dict=None, fill_value=np.nan):
+    def get_predicted_positions(self, times, fixed_params_dict=None, fill_value=np.nan):
         """Infer star positions at given times using fitted motion models.
 
         Parameters
@@ -1897,7 +1897,7 @@ class StarTable(Table):
         # shared-grid vs per-star distinction is settled by times' shape
         # rather than re-derived (differently) inside each motion model.
         # See motion_model.broadcast_times for the accepted shapes.
-        times_grid = motion_model.broadcast_times(times, N_stars, caller='infer_positions')
+        times_grid = motion_model.broadcast_times(times, N_stars, caller='get_predicted_positions')
         N_times = times_grid.shape[1]
 
         x_pred = np.full((N_stars, N_times), fill_value, dtype=float)
@@ -1965,7 +1965,7 @@ class StarTable(Table):
                     elif param in self.meta:
                         fixed_params[param] = self.meta[param]
                     else:
-                        raise KeyError(f"infer_positions: Required fixed parameter '{param}' not found for motion model '{unique_motion_model}'. Please provide it in fixed_params_dict, or add it as a column in the table, or add it to the meta data.")
+                        raise KeyError(f"get_predicted_positions: Required fixed parameter '{param}' not found for motion model '{unique_motion_model}'. Please provide it in fixed_params_dict, or add it as a column in the table, or add it to the meta data.")
                 else:
                     fixed_params[param] = fixed_params_dict[param]
 
@@ -1976,7 +1976,7 @@ class StarTable(Table):
                         if param == 'obsLocation':
                             # Special case for obsLocation: no vectorization implemented yet, use the value from the first star
                             assert np.unique(self[param][unique_index]).size == 1, \
-                                f"infer_positions: obsLocation fixed parameter has different values ({np.unique(self[param][unique_index])}) for different stars. Vectorized handling not implemented yet."
+                                f"get_predicted_positions: obsLocation fixed parameter has different values ({np.unique(self[param][unique_index])}) for different stars. Vectorized handling not implemented yet."
                         fixed_params[param] = self[param][unique_index]
                     elif param in self.meta:
                         fixed_params[param] = self.meta[param]
@@ -1999,12 +1999,12 @@ class StarTable(Table):
             # fixed_params sliced by unique_index just above.
             times_this_model = times_grid[unique_index]
             if with_xe_ye:
-                x, y, xe, ye = motion_model_instance.model(
+                x, y, xe, ye = motion_model_instance.get_predicted_positions(
                     times_this_model, fit_params, fit_param_errs, fixed_params
                 )
             else:
-                x, y = motion_model_instance.model(
-                    times_this_model, fit_params, fixed_params=fixed_params
+                x, y = motion_model_instance.get_predicted_positions(
+                    times_this_model, fit_params, fixed_params_dict=fixed_params
                 )
 
             if N_stars==1 and N_times > 1:
@@ -2039,37 +2039,6 @@ class StarTable(Table):
         xe_pred = xe_pred if with_xe_ye else np.full_like(x_pred, np.inf)
         ye_pred = ye_pred if with_xe_ye else np.full_like(y_pred, np.inf)
         return x_pred, y_pred, xe_pred, ye_pred
-
-
-    def get_star_positions_at_time(self, t, motion_model_dict=None, allow_alt_models=True):
-        """Predict x, y and their uncertainties at time ``t``.
-
-        Parameters
-        ----------
-        t : scalar or array-like
-            Time or times, in the shapes ``infer_positions`` accepts.
-        motion_model_dict : dict, optional
-            Unused. Kept so older callers still run. The previous body
-            called ``get_batch_pos_at_time`` and
-            ``get_one_motion_model_param_names``, which are gone, and the
-            fallback path raised ``AttributeError``.
-        allow_alt_models : bool, optional
-            Unused. ``infer_positions`` already honors
-            ``motion_model_input`` and falls back per star when that
-            request cannot be evaluated. By default True.
-
-        Returns
-        -------
-        x, y, xe, ye : ndarray
-            Same arrays ``infer_positions`` returns.
-
-        Notes
-        -----
-        This is a thin wrapper. It does not grow a second prediction path.
-        """
-        del motion_model_dict, allow_alt_models
-        return self.infer_positions(t)
-
 
 
     def shift_reference_frame(self, delta_vx=0.0, delta_vy=0.0, delta_pi=0.0, fixed_params_dict=None):

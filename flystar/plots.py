@@ -1222,7 +1222,7 @@ def plot_mean_residuals_by_epoch(tab):
     # Predicted model positions at each epoch. A 1D array of times is one grid
     # shared by every star, so this returns shape (N_stars, N_lists).
     epoch_times = _epoch_times(tab)
-    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.infer_positions(epoch_times)
+    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.get_predicted_positions(epoch_times)
 
     # Residuals
     dx = tab['x'] - xt_mod
@@ -1281,8 +1281,7 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
 
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in tab['t'].T])
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(complete_times, motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(complete_times)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(complete_times)
 
     for ee in range(tab['x'].shape[1]):
         xt_mod = xt_mod_all[:,ee]
@@ -1358,8 +1357,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
 
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
@@ -1471,8 +1469,7 @@ def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arc
     ntrans = len(tab_list)
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     for mm in range(ntrans):
         tab = tab_list[mm]
@@ -2036,8 +2033,7 @@ def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, pl
     tab = tab[idx]
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     for ee in range(tab['x'].shape[1]):
         dt = tab['t'][:, ee] - tab['t0']
@@ -2346,8 +2342,7 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
 
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab)):
         # Ignore the NaNs
@@ -2434,8 +2429,7 @@ def plot_chi2_reduced_dist(tab, Ndetect, xlim=8, n_bins=50, boot_err=False):
 
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab)):
         # Ignore the NaNs
@@ -2516,8 +2510,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
 
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab)):
         # Ignore the NaNs
@@ -2611,8 +2604,7 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14, 21], ylim=[-1, 1], target_i
 
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab['xe'])):
         # Ignore the NaNs
@@ -2953,10 +2945,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
-    # xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, motion_model_dict, allow_alt_models=True)
-    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.infer_positions(cont_times)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_predicted_positions(cont_times)
 
     for i in range(Nstars):
         starName = star_names[i]
@@ -3360,8 +3350,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
 
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     Nstars = len(star_names)
     Ncols = 3 * np.min([Nstars, NcolMax])
@@ -3380,10 +3369,8 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
-    # xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_star_positions_at_time(tab['t'][i_all_detected], motion_model_dict, allow_alt_models=True)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.infer_positions(tab['t'][i_all_detected])
-    # xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_star_positions_at_time(cont_times, motion_model_dict, allow_alt_models=True)
-    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.infer_positions(cont_times)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_predicted_positions(cont_times)
 
     for i in range(Nstars):
         for ea, epoch_array in enumerate(epoch_array_list):

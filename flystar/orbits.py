@@ -11,7 +11,7 @@ constants, with the AU and the Julian year, convert only the
 acceleration. The mas-per-arcsec factor converts velocity and
 acceleration, and ``semimajor_axis_mas``.
 
-The FlyStar frame is applied by ``Orbit.model``, not here:
+The FlyStar frame is applied by ``Orbit.get_predicted_positions``, not here:
 ``x = -east``, ``y = +north``.
 """
 

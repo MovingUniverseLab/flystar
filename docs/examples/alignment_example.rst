@@ -174,7 +174,7 @@ measured positions should leave nothing but noise:
 .. code-block:: python
 
    good = np.asarray(ref['n_detect']) == len(YEARS)
-   xm, ym, _, _ = ref.infer_positions(YEARS)          # model positions
+   xm, ym, _, _ = ref.get_predicted_positions(YEARS)  # model positions
    dx = (np.asarray(ref['x']) - xm)[good] * 1000       # milli-pixels
    dy = (np.asarray(ref['y']) - ym)[good] * 1000
    print(f"residual scatter: {np.nanstd(dx):.1f} / {np.nanstd(dy):.1f} mpix")

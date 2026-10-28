@@ -88,7 +88,7 @@ fig.tight_layout(); fig.savefig(f'{OUT}/align_before_after.png', dpi=130); plt.c
 # ---- Figure 2: residuals per epoch about the fitted model -------------------
 fig, ax = plt.subplots(figsize=(6.4, 4.4))
 good = np.asarray(ref['n_detect']) == len(YEARS)
-xm, ym, _, _ = ref.infer_positions(YEARS)
+xm, ym, _, _ = ref.get_predicted_positions(YEARS)
 dx = (xt_all - xm)[good].ravel() * 1000
 dy = (yt_all - ym)[good].ravel() * 1000
 ax.hist(dx[np.isfinite(dx)], bins=60, alpha=.7, label='x', color=COL[0])

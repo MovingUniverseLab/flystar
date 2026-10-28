@@ -55,7 +55,7 @@ def weight_from_sigma(sigma, valid=None):
     return weight
 
 
-def broadcast_times(t, n_stars, caller='model'):
+def broadcast_times(t, n_stars, caller='get_predicted_positions'):
     """
     Normalize a time argument into an explicit (n_stars, n_times) grid.
 
@@ -89,7 +89,7 @@ def broadcast_times(t, n_stars, caller='model'):
     n_stars : int
         Number of stars the times are being broadcast against.
     caller : str, optional
-        Name used in the error message, by default 'model'.
+        Name used in the error message, by default 'get_predicted_positions'.
 
     Returns
     -------
@@ -169,8 +169,20 @@ class MotionModel(ABC):
         and contains functions to fit the model to data and infer positions at given times.
         Each instance corresponds to a given motion model, not an individual star,
         and thus the fit values are only input/returned in functions, not stored in the object.
+
+        Returns
+        -------
+        None
+
+        Notes
+        -----
+        ``fixed_params_dict`` starts as None. A single-star ``fit`` stores the
+        fixed parameters it used there, so a later ``get_predicted_positions(t, params)``
+        call without its own ``fixed_params_dict`` can fall back to them.
         """
-        return
+        self.fixed_params_dict = None
+
+        return None
 
     def _check_param_dimensions(self, fit_params, fit_params_errs, fixed_params_dict):
         """Check that parameters is either a scalar or length of N_stars
@@ -199,10 +211,7 @@ class MotionModel(ABC):
 
         return
 
-    def model_fit(self, dt):
-        return np.full_like(dt, np.nan)
-
-    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Evaluate the model at the given time(s).
 
         Every concrete subclass overrides this. The time argument follows one
@@ -351,93 +360,91 @@ class MotionModel(ABC):
         xe = np.asarray(xe)
         ye = np.asarray(ye)
 
-        if not verbose:
-            warnings.filterwarnings("ignore", category=OptimizeWarning)
-
-        if t.ndim == 2:
-            # Batch path: many stars packed into one rectangular array.
-            # No separate mask is built or passed by the caller -- padding
-            # epochs are wherever x or y is nan, and that's exactly what
-            # isfinite picks out.
-            valid = np.isfinite(x) & np.isfinite(y)
-            result = self.run_fit(
-                t, x, y, xe, ye, valid,
-                fixed_params_dict=fixed_params_dict, params_init_guess_dict=params_init_guess_dict,
-                weighting=weighting, absolute_sigma=absolute_sigma,
-                fill_value=fill_value, verbose=verbose
-            )
+        # Silence OptimizeWarning only inside this call. catch_warnings restores
+        # the caller's filters on exit, on every return path.
+        with warnings.catch_warnings():
             if not verbose:
-                warnings.resetwarnings()
-            return result
+                warnings.simplefilter('ignore', OptimizeWarning)
 
-        for variable, name in zip([t, x, y, xe, ye], ['t', 'x', 'y', 'xe', 'ye']):
-            assert np.ndim(variable) == 1, f"Input {name} array must be 1D (single star) or 2D (batch)! Got shape {np.shape(variable)}"
-            if name != 't':
-                assert len(t) == len(variable), f'Input {name} must have the same length as t! Got len(t)={len(t)}, len({name})={len(variable)}'
+            if t.ndim == 2:
+                # Batch path: many stars packed into one rectangular array.
+                # No separate mask is built or passed by the caller -- padding
+                # epochs are wherever x or y is nan, and that's exactly what
+                # isfinite picks out.
+                valid = np.isfinite(x) & np.isfinite(y)
+                result = self.run_fit(
+                    t, x, y, xe, ye, valid,
+                    fixed_params_dict=fixed_params_dict, params_init_guess_dict=params_init_guess_dict,
+                    weighting=weighting, absolute_sigma=absolute_sigma,
+                    fill_value=fill_value, verbose=verbose
+                )
+                return result
 
-        # Copy (rather than mutate the caller's dict) before filling in a
-        # default t0 -- same convenience the old per-star run_fit() gave
-        # Linear/Acceleration/Parallax when t0 wasn't supplied.
-        fixed_params_dict = dict(fixed_params_dict) if fixed_params_dict is not None else {}
-        if ('t0' in self.required_fixed_param_names) and ('t0' not in fixed_params_dict):
-            fixed_params_dict['t0'] = np.average(t, weights=1. / np.hypot(xe, ye))
-        # Remembered so a later self.model(t, params) call (without its own
-        # fixed_params_dict) can fall back to what this fit used -- same
-        # convenience the old per-star run_fit() provided.
-        self.fixed_params_dict = fixed_params_dict
+            for variable, name in zip([t, x, y, xe, ye], ['t', 'x', 'y', 'xe', 'ye']):
+                assert np.ndim(variable) == 1, f"Input {name} array must be 1D (single star) or 2D (batch)! Got shape {np.shape(variable)}"
+                if name != 't':
+                    assert len(t) == len(variable), f'Input {name} must have the same length as t! Got len(t)={len(t)}, len({name})={len(variable)}'
 
-        n_obs = len(t)
-        valid = np.ones((1, n_obs), dtype=bool)
-        result = self.run_fit(
-            t[np.newaxis, :], x[np.newaxis, :], y[np.newaxis, :], xe[np.newaxis, :], ye[np.newaxis, :], valid,
-            fixed_params_dict=fixed_params_dict, params_init_guess_dict=params_init_guess_dict,
-            weighting=weighting, absolute_sigma=absolute_sigma,
-            fill_value=fill_value, verbose=verbose
-        )
-        # All run_fit implementations return a 5-tuple; diagnostics is {} for non-Orbit models.
-        params, param_errs, chi2_x, chi2_y, diagnostics = result
-        params, param_errs, chi2_x, chi2_y = params[0], param_errs[0], chi2_x[0], chi2_y[0]
+            # Copy (rather than mutate the caller's dict) before filling in a
+            # default t0 -- same convenience the old per-star run_fit() gave
+            # Linear/Acceleration/Parallax when t0 wasn't supplied.
+            fixed_params_dict = dict(fixed_params_dict) if fixed_params_dict is not None else {}
+            if ('t0' in self.required_fixed_param_names) and ('t0' not in fixed_params_dict):
+                fixed_params_dict['t0'] = np.average(t, weights=1. / np.hypot(xe, ye))
+            # Remembered so a later self.get_predicted_positions(t, params) call
+            # (without its own fixed_params_dict) can fall back to what this
+            # fit used -- same convenience the old per-star run_fit() provided.
+            self.fixed_params_dict = fixed_params_dict
 
-        # Bootstrap errors
-        if (bootstrap > 0) and (n_obs > self.n_params):
-            rng = np.random.default_rng(seed)
-            edx = np.arange(n_obs, dtype=int)
-            # Precompute All Bootstrap Draws at Once
-            # Ensure there are enough unique points in each bootstrap sample
-            bdx_unique = np.stack([
-                rng.choice(edx, size=self.n_params, replace=False)
-                for _ in range(bootstrap)
-            ])
-            # Draw with replacement for the rest
-            bdx_extra = np.stack([
-                rng.choice(edx, size=n_obs - self.n_params, replace=True)
-                for _ in range(bootstrap)
-            ])
-            bdx_all = np.hstack((bdx_unique, bdx_extra))  # shape (bootstrap, n_obs)
-
-            # All bootstrap draws of this one star are fit in a single
-            # run_fit call -- each draw is just a "row" with its own
-            # resampled subset/order of this star's epochs (valid is
-            # all-True since every entry in a row is a real, if repeated,
-            # epoch).
-            valid_boot = np.ones_like(bdx_all, dtype=bool)
-            bb_result = self.run_fit(
-                t[bdx_all], x[bdx_all], y[bdx_all], xe[bdx_all], ye[bdx_all], valid_boot,
+            n_obs = len(t)
+            valid = np.ones((1, n_obs), dtype=bool)
+            result = self.run_fit(
+                t[np.newaxis, :], x[np.newaxis, :], y[np.newaxis, :], xe[np.newaxis, :], ye[np.newaxis, :], valid,
                 fixed_params_dict=fixed_params_dict, params_init_guess_dict=params_init_guess_dict,
                 weighting=weighting, absolute_sigma=absolute_sigma,
                 fill_value=fill_value, verbose=verbose
             )
-            bb_params, bb_param_errs = bb_result[0], bb_result[1]
+            # All run_fit implementations return a 5-tuple; diagnostics is {} for non-Orbit models.
+            params, param_errs, chi2_x, chi2_y, diagnostics = result
+            params, param_errs, chi2_x, chi2_y = params[0], param_errs[0], chi2_x[0], chi2_y[0]
 
-            # Save the errors from the bootstrap
-            param_errs = np.std(bb_params, axis=0)
+            # Bootstrap errors
+            if (bootstrap > 0) and (n_obs > self.n_params):
+                rng = np.random.default_rng(seed)
+                edx = np.arange(n_obs, dtype=int)
+                # Precompute All Bootstrap Draws at Once
+                # Ensure there are enough unique points in each bootstrap sample
+                bdx_unique = np.stack([
+                    rng.choice(edx, size=self.n_params, replace=False)
+                    for _ in range(bootstrap)
+                ])
+                # Draw with replacement for the rest
+                bdx_extra = np.stack([
+                    rng.choice(edx, size=n_obs - self.n_params, replace=True)
+                    for _ in range(bootstrap)
+                ])
+                bdx_all = np.hstack((bdx_unique, bdx_extra))  # shape (bootstrap, n_obs)
 
-            # Account for odd case
-            inf_errs = np.all(bb_param_errs == np.inf, axis=0)
-            param_errs[inf_errs] = 0.0
+                # All bootstrap draws of this one star are fit in a single
+                # run_fit call -- each draw is just a "row" with its own
+                # resampled subset/order of this star's epochs (valid is
+                # all-True since every entry in a row is a real, if repeated,
+                # epoch).
+                valid_boot = np.ones_like(bdx_all, dtype=bool)
+                bb_result = self.run_fit(
+                    t[bdx_all], x[bdx_all], y[bdx_all], xe[bdx_all], ye[bdx_all], valid_boot,
+                    fixed_params_dict=fixed_params_dict, params_init_guess_dict=params_init_guess_dict,
+                    weighting=weighting, absolute_sigma=absolute_sigma,
+                    fill_value=fill_value, verbose=verbose
+                )
+                bb_params, bb_param_errs = bb_result[0], bb_result[1]
 
-        if not verbose:
-            warnings.resetwarnings()
+                # Save the errors from the bootstrap
+                param_errs = np.std(bb_params, axis=0)
+
+                # Account for odd case
+                inf_errs = np.all(bb_param_errs == np.inf, axis=0)
+                param_errs[inf_errs] = 0.0
 
         if return_chi2:
             # Drop the length-1 star axis so a per-star caller sees
@@ -479,8 +486,29 @@ class MotionModel(ABC):
     def calc_chi2(self, t, x, y, xe, ye, fit_params, fixed_params_dict=None, reduced=False, parallax=False):
         """
         Get the chi^2 value for the input motion model parameters and data.
+
+        Parameters
+        ----------
+        t, x, y, xe, ye : array-like, shape (N_times,)
+            One star's times, positions, and position uncertainties.
+        fit_params : array-like, shape (N_fit_params,)
+            Motion model parameters, ordered as in ``fit_param_names``.
+        fixed_params_dict : dict, optional
+            Fixed (non-fit) parameters, by default None.
+        reduced : bool, optional
+            Divide by the degrees of freedom, by default False.
+        parallax : bool, optional
+            Count degrees of freedom jointly over x and y, as for the
+            Parallax model, by default False.
+
+        Returns
+        -------
+        chi2x, chi2y : float
+            Chi^2 (or reduced chi^2) in each direction.
         """
-        x_pred, y_pred = self.model(t, fit_params, fixed_params_dict=fixed_params_dict)
+
+        # Model positions at the data times.
+        x_pred, y_pred = self.get_predicted_positions(t, fit_params, fixed_params_dict=fixed_params_dict)
         chi2x = np.sum((x - x_pred)**2 / xe**2)
         chi2y = np.sum((y - y_pred)**2 / ye**2)
         if reduced:
@@ -510,24 +538,14 @@ class Empty(MotionModel):
         super().__init__()
         return
 
-    def model_fit(self, dt):
-        return np.full_like(dt, np.nan)
-
-    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Predicted positions (and uncertainties, if fit_param_errs is provided) at time t of Empty model.
 
         Parameters
         ----------
         t : scalar or array-like
-            Time(s) at which to evaluate the model. The shape decides
-            whether the times are shared across stars or are per-star --
-            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
-            a scalar (one time, every star), ``(N_times,)`` or
-            ``(1, N_times)`` (one shared grid for every star -- always, even
-            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
-            its own times); for one time per star pass ``t[:, np.newaxis]``.
-            Any other shape raises ``ValueError``. See
-            :func:`broadcast_times` for the full table.
+            Time(s) in decimal years. Shape rules are in
+            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
         fit_params : array-like
             Fit parameters, shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -546,7 +564,7 @@ class Empty(MotionModel):
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        N_times = broadcast_times(t, N_stars, caller='Empty.model').shape[1]
+        N_times = broadcast_times(t, N_stars, caller='Empty.get_predicted_positions').shape[1]
 
         x = np.full((N_stars, N_times), np.nan)
         y = np.full((N_stars, N_times), np.nan)
@@ -617,38 +635,14 @@ class Fixed(MotionModel):
         super().__init__()
         return
 
-    def model_fit(self, dt, x0):
-        """Fit function for Fixed motion model
-
-        Parameters
-        ----------
-        dt : array-like
-            Time offset, shape (N_times,)
-        x0 : float or array-like
-            Average positions, scalar or shape (N_stars,)
-
-        Returns
-        -------
-        x : array-like
-            Predicted positions, shape (N_times,) if scalar x0, else (N_stars, N_times)
-        """
-        return x0 + np.zeros_like(x0) * dt
-
-    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Predicted positions (and uncertainties, if fit_param_errs is provided) at time t of Fixed model.
 
         Parameters
         ----------
         t : scalar or array-like
-            Time(s) at which to evaluate the model. The shape decides
-            whether the times are shared across stars or are per-star --
-            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
-            a scalar (one time, every star), ``(N_times,)`` or
-            ``(1, N_times)`` (one shared grid for every star -- always, even
-            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
-            its own times); for one time per star pass ``t[:, np.newaxis]``.
-            Any other shape raises ``ValueError``. See
-            :func:`broadcast_times` for the full table.
+            Time(s) in decimal years. Shape rules are in
+            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
         fit_params : array-like
             x0, y0 in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -656,26 +650,24 @@ class Fixed(MotionModel):
         fixed_params_dict : dict, optional
             Not applicable for Fixed, by default None
 
-
         Returns
         -------
         x, y (, xe, ye)
             Predicted position (and uncertainties) of Fixed model, shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
         """
-        self.fixed_params_dict = fixed_params_dict
         fit_params = np.atleast_2d(fit_params)  # (N_stars, N_fit_params)
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        dt = broadcast_times(t, N_stars, caller='Fixed.model')  # (N_stars, N_times)
-        N_times = dt.shape[1]
+        t_grid = broadcast_times(t, N_stars, caller='Fixed.get_predicted_positions')  # (N_stars, N_times)
+        N_times = t_grid.shape[1]
         x0, y0 = fit_params.T  # Each shape (N_stars,)
 
-        # Return results in (N_stars, N_times) shape. Fixed is
-        # time-independent, so dt only sets the output shape here.
-        x = self.model_fit(dt, x0[:, np.newaxis])  # Shape (N_stars, N_times)
-        y = self.model_fit(dt, y0[:, np.newaxis])  # Shape (N_stars, N_times)
+        # Fixed is time-independent: t_grid only sets the (N_stars, N_times)
+        # output shape. Multiplying by 0 keeps a nan time as a nan position.
+        x = x0[:, np.newaxis] + 0.0 * t_grid  # Shape (N_stars, N_times)
+        y = y0[:, np.newaxis] + 0.0 * t_grid  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays
@@ -821,46 +813,21 @@ class Linear(MotionModel):
         super().__init__()
         return
 
-    def model_fit(self, dt, x0, v):
-        """Linear motion model fit function
-
-        Parameters
-        ----------
-        dt : array-like
-            Time offset, shape (N_times,)
-        x0 : float or array-like
-            Initial position, shape (N_stars,) or scalar
-        v : float or array-like
-            Velocity, shape (N_stars,) or scalar
-
-        Returns
-        -------
-        x : array-like
-            Predicted position(s)
-        """
-        return x0 + v * dt
-
-    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Linear model.
 
         Parameters
         ----------
         t : scalar or array-like
-            Time(s) at which to evaluate the model. The shape decides
-            whether the times are shared across stars or are per-star --
-            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
-            a scalar (one time, every star), ``(N_times,)`` or
-            ``(1, N_times)`` (one shared grid for every star -- always, even
-            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
-            its own times); for one time per star pass ``t[:, np.newaxis]``.
-            Any other shape raises ``ValueError``. See
-            :func:`broadcast_times` for the full table.
+            Time(s) in decimal years. Shape rules are in
+            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
         fit_params : array-like
             x0, vx, y0, vy in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
             Uncertainties of fit parameters in shape (N_fit_params,) or (N_stars, N_fit_params), by default None
         fixed_params_dict : dict, optional
-            t0, shape (1,) or (N_stars,), by default None.
+            t0, shape (1,) or (N_stars,). Falls back to the fixed parameters
+            stored by the last single-star ``fit``, by default None.
 
         Returns
         -------
@@ -868,7 +835,7 @@ class Linear(MotionModel):
             Predicted positions (and uncertainties, if fit_param_errs is provided) with shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
         """
         if fixed_params_dict is None:
-            fixed_params_dict = self.fixed_params_dict
+            fixed_params_dict = self.fixed_params_dict or {}
         assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Linear model."
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
@@ -876,7 +843,7 @@ class Linear(MotionModel):
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        t_grid = broadcast_times(t, N_stars, caller='Linear.model')  # (N_stars, N_times)
+        t_grid = broadcast_times(t, N_stars, caller='Linear.get_predicted_positions')  # (N_stars, N_times)
         N_times = t_grid.shape[1]
 
         x0, vx, y0, vy = fit_params.T  # Each shape (N_stars,)
@@ -884,8 +851,9 @@ class Linear(MotionModel):
 
         dt = t_grid - np.asarray(t0)[:, np.newaxis]  # Shape (N_stars, N_times)
 
-        x = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis])  # Shape (N_stars, N_times)
-        y = self.model_fit(dt, y0[:, np.newaxis], vy[:, np.newaxis])  # Shape (N_stars, N_times)
+        # x = x0 + vx * dt, per star (rows) and time (columns).
+        x = x0[:, np.newaxis] + vx[:, np.newaxis] * dt  # Shape (N_stars, N_times)
+        y = y0[:, np.newaxis] + vy[:, np.newaxis] * dt  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays
@@ -1084,48 +1052,21 @@ class Acceleration(MotionModel):
         super().__init__()
         return
 
-    def model_fit(self, t, x0, v0, a):
-        """Model positions at time t of Acceleration model.
-
-        Parameters
-        ----------
-        t : float or array-like
-            Time(s) at which to evaluate the model
-        x0 : float or array-like
-            Initial position(s)
-        v0 : float or array-like
-            Initial velocity(ies)
-        a : float or array-like
-            Acceleration(s)
-
-        Returns
-        -------
-        float or array-like
-            Model positions at time t of Acceleration model
-        """
-        return x0 + v0*t + 0.5*a*t**2
-
-    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Acceleration model.
 
         Parameters
         ----------
         t : scalar or array-like
-            Time(s) at which to evaluate the model. The shape decides
-            whether the times are shared across stars or are per-star --
-            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
-            a scalar (one time, every star), ``(N_times,)`` or
-            ``(1, N_times)`` (one shared grid for every star -- always, even
-            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
-            its own times); for one time per star pass ``t[:, np.newaxis]``.
-            Any other shape raises ``ValueError``. See
-            :func:`broadcast_times` for the full table.
+            Time(s) in decimal years. Shape rules are in
+            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
         fit_params : array-like
             x0, vx, ax, y0, vy, ay in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
             Fit parameter uncertainties with shape (N_stars, N_fit_params) or (N_fit_params,), by default None
         fixed_params_dict : dict, optional
-            t0, shape (1,) or (N_stars,), by default None.
+            t0, shape (1,) or (N_stars,). Falls back to the fixed parameters
+            stored by the last single-star ``fit``, by default None.
 
         Returns
         -------
@@ -1133,7 +1074,7 @@ class Acceleration(MotionModel):
             Predicted positions (and uncertainties, if fit_param_errs is provided) with shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
         """
         if fixed_params_dict is None:
-            fixed_params_dict = self.fixed_params_dict
+            fixed_params_dict = self.fixed_params_dict or {}
         assert 't0' in fixed_params_dict, "Fixed parameter t0 is required for Acceleration model."
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
@@ -1141,7 +1082,7 @@ class Acceleration(MotionModel):
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        t_grid = broadcast_times(t, N_stars, caller='Acceleration.model')  # (N_stars, N_times)
+        t_grid = broadcast_times(t, N_stars, caller='Acceleration.get_predicted_positions')  # (N_stars, N_times)
         N_times = t_grid.shape[1]
 
         x0, vx0, ax, y0, vy0, ay = fit_params.T  # Each shape (N_stars,)
@@ -1149,8 +1090,9 @@ class Acceleration(MotionModel):
 
         dt = t_grid - np.asarray(t0)[:, np.newaxis]  # Shape (N_stars, N_times)
 
-        x = self.model_fit(dt, x0[:, np.newaxis], vx0[:, np.newaxis], ax[:, np.newaxis])  # Shape (N_stars, N_times)
-        y = self.model_fit(dt, y0[:, np.newaxis], vy0[:, np.newaxis], ay[:, np.newaxis])  # Shape (N_stars, N_times)
+        # x = x0 + vx0 * dt + 0.5 * ax * dt**2, per star (rows) and time (columns).
+        x = x0[:, np.newaxis] + vx0[:, np.newaxis] * dt + 0.5 * ax[:, np.newaxis] * dt**2  # Shape (N_stars, N_times)
+        y = y0[:, np.newaxis] + vy0[:, np.newaxis] * dt + 0.5 * ay[:, np.newaxis] * dt**2  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays
@@ -1364,10 +1306,24 @@ class Parallax(MotionModel):
     n_params = int((n_fit_params + 1) / 2)
 
     def __init__(self):
+        """
+        Make a Parallax motion model with an empty parallax-vector cache.
+
+        Returns
+        -------
+        None
+
+        Notes
+        -----
+        ``_pvec_cache`` holds the last parallax vectors computed by
+        ``calc_parallax_vector``, as a dict with keys ``t_mjd`` (sorted,
+        shape (N_times,)), ``dirs`` (ra, dec, pa rows, shape (N_dirs, 3)),
+        ``obsLocation``, and ``pvec`` (shape (N_dirs, 2, N_times)).
+        """
         super().__init__()
-        self.pvec_cached = None  # Cache for parallax vector
-        self.t_mjd_cached = None  # Cache for times corresponding to cached parallax vector
-        return
+        self._pvec_cache = None
+
+        return None
 
     def calc_parallax_vector(self, t_mjd, ra, dec, pa=0., obsLocation='earth'):
         """Calculate parallax vector of shape (N_stars, 2, N_times)
@@ -1391,77 +1347,87 @@ class Parallax(MotionModel):
 
         Returns
         -------
-        pvec
-            Parallax vector of shape (N_stars, 2, N_times), where 2 corresponds to (x, y) components.
+        pvec : ndarray, shape (N_stars, 2, N_times)
+            Parallax vector, where 2 corresponds to (x, y) components.
+            N_stars is the broadcast length of ra, dec, and pa. Read-only:
+            it may be a view of the cache.
+
+        Notes
+        -----
+        Results are cached on the instance, keyed on the times, the
+        (ra, dec, pa) of every star, and obsLocation. A call is served from
+        the cache when its directions and obsLocation match exactly and its
+        times are a subset of the cached times -- e.g. the bootstrap draws of
+        a star, or the next star in a per-star loop over one field.
+
+        When every star shares one direction (ra/dec/pa from table metadata),
+        that direction is stored once, so fits with different star counts in
+        the same field share the cache. On a miss in the same directions, the
+        cache grows to the union of the old and new times, so stars observed
+        in different subsets of the epochs stop missing after a few calls.
         """
-        if self.pvec_cached is not None:
-            t_mjd = np.atleast_1d(t_mjd)
-            t_mjd_cached = self.t_mjd_cached
-            if np.array_equal(t_mjd, t_mjd_cached):
-                # If cached values match input times, return cached values
-                return self.pvec_cached
+        t_mjd = np.atleast_1d(np.asarray(t_mjd, dtype=float))
 
-            elif all(np.isin(t_mjd, t_mjd_cached)):
-                # If all input times are in cached values, return those
-                # Calculate pvec_idxs such that t_mjd_cached[ pvec_idxs ] == t_mjd
-                pvec_idxs = np.array([np.where(t_mjd_cached == t_mjd_i)[0][0] for t_mjd_i in t_mjd])
-                pvec = self.pvec_cached[:, :, pvec_idxs]
-                return pvec
+        # One (ra, dec, pa) row per star. Shape of dirs: (N_stars, 3)
+        ra, dec, pa = np.broadcast_arrays(np.atleast_1d(np.asarray(ra, dtype=float)),
+                                          np.atleast_1d(np.asarray(dec, dtype=float)),
+                                          np.atleast_1d(np.asarray(pa, dtype=float)))
+        dirs = np.column_stack([ra, dec, pa])
+        n_stars = dirs.shape[0]
 
-        pvec = parallax.parallax_in_direction(ra, dec, t_mjd, obsLocation=obsLocation, pa=pa)   # Shape (N_stars, 2, N_times)
-        # self.plx_vector_cached = [t_mjd, pvec]
-        self.t_mjd_cached = t_mjd
-        self.pvec_cached = pvec
-        return pvec
+        # A single shared direction is stored as one row.
+        if np.all(dirs == dirs[0]):
+            dirs = dirs[:1]
 
-    def model_fit(self, dt, x0, vx, y0, vy, pi):
-        """Model positions at time t of Parallax model.
+        cache = self._pvec_cache
+        same_dirs = (cache is not None
+                     and cache['obsLocation'] == obsLocation
+                     and np.array_equal(cache['dirs'], dirs))
 
-        Parameters
-        ----------
-        dt : float or array-like
-            Time(s) at which to evaluate the model
-        x0 : float or array-like
-            Initial position(s)
-        vx : float or array-like
-            Velocity(ies)
-        y0 : float or array-like
-            Initial position(s)
-        vy : float or array-like
-            Velocity(ies)
-        pi : float or array-like
-            Parallax factor(s)
+        if same_dirs:
+            # Find each requested time in the sorted cached times.
+            t_cached = cache['t_mjd']
+            t_idx = np.minimum(np.searchsorted(t_cached, t_mjd), len(t_cached) - 1)
 
-        Returns
-        -------
-        x_result, y_result : array-like
-            Model positions at time t of Parallax model, shape (N_stars, N_times)
-        """
-        # x0, vx, y0, vy, pi are all shape (N_stars, N_times)
-        x_result = x0 + vx * dt + pi * self.pvec[:, 0, :]  # Parallax contribution in x direction
-        y_result = y0 + vy * dt + pi * self.pvec[:, 1, :]  # Parallax contribution in y direction
-        return x_result, y_result
+            if np.array_equal(t_cached[t_idx], t_mjd):
+                # Cache hit. Shape of pvec: (N_dirs, 2, N_times)
+                pvec = cache['pvec'][:, :, t_idx]
+                return np.broadcast_to(pvec, (n_stars,) + pvec.shape[1:])
 
-    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+            # Same directions, new times: compute on the union of times.
+            t_compute = np.union1d(t_cached, t_mjd)
+        else:
+            t_compute = np.unique(t_mjd)
+
+        # Shape of pvec_new: (N_dirs, 2, N_compute)
+        pvec_new = parallax.parallax_in_direction(dirs[:, 0], dirs[:, 1], t_compute,
+                                                  obsLocation=obsLocation, pa=dirs[:, 2])
+        pvec_new.flags.writeable = False
+        self._pvec_cache = {'t_mjd': t_compute, 'dirs': dirs,
+                            'obsLocation': obsLocation, 'pvec': pvec_new}
+
+        # Gather the requested times, in the caller's order.
+        t_idx = np.searchsorted(t_compute, t_mjd)
+        pvec = pvec_new[:, :, t_idx]
+
+        return np.broadcast_to(pvec, (n_stars,) + pvec.shape[1:])
+
+    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Parallax model.
 
         Parameters
         ----------
         t : scalar or array-like
-            Time(s) at which to evaluate the model. The shape decides
-            whether the times are shared across stars or are per-star --
-            nothing is inferred from ``len(t)`` matching ``N_stars``. Accepts
-            a scalar (one time, every star), ``(N_times,)`` or
-            ``(1, N_times)`` (one shared grid for every star -- always, even
-            when ``N_times == N_stars``), or ``(N_stars, N_times)`` (each star
-            its own times); for one time per star pass ``t[:, np.newaxis]``.
-            Any other shape raises ``ValueError``. See
-            :func:`broadcast_times` for the full table.
+            Time(s) in decimal years. Shape rules are in
+            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
         fit_params : array-like
             x0, vx, y0, vy, pi in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
             Uncertainties in fit parameters, by default None
-        fixed_params : dict
+        fixed_params_dict : dict, optional
+            Falls back to the fixed parameters stored by the last single-star
+            ``fit``, by default None. Keys:
+
             - t0, shape (N_stars,) or (1,).
             - ra, shape (N_stars,) or (1,).
             - dec, shape (N_stars,) or (1,).
@@ -1474,7 +1440,7 @@ class Parallax(MotionModel):
             Predicted positions (and uncertainties, if fit_param_errs is provided) with shape (N_stars, N_times), or (N_times,) if N_stars=1, or (N_stars,) if N_times=1
         """
         if fixed_params_dict is None:
-            fixed_params_dict = self.fixed_params_dict
+            fixed_params_dict = self.fixed_params_dict or {}
         assert all([_ in fixed_params_dict for _ in ['t0', 'ra', 'dec']]), "Fixed parameters t0, ra, and dec are required for Parallax model."
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
 
@@ -1482,7 +1448,7 @@ class Parallax(MotionModel):
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        t_grid = broadcast_times(t, N_stars, caller='Parallax.model')  # (N_stars, N_times)
+        t_grid = broadcast_times(t, N_stars, caller='Parallax.get_predicted_positions')  # (N_stars, N_times)
         N_times = t_grid.shape[1]
 
         x0, vx, y0, vy, pi = fit_params.T  # Each shape (N_stars,)
@@ -1522,13 +1488,15 @@ class Parallax(MotionModel):
         # epochs in the future; any real observation is inside the table.
         t_mjd = Time(unique_t, format='decimalyear', scale='utc').tdb.mjd
         pvec_unique = self.calc_parallax_vector(t_mjd, ra, dec, pa=pa, obsLocation=obsLocation)  # (N_stars, 2, n_unique)
+
+        # Gather the parallax factors back onto each star's own times.
         star_idx = np.arange(N_stars)[:, np.newaxis]
-        self.pvec = np.stack(
-            [pvec_unique[:, 0, :][star_idx, inverse_idx],
-             pvec_unique[:, 1, :][star_idx, inverse_idx]],
-            axis=1
-        )  # Shape (N_stars, 2, N_times)
-        x, y = self.model_fit(dt, x0[:, np.newaxis], vx[:, np.newaxis], y0[:, np.newaxis], vy[:, np.newaxis], pi[:, np.newaxis])  # Shape (N_stars, N_times)
+        Px = pvec_unique[:, 0, :][star_idx, inverse_idx]  # Shape (N_stars, N_times)
+        Py = pvec_unique[:, 1, :][star_idx, inverse_idx]  # Shape (N_stars, N_times)
+
+        # x = x0 + vx * dt + pi * Px, per star (rows) and time (columns).
+        x = x0[:, np.newaxis] + vx[:, np.newaxis] * dt + pi[:, np.newaxis] * Px  # Shape (N_stars, N_times)
+        y = y0[:, np.newaxis] + vy[:, np.newaxis] * dt + pi[:, np.newaxis] * Py  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays
@@ -1540,8 +1508,8 @@ class Parallax(MotionModel):
 
         fit_param_errs = np.atleast_2d(fit_param_errs)  # (N_stars, N_fit_params)
         x0_err, vx_err, y0_err, vy_err, pi_err = fit_param_errs.T
-        x_err = np.sqrt(x0_err[:, np.newaxis]**2 + (vx_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[:, 0, :])**2)  # Shape (N_stars, N_times)
-        y_err = np.sqrt(y0_err[:, np.newaxis]**2 + (vy_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * self.pvec[:, 1, :])**2)  # Shape (N_stars, N_times)
+        x_err = np.sqrt(x0_err[:, np.newaxis]**2 + (vx_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * Px)**2)  # Shape (N_stars, N_times)
+        y_err = np.sqrt(y0_err[:, np.newaxis]**2 + (vy_err[:, np.newaxis] * dt)**2 + (pi_err[:, np.newaxis] * Py)**2)  # Shape (N_stars, N_times)
 
         if N_stars == 1 or N_times == 1:
             # If only one star, return flattened arrays
@@ -1849,7 +1817,7 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
     # becomes a column), so after fitting Parallax with a single ra/dec/pa for
     # the whole table, 'pa' and 'obsLocation' live in meta -- and omitting meta
     # made Parallax un-selectable, silently demoting those stars to Linear and
-    # dropping the parallax term from infer_positions.
+    # dropping the parallax term from get_predicted_positions.
     meta_keys = set(getattr(startable, 'meta', None) or {})
 
     motion_models_possible = []
@@ -2366,13 +2334,14 @@ class Orbit(MotionModel):
         ye = np.sqrt(np.maximum(ye2, 0.0))
         return xe, ye
 
-    def model(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Predict from the current ``orb_*`` elements.
 
         Parameters
         ----------
         t : scalar or array-like
-            Decimal years. See ``broadcast_times``.
+            Time(s) in decimal years. Shape rules are in
+            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
         fit_params : array-like, shape (6,) or (n_stars, 6)
             ``orb_P``, ``orb_t0``, ``orb_e``, ``orb_i``,
             ``orb_Omega``, ``orb_omega``.
@@ -2402,7 +2371,7 @@ class Orbit(MotionModel):
         NaN, and returns inf errors.
         """
         if fixed_params_dict is None:
-            fixed_params_dict = getattr(self, 'fixed_params_dict', None)
+            fixed_params_dict = self.fixed_params_dict
         fit_params = np.atleast_2d(np.asarray(fit_params, dtype=float))
         if fit_param_errs is not None:
             fit_param_errs = np.atleast_2d(np.asarray(fit_param_errs, dtype=float))
@@ -2416,7 +2385,7 @@ class Orbit(MotionModel):
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
         if cov_held is not None:
             fixed_params_dict['orb_cov'] = cov_held
-        t_grid = broadcast_times(t, n_stars, caller='Orbit.model')
+        t_grid = broadcast_times(t, n_stars, caller='Orbit.get_predicted_positions')
         n_times = t_grid.shape[1]
 
         x = np.empty((n_stars, n_times), dtype=float)
