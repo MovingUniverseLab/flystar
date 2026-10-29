@@ -1,11 +1,28 @@
-from astropy.modeling import models, fitting
-import numpy as np
-from scipy.interpolate import LSQBivariateSpline as spline
-from scipy import stats
-from astropy.table import Table
-import collections
+import os
 import re
-import pdb
+import copy
+import datetime
+import numpy as np
+import collections
+from flystar import motion_model
+from astropy.table import Table
+from astropy.modeling import models, fitting
+from scipy import stats
+from scipy.interpolate import LSQBivariateSpline as spline
+
+
+def _deriv_times_error(deriv, err):
+    """
+    deriv * err, but treats an exactly-zero derivative as contributing
+    exactly zero regardless of err -- including when err is inf (an
+    unknown uncertainty) or nan. A transform with zero sensitivity to an
+    input genuinely propagates zero uncertainty from it; 0 * inf/nan is
+    an indeterminate form only in general, not in this specific case,
+    where the correct limit is well-defined.
+    """
+    with np.errstate(invalid='ignore'):
+        return np.where(deriv == 0, 0.0, deriv * err)
+
 
 class Transform2D(object):
     '''
@@ -112,21 +129,39 @@ class Transform2D(object):
             new_list['xe'] = vals[0]
             new_list['ye'] = vals[1]
 
-        # Velocities (if they exist)
-        if 'vx' in new_list.colnames:
+        # Velocities (if they exist and no more complex motion model used)
+        complex_motion_model = ('motion_model_input' in new_list.colnames)
+        if complex_motion_model:
+            # If the only motion models used are Fixed and Linear, we can still transform velocities.
+            motion_models_unique = list(np.unique(starlist_f['motion_model_input']))
+            if 'Linear' in motion_models_unique:
+                motion_models_unique.remove('Linear')
+            if 'Fixed' in motion_models_unique:
+                motion_models_unique.remove('Fixed')
+            if len(motion_models_unique)==0:
+                complex_motion_model=False
+        # Cannot transform more complex motion models - set values to nan
+        if complex_motion_model:
+            motion_params = motion_model.motion_model_param_names(new_list['motion_model_input'], with_errors=True, with_fixed=False)
+            for param in motion_params:
+                if param in new_list.colnames:
+                    new_list[param] = np.nan
+                
+        if ('vx' in new_list.colnames) and (not complex_motion_model):
+            # For velocity only, no problem
             vals = self.evaluate_vel(star_list['x'], star_list['y'],
                                      star_list['vx'], star_list['vy'])
             new_list['vx'] = vals[0]
             new_list['vy'] = vals[1]
 
             # Velocity errors (if they exist)
-            if 'vxe' in new_list.colnames:
+            if 'vx_err' in new_list.colnames:
                 vals = self.evaluate_vel_error(star_list['x'], star_list['y'],
                                                star_list['vx'], star_list['vy'],
                                                star_list['xe'], star_list['ye'],
-                                               star_list['vxe'], star_list['vye'])
-                new_list['vxe'] = vals[0]
-                new_list['vye'] = vals[1]
+                                               star_list['vx_err'], star_list['vy_err'])
+                new_list['vx_err'] = vals[0]
+                new_list['vy_err'] = vals[1]
                 
         return new_list
     
@@ -201,12 +236,12 @@ class four_paramNW(Transform2D):
         yn = self.py[0] + self.py[1]*x + self.py[2]*y
         return xn, yn
 
-    def evaluate_error(self, x, y):
+    def evaluate_error(self, x, y, xe, ye):
 
         """
         Transform positional uncertainties. 
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -226,7 +261,7 @@ class four_paramNW(Transform2D):
 
         """
         xe_new = np.hypot(self.px[1] * xe, self.px[2] * ye)
-        xe_new = np.hpyot(self.px[1] * xe, self.px[2] * ye)
+        ye_new = np.hypot(self.py[1] * xe, self.py[2] * ye)
                 
 
         return xe_new, ye_new
@@ -254,25 +289,20 @@ class PolyTransform(Transform2D):
         
         Parameters
         ----------
-        px : list or array [a0, a1, a2, ...] 
-            coefficients to transform input x coordinates into output x' coordinates.
-
-        py : list or array [b0, b1, b2, ...] 
-            coefficients to transform input y coordinates into output y' coordinates.
-        
         order : int
             The order of the transformation. 0 = 2 free parameters, 1 = 6 free parameters.
-
-        pxerr : array or list
+        px : list or array [a0, a1, a2, ...]
+            coefficients to transform input x coordinates into output x' coordinates.
+        py : list or array [b0, b1, b2, ...] 
+            coefficients to transform input y coordinates into output y' coordinates.
+        pxerr : array or list, optional
             array or list of errors of the coefficients to transform input x coordinates 
-            into output x' coordinates.
-        
-        pyerr : array or list
+            into output x' coordinates, by default None.
+        pyerr : array or list, optional
             array or list of errors of the coefficients to transform input y coordinates 
-            into output y' coordinates.
-        
-        mag_offset : float
-            magnitude difference with the reference catalog (mag_ref - mag_cat)
+            into output y' coordinates, by default None.
+        mag_offset : float, optional
+            magnitude difference with the reference catalog (mag_ref - mag_cat), by default 0.0.
             
         """
         self.order = order
@@ -288,7 +318,7 @@ class PolyTransform(Transform2D):
             px_dict = PolyTransform.make_param_dict(px, self.poly_order, isY=False)
             py_dict = PolyTransform.make_param_dict(py, self.poly_order, isY=True)
             
-            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True}
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c0_1': True} #, 'c1_1':True}
             self.px = models.Polynomial2D(self.poly_order, **px_dict, fixed=fixed_params)
             self.py = models.Polynomial2D(self.poly_order, **py_dict, fixed=fixed_params)
         else:
@@ -312,7 +342,7 @@ class PolyTransform(Transform2D):
 
         a0 + a1*x + a2*y + a3*x^2 + a4*x*y + a5*y^2 + a6*x^3 + a7*x^2*y + a8*x*y^2 + a9*y^3
 
-        and conver this into a dictionary where:
+        and convert this into a dictionary where:
 
         c0_0 = a0
         c1_0 = a1
@@ -328,7 +358,9 @@ class PolyTransform(Transform2D):
         The input/output ordering is set for easy coding using:
 
         for i in range(self.order + 1):
+
             for j in range(i + 1):
+
                 coeff[i-j, j] for term x**(i-j) * y**(j)
 
         But astropy models Polynomial2D has its own special order... we try to 
@@ -371,7 +403,7 @@ class PolyTransform(Transform2D):
         """
         Apply the transformation to a starlist.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The raw x coordinates to be transformed.
@@ -392,7 +424,7 @@ class PolyTransform(Transform2D):
         """
         Transform positional uncertainties. 
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -435,8 +467,8 @@ class PolyTransform(Transform2D):
 
                 
         # Take square root for xe/ye_new
-        xe_new = np.sqrt((dxnew_dx * xe)**2 + (dxnew_dy * ye)**2)
-        ye_new = np.sqrt((dynew_dx * xe)**2 + (dynew_dy * ye)**2)
+        xe_new = np.sqrt(_deriv_times_error(dxnew_dx, xe)**2 + _deriv_times_error(dxnew_dy, ye)**2)
+        ye_new = np.sqrt(_deriv_times_error(dynew_dx, xe)**2 + _deriv_times_error(dynew_dy, ye)**2)
 
         return xe_new, ye_new
 
@@ -444,7 +476,7 @@ class PolyTransform(Transform2D):
         """
         Transform velocities.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -488,7 +520,7 @@ class PolyTransform(Transform2D):
         """
         Transform velocities.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -560,10 +592,10 @@ class PolyTransform(Transform2D):
                     dvxnew_dvy += Xcoeff * (j) * x**(i-j) * y**(j-1)
                     dvynew_dvy += Ycoeff * (j) * x**(i-j) * y**(j-1)
     
-        vxe_new = np.sqrt((dvxnew_dx * xe)**2 + (dvxnew_dy * ye)**2 +
-                              (dvxnew_dvx * vxe)**2 + (dvxnew_dvy * vye)**2)
-        vye_new = np.sqrt((dvynew_dx * xe)**2 + (dvynew_dy * ye)**2 +
-                              (dvynew_dvx * vxe)**2 + (dvynew_dvy * vye)**2)
+        vxe_new = np.sqrt(_deriv_times_error(dvxnew_dx, xe)**2 + _deriv_times_error(dvxnew_dy, ye)**2 +
+                              _deriv_times_error(dvxnew_dvx, vxe)**2 + _deriv_times_error(dvxnew_dvy, vye)**2)
+        vye_new = np.sqrt(_deriv_times_error(dvynew_dx, xe)**2 + _deriv_times_error(dvynew_dy, ye)**2 +
+                              _deriv_times_error(dvynew_dvx, vxe)**2 + _deriv_times_error(dvynew_dvy, vye)**2)
         
         return vxe_new, vye_new
     
@@ -580,7 +612,7 @@ class PolyTransform(Transform2D):
             init_gx = PolyTransform.make_param_dict(init_gx, poly_order, isY=False)
             init_gy = PolyTransform.make_param_dict(init_gy, poly_order, isY=True)
 
-            fixed_params = {'c0_0': False, 'c1_0': True, 'c1_1': True, 'c0_1': True}
+            fixed_params = {'c0_0': False, 'c1_0': True, 'c0_1': True} #, 'c1_1':True}
             p_init_x = models.Polynomial2D(poly_order, **init_gx, fixed=fixed_params)
             p_init_y = models.Polynomial2D(poly_order, **init_gy, fixed=fixed_params)
         else:
@@ -592,6 +624,7 @@ class PolyTransform(Transform2D):
         
         fit_p  = fitting.LinearLSQFitter()
 
+        #pdb.set_trace()
         px = fit_p(p_init_x, x, y, xref, weights=weights)
         py = fit_p(p_init_y, x, y, yref, weights=weights)
 
@@ -616,15 +649,18 @@ class PolyTransform(Transform2D):
 
     @classmethod
     def from_file(cls, trans_file):
-        """
+        r"""
         Given a transformation coefficients file, read in the coefficients and create
         a PolyTransform object.
     
         Coefficients in the input file should have the following order:
-        x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
-        y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
+
+        .. math::
+
+                    x' &= a_0 + a_1 x + a_2 y + a_3 x^2 + a_4 x y + a_5 y^2 + \dots \\
+                    y' &= b_0 + b_1 x + b_2 y + b_3 x^2 + b_4 x y + b_5 y^2 + \dots
     
-        Parameters:
+        Parameters
         ----------
         trans_file : str
             The name of the input file to read in.
@@ -646,20 +682,23 @@ class PolyTransform(Transform2D):
         
         return trans_obj
 
-    def to_file(self, trans_file):
-        """
+    def to_file(self, transform, outFile):
+        r"""
         Given a transformation object, write out the coefficients in a text file
         (readable by java align). Outfile name is specified by user.
     
         Coefficients are output in file in the following way:
-        x' = a0 + a1*x + a2*y + a3*x**2. + a4*x*y  + a5*y**2. + ...
-        y' = b0 + b1*x + b2*y + b3*x**2. + b4*x*y  + b5*y**2. + ...
+
+        .. math::
+
+                    x' &= a_0 + a_1 x + a_2 y + a_3 x^2 + a_4 x y + a_5 y^2 + \dots \\
+                    y' &= b_0 + b_1 x + b_2 y + b_3 x^2 + b_4 x y + b_5 y^2 + \dots
     
-        Parameters:
+        Parameters
         ----------
-        trans_file : str
-            The name of the output file to save the coefficients and meta data to. 
-            This file can be read back in with 
+        transform : PolyTransform
+            The transformation object containing the coefficients and meta data to save. 
+            This object can be recreated with 
 
                 trans_obj = PolyTransfrom.from_file(trans_file).
 
@@ -675,7 +714,7 @@ class PolyTransform(Transform2D):
             
         # Write output
         _out = open(outFile, 'w')
-        
+
         # Write the header. DO NOT CHANGE, HARDCODED IN JAVA ALIGN
         _out.write('## Date: {0}\n'.format(datetime.date.today()) )
         _out.write('## File: {0}, Reference: {1}\n'.format(starlist, reference) )
@@ -784,13 +823,10 @@ class LegTransform(Transform2D):
         ----------
         order : int
             The order of the transformation.
-
         px : list or array [a0, a1, a2, ...] 
             coefficients to transform input x coordinates into output x' coordinates.
-
         py : list or array [b0, b1, b2, ...] 
             coefficients to transform input y coordinates into output y' coordinates.
-
         x_domain: list or array [xmin, xmax]
         y_domain: list or array [ymin, ymax]
             This is the allowable range of input values and it will be conditioned onto
@@ -802,21 +838,19 @@ class LegTransform(Transform2D):
         
         Optional Inputs
         ---------------
-        pxerr : array or list
+        pxerr : array or list, optional
             array or list of errors of the coefficients to transform input x coordinates 
-            into output x' coordinates.
-        
-        pyerr : array or list
+            into output x' coordinates, by default None.
+        pyerr : array or list, optional
             array or list of errors of the coefficients to transform input y coordinates 
-            into output y' coordinates.
-
-        mag_offset : float
-            Magnitude transformation term... only offset applied (offset = mag_out - mag_in)
-
-        astropy_order : boolean
+            into output y' coordinates, by default None.
+        mag_offset : float, optional
+            Magnitude transformation term... only offset applied (offset = mag_out - mag_in).
+            By default 0.0.
+        astropy_order : boolean, optional
             Use our parameter ordering (if False) where going from order=0 --> 1 keeps
             the lowest order terms in the same order (same for order=1 --> 2). If True,
-            then use the default astropy.models.Legendre2D paramter ordering scheme. 
+            then use the default astropy.models.Legendre2D paramter ordering scheme, by default False.
         """
         if not astropy_order:
             px_dict = LegTransform.make_param_dict(px, order, isY=False)
@@ -853,8 +887,10 @@ class LegTransform(Transform2D):
         Legnedre polynomials as the basis.
 
         Transforms are independent for x and y and of the form:
+
             x' = c0_0 + c1_0 * L_1(x) + c0_1*L_1(y) + ....
             y' = d0_0 + d1_0 * L_1(x) + d0_1*L_1(y) + ....
+
         Note that all input coordinates will be renomalized to be on the interval of [-1:1] before fitting.
         The evaulate function must use the same renormalization procedure.
         """
@@ -1049,7 +1085,7 @@ class LegTransform(Transform2D):
         """
         Apply the transformation to a starlist.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The raw x coordinates to be transformed.
@@ -1081,7 +1117,7 @@ class LegTransform(Transform2D):
         """
         Transform positional uncertainties. 
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -1149,7 +1185,7 @@ class LegTransform(Transform2D):
         """
         Transform velocities.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
@@ -1203,7 +1239,7 @@ class LegTransform(Transform2D):
         """
         Transform velocities.
 
-        Parameters: 
+        Parameters
         ----------
         x : numpy array
             The original x coordinates to be used in the transformation.
