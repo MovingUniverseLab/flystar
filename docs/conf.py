@@ -61,6 +61,8 @@ exclude_patterns = [
     # Written against the pre-mm_rework API and needs a live Gaia query.
     # Kept in the tree, excluded from the build until it is updated.
     'examples/flystar_mosaic_to_gaia/**',
+    # Internal design notes, not part of the user documentation.
+    'plans/**',
 ]
 
 highlight_language = 'python3'
