@@ -1,3 +1,5 @@
+import zlib
+
 from flystar import motion_model
 import numpy as np
 import pytest
@@ -522,6 +524,62 @@ def _wchi2(resid, sigma):
     return float(np.sum((resid / sigma) ** 2))
 
 
+def _stable_seed(*key):
+    """
+    Random-number seed derived from ``key``, identical in every process.
+
+    Parameters
+    ----------
+    *key
+        Values identifying one test case (e.g. model name, epoch count).
+
+    Returns
+    -------
+    seed : int
+        CRC32 of ``repr(key)``.
+
+    Notes
+    -----
+    Built-in ``hash()`` of a tuple containing strings changes between
+    Python processes (PYTHONHASHSEED), which made each run draw different
+    data.
+    """
+    seed = zlib.crc32(repr(key).encode())
+
+    return seed
+
+
+def _basis_jac(basis, n_par):
+    """
+    Exact Jacobian function for a basis that is linear in its parameters.
+
+    Parameters
+    ----------
+    basis : callable
+        ``basis(tt, *p)``, linear and homogeneous in ``p``.
+    n_par : int
+        Number of parameters.
+
+    Returns
+    -------
+    jac : callable
+        ``jac(tt, *p)`` returning an array of shape [len(tt), n_par], for
+        ``curve_fit(jac=...)``.
+
+    Notes
+    -----
+    Without it, curve_fit estimates the Jacobian by finite differences,
+    and its parameter errors are then off by up to ~1e-5 relative.
+    """
+    # Column k is the basis evaluated at the k-th unit parameter vector.
+    unit = np.eye(n_par)
+
+    def jac(tt, *p):
+        return np.column_stack([basis(tt, *unit[k]) for k in range(n_par)])
+
+    return jac
+
+
 def test_scipy_agreement_independent_models():
     """
     Fixed/Linear/Acceleration fit x and y independently -- compare each
@@ -540,7 +598,7 @@ def test_scipy_agreement_independent_models():
 
 def _check_independent(name, cls, basis, n_par, n_epochs, weighting,
                        absolute_sigma, nan_count):
-    seed = abs(hash((name, n_epochs, weighting, absolute_sigma, nan_count))) % (2**31)
+    seed = _stable_seed(name, n_epochs, weighting, absolute_sigma, nan_count)
     rng = np.random.default_rng(seed)
 
     t = 2020.0 + np.arange(n_epochs, dtype=float) * 0.9
@@ -584,7 +642,8 @@ def _check_independent(name, cls, basis, n_par, n_epochs, weighting,
     for val, sig, truth in ((x[valid], sx[valid], tx), (y[valid], sy[valid], ty)):
         popt, pcov = curve_fit(lambda tt, *p: basis(tt, *p), dtv, val,
                                p0=np.array(truth, dtype=float), sigma=sig,
-                               absolute_sigma=absolute_sigma, **_CF_KW)
+                               absolute_sigma=absolute_sigma,
+                               jac=_basis_jac(basis, n_par), **_CF_KW)
         want_p.append(popt)
         want_e.append(np.sqrt(np.diag(pcov)))
     want_p = np.concatenate(want_p)
@@ -596,7 +655,7 @@ def _check_independent(name, cls, basis, n_par, n_epochs, weighting,
 
     np.testing.assert_allclose(gp, want_p, rtol=1e-6, atol=1e-12,
                                err_msg=f'{tag}: params disagree with curve_fit')
-    np.testing.assert_allclose(ge, want_e, rtol=1e-5, atol=1e-14,
+    np.testing.assert_allclose(ge, want_e, rtol=1e-8, atol=1e-14,
                                err_msg=f'{tag}: param errors disagree with curve_fit')
 
     # chi2 is compared using scipy's definition evaluated at flystar's OWN
@@ -623,7 +682,7 @@ def test_scipy_agreement_parallax():
     for n_epochs in [4, 9]:
         for weighting in ['var', 'std']:
             for absolute_sigma in [True, False]:
-                seed = abs(hash((n_epochs, weighting, absolute_sigma))) % (2**31)
+                seed = _stable_seed(n_epochs, weighting, absolute_sigma)
                 rng = np.random.default_rng(seed)
 
                 t = 2020.0 + np.arange(n_epochs, dtype=float) * 0.7
@@ -657,18 +716,24 @@ def test_scipy_agreement_parallax():
                     return np.concatenate([x0 + vx*dt + pi*Px,
                                            y0 + vy*dt + pi*Py])
 
+                # Exact Jacobian of the stacked model, shape [2*n_epochs, 5].
+                zero, one = np.zeros(n_epochs), np.ones(n_epochs)
+                jac_joint = np.vstack([np.column_stack([one, dt, zero, zero, Px]),
+                                       np.column_stack([zero, zero, one, dt, Py])])
+
                 data = np.concatenate([x, y])
                 sig = np.concatenate([sx, sy])
                 dummy = np.arange(2 * n_epochs)
                 popt, pcov = curve_fit(f_joint, dummy, data, p0=truth, sigma=sig,
-                                       absolute_sigma=absolute_sigma, **_CF_KW)
+                                       absolute_sigma=absolute_sigma,
+                                       jac=lambda d, *p: jac_joint, **_CF_KW)
                 want_e = np.sqrt(np.diag(pcov))
                 if 2 * n_epochs - 5 <= 0 and not absolute_sigma:
                     want_e = np.full(5, np.inf)
 
                 np.testing.assert_allclose(gp, popt, rtol=1e-6, atol=1e-12,
                                            err_msg=f'{tag}: params disagree with curve_fit')
-                np.testing.assert_allclose(ge, want_e, rtol=1e-5, atol=1e-14,
+                np.testing.assert_allclose(ge, want_e, rtol=1e-8, atol=1e-14,
                                            err_msg=f'{tag}: param errors disagree with curve_fit')
 
                 resid = (data - f_joint(dummy, *gp)) / sig
