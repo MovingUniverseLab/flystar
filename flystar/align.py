@@ -2061,17 +2061,18 @@ class MosaicSelfRef(object):
             needs_error_fallback = xe_bad.all(axis=1) & ye_bad.all(axis=1)
             guaranteed_simple &= ~needs_error_fallback
 
-        # A model that sets demote=False (Orbit) must not be averaged by
-        # combine_lists_xym, which would replace x0/y0 and ignore the orbit.
+        # A star whose model's demote setting keeps it despite too few epochs
+        # (e.g. an Orbit with initial elements) must not be averaged by
+        # combine_lists_xym, which would replace x0/y0 and ignore the model.
         # Frozen stars are already outside need_update.
         if 'motion_model_input' in self.ref_table.colnames:
             mm_map = motion_model.motion_model_map()
             requested = np.asarray(self.ref_table['motion_model_input']).astype(str)
-            no_simple = np.array([
-                (name in mm_map) and (not getattr(mm_map[name], 'demote', True))
-                for name in requested
-            ])
-            guaranteed_simple = guaranteed_simple & ~no_simple
+            for name in np.unique(requested[guaranteed_simple]):
+                if (name not in mm_map) or (mm_map[name].demote == 'always'):
+                    continue
+                rows = guaranteed_simple & (requested == name)
+                guaranteed_simple[rows] = ~mm_map[name].keep_model_mask(self.ref_table, rows)
 
         need_update = fit_star_idxs if fit_star_idxs is not None else np.ones(len(self.ref_table), dtype=bool)
         simple_idxs = guaranteed_simple & need_update

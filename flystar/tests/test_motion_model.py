@@ -1564,8 +1564,9 @@ def test_orbit_star_not_in_reference_demoted_to_linear():
 
     When align adds a new star to the reference, it assigns ``motion_model_input='Orbit'``
     but the star has been detected in only a handful of epochs (fewer than the six
-    orbital elements require).  With ``Orbit.demote = True``, ``fit_motion_models``
-    must demote that star to a lower model (Linear) because ``n_fit < n_params = 6``.
+    orbital elements require).  It has no initial orbital elements, so with
+    ``Orbit.demote = 'on-missing-init'``, ``fit_motion_models`` must demote that
+    star to a lower model (Linear) because ``n_fit < n_params = 6``.
 
     A frozen orbit star (``update_ref_motion=False``) with the same few detections
     must NOT be demoted; that case is covered by
@@ -1627,11 +1628,95 @@ def test_orbit_star_not_in_reference_demoted_to_linear():
     assert tab['motion_model_used'][0] == 'Orbit', (
         f"Expected Orbit for well-detected star, got {tab['motion_model_used'][0]}"
     )
-    # Star 1 has only 3 epochs (< n_params=6): demoted because demote=True.
+    # Star 1 has only 3 epochs (< n_params=6) and no initial elements: demoted.
     assert tab['motion_model_used'][1] != 'Orbit', (
         f"Expected demotion for newly-added star, got {tab['motion_model_used'][1]}"
     )
     assert tab['motion_model_used'][1] == 'Linear', (
         f"Expected Linear after demotion, got {tab['motion_model_used'][1]}"
     )
+    return None
+
+
+def test_keep_model_mask_demote_options(monkeypatch):
+    """Each demote setting picks the right under-detected stars to keep.
+
+    Rows: complete initial elements, one missing element, none at all.
+    'on-missing-init' keeps only the first. A partial set counts as
+    missing because the orbit cannot be integrated from it.
+    """
+    from astropy.table import Table
+
+    Orbit = motion_model.Orbit
+    elements = [16.0, 2002.31, 0.88, 134.7, 48.4, 246.7]
+
+    # Build the three rows of initial orbital elements.
+    tab = Table()
+    for ii, name in enumerate(Orbit.fit_param_names):
+        tab[name] = [elements[ii], np.nan if ii == 2 else elements[ii], np.nan]
+    rows = np.ones(3, dtype=bool)
+
+    assert Orbit.demote == 'on-missing-init'
+    np.testing.assert_array_equal(Orbit.keep_model_mask(tab, rows), [True, False, False])
+
+    # Only the requested rows are judged, in table order.
+    np.testing.assert_array_equal(Orbit.keep_model_mask(tab, np.array([True, False, True])),
+                                  [True, False])
+
+    # Missing initial-parameter columns mean nothing can be kept.
+    np.testing.assert_array_equal(Orbit.keep_model_mask(Table({'x0': [0.0, 1.0, 2.0]}), rows),
+                                  [False, False, False])
+
+    # 'always' and 'never' ignore the initial parameters.
+    monkeypatch.setattr(Orbit, 'demote', 'always')
+    np.testing.assert_array_equal(Orbit.keep_model_mask(tab, rows), [False, False, False])
+    monkeypatch.setattr(Orbit, 'demote', 'never')
+    np.testing.assert_array_equal(Orbit.keep_model_mask(tab, rows), [True, True, True])
+
+    # Every other model defaults to 'always'.
+    assert motion_model.Linear.demote == 'always'
+
+    return None
+
+
+def test_motion_model_map_rejects_unknown_demote(monkeypatch):
+    """A mistyped demote setting raises instead of acting like 'always'."""
+    monkeypatch.setattr(motion_model.Linear, 'demote', 'sometimes')
+
+    with pytest.raises(ValueError, match='Linear.demote'):
+        motion_model.motion_model_map()
+
+    return None
+
+
+def test_orbit_with_initial_elements_is_not_demoted():
+    """fit_motion_models keeps an Orbit star with complete initial elements.
+
+    Both stars request Orbit and have 3 epochs (< n_params = 6). Star 0
+    has all six initial elements and stays Orbit. Star 1 is missing its
+    eccentricity, so it is demoted to Linear.
+    """
+    from flystar.startables import StarTable
+
+    epochs = np.array([2018.0, 2019.0, 2020.0])
+    elements = [16.0, 2002.31, 0.88, 134.7, 48.4, 246.7]
+
+    # Two stars on the same 3-epoch grid.
+    x = np.array([[0.0, 0.01, 0.02], [0.5, 0.51, 0.52]])
+    y = np.array([[0.0, 0.01, 0.02], [0.3, 0.30, 0.30]])
+    err = np.full((2, 3), 0.001)
+    tab = StarTable(name=np.array(['init', 'partial']), x=x, y=y, xe=err, ye=err,
+                    m=np.full((2, 3), 15.0), me=np.full((2, 3), 0.01),
+                    t=np.tile(epochs, (2, 1)))
+
+    # Star 1 lacks an initial eccentricity.
+    for ii, name in enumerate(motion_model.Orbit.fit_param_names):
+        tab[name] = np.array([elements[ii], np.nan if name == 'orb_e' else elements[ii]])
+    tab['motion_model_input'] = np.array(['Orbit', 'Orbit'], dtype='U12')
+
+    tab.fit_motion_models(motion_models=['Linear', 'Orbit'], verbose=False)
+
+    assert tab['motion_model_used'][0] == 'Orbit'
+    assert tab['motion_model_used'][1] == 'Linear'
+
     return None

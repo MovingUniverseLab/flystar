@@ -1357,12 +1357,12 @@ class StarTable(Table):
             # If n_fit < n_params for the input motion model, use the most complicated motion model with n_fit >= n_params
             required_params = np.array([all_mm_map[mm_name].n_params for mm_name in self['motion_model_input']])
             reassign_mm = n_fit < required_params
-            # Demote stars whose model allows demotion (demote=True by default;
-            # all models including Orbit now set this to True).
-            reassign_mm = reassign_mm & np.array([
-                getattr(all_mm_map[name], 'demote', True)
-                for name in self['motion_model_input']
-            ])
+
+            # Each model's demote setting decides which under-detected stars keep it.
+            mm_input = np.asarray(self['motion_model_input']).astype(str)
+            for name in np.unique(mm_input[reassign_mm]):
+                rows = reassign_mm & (mm_input == name)
+                reassign_mm[rows] = ~all_mm_map[name].keep_model_mask(self, rows)
 
             mm_digitized = np.digitize(
                 x=n_fit[reassign_mm],

@@ -2346,7 +2346,7 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
     x_ref = list(anchor_x) + [0.0]
     y_ref = list(anchor_y) + [0.0]
 
-    # Catalog x/y for the orbit is the seed prediction at the first epoch,
+    # Catalog x/y for the orbit is the initial-parameter prediction at the first epoch,
     # so the initial name match is near the detection.
     orb_params_init_fixed = orb_params_true
 
@@ -2456,7 +2456,7 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
         y_s[names.index('orb_fixed')] = float(np.asarray(y_orb).reshape(-1)[0])
 
         if fit_orbit:
-            # Detections follow the injected orbit, not the catalog seed.
+            # Detections follow the injected orbit, not the catalog initial parameters.
             x_fit, y_fit = motion_model.Orbit().get_predicted_positions(
                 epoch, np.asarray(fit_true, dtype=float),
                 fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
@@ -2504,7 +2504,7 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
     truth = {
         'orb_true': orb_params_true,
         'fit_true': fit_true,
-        'orb_seed': orb_params_init,
+        'orb_init': orb_params_init,
         'lin_vx': lin_vx,
         'lin_vx_cat': lin_vx_cat,
         'names': names,
@@ -2602,12 +2602,12 @@ def test_update_ref_orig_holds_or_refits_around_a_frozen_orbit():
 
         # Test that the fit orbit elements are correct.
         if setting is False:
-            np.testing.assert_array_equal(fit_el, truth['orb_seed'])
+            np.testing.assert_array_equal(fit_el, truth['orb_init'])
             assert tab['vx'][i_lin] == truth['lin_vx_cat']
             assert tab['x0'][i_fit] == 7.0
             assert tab['vx'][i_fit] == 0.5
         else:
-            assert not np.array_equal(fit_el, truth['orb_seed'])
+            assert not np.array_equal(fit_el, truth['orb_init'])
             assert tab['vx'][i_lin] != truth['lin_vx_cat']
             assert tab['x0'][i_fit] != 7.0
     return None
@@ -2748,7 +2748,7 @@ def test_mosaic_fit_and_fixed_orbit_with_update_ref_orig():
     fit_el = np.array([tab[c][i_fit] for c in (
         'orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega')])
     assert abs(fit_el[0] - truth['fit_true'][0]) < abs(
-        truth['orb_seed'][0] - truth['fit_true'][0]
+        truth['orb_init'][0] - truth['fit_true'][0]
     )
 
     # Test that the fit orbit errors are correct.
@@ -2779,7 +2779,7 @@ def test_mosaic_fit_and_fixed_orbit_with_update_ref_orig():
     k = _row(htab, 'lin')
     held_el = np.array([htab[c][j] for c in (
         'orb_P', 'orb_t0', 'orb_e', 'orb_i', 'orb_Omega', 'orb_omega')])
-    np.testing.assert_array_equal(held_el, truth['orb_seed'])
+    np.testing.assert_array_equal(held_el, truth['orb_init'])
     assert htab['vx'][k] == truth['lin_vx_cat']
     assert htab['x0'][j] == 7.0
 

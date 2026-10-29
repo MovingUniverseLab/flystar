@@ -218,6 +218,13 @@ model instead of failing.
    import numpy as np
    print(np.unique(table['motion_model_used'], return_counts=True))
 
+Whether such a fallback happens is set by each model's ``demote`` attribute.
+Most models use ``'always'``. ``Orbit`` uses ``'on-missing-init'``: a star
+whose ``orb_*`` columns already hold a complete set of finite initial elements
+stays ``Orbit`` even with too few epochs (the fit is skipped and the initial
+elements are kept), while a star without them -- for example one newly added
+to the reference -- falls back to a simpler model.
+
 A star demoted to a simpler model has any leftover parameters from its
 previously-assigned model reset, so ``vx`` is never left holding a stale value
 from an earlier, more complex fit.
@@ -809,6 +816,13 @@ What to declare
        (``Parallax``'s ``{'pa': 0., 'obsLocation': 'earth'}``).
    * - ``fixed_param_names``
      - ``required_fixed_param_names + list(optional_fixed_params)``.
+   * - ``demote``
+     - Optional; defaults to ``'always'``. What to do with a star that requests
+       this model but has fewer than ``n_params`` epochs: ``'always'`` demote,
+       ``'never'`` keep, or ``'on-missing-init'`` keep only if every
+       ``fit_param_names`` column already holds a finite initial value.
+       Use the last two only if ``run_fit`` returns the initial values when
+       there are too few epochs.
 
 What to implement
 -----------------

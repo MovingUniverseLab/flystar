@@ -664,7 +664,7 @@ def _cov_state(cov):
     return 'bad'
 
 
-def _elements_from_internal(internal, seed):
+def _elements_from_internal(internal, init_params):
     """Map the unconstrained solver vector onto catalog elements.
 
     Parameters
@@ -672,9 +672,9 @@ def _elements_from_internal(internal, seed):
     internal : ndarray, shape (6,)
         ``ln P``, ``delta t0``, ``h``, ``k``, inclination (deg),
         ``Omega`` (deg, unbounded).
-    seed : ndarray, shape (6,)
-        Elements the fit started from. ``t0`` and the node are wrapped
-        toward this seed. The 180 degree twin is not applied here.
+    init_params : ndarray, shape (6,)
+        Initial parameters (elements) the fit started from. ``t0`` and the
+        node are wrapped toward them. The 180 degree twin is not applied here.
 
     Returns
     -------
@@ -688,35 +688,35 @@ def _elements_from_internal(internal, seed):
     -----
     ``e = h**2 + k**2`` and ``omega = atan2(k, h)`` in degrees.
     ``t0`` is shifted by an integer number of periods so it lies
-    within half a period of the seed.
+    within half a period of the initial ``t0``.
     """
     period = float(np.exp(internal[0]))
-    t0 = float(seed[1]) + float(internal[1])
-    n_wrap = float(np.round((t0 - float(seed[1])) / period))
+    t0 = float(init_params[1]) + float(internal[1])
+    n_wrap = float(np.round((t0 - float(init_params[1])) / period))
     t0 = t0 - n_wrap * period
     ecc = float(internal[2]**2 + internal[3]**2)
     omega = float(np.degrees(np.arctan2(internal[3], internal[2])))
     incl = float(internal[4])
-    big_omega = _nearest_angle(internal[5], seed[4])
+    big_omega = _nearest_angle(internal[5], init_params[4])
     elements = np.array([period, t0, ecc, incl, big_omega, omega], dtype=float)
     return elements, n_wrap
 
 
-def _choose_branch(elements, seed):
-    """Keep the ``(Omega, omega)`` branch closer to the seed.
+def _choose_branch(elements, init_params):
+    """Keep the ``(Omega, omega)`` branch closer to the initial parameters.
 
     Parameters
     ----------
     elements : ndarray, shape (6,)
         Solved elements, before the twin comparison.
-    seed : ndarray, shape (6,)
-        Elements the solver was started from.
+    init_params : ndarray, shape (6,)
+        Initial parameters (elements) the solver was started from.
 
     Returns
     -------
     elements : ndarray, shape (6,)
         Copy. ``Omega`` and ``omega`` may each have 180 degrees added,
-        then wrapped to the turn nearest the seed. Inclination is not
+        then wrapped to the turn nearest the initial angles. Inclination is not
         flipped.
 
     Notes
@@ -729,16 +729,19 @@ def _choose_branch(elements, seed):
     out = np.array(elements, dtype=float, copy=True)
     big_omega = out[4]
     omega = out[5]
-    d_keep = _angdiff(big_omega, seed[4])**2 + _angdiff(omega, seed[5])**2
+    d_keep = (
+        _angdiff(big_omega, init_params[4])**2
+        + _angdiff(omega, init_params[5])**2
+    )
     d_twin = (
-        _angdiff(big_omega + 180.0, seed[4])**2
-        + _angdiff(omega + 180.0, seed[5])**2
+        _angdiff(big_omega + 180.0, init_params[4])**2
+        + _angdiff(omega + 180.0, init_params[5])**2
     )
     if d_twin < d_keep:
         big_omega = big_omega + 180.0
         omega = omega + 180.0
-    out[4] = _nearest_angle(big_omega, seed[4])
-    out[5] = _nearest_angle(omega, seed[5])
+    out[4] = _nearest_angle(big_omega, init_params[4])
+    out[5] = _nearest_angle(omega, init_params[5])
     return out
 
 

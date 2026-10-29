@@ -142,6 +142,10 @@ def sigma_from_error(xe, ye, weighting='var'):
         return np.abs(xe), np.abs(ye)
 
 
+# Allowed values of MotionModel.demote.
+DEMOTE_OPTIONS = ('always', 'never', 'on-missing-init')
+
+
 class MotionModel(ABC):
     name = "MotionModel"
 
@@ -158,6 +162,14 @@ class MotionModel(ABC):
     optional_fixed_params = {}
 
     fixed_meta_data = []
+
+    # What to do with a star that requests this model but has fewer than
+    # n_params epochs. One of DEMOTE_OPTIONS:
+    #   'always'          -- demote to the most complex model the epochs support.
+    #   'never'           -- keep this model; the fit is skipped.
+    #   'on-missing-init' -- keep this model only if the star already has finite
+    #                        initial values for every fit parameter; else demote.
+    demote = 'always'
 
     # Non-fit paramters: Custom paramters that will not be fit.
     # These parameters should be derived from the fit parameters and
@@ -183,6 +195,51 @@ class MotionModel(ABC):
         self.fixed_params_dict = None
 
         return None
+
+    @classmethod
+    def keep_model_mask(cls, tab, rows):
+        """
+        Decide which under-detected stars keep this model instead of being demoted.
+
+        Parameters
+        ----------
+        tab : StarTable or astropy Table
+            Table holding the stars and any initial fit-parameter columns.
+        rows : array of bool, shape = [len(tab)]
+            Stars that requested this model but have fewer than ``n_params``
+            epochs.
+
+        Returns
+        -------
+        keep : numpy array, dtype=bool, shape = [rows.sum()]
+            True where the star (in ``rows`` order) keeps this model.
+
+        Notes
+        -----
+        Behavior follows the class attribute ``demote``. For
+        ``'on-missing-init'``, a star keeps the model only if every column
+        in ``fit_param_names`` exists and is finite for it. A partial set of
+        initial parameters counts as missing.
+        """
+        n_rows = int(np.sum(rows))
+
+        if cls.demote == 'always':
+            return np.zeros(n_rows, dtype=bool)
+
+        if cls.demote == 'never':
+            return np.ones(n_rows, dtype=bool)
+
+        # 'on-missing-init': every fit parameter needs a finite initial value.
+        if not all(name in tab.colnames for name in cls.fit_param_names):
+            return np.zeros(n_rows, dtype=bool)
+
+        # Shape of finite_init: [N_fit_params, rows.sum()]
+        finite_init = [
+            np.isfinite(np.ma.filled(np.ma.asarray(tab[name][rows], dtype=float), np.nan))
+            for name in cls.fit_param_names]
+        has_init_params = np.all(finite_init, axis=0)
+
+        return has_init_params
 
     def _check_param_dimensions(self, fit_params, fit_params_errs, fixed_params_dict):
         """Check that parameters is either a scalar or length of N_stars
@@ -2054,10 +2111,22 @@ def motion_model_map():
     -------
     mm_map : dict
         Dictionary mapping motion model names to MotionModel classes.
+
+    Raises
+    ------
+    ValueError
+        If a model's ``demote`` is not one of ``DEMOTE_OPTIONS``.
     """
     mm_map = dict(
         [(mm.__name__, mm) for mm in MotionModel.__subclasses__()]
     )
+
+    # Catch a mistyped demote setting instead of letting it act like 'always'.
+    for name, mm in mm_map.items():
+        if mm.demote not in DEMOTE_OPTIONS:
+            raise ValueError(f"{name}.demote = {mm.demote!r}; "
+                             f"must be one of {DEMOTE_OPTIONS}.")
+
     # Sort by required epochs
     mm_map = dict(sorted(mm_map.items(), key=lambda item: item[1].n_params))
     return mm_map
@@ -2155,7 +2224,7 @@ class Orbit(MotionModel):
 
     The ``update_ref_motion`` column on the reference table decides.
     Both modes read ``orb_*``. A fit updates those columns in place.
-    A failed fit returns the values it was seeded with.
+    A failed fit returns its initial parameters.
 
     The sky frame is hardcoded: ``x = -east``, ``y = +north``.
     ``mass`` and ``dist`` default to the pair that reproduces the
@@ -2181,7 +2250,9 @@ class Orbit(MotionModel):
     )
     n_fit_params = len(fit_param_names)
     n_params = n_fit_params  # 6 free orbital elements
-    demote = True
+    # Keep a star with initial orbital elements as Orbit (the fit starts from them);
+    # demote a star without them, e.g. one newly added to the reference.
+    demote = 'on-missing-init'
     prediction_columns = ['orb_cov', 'orb_fit_status']
 
     def __init__(self):
@@ -2214,28 +2285,29 @@ class Orbit(MotionModel):
                 )
         return out
 
-    def _broadcast_seeds(self, mapping, n_stars):
-        """Broadcast orbital-element seeds to ``(n_stars, 6)`` float array.
+    def _broadcast_init_params(self, mapping, n_stars):
+        """Broadcast initial orbital elements to ``(n_stars, 6)`` float array.
 
-        Missing seeds are ``np.nan``, which a failed fit returns unchanged.
+        Missing initial parameters are ``np.nan``, which a failed fit returns
+        unchanged.
         """
-        seeds = np.full((n_stars, len(self.fit_param_names)), np.nan)
+        init_params = np.full((n_stars, len(self.fit_param_names)), np.nan)
         if not mapping:
-            return seeds
+            return init_params
         for j, name in enumerate(self.fit_param_names):
             if name not in mapping:
                 continue
             v = np.asarray(mapping[name], dtype=float).ravel()
             if v.size == 1:
-                seeds[:, j] = v[0]
+                init_params[:, j] = v[0]
             elif v.size == n_stars:
-                seeds[:, j] = v
+                init_params[:, j] = v
             else:
                 raise ValueError(
-                    f"Fixed parameter {name!r} has {v.size} values, "
+                    f"Initial parameter {name!r} has {v.size} values, "
                     f"expected 1 or {n_stars}."
                 )
-        return seeds
+        return init_params
 
     def _sky_xy(self, epochs, elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh):
         """FlyStar-frame sky position of one star.
@@ -2440,7 +2512,8 @@ class Orbit(MotionModel):
                     ye[i] = 0.0
                 else:
                     # 1 = singular covariance, 2 = optimizer failed,
-                    # 3 = skipped (too few epochs, bad seed, or no valid data).
+                    # 3 = skipped (too few epochs, bad initial parameters, or
+                    #     no valid data).
                     xe[i] = np.inf
                     ye[i] = np.inf
             else:
@@ -2471,9 +2544,9 @@ class Orbit(MotionModel):
         return x, y, xe, ye
 
 
-    def fit_one_star(self, t, x, y, xe, ye, valid, seed, mass, dist, bh,
+    def fit_one_star(self, t, x, y, xe, ye, valid, init_params, mass, dist, bh,
                      weighting, absolute_sigma, verbose):
-        """Fit one star. On failure, return ``seed`` unchanged.
+        """Fit one star. On failure, return ``init_params`` unchanged.
 
         Parameters
         ----------
@@ -2481,8 +2554,8 @@ class Orbit(MotionModel):
             One star's astrometry.
         valid : ndarray of bool, shape (n_epochs,)
             Epochs that enter the fit.
-        seed : ndarray, shape (6,)
-            Current elements. Copied before the solve.
+        init_params : ndarray, shape (6,)
+            Initial parameters (current elements). Copied before the solve.
         mass, dist : float
             Black-hole mass and distance.
         bh : tuple of float
@@ -2497,7 +2570,7 @@ class Orbit(MotionModel):
         Returns
         -------
         elements : ndarray, shape (6,)
-            Solution, or the seed if the star was not solved.
+            Solution, or the initial parameters if the star was not solved.
         errs : ndarray, shape (6,)
             Square root of the covariance diagonal, or inf.
         chi2x, chi2y : float
@@ -2513,12 +2586,12 @@ class Orbit(MotionModel):
 
         Notes
         -----
-        Fewer than three distinct epochs, a non-finite seed, or a seed
-        with ``P <= 0`` or ``e`` outside ``[0, 1)`` does not call the
-        solver. A seed that cannot be integrated would otherwise be
-        replaced by a fill value on the way back into the table.
+        Fewer than three distinct epochs, non-finite initial parameters, or
+        initial parameters with ``P <= 0`` or ``e`` outside ``[0, 1)`` do not
+        call the solver. Initial parameters that cannot be integrated would
+        otherwise be replaced by a fill value on the way back into the table.
         """
-        seed = np.array(seed, dtype=float, copy=True)
+        init_params = np.array(init_params, dtype=float, copy=True)
         x_bh, y_bh, vx_bh, vy_bh, t_bh = bh
         idx = np.flatnonzero(np.asarray(valid, dtype=bool))
         inf6 = np.full(6, np.inf)
@@ -2543,23 +2616,24 @@ class Orbit(MotionModel):
         def _fail(n_iter, warn_text, status):
             if verbose and warn_text:
                 warnings.warn(warn_text, OptimizeWarning, stacklevel=3)
-            chi2x, chi2y = _chi2(seed)
-            # converged False even when the seed itself is the catalog orbit.
-            return seed, inf6, chi2x, chi2y, False, int(n_iter), cov_nan, status
+            chi2x, chi2y = _chi2(init_params)
+            # converged False even when the initial parameters are the catalog orbit.
+            return init_params, inf6, chi2x, chi2y, False, int(n_iter), cov_nan, status
 
         if idx.size == 0:
             return _fail(0, None, 3)
         n_fit = np.unique(np.asarray(t[idx], dtype=float)).size
-        usable_seed = (
-            np.all(np.isfinite(seed))
-            and seed[0] > 0.0
-            and 0.0 <= seed[2] < 1.0
+        usable_init = (
+            np.all(np.isfinite(init_params))
+            and init_params[0] > 0.0
+            and 0.0 <= init_params[2] < 1.0
         )
-        if (not usable_seed) or n_fit < 3:
+        if (not usable_init) or n_fit < 3:
             why = None
             if verbose:
-                if not usable_seed:
-                    why = "Orbit fit skipped: the seed elements cannot be integrated."
+                if not usable_init:
+                    why = ("Orbit fit skipped: the initial parameters cannot "
+                           "be integrated.")
                 else:
                     why = (
                         f"Orbit fit skipped: {n_fit} distinct epochs, need at least 3."
@@ -2567,16 +2641,17 @@ class Orbit(MotionModel):
             return _fail(0, why, 3)
 
         # Internal start. Inclination is clipped into the open interval the
-        # bounded solver accepts; the reported seed on failure is unclipped.
-        omega_rad = np.radians(seed[5])
-        sqrt_e = np.sqrt(seed[2])
+        # bounded solver accepts; the initial parameters reported on failure
+        # are unclipped.
+        omega_rad = np.radians(init_params[5])
+        sqrt_e = np.sqrt(init_params[2])
         internal0 = np.array([
-            np.log(seed[0]),
+            np.log(init_params[0]),
             0.0,
             sqrt_e * np.cos(omega_rad),
             sqrt_e * np.sin(omega_rad),
-            np.clip(seed[3], 1e-6, 180.0 - 1e-6),
-            seed[4],
+            np.clip(init_params[3], 1e-6, 180.0 - 1e-6),
+            init_params[4],
         ], dtype=float)
 
         sigma_x, sigma_y = sigma_from_error(xe[idx], ye[idx], weighting=weighting)
@@ -2590,7 +2665,7 @@ class Orbit(MotionModel):
             # Penalty keeps e < 1 without a hard bound on h and k.
             if (not np.isfinite(ecc)) or ecc >= 1.0:
                 return np.full(2 * idx.size, 1.0e3 * (1.0 + max(ecc, 1.0)))
-            elements, _n_wrap = _elements_from_internal(internal, seed)
+            elements, _n_wrap = _elements_from_internal(internal, init_params)
             try:
                 xs, ys = self._sky_xy(
                     t[idx], elements, mass, dist, x_bh, y_bh, vx_bh, vy_bh, t_bh,
@@ -2616,10 +2691,11 @@ class Orbit(MotionModel):
         )
         n_iter = int(result.nfev)
         if (not result.success) or (not np.all(np.isfinite(result.x))):
-            return _fail(n_iter, "Orbit fit did not converge; keeping the seed.", 2)
+            return _fail(n_iter, "Orbit fit did not converge; keeping the initial "
+                         "parameters.", 2)
 
-        elements, n_wrap = _elements_from_internal(result.x, seed)
-        elements = _choose_branch(elements, seed)
+        elements, n_wrap = _elements_from_internal(result.x, init_params)
+        elements = _choose_branch(elements, init_params)
         chi2x, chi2y = _chi2(elements)
 
         # No residual degree of freedom: the elements may still move, but
@@ -2661,10 +2737,10 @@ class Orbit(MotionModel):
     def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None,
                 params_init_guess_dict=None, weighting='var',
                 absolute_sigma=True, fill_value=np.nan, verbose=True):
-        """Per-star ``least_squares``, seeded from the current ``orb_*``.
+        """Per-star ``least_squares``, started from the current ``orb_*``.
 
-        On failure, return that seed and flag non-convergence. Do not
-        return ``fill_value``. Frozen stars never reach this method.
+        On failure, return those initial parameters and flag non-convergence.
+        Do not return ``fill_value``. Frozen stars never reach this method.
 
         Parameters
         ----------
@@ -2674,16 +2750,18 @@ class Orbit(MotionModel):
             Epochs that enter the fit.
         fixed_params_dict : dict, optional
             ``mass`` and ``dist`` fall back to the class defaults.
-            The six elements are read from keys ``orb_P`` ... ``orb_omega``
-            when the fitter has copied the current columns in.
             By default None.
+        params_init_guess_dict : dict, optional
+            Initial parameters: the six elements, keyed ``orb_P`` ...
+            ``orb_omega``, each a scalar or one value per star. The table
+            fitter copies the current columns in. By default None.
         weighting : {'var', 'std'}, optional
             Same meaning as ``Linear.run_fit``, by default 'var'.
         absolute_sigma : bool, optional
             When False, scale the covariance by the reduced chi-squared.
             By default True.
         fill_value : float, optional
-            Unused for the elements. A failed fit keeps its seed.
+            Unused for the elements. A failed fit keeps its initial parameters.
             By default ``np.nan``.
         verbose : bool, optional
             Warn when a star is skipped or does not converge.
@@ -2692,7 +2770,7 @@ class Orbit(MotionModel):
         Returns
         -------
         params, param_errs : ndarray, shape (n_stars, 6)
-            Updated elements, or the seed if not solved. Uncertainties
+            Updated elements, or the initial parameters if not solved. Uncertainties
             are the square root of the covariance diagonal, or inf
             when not solved.
         chi2x, chi2y : ndarray, shape (n_stars,)
@@ -2705,12 +2783,12 @@ class Orbit(MotionModel):
 
         Notes
         -----
-        The seed has to travel in ``fixed_params_dict`` because
-        ``run_fit`` otherwise only sees the measurements. The table
-        fitter copies the current ``orb_*`` columns into that dict
-        before the call. A missing seed is non-finite, so the elements
-        already in the table are what a failed fit returns only when
-        those columns were copied in.
+        The initial parameters have to travel in ``params_init_guess_dict``
+        because ``run_fit`` otherwise only sees the measurements. The table
+        fitter copies the current ``orb_*`` columns into that dict before
+        the call. Missing initial parameters are non-finite, so the elements
+        already in the table are what a failed fit returns only when those
+        columns were copied in.
         """
         t = np.asarray(t, dtype=float)
         x = np.asarray(x, dtype=float)
@@ -2733,9 +2811,9 @@ class Orbit(MotionModel):
         status = np.full(n_stars, 3, dtype=int)
 
         fp = self._broadcast_fixed(fixed_params_dict, n_stars)
-        seeds = self._broadcast_seeds(params_init_guess_dict, n_stars)
+        init_params_all = self._broadcast_init_params(params_init_guess_dict, n_stars)
         for i in range(n_stars):
-            seed = seeds[i]
+            init_params = init_params_all[i]
             mass = fp['mass'][i]
             dist = fp['dist'][i]
             bh = (
@@ -2749,7 +2827,7 @@ class Orbit(MotionModel):
                 params[i], param_errs[i], chi2x[i], chi2y[i],
                 converged[i], n_iter[i], cov[i], status[i],
             ) = self.fit_one_star(
-                t[i], x[i], y[i], xe[i], ye[i], valid[i], seed,
+                t[i], x[i], y[i], xe[i], ye[i], valid[i], init_params,
                 mass, dist, bh, weighting, absolute_sigma, verbose,
             )
 

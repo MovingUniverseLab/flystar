@@ -60,12 +60,12 @@ def _ang(angle, reference):
     return abs((float(angle) - float(reference) + 180.0) % 360.0 - 180.0)
 
 
-def _branch_near_seed(fitted, truth, seed):
-    """Angle errors after folding onto the branch nearer the seed.
+def _branch_near_init(fitted, truth, init_params):
+    """Angle errors after folding onto the branch nearer the initial parameters.
 
     Parameters
     ----------
-    fitted, truth, seed : array-like, shape (6,)
+    fitted, truth, init_params : array-like, shape (6,)
         Elements in ``Orbit.fit_param_names`` order.
 
     Returns
@@ -78,30 +78,30 @@ def _branch_near_seed(fitted, truth, seed):
     Sky positions are unchanged under ``(Omega + 180, omega + 180)``.
     The line-of-sight velocity flips, and this fit has no radial
     velocities, so both branches are acceptable. The solver keeps the
-    branch closer to the seed. Scoring the angles against the truth
-    without that fold would fail a correct fit that landed on the twin.
+    branch closer to the initial parameters. Scoring the angles against the
+    truth without that fold would fail a correct fit that landed on the twin.
     """
     # Indexes 4 and 5 are orb_Omega and orb_omega.
     fit_o, fit_w = fitted[4], fitted[5]
     true_o, true_w = truth[4], truth[5]
-    seed_o, seed_w = seed[4], seed[5]
-    # Distance of each branch from the seed, in degrees, both angles.
-    stay = _ang(fit_o, seed_o) + _ang(fit_w, seed_w)
-    flip = _ang(fit_o + 180.0, seed_o) + _ang(fit_w + 180.0, seed_w)
+    init_o, init_w = init_params[4], init_params[5]
+    # Distance of each branch from the initial angles, in degrees, both angles.
+    stay = _ang(fit_o, init_o) + _ang(fit_w, init_w)
+    flip = _ang(fit_o + 180.0, init_o) + _ang(fit_w + 180.0, init_w)
     if stay <= flip:
         return _ang(fit_o, true_o), _ang(fit_w, true_w)
     return _ang(fit_o + 180.0, true_o), _ang(fit_w + 180.0, true_w)
 
 
 def _orbit_table(epochs, elements, x, y, sigma):
-    """One-star table whose ``orb_*`` columns are the fit seed.
+    """One-star table whose ``orb_*`` columns are the fit's initial parameters.
 
     Parameters
     ----------
     epochs : ndarray, shape (n_epochs,)
         Decimal years.
     elements : array-like, shape (6,)
-        Seed written into the six ``orb_*`` columns.
+        Initial parameters written into the six ``orb_*`` columns.
     x, y : ndarray, shape (n_epochs,)
         Measured positions, arcseconds, already in the FlyStar frame.
     sigma : float
@@ -133,7 +133,7 @@ def _orbit_table(epochs, elements, x, y, sigma):
         me=np.full((1, n_ep), 0.01),
         t=epochs[np.newaxis, :],
     )
-    # The seed lives in the element columns. A failed fit must return
+    # The initial parameters live in the element columns. A failed fit must return
     # these same numbers, so the test can compare them bitwise.
     for name, value in zip(_NAMES, elements):
         tab[name] = np.array([float(value)])
@@ -494,13 +494,13 @@ def test_read_and_attach_orbits_dat():
     return None
 
 
-def _recover(truth, seed, epochs, sigma, rng):
+def _recover(truth, init_params, epochs, sigma, rng):
     """Fit one injected orbit and return the table.
 
     Parameters
     ----------
-    truth, seed : array-like, shape (6,)
-        Injected elements and the starting guess.
+    truth, init_params : array-like, shape (6,)
+        Injected elements and the initial parameters (starting guess).
     epochs : ndarray, shape (n_epochs,)
         Observation times, decimal years.
     sigma : float
@@ -517,15 +517,15 @@ def _recover(truth, seed, epochs, sigma, rng):
     Notes
     -----
     Positions are drawn from ``Orbit.get_predicted_positions`` of the truth, so they
-    already use ``x = -east`` and ``y = +north``. The table is seeded
-    away from the truth. A frozen star, or a solver that returned the
-    seed, would fail the recovery limits below.
+    already use ``x = -east`` and ``y = +north``. The table's initial
+    parameters are offset from the truth. A frozen star, or a solver that
+    returned the initial parameters, would fail the recovery limits below.
     """
     # Noise-free sky position of the injected elements.
     x_true, y_true = Orbit().get_predicted_positions(epochs, np.asarray(truth, dtype=float))
     x = rng.normal(x_true, sigma)
     y = rng.normal(y_true, sigma)
-    tab = _orbit_table(epochs, seed, x, y, sigma)
+    tab = _orbit_table(epochs, init_params, x, y, sigma)
     tab.fit_motion_models(motion_models=['Orbit'], verbose=False)
     return tab
 
@@ -543,7 +543,7 @@ def test_recover_s02_like_and_s016_like():
     branch fold. Those limits are wide next to 0.5 mas of noise on an
     axis of about 100 mas, and tight enough that the starting offset
     (0.4 yr in period, 0.02 in eccentricity, a few degrees) would fail
-    if the solver left the seed alone. With at least four epochs and
+    if the solver left the initial parameters alone. With at least four epochs and
     a converged fit, each ``orb_*_err`` is finite and positive, the
     covariance is 6 by 6 and symmetric, and the sky errors from that
     covariance are finite and not the fixed-star value of zero.
@@ -556,19 +556,19 @@ def test_recover_s02_like_and_s016_like():
     is incomplete. The angle rule is the same 5 degrees.
     """
     rng = np.random.default_rng(0)
-    # Injected S0-2-like elements, then a seed offset from them.
+    # Injected S0-2-like elements, then initial parameters offset from them.
     s02_true = np.array([16.0, 2010.0, 0.88, 134.7, 48.4, 246.7])
-    s02_seed = s02_true + np.array([0.4, 0.05, 0.02, 2.0, 3.0, -3.0])
+    s02_init = s02_true + np.array([0.4, 0.05, 0.02, 2.0, 3.0, -3.0])
     s02 = _recover(
-        s02_true, s02_seed, np.linspace(2000.0, 2018.0, 16), 0.0005, rng,
+        s02_true, s02_init, np.linspace(2000.0, 2018.0, 16), 0.0005, rng,
     )
     got = np.array([s02[name][0] for name in _NAMES])
     # |dP|/P < 0.02, |de| < 0.02, |dt0| < 0.1 yr.
     assert abs(got[0] - s02_true[0]) / s02_true[0] < 0.02
     assert abs(got[2] - s02_true[2]) < 0.02
     assert abs(got[1] - s02_true[1]) < 0.1
-    # Angles after choosing the (Omega, omega) branch nearer the seed.
-    d_node, d_peri = _branch_near_seed(got, s02_true, s02_seed)
+    # Angles after choosing the (Omega, omega) branch nearer the initial angles.
+    d_node, d_peri = _branch_near_init(got, s02_true, s02_init)
     assert d_node < 5.0
     assert d_peri < 5.0
     # Four or more epochs: a converged fit records diagnostics.
@@ -582,7 +582,7 @@ def test_recover_s02_like_and_s016_like():
         err = s02[name + '_err'][0]
         assert np.isfinite(err) and err > 0.0
     # The elements actually moved. A frozen star would be bitwise equal.
-    assert not np.array_equal(got, s02_seed)
+    assert not np.array_equal(got, s02_init)
     # Sky errors come from the covariance, so they are finite and not 0.
     _, _, xe, ye = s02.get_predicted_positions(2012.0)
     assert np.isfinite(xe) and np.isfinite(ye)
@@ -590,32 +590,33 @@ def test_recover_s02_like_and_s016_like():
 
     # S0-16-like: high eccentricity, long period, periapse in the window.
     s16_true = np.array([55.0, 2010.0, 0.97, 99.4, 227.0, 334.0])
-    s16_seed = s16_true + np.array([1.5, 0.02, 0.004, 1.0, 2.0, -2.0])
+    s16_init = s16_true + np.array([1.5, 0.02, 0.004, 1.0, 2.0, -2.0])
     # Dense sample across periapse, then a sparse tail out to 2050.
     epochs = np.concatenate([
         np.linspace(2009.2, 2010.8, 10),
         np.array([2015.0, 2020.0, 2025.0, 2030.0, 2040.0, 2050.0]),
     ])
-    s16 = _recover(s16_true, s16_seed, epochs, 0.001, rng)
+    s16 = _recover(s16_true, s16_init, epochs, 0.001, rng)
     got16 = np.array([s16[name][0] for name in _NAMES])
     assert abs(got16[2] - s16_true[2]) < 0.03
     assert abs(got16[0] - s16_true[0]) / s16_true[0] < 0.05
-    d_node, d_peri = _branch_near_seed(got16, s16_true, s16_seed)
+    d_node, d_peri = _branch_near_init(got16, s16_true, s16_init)
     assert d_node < 5.0
     assert d_peri < 5.0
     return None
 
 
-def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
-    """n_fit of 2 and 3, and a seed that cannot be integrated.
+def test_too_few_epochs_and_a_failed_solve_keep_the_initial_params():
+    """n_fit of 2 and 3, and initial parameters that cannot be integrated.
 
     Notes
     -----
     Six elements and two sky coordinates need three epochs. With two
-    epochs the solver is not called. ``demote`` is false, so the star
-    stays ``Orbit``. The elements stay bitwise equal to the seed,
-    ``orb_fit_n_iter`` is 0, and ``orb_fit_converged`` is false.
-    Prediction matches that seed. The sky errors are non-finite,
+    epochs the solver is not called. ``Orbit.demote`` is
+    ``'on-missing-init'`` and the star has initial parameters, so it
+    stays ``Orbit``. The elements stay bitwise equal to the initial
+    parameters, ``orb_fit_n_iter`` is 0, and ``orb_fit_converged`` is
+    false. Prediction matches those initial parameters. The sky errors are non-finite,
     because a fit was requested and no covariance exists. That is
     different from a fixed star, whose errors are zero. The position
     comparison uses 1e-12 arcsec, the same numerical floor as the
@@ -627,17 +628,17 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
 
     An eccentricity of 1.2 is finite, so the star is not dropped as a
     non-finite input, but ``kep2xyz`` cannot integrate ``e`` outside
-    ``[0, 1)``. The seed is kept: eccentricity stays 1.2, the period
-    stays finite rather than becoming a NaN fill, convergence is
-    false, and the model stays ``Orbit``.
+    ``[0, 1)``. The initial parameters are kept: eccentricity stays 1.2,
+    the period stays finite rather than becoming a NaN fill, convergence
+    is false, and the model stays ``Orbit``.
     """
     truth = np.array([16.0, 2010.0, 0.5, 60.0, 20.0, 30.0])
-    # Seed differs in period only, so a solved fit would be visible.
-    seed = truth + np.array([0.2, 0.0, 0.0, 0.0, 0.0, 0.0])
+    # Initial parameters differ in period only, so a solved fit would be visible.
+    init_params = truth + np.array([0.2, 0.0, 0.0, 0.0, 0.0, 0.0])
     # Two distinct epochs: below the algebraic minimum of three.
     epochs2 = np.array([2008.0, 2012.0])
     x, y = Orbit().get_predicted_positions(epochs2, truth)
-    tab2 = _orbit_table(epochs2, seed, x, y, 0.001)
+    tab2 = _orbit_table(epochs2, init_params, x, y, 0.001)
     before = np.array([tab2[name][0] for name in _NAMES])
     tab2.fit_motion_models(motion_models=['Orbit'], verbose=False)
     after = np.array([tab2[name][0] for name in _NAMES])
@@ -647,18 +648,18 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
     assert not tab2['orb_fit_converged'][0]
     assert tab2['orb_fit_status'][0] == 3  # skipped: too few epochs
     assert tab2['orb_fit_n_iter'][0] == 0
-    # Prediction uses the kept seed, not the noise-free truth.
-    x_seed, y_seed = Orbit().get_predicted_positions(2010.0, seed)
+    # Prediction uses the kept initial parameters, not the noise-free truth.
+    x_init, y_init = Orbit().get_predicted_positions(2010.0, init_params)
     x_hat, y_hat, xe, ye = tab2.get_predicted_positions(2010.0)
-    np.testing.assert_allclose(x_hat, x_seed, rtol=0.0, atol=1e-12)
-    np.testing.assert_allclose(y_hat, y_seed, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(x_hat, x_init, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(y_hat, y_init, rtol=0.0, atol=1e-12)
     # A requested fit with no covariance: errors are non-finite, not 0.
     assert not np.isfinite(xe) and not np.isfinite(ye)
 
     # Three epochs: solvable, but no degrees of freedom for a covariance.
     epochs3 = np.array([2009.0, 2010.0, 2011.0])
     x3, y3 = Orbit().get_predicted_positions(epochs3, truth)
-    tab3 = _orbit_table(epochs3, seed, x3, y3, 0.001)
+    tab3 = _orbit_table(epochs3, init_params, x3, y3, 0.001)
     tab3.fit_motion_models(motion_models=['Orbit'], verbose=False)
     assert tab3['motion_model_used'][0] == 'Orbit'
     assert tab3['orb_fit_converged'][0]
@@ -673,7 +674,7 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
     bad = np.array(truth, dtype=float)
     bad[2] = 1.2
     epochs = np.linspace(2005.0, 2015.0, 6)
-    # Detections are a legal orbit. The seed is the illegal one.
+    # Detections are a legal orbit. The initial parameters are the illegal one.
     x_ok, y_ok = Orbit().get_predicted_positions(epochs, truth)
     tab_bad = _orbit_table(epochs, bad, x_ok, y_ok, 0.001)
     tab_bad.fit_motion_models(motion_models=['Orbit'], verbose=False)
@@ -681,7 +682,8 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_seed():
     assert tab_bad['orb_e'][0] == pytest.approx(1.2)
     assert tab_bad['motion_model_used'][0] == 'Orbit'
     assert not tab_bad['orb_fit_converged'][0]
-    assert tab_bad['orb_fit_status'][0] == 3  # skipped: seed could not be integrated
+    # Status 3: skipped, the initial parameters cannot be integrated.
+    assert tab_bad['orb_fit_status'][0] == 3
     assert np.isfinite(tab_bad['orb_P'][0])
 
     return None
@@ -693,7 +695,7 @@ def test_eccen_anomaly_at_half_eccentricity_and_zero_mean():
     Notes
     -----
     This is the evaluation that used to raise on the three-epoch fit.
-    ``least_squares`` steps off a seed eccentricity of 0.5 to
+    ``least_squares`` steps off an initial eccentricity of 0.5 to
     ``e = 0.49999999999999084`` while the star is at periapse, so the
     mean anomaly is 0. The Mikkola starter then returns about
     ``-1e-32``. The gcwork wrap ``E < 0 → E + 2π`` turns that into
