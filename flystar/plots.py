@@ -1279,7 +1279,6 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
 
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in tab['t'].T])
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(complete_times)
 
@@ -1355,14 +1354,12 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
     dr_ref = np.zeros(len(tab), dtype=float)
     n_ref = np.zeros(len(tab), dtype=int)
 
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     for ee in range(tab['x'].shape[1]):
-        dt = tab['t'][:, ee] - tab['t0']
-        xt_mod = xt_mod_all[ee]
-        yt_mod = yt_mod_all[ee]
+        xt_mod = xt_mod_all[:, ee]
+        yt_mod = yt_mod_all[:, ee]
 
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
         ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
@@ -1454,53 +1451,197 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
     return
 
 
-def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arcsec', scale=None, plotlim=None, scale_orig=None):
-    m_t_list = []
-    x_t_list = []
-    y_t_list = []
-    xe_t_list = []
-    ye_t_list = []
-    x_ref_list = []
-    y_ref_list = []
-    good_idx_list = []
-    ref_idx_list =[]
-    da_list = []
+def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arcsec', scale=None,
+                                            plotlim=None, scale_orig=None, show_plot=True,
+                                            save_path=None):
+    """
+    For each epoch, overplot the residual-vs-magnitude scatter from several
+    alignments (e.g. different transformation orders) of the same epochs.
 
-    ntrans = len(tab_list)
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
-    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    Parameters
+    ----------
+    tab_list : list of StarTable
+        One aligned, motion-model-fitted table per alignment. All tables
+        must have the same number of epochs, in the same order.
+    trans_list_list : list of list of Transform2D
+        For each alignment, its per-epoch transformations (PolyTransform,
+        used to get the rotation angle).
+    unit, scale, plotlim, scale_orig : optional
+        Unused; kept for call compatibility with the other ``*_all_epochs``
+        plotting functions.
+    show_plot : bool, optional
+        If True, show each figure; otherwise close it.
+    save_path : str, optional
+        If given, save each epoch's figure to
+        ``{save_path}/Mag_Scatter_Multi_Trans_{ee}.png``.
 
-    for mm in range(ntrans):
-        tab = tab_list[mm]
-        trans_list = trans_list_list[mm]
-        for ee in range(tab['x'].shape[1]):
-            dt = tab['t'][:, ee] - tab['t0']
-            xt_mod = xt_mod_all[ee]
-            yt_mod = yt_mod_all[ee]
+    Returns
+    -------
+    None
+    """
+    n_epochs = tab_list[0]['x'].shape[1]
 
-            good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
-            ref_idx = np.where(tab[good_idx]['used_in_trans'][:, ee] == True)[0]
+    # Inputs for each epoch, one entry per alignment.
+    per_epoch = [{'m_t': [], 'x_t': [], 'y_t': [], 'xe_t': [], 'ye_t': [],
+                  'x_ref': [], 'y_ref': [], 'good_idx': [], 'ref_idx': [], 'da': []}
+                 for ee in range(n_epochs)]
 
-            da = calc_da(trans_list[ee])
+    for tab, trans_list in zip(tab_list, trans_list_list):
+        # Predict each table's positions on its own epoch grid.
+        # Shape of xt_mod_all: [N_stars, N_epochs]
+        complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in tab['t'].T])
+        xt_mod_all, yt_mod_all, _, _ = tab.get_predicted_positions(complete_times)
 
-            m_t_list.append(tab['m'][:, ee])
-            x_t_list.append(tab['x'][:, ee])
-            y_t_list.append(tab['y'][:, ee])
-            xe_t_list.append(tab['xe'][:, ee])
-            ye_t_list.append(tab['ye'][:, ee])
-            x_ref_list.append(xt_mod)
-            y_ref_list.append(yt_mod)
-            good_idx_list.append(good_idx)
-            ref_idx_list.append(ref_idx)
-            da_list.append(da)
+        for ee in range(n_epochs):
+            # Stars detected in this epoch, and the subset used in the transformation.
+            good_idx = np.where(np.isfinite(tab['x'][:, ee]))[0]
+            ref_idx = np.where(tab['used_in_trans'][good_idx, ee])[0]
 
-    for ee in range(tab_list[0]['x'].shape[1]):
-        plot_mag_scatter_multi_trans(m_t_list[ee::ntrans], x_t_list[ee::ntrans], y_t_list[ee::ntrans],
-                                     xe_t_list[ee::ntrans], ye_t_list[ee::ntrans], x_ref_list[ee::ntrans], y_ref_list[ee::ntrans],
-                                     good_idx_list[ee::ntrans], ref_idx_list[ee::ntrans], 'Epoch {0:d}'.format(ee), da_list[ee::ntrans])
+            ep = per_epoch[ee]
+            ep['m_t'].append(tab['m'][:, ee])
+            ep['x_t'].append(tab['x'][:, ee])
+            ep['y_t'].append(tab['y'][:, ee])
+            ep['xe_t'].append(tab['xe'][:, ee])
+            ep['ye_t'].append(tab['ye'][:, ee])
+            ep['x_ref'].append(xt_mod_all[:, ee])
+            ep['y_ref'].append(yt_mod_all[:, ee])
+            ep['good_idx'].append(good_idx)
+            ep['ref_idx'].append(ref_idx)
+            ep['da'].append(calc_da(trans_list[ee]))
 
-    return
+    # One figure per epoch, overplotting all alignments.
+    for ee, ep in enumerate(per_epoch):
+        fig_path = f'{save_path}/Mag_Scatter_Multi_Trans_{ee}.png' if save_path else None
+        plot_mag_scatter_multi_trans(ep['m_t'], ep['x_t'], ep['y_t'], ep['xe_t'], ep['ye_t'],
+                                     ep['x_ref'], ep['y_ref'], ep['good_idx'], ep['ref_idx'],
+                                     'Epoch {0:d}'.format(ee), ep['da'],
+                                     show_plot=show_plot, save_path=fig_path)
+
+    return None
+
+
+def plot_mag_scatter_multi_trans(m_t_list, x_t_list, y_t_list, xe_t_list, ye_t_list,
+                                 x_ref_list, y_ref_list, good_idx_list, ref_idx_list, title,
+                                 da_list, show_plot=True, save_path=None):
+    """
+    Plot one epoch's residuals (angle, modulus, x, y and normalized x/y)
+    against magnitude, combining several alignments of that epoch. Good
+    stars are black, transformation reference stars red.
+
+    Parameters
+    ----------
+    m_t_list : list of array_like
+        Measured magnitudes, one array per alignment.
+    x_t_list, y_t_list : list of array_like
+        Transformed positions (arcsec), one array per alignment.
+    xe_t_list, ye_t_list : list of array_like
+        Position errors (arcsec), one array per alignment.
+    x_ref_list, y_ref_list : list of array_like
+        Motion-model positions (arcsec), one array per alignment.
+    good_idx_list : list of array of int
+        Indices of stars detected in this epoch, one array per alignment.
+    ref_idx_list : list of array of int
+        Indices into the matching `good_idx` of the stars used in the
+        transformation, one array per alignment.
+    title : str
+        Plot title.
+    da_list : list of float
+        Angle (deg) subtracted from the residual angles, one per alignment.
+    show_plot : bool, optional
+        If True, show the figure; otherwise close it.
+    save_path : str, optional
+        If given, save the figure to this file.
+
+    Returns
+    -------
+    None
+    """
+    mgood_all, rgood_all, agood_all, xegood_all, yegood_all = [], [], [], [], []
+    mref_all, rref_all, aref_all, xeref_all, yeref_all = [], [], [], [], []
+
+    for ii in range(len(m_t_list)):
+        # Plain float arrays (drops any table masks).
+        m_t = np.asarray(m_t_list[ii], dtype=float)
+        xe_t = np.asarray(xe_t_list[ii], dtype=float)
+        ye_t = np.asarray(ye_t_list[ii], dtype=float)
+        good_idx = good_idx_list[ii]
+        ref_idx = ref_idx_list[ii]
+
+        # Residual
+        dx = np.asarray(x_t_list[ii], dtype=float) - np.asarray(x_ref_list[ii], dtype=float)
+        dy = np.asarray(y_t_list[ii], dtype=float) - np.asarray(y_ref_list[ii], dtype=float)
+
+        # Residual angle, minus some angle IN DEGREES (e.g. if going from
+        # Gaia to HST camera frame), kept within 0 to 360.
+        agood = (angle_from_xy(dx[good_idx], dy[good_idx]) - da_list[ii]) % 360
+        aref = (angle_from_xy(dx[good_idx][ref_idx], dy[good_idx][ref_idx]) - da_list[ii]) % 360
+
+        # Residual magnitude
+        rgood = np.hypot(dx[good_idx], dy[good_idx])
+        rref = np.hypot(dx[good_idx][ref_idx], dy[good_idx][ref_idx])
+
+        mgood_all.append(m_t[good_idx])
+        mref_all.append(m_t[good_idx][ref_idx])
+        rgood_all.append(rgood)
+        rref_all.append(rref)
+        agood_all.append(agood)
+        aref_all.append(aref)
+        xegood_all.append(xe_t[good_idx])
+        xeref_all.append(xe_t[good_idx][ref_idx])
+        yegood_all.append(ye_t[good_idx])
+        yeref_all.append(ye_t[good_idx][ref_idx])
+
+    # Combine all alignments.
+    mgood_all, rgood_all, agood_all, xegood_all, yegood_all = [
+        np.concatenate(a) for a in (mgood_all, rgood_all, agood_all, xegood_all, yegood_all)]
+    mref_all, rref_all, aref_all, xeref_all, yeref_all = [
+        np.concatenate(a) for a in (mref_all, rref_all, aref_all, xeref_all, yeref_all)]
+
+    # Rotated x and y residual components.
+    xgood_all = np.cos(np.radians(agood_all)) * rgood_all
+    ygood_all = np.sin(np.radians(agood_all)) * rgood_all
+    xref_all = np.cos(np.radians(aref_all)) * rref_all
+    yref_all = np.sin(np.radians(aref_all)) * rref_all
+
+    fig, ax = plt.subplots(6, 1, figsize=(6,18), sharex=True, num=103)
+    plt.subplots_adjust(hspace=0.01)
+    ax[0].scatter(mgood_all, agood_all, color='black', alpha=0.3, s=7)
+    ax[0].scatter(mref_all, aref_all, color='red', alpha=0.3, s=7)
+    ax[0].set_ylabel('Angle (deg)')
+
+    ax[1].scatter(mgood_all, rgood_all, color='black', alpha=0.3, s=7)
+    ax[1].scatter(mref_all, rref_all, color='red', alpha=0.3, s=7)
+    ax[1].set_xlabel('mag')
+    ax[1].set_ylabel('Modulus (arcsec)')
+    ax[1].set_yscale('log')
+    ax[1].set_ylim(1e-6, 1.1 * np.nanmax(np.concatenate([rgood_all, rref_all])))
+
+    ax[2].scatter(mgood_all, xgood_all, color='black', alpha=0.3, s=7)
+    ax[2].scatter(mref_all, xref_all, color='red', alpha=0.3, s=7)
+    ax[2].set_xlabel('mag')
+    ax[2].set_ylabel('Res, x (arcsec)')
+    ax[2].set_ylim(-0.01, 0.01)
+
+    ax[3].scatter(mgood_all, ygood_all, color='black', alpha=0.3, s=7)
+    ax[3].scatter(mref_all, yref_all, color='red', alpha=0.3, s=7)
+    ax[3].set_xlabel('mag')
+    ax[3].set_ylabel('Res, y (arcsec)')
+    ax[3].set_ylim(-0.01, 0.01)
+
+    ax[4].scatter(mgood_all, xgood_all / xegood_all, color='black', alpha=0.3, s=7)
+    ax[4].scatter(mref_all, xref_all / xeref_all, color='red', alpha=0.3, s=7)
+    ax[4].set_xlabel('mag')
+    ax[4].set_ylabel('Res/Pos Err, x')
+
+    ax[5].scatter(mgood_all, ygood_all / yegood_all, color='black', alpha=0.3, s=7)
+    ax[5].scatter(mref_all, yref_all / yeref_all, color='red', alpha=0.3, s=7)
+    ax[5].set_xlabel('mag')
+    ax[5].set_ylabel('Res/Pos Err, y')
+
+    ax[0].set_title(title)
+    _finish_figure(save_path=save_path, show_plot=show_plot)
+
+    return None
 
 
 def angle_from_xy(x, y):
@@ -1525,7 +1666,67 @@ def calc_da(trans_list):
     return da
 
 
-def plot_mag_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title, da=0, xorig=None, yorig=None, cte_fit=None, mlim=15):
+def _finish_figure(save_path=None, show_plot=True):
+    """
+    Save the current figure (optional), then show it or close it.
+
+    Parameters
+    ----------
+    save_path : str, optional
+        If given, save the current figure to this file.
+    show_plot : bool, optional
+        If True, show the figure; otherwise close it.
+
+    Returns
+    -------
+    None
+    """
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+
+    if show_plot:
+        plt.show()
+        plt.pause(1)
+    else:
+        plt.close()
+
+    return None
+
+
+def plot_mag_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title,
+                     da=0, xorig=None, yorig=None, cte_fit=None, mlim=15, show_plot=True,
+                     save_path=None):
+    """
+    Plot one epoch's residuals (angle, modulus, x, y, normalized x/y and
+    m - m0) against magnitude. Good stars are black, reference stars red.
+
+    Parameters
+    ----------
+    m_t, m0, m0e : array_like
+        Measured magnitudes for this epoch, mean magnitudes and their errors.
+    x_t, y_t, xe_t, ye_t : array_like
+        Transformed positions for this epoch (arcsec) and their errors.
+    x_ref, y_ref : array_like
+        Motion-model positions at this epoch (arcsec).
+    good_idx : array of int
+        Indices of stars detected in this epoch.
+    ref_idx : array of int
+        Indices into `good_idx` of the stars used in the transformation.
+    title : str
+        Plot title.
+    da : float, optional
+        Angle (deg) subtracted from the residual angles.
+    xorig, yorig, cte_fit, mlim : optional
+        Unused; accepted to match :func:`plot_y_scatter`.
+    show_plot : bool, optional
+        If True, show the figure; otherwise close it.
+    save_path : str, optional
+        If given, save the figure to this file.
+
+    Returns
+    -------
+    None
+    """
     # Residual
     dx = (x_t - x_ref)
     dy = (y_t - y_ref)
@@ -1618,12 +1819,50 @@ def plot_mag_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx,
 
     ax[0].set_title(title)
     plt.tight_layout()
-    plt.show()
-    plt.pause(1)
-    return
+    _finish_figure(save_path=save_path, show_plot=show_plot)
+
+    return None
 
 
-def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title, da=0, xorig=None, yorig=None, cte_fit=None, mlim=15):
+def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, ref_idx, title,
+                   da=0, xorig=None, yorig=None, cte_fit=None, mlim=15, show_plot=True,
+                   save_path=None):
+    """
+    Plot one epoch's residuals against original detector y position, and
+    optionally fit and remove a magnitude-dependent (CTE-like) y residual.
+
+    Parameters
+    ----------
+    m_t, m0, m0e : array_like
+        Measured magnitudes for this epoch, mean magnitudes and their errors.
+    x_t, y_t, xe_t, ye_t : array_like
+        Transformed positions for this epoch (arcsec) and their errors.
+    x_ref, y_ref : array_like
+        Motion-model positions at this epoch (arcsec).
+    good_idx : array of int
+        Indices of stars detected in this epoch.
+    ref_idx : array of int
+        Indices into `good_idx` of the stars used in the transformation.
+    title : str
+        Plot title.
+    da : float, optional
+        Angle (deg) subtracted from the residual angles.
+    xorig, yorig : array_like
+        Original detector positions (pix); `yorig` is the x-axis of the plots.
+    cte_fit : {None, 'power', 'power_line'}, optional
+        If given, fit the y residuals vs. magnitude with this model and
+        plot the residuals before and after the correction.
+    mlim : float, optional
+        Only stars fainter than this are used in the 'power' fit.
+    show_plot : bool, optional
+        If True, show the figures; otherwise close them.
+    save_path : str, optional
+        If given, save the main figure to this file.
+
+    Returns
+    -------
+    None
+    """
     # Residual
     dx = (x_t - x_ref)
     dy = (y_t - y_ref)
@@ -1719,8 +1958,7 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
 
     ax[0].set_title(title)
     plt.tight_layout()
-    plt.show()
-    plt.pause(1)
+    _finish_figure(save_path=save_path, show_plot=show_plot)
 
 
 ##############################################
@@ -1810,7 +2048,7 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
         ax[3,1].set_xlabel('mag')
 
         plt.tight_layout()
-        plt.show()
+        _finish_figure(show_plot=show_plot)
 
     if cte_fit=='power_line':
         idx1 = np.where((mgood > 15) & (mgood < 18.5))[0]
@@ -1923,7 +2161,7 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
         ax[2,1].scatter(mref2, rref_new2, color='red', alpha=0.3, s=2)
         ax[2,1].set_yscale('log')
         if type(rgood_new2) == astropy.table.column.MaskedColumn:
-            ax[2,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new.data2, rref_new.data2])))
+            ax[2,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new2.data, rref_new2.data])))
         else:
             ax[2,1].set_ylim(1e-6, 1.1 * np.max(np.concatenate([rgood_new2, rref_new2])))
 
@@ -1937,6 +2175,11 @@ def plot_y_scatter(m_t, m0, m0e, x_t, y_t, xe_t, ye_t, x_ref, y_ref, good_idx, r
         ax[3,1].scatter(mgood2, agood_new2, color='black', alpha=0.3, s=2)
         ax[3,1].scatter(mref2, aref_new2, color='red', alpha=0.3, s=2)
         ax[3,1].set_xlabel('mag')
+
+        plt.tight_layout()
+        _finish_figure(show_plot=show_plot)
+
+    return None
 
 def T_cte_y(m, A, m0, alpha, m1):
     base = m/m0
@@ -2031,14 +2274,12 @@ def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, pl
     idx = np.where((tab['m0'] < lower_mag) &
                    (tab['m0'] > upper_mag))[0]
     tab = tab[idx]
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
     for ee in range(tab['x'].shape[1]):
-        dt = tab['t'][:, ee] - tab['t0']
-        xt_mod = xt_mod_all[ee]
-        yt_mod = yt_mod_all[ee]
+        xt_mod = xt_mod_all[:, ee]
+        yt_mod = yt_mod_all[:, ee]
         mag = tab['m0']
 
         good_idx = np.where(np.isfinite(tab['x'][:, ee]) == True)[0]
@@ -2075,17 +2316,36 @@ def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, pl
 def plot_quiver_residuals_magcolor(x_t, y_t, x_ref, y_ref, mag, good_idx, ref_idx, title,
                                    unit='pixel', scale=None, plotlim=None):
     """
-    unit : str
-        'pixel' or 'arcsec'
-        The pixel units of the input values. Note, if arcsec, then the values will be
-        converted to milli-arcsec for plotting when appropriate.
+    Quiver plot of model-minus-measured residuals for one epoch, with arrows
+    colored by magnitude. Makes one plot for all good stars and one for
+    the transformation reference stars.
 
-    scale : float
-        The quiver scale. If none, then default units will be used appropriate to the unit.
+    Parameters
+    ----------
+    x_t, y_t : array_like
+        Transformed positions for one epoch.
+    x_ref, y_ref : array_like
+        Motion-model positions at that epoch.
+    mag : array_like
+        Magnitudes used to color the arrows.
+    good_idx : array of int
+        Indices of stars detected in this epoch.
+    ref_idx : array of int
+        Indices into `good_idx` of the stars used in the transformation.
+    title : str
+        Plot title prefix.
+    unit : str, optional
+        'pixel' or 'arcsec'. The units of the input values. If arcsec, the
+        residuals are converted to milli-arcsec for plotting.
+    scale : float, optional
+        The quiver scale. If None, a default appropriate to `unit` is used.
+    plotlim : float (positive), optional
+        If given, plot the range [-plotlim, plotlim] in each axis.
 
-    plotlim : float (positive)
-        Sets the size of the plotted figure. If None, then default is used.
-        Otherwise plots figure of range [-plotlim, plotlim] x [-plotlim, plotlim].
+    Returns
+    -------
+    dx, dy : numpy array
+        Residuals, in mas if `unit` is 'arcsec', else in the input units.
     """
     dx = (x_t - x_ref)
     dy = (y_t - y_ref)
@@ -2109,21 +2369,15 @@ def plot_quiver_residuals_magcolor(x_t, y_t, x_ref, y_ref, mag, good_idx, ref_id
         quiv_label_val = 1.0
         unit2 = 'mas'
 
-        norm = mcolors.Normalize()
-        norm.autoscale(mag)
-        cmap = matplotlib.colormaps['viridis']
-        sm = matplotlib.cm.ScalarMappable(cmap=cmap, norm=norm)
-
-#         cmap = mpl.cm.cool
-#         norm = mpl.mcolors.Normalize(vmin=np.min(mag), vmax=np.max(mag))
-#
-#         cb1 = mpl.colorbar.ColorbarBase(ax, cmap=cmap,
-#                                         norm=norm,
-#                                         orientation='horizontal')
+    # Color the arrows by magnitude (both units).
+    mag_norm = mcolors.Normalize()
+    mag_norm.autoscale(mag)
+    cmap = matplotlib.colormaps['viridis']
+    sm = matplotlib.cm.ScalarMappable(cmap=cmap, norm=mag_norm)
 
     fig, ax=plt.subplots(1, 1, figsize=(6, 6))
     q = ax.quiver(x_ref[good_idx], y_ref[good_idx], dx[good_idx], dy[good_idx],
-                   color=cm(norm(mag[good_idx])), scale=quiv_scale, angles='xy', alpha=0.8)
+                   color=cmap(mag_norm(mag[good_idx])), scale=quiv_scale, angles='xy', alpha=0.8)
     ax.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
                       coordinates='figure', labelpos='E', color='green')
     fig.colorbar(sm, ax=ax)
@@ -2139,7 +2393,7 @@ def plot_quiver_residuals_magcolor(x_t, y_t, x_ref, y_ref, mag, good_idx, ref_id
 
     fig, ax = plt.subplots(1, 1, figsize=(6, 6))
     q = ax.quiver(x_ref[good_idx][ref_idx], y_ref[good_idx][ref_idx], dx[good_idx][ref_idx], dy[good_idx][ref_idx],
-               color=cm(norm(mag[good_idx][ref_idx])), scale=quiv_scale, angles='xy', alpha=0.8)
+               color=cmap(mag_norm(mag[good_idx][ref_idx])), scale=quiv_scale, angles='xy', alpha=0.8)
     ax.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label,
                       coordinates='figure', labelpos='E', color='green')
     fig.colorbar(sm, ax=ax)
@@ -2169,19 +2423,40 @@ def plot_quiver_residuals_magcolor(x_t, y_t, x_ref, y_ref, mag, good_idx, ref_id
 
 def plot_quiver_residuals_orig(x_t, y_t, x_ref, y_ref, good_idx, ref_idx,
                                x_orig, y_orig, da, title,
-                               scale=None, plotlim=None, save_path=None):
+                               scale=None, plotlim=None, save_path=None, show_plot=True):
     """
-    unit : str
-        'pixel' or 'arcsec'
-        The pixel units of the input values. Note, if arcsec, then the values will be
-        converted to milli-arcsec for plotting when appropriate.
+    Plot model-minus-measured residuals in the original (detector) frame,
+    rotated by `da` from the reference frame.
 
-    scale : float
-        The quiver scale. If none, then default units will be used appropriate to the unit.
+    Parameters
+    ----------
+    x_t, y_t : array_like
+        Transformed positions for one epoch, in arcsec.
+    x_ref, y_ref : array_like
+        Motion-model positions at that epoch, in arcsec.
+    good_idx : array of int
+        Indices of stars detected in this epoch.
+    ref_idx : array of int
+        Indices into `good_idx` of the stars used in the transformation.
+    x_orig, y_orig : array_like
+        Original detector positions, in pixels.
+    da : float
+        Rotation angle (deg) from the reference frame to the detector frame.
+    title : str
+        Plot title.
+    scale : float, optional
+        The quiver scale. If None, matplotlib's default is used.
+    plotlim : float (positive), optional
+        If given, plot the range [-plotlim, plotlim] in each axis.
+    save_path : str, optional
+        If given, save the figure to this file.
+    show_plot : bool, optional
+        If True, show the figure; otherwise close it.
 
-    plotlim : float (positive)
-        Sets the size of the plotted figure. If None, then default is used.
-        Otherwise plots figure of range [-plotlim, plotlim] x [-plotlim, plotlim].
+    Returns
+    -------
+    dx, dy : numpy array
+        Residuals in HST pixels (0.04 arcsec/pix), in the reference frame.
     """
     # This is in arcsec...
     dx = (x_t - x_ref)
@@ -2226,8 +2501,11 @@ def plot_quiver_residuals_orig(x_t, y_t, x_ref, y_ref, good_idx, ref_idx,
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=300)
-    plt.show()
-    plt.pause(1)
+    if show_plot:
+        plt.show()
+        plt.pause(1)
+    else:
+        plt.close()
 
 #    plt.figure(figsize=(14,6))
 #    plt.clf()
@@ -2340,7 +2618,6 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
 
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
@@ -2427,7 +2704,6 @@ def plot_chi2_reduced_dist(tab, Ndetect, xlim=8, n_bins=50, boot_err=False):
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
 
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
@@ -2508,7 +2784,6 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
     chi2_y_list = []
     fnd_list = [] # Number of non-NaN error measurements
 
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
@@ -2602,7 +2877,6 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14, 21], ylim=[-1, 1], target_i
     sigY_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
     m_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
 
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
 
@@ -2942,7 +3216,6 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     x = tab['x0']
     y = tab['y0']
     r = np.hypot(x, y)
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
@@ -3335,22 +3608,49 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
 def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None,
                          figsize=(15,25), color_time=False, resTicRng=None, save_name=None, boot_err=False):
     """
-    Plot a set of stars positions, flux and residuals over time.
+    Plot a set of stars positions, flux and residuals over time, with one
+    overplotted set of points per group of epochs (e.g. per filter).
 
-    epoch_array : None, array
-        Array of the epoch indicies to plot. If None, plots all epochs.
+    Parameters
+    ----------
+    tab : StarTable
+        Aligned and motion-model-fitted table.
+    star_names : list of str
+        Names of the stars to plot.
+    NcolMax : int, optional
+        Maximum number of stars per row of panels.
+    epoch_array_list : list of (None or array of int), optional
+        One entry per group of epochs to overplot; each entry holds the epoch
+        indices in that group, or None for all epochs. If None, plots a single
+        group containing all epochs.
+    color_list : list of str, optional
+        One marker color per entry of `epoch_array_list`. If None, every
+        group is plotted in black.
+    figsize : tuple, optional
+        Figure size in inches.
+    color_time : bool, optional
+        If True, color points by the fractional part of their epoch.
+    resTicRng : None, array len=2, optional
+        Lower and upper axis range for the residuals plots.
+    save_name : str, optional
+        If given, save the figure to this file.
+    boot_err : bool, optional
+        If True, add the bootstrap errors in quadrature to the measurement errors.
 
-    resTicRng : None, array len=2
-        2 element array with the lower and upper axis range for residuals plots.
+    Returns
+    -------
+    None
     """
     print( 'Creating residuals plots for star(s):' )
     print( star_names )
     def rs(x):
         return x.reshape(len(x))
 
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
-    i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    # Default to one group of all epochs, plotted in black.
+    if epoch_array_list is None:
+        epoch_array_list = [None]
+    if color_list is None:
+        color_list = ['k'] * len(epoch_array_list)
 
     Nstars = len(star_names)
     Ncols = 3 * np.min([Nstars, NcolMax])
@@ -3366,7 +3666,6 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     x = tab['x0']
     y = tab['y0']
     r = np.hypot(x, y)
-    # motion_model_dict = motion_model.validate_motion_model_dict(motion_model_dict, tab, None)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
