@@ -14,25 +14,25 @@ parallaxes, with uncertainties.
 Documentation
 -------------
 
-Two builds of the same source, both from the ``mm_rework_lingfeng`` branch:
+Two builds of the same source, both from the ``dev`` branch:
 
-* **Read the Docs** -- https://flystar.readthedocs.io/en/mm_rework_lingfeng/
+* **Read the Docs** -- https://flystar.readthedocs.io/en/dev/
   Rebuilt on every push, and keeps a version per branch under ``/en/<branch>/``.
-  Note that ``/en/latest/`` tracks the default branch, which does not have these
+  Note that ``/en/latest/`` does not track ``dev`` and does not have these
   pages.
 * **GitHub Pages** -- https://wei-lingfeng.github.io/flystar/
-  An ad-free mirror of the same build. One version only: whatever
-  ``mm_rework_lingfeng`` last published.
+  A mirror without ads, built by ``.github/workflows/docs.yml`` on each push to
+  ``dev`` that changes ``docs/`` or ``flystar/``. One version only.
 
-Start on either front page: it installs FlyStar and then builds a synthetic
-four-epoch data set, aligns it, and checks the recovered positions and proper
-motions against the truth that went in.
+Start with "Getting started" in the sidebar: Installation, then First
+alignment, which builds a synthetic four-epoch data set, aligns it, and checks
+the recovered positions and proper motions against the truth that went in.
 
 .. warning::
 
-   These describe the ``mm_rework_lingfeng`` branch, whose motion-model
-   framework does not exist on ``main``. The API reference on both sites is
-   generated from this branch's source.
+   These describe the ``dev`` branch, whose motion-model framework does not
+   exist on ``main``. The API reference on both sites is generated from this
+   branch's source.
 
 Installation
 ------------
