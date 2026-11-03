@@ -2350,10 +2350,10 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
     # so the initial name match is near the detection.
     orb_params_init_fixed = orb_params_true
 
-    # Orbit.get_predicted_positions at the first epoch: FlyStar frame, x = -east and
+    # Orbit.predict_positions at the first epoch: FlyStar frame, x = -east and
     # y = +north, default mass and distance. The catalog position is
     # this prediction so the name match starts next to the detection.
-    x0, y0 = motion_model.Orbit().get_predicted_positions(
+    x0, y0 = motion_model.Orbit().predict_positions(
         epochs[0], np.asarray(orb_params_init_fixed, dtype=float),
         fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
     )
@@ -2368,7 +2368,7 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
         update_col.append(True)  # orb_fit refit
         # Same prediction for the offset orbit parameters, not the injected truth.
         # The initial match uses the catalog elements.
-        x1, y1 = motion_model.Orbit().get_predicted_positions(
+        x1, y1 = motion_model.Orbit().predict_positions(
             epochs[0], np.asarray(orb_params_init, dtype=float),
             fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
         )
@@ -2443,21 +2443,21 @@ def _tiny_mosaic(update_ref_orig, fit_orbit=False, n_epochs=4, dr_tol=0.3,
         # Drop the never-detected star from the science lists.
         keep = np.array([name != 'orb_none' for name in names])
 
-        # Science position of the frozen star: Orbit.get_predicted_positions on the
+        # Science position of the frozen star: Orbit.predict_positions on the
         # true elements, FlyStar frame, same mass and distance.
-        x_orb, y_orb = motion_model.Orbit().get_predicted_positions(
+        x_orb, y_orb = motion_model.Orbit().predict_positions(
             epoch, np.asarray(orb_params_true, dtype=float),
             fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
         )
 
-        # Science position of the frozen star: Orbit.get_predicted_positions on the
+        # Science position of the frozen star: Orbit.predict_positions on the
         # true elements, FlyStar frame, same mass and distance.
         x_s[names.index('orb_fixed')] = float(np.asarray(x_orb).reshape(-1)[0])
         y_s[names.index('orb_fixed')] = float(np.asarray(y_orb).reshape(-1)[0])
 
         if fit_orbit:
             # Detections follow the injected orbit, not the catalog initial parameters.
-            x_fit, y_fit = motion_model.Orbit().get_predicted_positions(
+            x_fit, y_fit = motion_model.Orbit().predict_positions(
                 epoch, np.asarray(fit_true, dtype=float),
                 fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
             )
@@ -2557,9 +2557,9 @@ def test_mosaic_frozen_orbit_and_linear_share_dr_tol():
         ref_at = mosaic.get_ref_list_from_table(epoch)
         j = _row(ref_at, 'orb_fixed')
         k = _row(ref_at, 'lin')
-        # Expected reference position: Orbit.get_predicted_positions on the catalog
+        # Expected reference position: Orbit.predict_positions on the catalog
         # elements. x = -east, y = +north, default mass and distance.
-        x_orb, y_orb = motion_model.Orbit().get_predicted_positions(
+        x_orb, y_orb = motion_model.Orbit().predict_positions(
             epoch, np.asarray(truth['orb_true'], dtype=float),
             fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
         )
@@ -2619,9 +2619,9 @@ def test_original_orbit_held_when_update_ref_orig_is_false():
     epochs = np.array([2010.0, 2012.0, 2014.0])
     elements = np.array([16.0, 2010.0, 0.3, 50.0, 20.0, 40.0])
 
-    # Catalog sky position at the first epoch from Orbit.get_predicted_positions.
+    # Catalog sky position at the first epoch from Orbit.predict_positions.
     # FlyStar frame, default mass and distance.
-    x0, y0 = motion_model.Orbit().get_predicted_positions(
+    x0, y0 = motion_model.Orbit().predict_positions(
         epochs[0], np.asarray(elements, dtype=float),
         fixed_params_dict={'mass': 4.0e6, 'dist': 8.0e3},
     )
@@ -2675,9 +2675,9 @@ def test_original_orbit_held_when_update_ref_orig_is_false():
         x_s = x_ref.copy()
         y_s = y_ref.copy()
     
-        # Orbit.get_predicted_positions of a period 0.4 yr longer than the catalog.
+        # Orbit.predict_positions of a period 0.4 yr longer than the catalog.
         # A real fit would follow this. update_ref_orig=False must not.
-        xo, yo = motion_model.Orbit().get_predicted_positions(
+        xo, yo = motion_model.Orbit().predict_positions(
             epoch,
             np.asarray(
                 elements + np.array([0.4, 0.0, 0.0, 0.0, 0.0, 0.0]),
@@ -2856,23 +2856,38 @@ def test_zero_detection_frozen_orbit_is_unchanged_then_dropped():
     return None
 
 
-def test_infer_positions_is_deprecated_alias():
+def test_get_predicted_positions_is_deprecated_alias():
     """
-    align.infer_positions warns with DeprecationWarning and returns the same
-    positions as align.get_predicted_positions.
+    get_predicted_positions (align, StarTable, MotionModel) warns with
+    DeprecationWarning and returns what predict_positions returns.
     """
+    from flystar.startables import StarTable
     # A table with Linear motion columns but no fitted motion_model_used, so
     # both functions take the column-based path.
     tab = Table({'x': [1.0, 2.0], 'y': [3.0, 4.0],
                  'x0': [1.0, 2.0], 'y0': [3.0, 4.0],
                  'vx': [0.1, -0.2], 'vy': [0.0, 0.3], 't0': [2020.0, 2020.0]})
-
-    x_new, y_new = align.get_predicted_positions(2022.0, tab, motion_models=['Linear'])
-    with pytest.warns(DeprecationWarning, match='get_predicted_positions'):
-        x_old, y_old = align.infer_positions(2022.0, tab, motion_models=['Linear'])
-
+    x_new, y_new = align.predict_positions(2022.0, tab, motion_models=['Linear'])
+    np.testing.assert_allclose(x_new, [1.2, 1.6])
+    with pytest.warns(DeprecationWarning, match='predict_positions'):
+        x_old, y_old = align.get_predicted_positions(2022.0, tab, motion_models=['Linear'])
     np.testing.assert_allclose(x_old, x_new)
     np.testing.assert_allclose(y_old, y_new)
-    np.testing.assert_allclose(x_new, [1.2, 1.6])
+
+    st = StarTable(Table({'name': ['a', 'b'], 'x0': [1.0, 2.0], 'y0': [3.0, 4.0], 'vx': [0.1, -0.2],
+                          'vy': [0.0, 0.3], 't0': [2020.0, 2020.0], 'motion_model_used': ['Linear', 'Linear']}))
+    new = st.predict_positions(2022.0)
+    with pytest.warns(DeprecationWarning, match='StarTable.predict_positions'):
+        old = st.get_predicted_positions(2022.0)
+    for a, b in zip(old, new):
+        np.testing.assert_allclose(a, b)
+
+    mm = motion_model.Linear()
+    params = np.array([[1.0, 0.1, 3.0, 0.0]])
+    new = mm.predict_positions(2022.0, params, fixed_params_dict={'t0': 2020.0})
+    with pytest.warns(DeprecationWarning, match='Linear.get_predicted_positions'):
+        old = mm.get_predicted_positions(2022.0, params, fixed_params_dict={'t0': 2020.0})
+    for a, b in zip(old, new):
+        np.testing.assert_allclose(a, b)
 
     return None

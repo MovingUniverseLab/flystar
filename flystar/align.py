@@ -926,7 +926,7 @@ class MosaicSelfRef(object):
         self.ref_table.meta['list_times'] = all_epochs
 
         # Update chi2 values in ref table, as motion_model_used may have changed
-        x_inferred, y_inferred, _, _ = self.ref_table.get_predicted_positions(all_epochs)
+        x_inferred, y_inferred, _, _ = self.ref_table.predict_positions(all_epochs)
         # Ensure x_inferred and y_inferred is 2D for chi2 calculation
         if x_inferred.ndim == 1:
             x_inferred = x_inferred[:, np.newaxis]
@@ -2262,7 +2262,7 @@ class MosaicSelfRef(object):
             else:
                 star_list_T.transform_xy(self.trans_list[ii])
 
-            xref, yref, _, _ = self.ref_table.get_predicted_positions(
+            xref, yref, _, _ = self.ref_table.predict_positions(
                 star_list_T.meta['list_time'],
                 fixed_params_dict=self.fixed_params_dict
             )
@@ -2350,11 +2350,11 @@ class MosaicSelfRef(object):
         # were never fit here, and must still move with Linear even when
         # motion_models=['Fixed'] -- otherwise its velocity sits unused in the
         # table and the reference is silently frozen at its catalog epoch.
-        # get_predicted_positions decides per star which model moves it: a
+        # predict_positions decides per star which model moves it: a
         # 'motion_model_input' request where usable, else the most complex model
         # that star's own parameters support. Deliberately not restricted to
         # self.motion_models, which governs fitting only.
-        x, y, xe, ye = self.ref_table.get_predicted_positions(
+        x, y, xe, ye = self.ref_table.predict_positions(
             epoch, fixed_params_dict=self.fixed_params_dict
         )
 
@@ -2767,7 +2767,7 @@ class MosaicSelfRef(object):
         # self.ref_table['motion_model_used'] = np.array([motion_model_list[d].name for d in mm_digitized], dtype='U20')
 
 
-        x_pred, y_pred, _, _ = self.ref_table.get_predicted_positions(t_arr, fixed_params_dict=self.fixed_params_dict)
+        x_pred, y_pred, _, _ = self.ref_table.predict_positions(t_arr, fixed_params_dict=self.fixed_params_dict)
         if np.ndim(x_pred) == 1:
             x_pred = x_pred[:, np.newaxis]
         if np.ndim(y_pred) == 1:
@@ -3624,7 +3624,7 @@ class MosaicToRef(MosaicSelfRef):
         self.ref_table.meta['list_times'] = all_epochs
 
         # Update chi2 values in ref table, as motion_model_used may have changed
-        x_inferred, y_inferred, _, _ = self.ref_table.get_predicted_positions(all_epochs, fixed_params_dict=self.fixed_params_dict)
+        x_inferred, y_inferred, _, _ = self.ref_table.predict_positions(all_epochs, fixed_params_dict=self.fixed_params_dict)
         # Convert x_inferred and y_inferred to 2D arrays if they are 1D (i.e. if only one epoch), so that the chi2 calculation works correctly.
         if x_inferred.ndim == 1:
             x_inferred = x_inferred[:, np.newaxis]
@@ -3777,7 +3777,7 @@ def schedule_len(value):
 
 
 # TODO: This is sometimes run on a startable, not a starlist, at least as currently used
-def get_predicted_positions(t, startable, motion_models=None, fixed_params_dict=None, return_errors=False):
+def predict_positions(t, startable, motion_models=None, fixed_params_dict=None, return_errors=False):
     """
     Take a startable, check to see if it has motion/velocity columns.
     If it does, then propagate the positions forward in time
@@ -3807,7 +3807,7 @@ def get_predicted_positions(t, startable, motion_models=None, fixed_params_dict=
         Inferred position (and errors) at time t
     """
     if ('motion_model_used' in startable.colnames):
-        x, y, xe, ye = startable.get_predicted_positions(t, fixed_params_dict=fixed_params_dict)
+        x, y, xe, ye = startable.predict_positions(t, fixed_params_dict=fixed_params_dict)
         if return_errors:
             return x, y, xe, ye
         else:
@@ -3847,7 +3847,7 @@ def get_predicted_positions(t, startable, motion_models=None, fixed_params_dict=
                 continue
 
             # If we have error columns for all fit parameters, then use them in the model inference. Otherwise, just use the fit parameters without errors.
-            x, y = mm().get_predicted_positions(
+            x, y = mm().predict_positions(
                 t=t,
                 fit_params=np.array([startable[param] for param in mm.fit_param_names]).T,
                 fixed_params_dict={param: startable[param] for param in mm.fixed_param_names}
@@ -3857,29 +3857,28 @@ def get_predicted_positions(t, startable, motion_models=None, fixed_params_dict=
     return x, y
 
 
-def infer_positions(t, startable, motion_models=None, fixed_params_dict=None, return_errors=False):
+def get_predicted_positions(t, startable, motion_models=None, fixed_params_dict=None, return_errors=False):
     """
-    Deprecated alias of :func:`get_predicted_positions`.
+    Deprecated alias of :func:`predict_positions`.
 
     Parameters
     ----------
     t, startable, motion_models, fixed_params_dict, return_errors
-        Passed through unchanged; see :func:`get_predicted_positions`.
+        Passed through unchanged; see :func:`predict_positions`.
 
     Returns
     -------
     x, y, (xe, ye) : tuple
-        Whatever :func:`get_predicted_positions` returns.
+        Whatever :func:`predict_positions` returns.
     """
     warnings.warn(
-        "align.infer_positions is deprecated; use align.get_predicted_positions "
-        "(or StarTable.get_predicted_positions) instead.",
+        "align.get_predicted_positions is deprecated; use align.predict_positions "
+        "(or StarTable.predict_positions) instead.",
         DeprecationWarning, stacklevel=2
     )
-
-    return get_predicted_positions(t, startable, motion_models=motion_models,
-                                   fixed_params_dict=fixed_params_dict,
-                                   return_errors=return_errors)
+    return predict_positions(t, startable, motion_models=motion_models,
+                             fixed_params_dict=fixed_params_dict,
+                             return_errors=return_errors)
 
 
 def determine_motion_models(startable, motion_models=None, fixed_params_dict=None, processes=1, chunksize=None, verbose=True):
@@ -5414,7 +5413,7 @@ def trans_initial_guess(
         else:
             raise ValueError('star_list must have either a "t" column or a "list_time" meta key to use miracle matching.')
 
-        xref, yref = get_predicted_positions(epoch, ref_list, motion_models, fixed_params_dict=fixed_params_dict)
+        xref, yref = predict_positions(epoch, ref_list, motion_models, fixed_params_dict=fixed_params_dict)
         if 'm' in ref_list.colnames:
             mref = ref_list['m']
         else:
@@ -5806,7 +5805,7 @@ def outlier_rejection_indices(star_list, ref_list, outlier_tol, motion_models, f
         The boolean array of the stars to keep.
     """
     # Optionally propogate the reference positions forward in time.
-    xref, yref = get_predicted_positions(star_list['t'][0], ref_list, motion_models, fixed_params_dict=fixed_params_dict)
+    xref, yref = predict_positions(star_list['t'][0], ref_list, motion_models, fixed_params_dict=fixed_params_dict)
 
     # Residuals
     x_resid_on_old_trans = star_list['x'] - xref

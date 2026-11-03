@@ -1222,7 +1222,7 @@ def plot_mean_residuals_by_epoch(tab):
     # Predicted model positions at each epoch. A 1D array of times is one grid
     # shared by every star, so this returns shape (N_stars, N_lists).
     epoch_times = _epoch_times(tab)
-    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.get_predicted_positions(epoch_times)
+    xt_mod, yt_mod, xt_mod_err, yt_mod_err = tab.predict_positions(epoch_times)
 
     # Residuals
     dx = tab['x'] - xt_mod
@@ -1280,7 +1280,7 @@ def plot_quiver_residuals_all_epochs(tab, unit='arcsec', scale=None, plotlim=Non
     n_ref = np.zeros(len(tab), dtype=int)
 
     complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in tab['t'].T])
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(complete_times)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(complete_times)
 
     for ee in range(tab['x'].shape[1]):
         xt_mod = xt_mod_all[:,ee]
@@ -1355,7 +1355,7 @@ def plot_quiver_residuals_with_orig_all_epochs(tab, trans_list, unit='arcsec', s
     n_ref = np.zeros(len(tab), dtype=int)
 
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
 
     for ee in range(tab['x'].shape[1]):
         xt_mod = xt_mod_all[:, ee]
@@ -1490,7 +1490,7 @@ def plot_mag_scatter_multi_trans_all_epochs(tab_list, trans_list_list, unit='arc
         # Predict each table's positions on its own epoch grid.
         # Shape of xt_mod_all: [N_stars, N_epochs]
         complete_times = np.array([np.unique(col[~np.isnan(col)])[0] for col in tab['t'].T])
-        xt_mod_all, yt_mod_all, _, _ = tab.get_predicted_positions(complete_times)
+        xt_mod_all, yt_mod_all, _, _ = tab.predict_positions(complete_times)
 
         for ee in range(n_epochs):
             # Stars detected in this epoch, and the subset used in the transformation.
@@ -2275,7 +2275,7 @@ def plot_quiver_residuals_magcolor_all_epochs(tab, unit='arcsec', scale=None, pl
                    (tab['m0'] > upper_mag))[0]
     tab = tab[idx]
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
 
     for ee in range(tab['x'].shape[1]):
         xt_mod = xt_mod_all[:, ee]
@@ -2619,7 +2619,7 @@ def plot_chi2_dist(tab, Ndetect, xlim=40, n_bins=50, boot_err=False):
     fnd_list = [] # Number of non-NaN error measurements
 
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab)):
         # Ignore the NaNs
@@ -2705,7 +2705,7 @@ def plot_chi2_reduced_dist(tab, Ndetect, xlim=8, n_bins=50, boot_err=False):
     fnd_list = [] # Number of non-NaN error measurements
 
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab)):
         # Ignore the NaNs
@@ -2785,7 +2785,7 @@ def plot_chi2_dist_per_filter(tab, Ndetect, xlim=40, n_bins=50, filter=None, boo
     fnd_list = [] # Number of non-NaN error measurements
 
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab)):
         # Ignore the NaNs
@@ -2878,7 +2878,7 @@ def plot_chi2_dist_per_epoch(tab, Ndetect, mlim=[14, 21], ylim=[-1, 1], target_i
     m_arr = np.nan * np.ones((len(tab['xe']), Ndetect))
 
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
 
     for ii in range(len(tab['xe'])):
         # Ignore the NaNs
@@ -3218,8 +3218,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     r = np.hypot(x, y)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
-    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_predicted_positions(cont_times)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.predict_positions(cont_times)
 
     for i in range(Nstars):
         starName = star_names[i]
@@ -3668,8 +3668,8 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     r = np.hypot(x, y)
     i_all_detected = np.where(~np.any(np.isnan(tab['t']),axis=1))[0][0]
     cont_times = np.arange(np.min(tab['t'][i_all_detected]), np.max(tab['t'][i_all_detected]), 0.01)
-    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.get_predicted_positions(tab['t'][i_all_detected])
-    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.get_predicted_positions(cont_times)
+    xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
+    xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.predict_positions(cont_times)
 
     for i in range(Nstars):
         for ea, epoch_array in enumerate(epoch_array_list):

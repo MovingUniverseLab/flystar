@@ -115,7 +115,7 @@ def _orbit_table(epochs, elements, x, y, sigma):
     Notes
     -----
     The linear columns are filled because the table fitter and
-    ``get_predicted_positions`` expect them even for an orbit star. They are
+    ``predict_positions`` expect them even for an orbit star. They are
     not the orbit. ``motion_model_input`` is what selects ``Orbit``.
     """
     epochs = np.asarray(epochs, dtype=float)
@@ -187,13 +187,13 @@ def _parse_file_a(path):
 
 
 def test_kep2xyz_matches_orbit_model_on_a_grid():
-    """Orbit.get_predicted_positions is kep2xyz with x = -east and y = +north.
+    """Orbit.predict_positions is kep2xyz with x = -east and y = +north.
 
     Notes
     -----
     This checks the frame convention, not a fit. ``kep2xyz`` returns
     east, north, and the line of sight in arcseconds, black hole at
-    the origin. ``Orbit.get_predicted_positions`` must negate east and keep north.
+    the origin. ``Orbit.predict_positions`` must negate east and keep north.
     Three orbits cover a circular face-on case, an S0-2-like
     eccentricity near 0.89, and an S0-16-like eccentricity near 0.98,
     which is the near-parabolic end of this catalog. The year grid
@@ -216,7 +216,7 @@ def test_kep2xyz_matches_orbit_model_on_a_grid():
     for elements in cases:
         # Column 0 is east, column 1 is north. Acceleration is unused.
         r_au, _, _ = kep2xyz(epochs, *elements)
-        x, y = model.get_predicted_positions(epochs, elements)
+        x, y = model.predict_positions(epochs, elements)
         # FlyStar: x is west, so it is minus east. y is north.
         np.testing.assert_allclose(x, -r_au[:, 0], rtol=0.0, atol=1e-12)
         np.testing.assert_allclose(y, r_au[:, 1], rtol=0.0, atol=1e-12)
@@ -229,7 +229,7 @@ def test_kep2xyz_matches_orbit_model_on_a_grid():
     # import-time mas-per-arcsec factor to get arcseconds.
     a_as = semimajor_axis_mas(circular[0], 4.0e6, 8.0e3) / _MAS_PER_ARCSEC
     # Evaluate at t0, which is periapse for this row.
-    x0, y0 = model.get_predicted_positions(circular[1], circular)
+    x0, y0 = model.predict_positions(circular[1], circular)
     np.testing.assert_allclose(x0, 0.0, atol=1e-12)
     np.testing.assert_allclose(y0, a_as, rtol=0.0, atol=1e-12)
 
@@ -256,7 +256,7 @@ def test_black_hole_offset_is_added_in_the_flystar_frame():
     epoch = np.array([2010.0])
     # East/north of the star relative to the black hole, arcseconds.
     r_au, _, _ = kep2xyz(epoch, *elements)
-    x, y = Orbit().get_predicted_positions(
+    x, y = Orbit().predict_positions(
         epoch, elements,
         fixed_params_dict={
             'x_bh': 0.01, 'y_bh': -0.02,
@@ -287,7 +287,7 @@ def test_fixed_star_position_errors_are_zero():
     elements = np.array([16.0, 2010.0, 0.2, 40.0, 10.0, 20.0])
     # Non-finite diagonals. They must not be propagated.
     errs = np.full(6, np.inf)
-    x, y, xe, ye = Orbit().get_predicted_positions(
+    x, y, xe, ye = Orbit().predict_positions(
         np.array([2010.0, 2012.0]), elements, fit_param_errs=errs,
     )
 
@@ -343,27 +343,27 @@ def test_mass_and_dist_defaults_and_override_order():
         tab[name] = np.array([value])
     tab['motion_model_input'] = np.array(['Orbit'], dtype='U12')
     
-    # Present so get_predicted_positions takes the error-returning path.
+    # Present so predict_positions takes the error-returning path.
     # They are not the orbit's covariance.
     tab['x0_err'] = np.array([0.001])
     tab['y0_err'] = np.array([0.001])
 
     # No mass anywhere: the class default, 4e6 Msun and 8000 pc.
-    _, y, _, _ = tab.get_predicted_positions(2010.0)
+    _, y, _, _ = tab.predict_positions(2010.0)
     np.testing.assert_allclose(y, y_default, rtol=0.0, atol=1e-12)
 
     # 8x mass scales the axis by 2. Meta is the only place it lives.
     tab.meta['mass'] = 4.0e6 * 8.0
-    _, y_meta, _, _ = tab.get_predicted_positions(2010.0)
+    _, y_meta, _, _ = tab.predict_positions(2010.0)
     np.testing.assert_allclose(y_meta, 2.0 * y_default, rtol=1e-12, atol=0.0)
 
     # A column outranks meta. Back to the default mass.
     tab['mass'] = np.array([4.0e6])
-    _, y_col, _, _ = tab.get_predicted_positions(2010.0)
+    _, y_col, _, _ = tab.predict_positions(2010.0)
     np.testing.assert_allclose(y_col, y_default, rtol=0.0, atol=1e-10)
 
     # fixed_params_dict outranks the column. 27x mass scales by 3.
-    _, y_dict, _, _ = tab.get_predicted_positions(
+    _, y_dict, _, _ = tab.predict_positions(
         2010.0, fixed_params_dict={'mass': 4.0e6 * 27.0},
     )
     np.testing.assert_allclose(y_dict, 3.0 * y_default, rtol=1e-12, atol=0.0)
@@ -516,13 +516,13 @@ def _recover(truth, init_params, epochs, sigma, rng):
 
     Notes
     -----
-    Positions are drawn from ``Orbit.get_predicted_positions`` of the truth, so they
+    Positions are drawn from ``Orbit.predict_positions`` of the truth, so they
     already use ``x = -east`` and ``y = +north``. The table's initial
     parameters are offset from the truth. A frozen star, or a solver that
     returned the initial parameters, would fail the recovery limits below.
     """
     # Noise-free sky position of the injected elements.
-    x_true, y_true = Orbit().get_predicted_positions(epochs, np.asarray(truth, dtype=float))
+    x_true, y_true = Orbit().predict_positions(epochs, np.asarray(truth, dtype=float))
     x = rng.normal(x_true, sigma)
     y = rng.normal(y_true, sigma)
     tab = _orbit_table(epochs, init_params, x, y, sigma)
@@ -584,7 +584,7 @@ def test_recover_s02_like_and_s016_like():
     # The elements actually moved. A frozen star would be bitwise equal.
     assert not np.array_equal(got, s02_init)
     # Sky errors come from the covariance, so they are finite and not 0.
-    _, _, xe, ye = s02.get_predicted_positions(2012.0)
+    _, _, xe, ye = s02.predict_positions(2012.0)
     assert np.isfinite(xe) and np.isfinite(ye)
     assert xe != 0.0 and ye != 0.0
 
@@ -637,7 +637,7 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_initial_params():
     init_params = truth + np.array([0.2, 0.0, 0.0, 0.0, 0.0, 0.0])
     # Two distinct epochs: below the algebraic minimum of three.
     epochs2 = np.array([2008.0, 2012.0])
-    x, y = Orbit().get_predicted_positions(epochs2, truth)
+    x, y = Orbit().predict_positions(epochs2, truth)
     tab2 = _orbit_table(epochs2, init_params, x, y, 0.001)
     before = np.array([tab2[name][0] for name in _NAMES])
     tab2.fit_motion_models(motion_models=['Orbit'], verbose=False)
@@ -649,8 +649,8 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_initial_params():
     assert tab2['orb_fit_status'][0] == 3  # skipped: too few epochs
     assert tab2['orb_fit_n_iter'][0] == 0
     # Prediction uses the kept initial parameters, not the noise-free truth.
-    x_init, y_init = Orbit().get_predicted_positions(2010.0, init_params)
-    x_hat, y_hat, xe, ye = tab2.get_predicted_positions(2010.0)
+    x_init, y_init = Orbit().predict_positions(2010.0, init_params)
+    x_hat, y_hat, xe, ye = tab2.predict_positions(2010.0)
     np.testing.assert_allclose(x_hat, x_init, rtol=0.0, atol=1e-12)
     np.testing.assert_allclose(y_hat, y_init, rtol=0.0, atol=1e-12)
     # A requested fit with no covariance: errors are non-finite, not 0.
@@ -658,7 +658,7 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_initial_params():
 
     # Three epochs: solvable, but no degrees of freedom for a covariance.
     epochs3 = np.array([2009.0, 2010.0, 2011.0])
-    x3, y3 = Orbit().get_predicted_positions(epochs3, truth)
+    x3, y3 = Orbit().predict_positions(epochs3, truth)
     tab3 = _orbit_table(epochs3, init_params, x3, y3, 0.001)
     tab3.fit_motion_models(motion_models=['Orbit'], verbose=False)
     assert tab3['motion_model_used'][0] == 'Orbit'
@@ -667,7 +667,7 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_initial_params():
     for name in _NAMES:
         assert not np.isfinite(tab3[name + '_err'][0])
     assert not np.all(np.isfinite(tab3['orb_cov'][0]))
-    _, _, xe3, ye3 = tab3.get_predicted_positions(2010.0)
+    _, _, xe3, ye3 = tab3.predict_positions(2010.0)
     assert not np.isfinite(xe3) and not np.isfinite(ye3)
 
     # e = 1.2 is finite, so the star stays Orbit, but it cannot be integrated.
@@ -675,7 +675,7 @@ def test_too_few_epochs_and_a_failed_solve_keep_the_initial_params():
     bad[2] = 1.2
     epochs = np.linspace(2005.0, 2015.0, 6)
     # Detections are a legal orbit. The initial parameters are the illegal one.
-    x_ok, y_ok = Orbit().get_predicted_positions(epochs, truth)
+    x_ok, y_ok = Orbit().predict_positions(epochs, truth)
     tab_bad = _orbit_table(epochs, bad, x_ok, y_ok, 0.001)
     tab_bad.fit_motion_models(motion_models=['Orbit'], verbose=False)
     # The illegal eccentricity is kept. It is not replaced by a fill.
