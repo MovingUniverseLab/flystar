@@ -148,23 +148,36 @@ intersphinx_mapping = {
 
 # -- HTML output --------------------------------------------------------------
 
-html_theme = 'sphinx_rtd_theme'
-html_theme_options = {
-    'navigation_depth': 3,
-    'collapse_navigation': False,
-}
+html_theme = 'furo'
+html_title = f'{project} {version}'
 html_static_path = ['_static']
 templates_path = ['_templates']
 
-# Derived from the repository URL in pyproject.toml, so there is one place
-# to change it.
-github_project = _project.get('urls', {}).get(
+# "Edit this page" and "View source" links. The repository URL comes from
+# pyproject.toml, so there is one place to change it.
+github_url = _project.get('urls', {}).get(
     'repository', 'https://github.com/MovingUniverseLab/flystar'
-).rstrip('/').removeprefix('https://github.com/')
-html_context = {
-    'display_github': True,
-    'github_user': github_project.split('/')[0],
-    'github_repo': github_project.split('/')[-1],
-    'github_version': os.environ.get('READTHEDOCS_GIT_IDENTIFIER', 'main'),
-    'conf_py_path': '/docs/',
+).rstrip('/')
+html_theme_options = {
+    'source_repository': f'{github_url}/',
+    'source_branch': os.environ.get('READTHEDOCS_GIT_IDENTIFIER', 'main'),
+    'source_directory': 'docs/',
 }
+
+# The sidebar lists each page's sections three levels deep, all expanded, as
+# the previous theme did (sphinx_rtd_theme with navigation_depth=3 and
+# collapse_navigation=False). furo's own sidebar lists only the page titles.
+SIDEBAR_DEPTH = 3
+
+
+def _sidebar_with_sections(app, pagename, templatename, context, doctree):
+    """List the sections of each page in furo's sidebar, not only the page titles."""
+    from furo.navigation import get_navigation_tree
+    if 'toctree' in context:
+        context['furo_navigation_tree'] = get_navigation_tree(
+            context['toctree'](collapse=False, titles_only=False, maxdepth=SIDEBAR_DEPTH, includehidden=True))
+
+
+def setup(app):
+    """Run _sidebar_with_sections after furo has set its sidebar."""
+    app.connect('html-page-context', _sidebar_with_sections, priority=900)
