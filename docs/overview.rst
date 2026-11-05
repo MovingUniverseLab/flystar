@@ -106,7 +106,7 @@ a leap second could still be announced before then.
 Putting it together
 ===================
 
-The landing page has the end-to-end example. In short: build one
+:doc:`first_alignment` has the end-to-end example. In short: build one
 :class:`~flystar.starlists.StarList` per epoch, hand the list of them to
 :class:`~flystar.align.MosaicSelfRef` (self-defined frame) or
 :class:`~flystar.align.MosaicToRef` (external reference), call ``fit()``, and
