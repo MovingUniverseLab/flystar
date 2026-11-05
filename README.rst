@@ -21,8 +21,11 @@ Two builds of the same source, both from the ``dev`` branch:
   Note that ``/en/latest/`` does not track ``dev`` and does not have these
   pages.
 * **GitHub Pages** -- https://wei-lingfeng.github.io/flystar/
-  A mirror without ads, built by ``.github/workflows/docs.yml`` on each push to
-  ``dev`` that changes ``docs/`` or ``flystar/``. One version only.
+  A mirror without ads, currently published from Lingfeng Wei's fork. One
+  version only. This repository's ``.github/workflows/docs.yml`` builds the
+  same docs on each push to ``dev`` that changes ``docs/`` or ``flystar/``, and
+  will publish them to https://movinguniverselab.github.io/flystar/ once GitHub
+  Pages is enabled for the repository.
 
 Start with "Getting started" in the sidebar: Installation, then First
 alignment, which builds a synthetic four-epoch data set, aligns it, and checks
@@ -43,8 +46,10 @@ Not on PyPI; install from the repository::
     cd flystar
     pip install -e .
 
-That pulls in numpy, scipy, astropy, matplotlib, pandas, joblib and tqdm, all of
-which the package imports at module level. Python 3.7 or newer. Three further
+That pulls in the runtime dependencies listed in ``pyproject.toml``: numpy,
+scipy, astropy, matplotlib, pandas, joblib, tqdm, h5py and jplephem (which
+astropy needs for the JPL ephemeris behind the Parallax model). Python 3.9 or
+newer. Three further
 packages are imported lazily and only needed for the features that use them --
 ``shapely``, ``astroquery`` and ``plotly`` -- grouped as an extra::
 

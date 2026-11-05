@@ -4,7 +4,9 @@
 # API reference is produced by sphinx-autoapi via static analysis, so the
 # science stack (numpy/scipy/astropy/matplotlib) is not needed here.
 sphinx>=7.0
-furo
+# Pinned: conf.py builds the sidebar with furo.navigation.get_navigation_tree,
+# an internal furo function. Check the sidebar before raising this pin.
+furo==2025.12.19
 sphinx-autoapi>=3.0
 myst-nb>=1.0
 

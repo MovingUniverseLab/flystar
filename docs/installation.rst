@@ -10,9 +10,10 @@ FlyStar is not on PyPI; install it from the repository:
    cd flystar
    pip install -e .
 
-That pulls in the whole runtime set -- numpy, scipy, astropy, matplotlib,
-pandas, joblib and tqdm -- all of which the package imports at module level.
-Python 3.7 or newer.
+That pulls in the whole runtime set listed in ``pyproject.toml`` -- numpy,
+scipy, astropy, matplotlib, pandas, joblib, tqdm, h5py and jplephem (which
+astropy needs for the JPL ephemeris behind the Parallax model). Python 3.9 or
+newer.
 
 Three further packages are imported lazily, inside the functions that use them,
 so install them only if you want those features: ``shapely``

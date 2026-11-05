@@ -154,13 +154,15 @@ html_static_path = ['_static']
 templates_path = ['_templates']
 
 # "Edit this page" and "View source" links. The repository URL comes from
-# pyproject.toml, so there is one place to change it.
+# pyproject.toml, so there is one place to change it. Outside Read the Docs
+# (e.g. the GitHub Pages build) the links point at dev, the branch these docs
+# are built from; most of these pages do not exist on main.
 github_url = _project.get('urls', {}).get(
     'repository', 'https://github.com/MovingUniverseLab/flystar'
 ).rstrip('/')
 html_theme_options = {
     'source_repository': f'{github_url}/',
-    'source_branch': os.environ.get('READTHEDOCS_GIT_IDENTIFIER', 'main'),
+    'source_branch': os.environ.get('READTHEDOCS_GIT_IDENTIFIER', 'dev'),
     'source_directory': 'docs/',
 }
 
