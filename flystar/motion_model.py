@@ -55,7 +55,7 @@ def weight_from_sigma(sigma, valid=None):
     return weight
 
 
-def broadcast_times(t, n_stars, caller='get_predicted_positions'):
+def broadcast_times(t, n_stars, caller='predict_positions'):
     """
     Normalize a time argument into an explicit (n_stars, n_times) grid.
 
@@ -89,7 +89,7 @@ def broadcast_times(t, n_stars, caller='get_predicted_positions'):
     n_stars : int
         Number of stars the times are being broadcast against.
     caller : str, optional
-        Name used in the error message, by default 'get_predicted_positions'.
+        Name used in the error message, by default 'predict_positions'.
 
     Returns
     -------
@@ -189,7 +189,7 @@ class MotionModel(ABC):
         Notes
         -----
         ``fixed_params_dict`` starts as None. A single-star ``fit`` stores the
-        fixed parameters it used there, so a later ``get_predicted_positions(t, params)``
+        fixed parameters it used there, so a later ``predict_positions(t, params)``
         call without its own ``fixed_params_dict`` can fall back to them.
         """
         self.fixed_params_dict = None
@@ -268,7 +268,7 @@ class MotionModel(ABC):
 
         return
 
-    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def predict_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Evaluate the model at the given time(s).
 
         Every concrete subclass overrides this. The time argument follows one
@@ -316,6 +316,13 @@ class MotionModel(ABC):
             return np.full_like(t, np.nan), np.full_like(t, np.nan)
             
         return np.full_like(t, np.nan), np.full_like(t, np.nan), np.full_like(t, np.inf), np.full_like(t, np.inf)
+
+    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+        """Deprecated alias of :meth:`predict_positions`."""
+        warnings.warn(f"{type(self).__name__}.get_predicted_positions is deprecated; use predict_positions instead.",
+                      DeprecationWarning, stacklevel=2)
+        return self.predict_positions(t, fit_params, fit_param_errs=fit_param_errs,
+                                      fixed_params_dict=fixed_params_dict)
 
     def run_fit(self, t, x, y, xe, ye, valid, fixed_params_dict=None, params_init_guess_dict=None, weighting='var',
                        absolute_sigma=True, fill_value=np.nan, verbose=True):
@@ -448,7 +455,7 @@ class MotionModel(ABC):
             fixed_params_dict = dict(fixed_params_dict) if fixed_params_dict is not None else {}
             if ('t0' in self.required_fixed_param_names) and ('t0' not in fixed_params_dict):
                 fixed_params_dict['t0'] = np.average(t, weights=1. / np.hypot(xe, ye))
-            # Remembered so a later self.get_predicted_positions(t, params) call
+            # Remembered so a later self.predict_positions(t, params) call
             # (without its own fixed_params_dict) can fall back to what this
             # fit used -- same convenience the old per-star run_fit() provided.
             self.fixed_params_dict = fixed_params_dict
@@ -565,7 +572,7 @@ class MotionModel(ABC):
         """
 
         # Model positions at the data times.
-        x_pred, y_pred = self.get_predicted_positions(t, fit_params, fixed_params_dict=fixed_params_dict)
+        x_pred, y_pred = self.predict_positions(t, fit_params, fixed_params_dict=fixed_params_dict)
         chi2x = np.sum((x - x_pred)**2 / xe**2)
         chi2y = np.sum((y - y_pred)**2 / ye**2)
         if reduced:
@@ -595,14 +602,14 @@ class Empty(MotionModel):
         super().__init__()
         return
 
-    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def predict_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Predicted positions (and uncertainties, if fit_param_errs is provided) at time t of Empty model.
 
         Parameters
         ----------
         t : scalar or array-like
             Time(s) in decimal years. Shape rules are in
-            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
+            :meth:`MotionModel.predict_positions` / :func:`broadcast_times`.
         fit_params : array-like
             Fit parameters, shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -621,7 +628,7 @@ class Empty(MotionModel):
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        N_times = broadcast_times(t, N_stars, caller='Empty.get_predicted_positions').shape[1]
+        N_times = broadcast_times(t, N_stars, caller='Empty.predict_positions').shape[1]
 
         x = np.full((N_stars, N_times), np.nan)
         y = np.full((N_stars, N_times), np.nan)
@@ -692,14 +699,14 @@ class Fixed(MotionModel):
         super().__init__()
         return
 
-    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def predict_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Predicted positions (and uncertainties, if fit_param_errs is provided) at time t of Fixed model.
 
         Parameters
         ----------
         t : scalar or array-like
             Time(s) in decimal years. Shape rules are in
-            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
+            :meth:`MotionModel.predict_positions` / :func:`broadcast_times`.
         fit_params : array-like
             x0, y0 in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -717,7 +724,7 @@ class Fixed(MotionModel):
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        t_grid = broadcast_times(t, N_stars, caller='Fixed.get_predicted_positions')  # (N_stars, N_times)
+        t_grid = broadcast_times(t, N_stars, caller='Fixed.predict_positions')  # (N_stars, N_times)
         N_times = t_grid.shape[1]
         x0, y0 = fit_params.T  # Each shape (N_stars,)
 
@@ -870,14 +877,14 @@ class Linear(MotionModel):
         super().__init__()
         return
 
-    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def predict_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Linear model.
 
         Parameters
         ----------
         t : scalar or array-like
             Time(s) in decimal years. Shape rules are in
-            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
+            :meth:`MotionModel.predict_positions` / :func:`broadcast_times`.
         fit_params : array-like
             x0, vx, y0, vy in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -900,7 +907,7 @@ class Linear(MotionModel):
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        t_grid = broadcast_times(t, N_stars, caller='Linear.get_predicted_positions')  # (N_stars, N_times)
+        t_grid = broadcast_times(t, N_stars, caller='Linear.predict_positions')  # (N_stars, N_times)
         N_times = t_grid.shape[1]
 
         x0, vx, y0, vy = fit_params.T  # Each shape (N_stars,)
@@ -1109,14 +1116,14 @@ class Acceleration(MotionModel):
         super().__init__()
         return
 
-    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def predict_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Acceleration model.
 
         Parameters
         ----------
         t : scalar or array-like
             Time(s) in decimal years. Shape rules are in
-            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
+            :meth:`MotionModel.predict_positions` / :func:`broadcast_times`.
         fit_params : array-like
             x0, vx, ax, y0, vy, ay in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -1139,7 +1146,7 @@ class Acceleration(MotionModel):
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        t_grid = broadcast_times(t, N_stars, caller='Acceleration.get_predicted_positions')  # (N_stars, N_times)
+        t_grid = broadcast_times(t, N_stars, caller='Acceleration.predict_positions')  # (N_stars, N_times)
         N_times = t_grid.shape[1]
 
         x0, vx0, ax, y0, vy0, ay = fit_params.T  # Each shape (N_stars,)
@@ -1469,14 +1476,14 @@ class Parallax(MotionModel):
 
         return np.broadcast_to(pvec, (n_stars,) + pvec.shape[1:])
 
-    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def predict_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Model positions (and uncertainties, if fit_param_errs is provided) at time t of Parallax model.
 
         Parameters
         ----------
         t : scalar or array-like
             Time(s) in decimal years. Shape rules are in
-            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
+            :meth:`MotionModel.predict_positions` / :func:`broadcast_times`.
         fit_params : array-like
             x0, vx, y0, vy, pi in shape (N_fit_params,) or (N_stars, N_fit_params)
         fit_param_errs : array-like, optional
@@ -1505,7 +1512,7 @@ class Parallax(MotionModel):
 
         N_stars = fit_params.shape[0]
         # See broadcast_times: t's shape alone says shared-grid vs per-star.
-        t_grid = broadcast_times(t, N_stars, caller='Parallax.get_predicted_positions')  # (N_stars, N_times)
+        t_grid = broadcast_times(t, N_stars, caller='Parallax.predict_positions')  # (N_stars, N_times)
         N_times = t_grid.shape[1]
 
         x0, vx, y0, vy, pi = fit_params.T  # Each shape (N_stars,)
@@ -1874,7 +1881,7 @@ def determine_motion_models(startable, motion_models=None, fixed_params_dict=Non
     # becomes a column), so after fitting Parallax with a single ra/dec/pa for
     # the whole table, 'pa' and 'obsLocation' live in meta -- and omitting meta
     # made Parallax un-selectable, silently demoting those stars to Linear and
-    # dropping the parallax term from get_predicted_positions.
+    # dropping the parallax term from predict_positions.
     meta_keys = set(getattr(startable, 'meta', None) or {})
 
     motion_models_possible = []
@@ -2406,14 +2413,14 @@ class Orbit(MotionModel):
         ye = np.sqrt(np.maximum(ye2, 0.0))
         return xe, ye
 
-    def get_predicted_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
+    def predict_positions(self, t, fit_params, fit_param_errs=None, fixed_params_dict=None):
         """Predict from the current ``orb_*`` elements.
 
         Parameters
         ----------
         t : scalar or array-like
             Time(s) in decimal years. Shape rules are in
-            :meth:`MotionModel.get_predicted_positions` / :func:`broadcast_times`.
+            :meth:`MotionModel.predict_positions` / :func:`broadcast_times`.
         fit_params : array-like, shape (6,) or (n_stars, 6)
             ``orb_P``, ``orb_t0``, ``orb_e``, ``orb_i``,
             ``orb_Omega``, ``orb_omega``.
@@ -2457,7 +2464,7 @@ class Orbit(MotionModel):
         self._check_param_dimensions(fit_params, fit_param_errs, fixed_params_dict)
         if cov_held is not None:
             fixed_params_dict['orb_cov'] = cov_held
-        t_grid = broadcast_times(t, n_stars, caller='Orbit.get_predicted_positions')
+        t_grid = broadcast_times(t, n_stars, caller='Orbit.predict_positions')
         n_times = t_grid.shape[1]
 
         x = np.empty((n_stars, n_times), dtype=float)
