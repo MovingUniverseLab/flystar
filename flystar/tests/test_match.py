@@ -59,10 +59,12 @@ def test_match_duplicates():
 
     #####
     # Test 3:
-    # Test confused case.
+    # Test confused case. x1[1] is 3.5x closer to x2[0] in position than x1[0]
+    # (0.58 vs 2.06), but 0.04 mag farther in brightness. The legacy rule wants
+    # the nearest in both and leaves x2[0] unmatched.
     #####
     m2[0] = -5.9
-    idx1, idx2, dr, dm = match.match(x1, y1, m1, x2, y2, m2, dr_tol=5, dm_tol=None)
+    idx1, idx2, dr, dm = match.match(x1, y1, m1, x2, y2, m2, dr_tol=5, dm_tol=None, matching='legacy')
 
     # Correct indices:
     idx1_good = [2, 4, 6, 7, 10]
@@ -79,7 +81,7 @@ def test_match_duplicates():
     # Reverse test 3.
     #####
     m2[0] = -5.9
-    idx2, idx1, dr, dm = match.match(x2, y2, m2, x1, y1, m1, dr_tol=5, dm_tol=None)
+    idx2, idx1, dr, dm = match.match(x2, y2, m2, x1, y1, m1, dr_tol=5, dm_tol=None, matching='legacy')
 
     # Correct indices:
     idx1_good = [2, 4, 6, 7, 10]
@@ -90,7 +92,21 @@ def test_match_duplicates():
     assert len(dr) == len(dm)
     assert len(idx1) == len(idx2)
     assert len(dr) == len(idx2)
-    
+
+    #####
+    # Test 5:
+    # Confused case with the default chi2 matching, both ways: the position
+    # offset decides, and x1[1] is matched to x2[0].
+    #####
+    idx1_good = [1, 2, 4, 6, 7, 10]
+    idx2_good = [0, 1, 2, 3, 4, 8]
+
+    idx1, idx2, dr, dm = match.match(x1, y1, m1, x2, y2, m2, dr_tol=5, dm_tol=None)
+    assert sorted(zip(idx1, idx2)) == list(zip(idx1_good, idx2_good))
+
+    idx2, idx1, dr, dm = match.match(x2, y2, m2, x1, y1, m1, dr_tol=5, dm_tol=None)
+    assert sorted(zip(idx1, idx2)) == list(zip(idx1_good, idx2_good))
+
 
     return
 
@@ -179,27 +195,34 @@ def test_generic_match():
     # hundreds of pixels away. dr_tol has to straddle that gap -- the original
     # 1.0 matched nothing at all, so the refinement fit 3 free parameters to 0
     # stars and returned a NaN transformation.
-    transf, st = align.generic_match(starlist1, starlist2, init_mode='triangle',
-                              model=transforms.PolyTransform, order_dr=[[1, 4.0]],
-                              dr_final=4.0,
-                              xy_match=(None, None, None, None, None, None, None, None),
-                              m_match=(None, None, None, None), sigma_match=None,
-                              n_bright=8, verbose=True)
+    # S01 and S00 are 1.8 pixels apart, and both lie within dr_final of S11:
+    # 0.61 and 1.17 pixels from it after the final transformation. The default
+    # chi2 matching leaves S11 unmatched as ambiguous (chi^2 margin about 6, below
+    # dchi2_tol = 9). The legacy rule takes S01, nearest in position and, by
+    # 0.04 mag, in magnitude.
+    expected = {'chi2': {'S02', 'S04', 'S06', 'S07', 'S10'},
+                'legacy': {'S01', 'S02', 'S04', 'S06', 'S07', 'S10'}}
+    for matching, matched_expected in expected.items():
+        transf, st = align.generic_match(starlist1, starlist2, init_mode='triangle',
+                                  model=transforms.PolyTransform, order_dr=[[1, 4.0]],
+                                  dr_final=4.0,
+                                  xy_match=(None, None, None, None, None, None, None, None),
+                                  m_match=(None, None, None, None), sigma_match=None,
+                                  n_bright=8, verbose=True, matching=matching)
 
-    assert np.isfinite(transf.px.parameters).all(), \
-        f'NaN in the x transformation parameters: {transf.px.parameters}'
-    assert np.isfinite(transf.py.parameters).all(), \
-        f'NaN in the y transformation parameters: {transf.py.parameters}'
+        assert np.isfinite(transf.px.parameters).all(), \
+            f'{matching}: NaN in the x transformation parameters: {transf.px.parameters}'
+        assert np.isfinite(transf.py.parameters).all(), \
+            f'{matching}: NaN in the y transformation parameters: {transf.py.parameters}'
 
-    # The six sl2 stars that have a counterpart in sl1, and only those.
-    assert len(st) == 6, f'expected 6 matches, got {len(st)}'
-    matched_sl1 = set(np.asarray(st['ep_name'][:, 0]))
-    assert matched_sl1 == {'S01', 'S02', 'S04', 'S06', 'S07', 'S10'}, \
-        f'matched the wrong sl1 stars: {sorted(matched_sl1)}'
+        # Only sl2 stars that have a counterpart in sl1.
+        matched_sl1 = set(np.asarray(st['ep_name'][:, 0]))
+        assert matched_sl1 == matched_expected, \
+            f'{matching}: matched the wrong sl1 stars: {sorted(matched_sl1)}'
 
-    # Every matched pair lands inside the final search radius.
-    resid = np.hypot(st['x'][:, 0] - st['x'][:, 1], st['y'][:, 0] - st['y'][:, 1])
-    assert (resid < 4.0).all(), f'matched pairs beyond dr_final: {resid}'
+        # Every matched pair lands inside the final search radius.
+        resid = np.hypot(st['x'][:, 0] - st['x'][:, 1], st['y'][:, 0] - st['y'][:, 1])
+        assert (resid < 4.0).all(), f'{matching}: matched pairs beyond dr_final: {resid}'
 
 
 def test_generic_match_no_matches_raises():

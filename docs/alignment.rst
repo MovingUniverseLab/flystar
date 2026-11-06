@@ -154,9 +154,9 @@ Matching
      - Default
      - What it does
    * - ``matching``
-     - ``'legacy'``
+     - ``'chi2'``
      - How a star with several candidates inside the tolerances is resolved.
-       See the section above; use ``'chi2'`` in crowded fields.
+       See the section above.
    * - ``dchi2_tol``
      - ``9.0``
      - ``'chi2'`` only. How much better the winner must be than the runner-up,
@@ -475,15 +475,7 @@ Matching
 The ``matching`` keyword selects how a star with more than one candidate inside
 the tolerances is resolved.
 
-``'legacy'`` (default)
-    The historical rule: a multi-candidate star is matched only if its nearest
-    candidate in position is also its nearest in magnitude. In a crowded field
-    this discards good matches -- a candidate 20x closer in position loses to
-    one a few hundredths of a magnitude nearer -- and each discarded star then
-    becomes a duplicate reference row that makes the next star list ambiguous in
-    turn, so one split seeds the next.
-
-``'chi2'``
+``'chi2'`` (default)
     Candidates are scored as ``(dr/sigma_pos)**2 + (dm/sigma_mag)**2`` and only
     reciprocal best pairs winning by ``dchi2_tol`` (default 9.0, a 3-sigma
     margin) are kept; below that margin the star is treated as genuinely
@@ -491,8 +483,14 @@ the tolerances is resolved.
     own unambiguous pairs by default, so no error columns are required. See
     :func:`~flystar.match.match_chi2`.
 
-If you are aligning a crowded field and seeing single stars split into several
-rows, ``matching='chi2'`` is the fix.
+``'legacy'``
+    The historical rule: a multi-candidate star is matched only if its nearest
+    candidate in position is also its nearest in magnitude. In a crowded field
+    this discards good matches -- a candidate 20x closer in position loses to
+    one a few hundredths of a magnitude nearer -- and each discarded star then
+    becomes a duplicate reference row that makes the next star list ambiguous in
+    turn, so one split seeds the next. Use it to reproduce alignments made
+    before ``'chi2'`` became the default.
 
 The initial guess for the first transformation comes from
 ``init_guess_mode='miracle'`` (:func:`~flystar.match.miracle_match_briteN`,

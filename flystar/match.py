@@ -708,7 +708,7 @@ def match_chi2(x1, y1, m1, x2, y2, m2, i2_match, dr_tol, dm_tol,
 
 def match_name_override(x1, y1, m1, x2, y2, m2, dr_tol, names1, names2,
                         name_dr_tol, name_exclude=('star',),
-                        dm_tol=None, workers=1, verbose=True, matching='legacy',
+                        dm_tol=None, workers=1, verbose=True, matching='chi2',
                         dchi2_tol=9.0, sigma_pos=None, sigma_mag=None):
     """
     Pair same-name stars first, then match the rest by position.
@@ -775,7 +775,7 @@ def match_name_override(x1, y1, m1, x2, y2, m2, dr_tol, names1, names2,
 
 
 def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
-          matching='legacy', dchi2_tol=9.0, sigma_pos=None, sigma_mag=None,
+          matching='chi2', dchi2_tol=9.0, sigma_pos=None, sigma_mag=None,
           names1=None, names2=None, name_dr_tol=None, name_exclude=('star',),
           name_mode='override'):
     """
@@ -784,10 +784,10 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
     and magnitude system.
 
     For two stars to be matched, they must be within a specified radius (dr_tol) and
-    delta-magnitude (dm_tol). For stars with more than 1 neighbor (within the tolerances),
-    if one is found that is the best match in both brightness and positional offsets
-    (closest in both), then the match is made.
-    Otherwise, their is a conflict and no match is returned for the star.
+    delta-magnitude (dm_tol). A star with more than 1 neighbor (within the tolerances)
+    is resolved as set by ``matching``: by default, the pair with the lowest chi^2 is
+    kept if each star prefers the other and it wins by dchi2_tol; otherwise the star
+    is ambiguous and no match is returned for it.
 
 
     Parameters
@@ -806,8 +806,7 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
         Magnitude in the second catalog. Must have the same shape as x2.
     dr_tol : float
         How close (in units of the first catalog) a match has to be to count as a match.
-        For stars with more than one nearest neighbor, the delta-magnitude is checked
-        and the closest in delta-mag is chosen.
+        Stars with more than one neighbor inside it are resolved as set by ``matching``.
     dm_tol : float or None, optional
         How close in delta-magnitude a match has to be to count as a match.
         If None, then any delta-magnitude is allowed, by default None.
@@ -821,17 +820,18 @@ def match(x1, y1, m1, x2, y2, m2, dr_tol, dm_tol=None, workers=1, verbose=True,
         How to resolve a star with more than one candidate, and how to enforce
         one-to-one.
 
-        'legacy' (default) keeps the historical rules: a multi-candidate star
+        'chi2' (default) scores each candidate as (dr/sigma_pos)^2 +
+        (dm/sigma_mag)^2 and keeps reciprocal best pairs that win by
+        dchi2_tol. See match_chi2().
+
+        'legacy' keeps the historical rules: a multi-candidate star
         is matched only if its nearest candidate in position is also its
         nearest in magnitude, and duplicates are arbitrated afterwards by the
         same both-must-agree test. In a crowded field this discards good
         matches -- a candidate 20x closer loses to one a few hundredths of a
         magnitude nearer in brightness -- and every discarded star then becomes
         a duplicate reference entry that makes the next catalog ambiguous too.
-
-        'chi2' scores each candidate as (dr/sigma_pos)^2 + (dm/sigma_mag)^2 and
-        keeps reciprocal best pairs that win by dchi2_tol. See match_chi2().
-        By default 'legacy'.
+        By default 'chi2'.
     dchi2_tol : float, optional
         matching='chi2' only. Required chi^2 margin over the runner-up.
         Default 9.0, a 3-sigma margin, by default 9.0.
