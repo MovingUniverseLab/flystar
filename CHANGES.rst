@@ -38,6 +38,17 @@ API changes to ``MosaicSelfRef`` and ``MosaicToRef``
   which took the *first* iteration's order -- bootstrapping a rising-order
   schedule at the loose starting order rather than the one the fit converged
   with -- and dropped every other key.
+- ``matching`` now defaults to ``'chi2'`` everywhere: ``MosaicSelfRef``,
+  ``MosaicToRef``, ``match.match``, ``match.match_name_override``,
+  ``transform_and_match`` and ``generic_match``. The last two now take
+  ``matching``, ``dchi2_tol`` and the chi^2 scales too. A star with several
+  candidates inside the tolerances takes the candidate with the lowest
+  :math:`\chi^2` (position, plus magnitude when ``dm_tol`` is set), if the pair
+  is reciprocal and wins by ``dchi2_tol``; otherwise it is left unmatched as
+  ambiguous. The old default, ``'legacy'``, matched such a star only if its
+  nearest candidate in position was also its nearest in magnitude, which in
+  crowded fields discarded good matches and split one star into several
+  reference rows. Pass ``matching='legacy'`` to reproduce earlier results.
 
 0.1.0 (2026-08-26)
 ==================

@@ -114,7 +114,7 @@ class MosaicSelfRef(object):
             ref_index=0,
             dm_tol=None,
             outlier_tol=None,
-            matching='legacy',
+            matching='chi2',
             dchi2_tol=9.0,
             match_sigma_pos=None,
             match_sigma_mag=None,
@@ -197,18 +197,18 @@ class MosaicSelfRef(object):
             All single values therefore means a single iteration.
         matching : str, optional
             How a star with more than one candidate inside the tolerances is
-            resolved, and how one-to-one is enforced. 'legacy' (default) keeps
-            the historical behavior: a multi-candidate star is matched only if
-            its nearest candidate in position is also its nearest in
-            magnitude. In a crowded field that discards good matches -- a
+            resolved, and how one-to-one is enforced. 'chi2' (default) scores
+            candidates as (dr/sigma_pos)^2 + (dm/sigma_mag)^2, with the scales
+            measured from the starlists themselves, and keeps reciprocal best
+            pairs that win by dchi2_tol. See match.match_chi2 for the details.
+            'legacy' keeps the historical behavior: a multi-candidate star
+            is matched only if its nearest candidate in position is also its
+            nearest in magnitude. In a crowded field that discards good matches -- a
             candidate 20x closer loses to one a few hundredths of a magnitude
             nearer -- and each discarded star then becomes a duplicate
             reference row that makes the next starlist ambiguous in turn, so
-            one split seeds the next. 'chi2' scores candidates as
-            (dr/sigma_pos)^2 + (dm/sigma_mag)^2, with the scales measured from
-            the starlists themselves, and keeps reciprocal best pairs that win
-            by dchi2_tol. See match.match_chi2 for the details.
-            By default 'legacy'.
+            one split seeds the next.
+            By default 'chi2'.
         dchi2_tol : float, optional
             matching='chi2' only. How much better the best candidate must be
             than the runner-up, in chi^2. Default 9.0, a 3-sigma margin. Below
@@ -2861,7 +2861,7 @@ class MosaicToRef(MosaicSelfRef):
         # Alignment parameters
         dm_tol=None,
         outlier_tol=None,
-        matching='legacy',
+        matching='chi2',
         dchi2_tol=9.0,
         match_sigma_pos=None,
         match_sigma_mag=None,
@@ -2959,17 +2959,18 @@ class MosaicToRef(MosaicSelfRef):
             All single values therefore means a single iteration.
         matching : str, optional
             How a star with more than one candidate inside the tolerances is
-            resolved, and how one-to-one is enforced. 'legacy' (default) keeps
-            the historical behavior: a multi-candidate star is matched only if
-            its nearest candidate in position is also its nearest in
-            magnitude. In a crowded field that discards good matches -- a
+            resolved, and how one-to-one is enforced. 'chi2' (default) scores
+            candidates as (dr/sigma_pos)^2 + (dm/sigma_mag)^2, with the scales
+            measured from the starlists themselves, and keeps reciprocal best
+            pairs that win by dchi2_tol. See match.match_chi2 for the details.
+            'legacy' keeps the historical behavior: a multi-candidate star
+            is matched only if its nearest candidate in position is also its
+            nearest in magnitude. In a crowded field that discards good matches -- a
             candidate 20x closer loses to one a few hundredths of a magnitude
             nearer -- and each discarded star then becomes a duplicate
             reference row that makes the next starlist ambiguous in turn, so
-            one split seeds the next. 'chi2' scores candidates as
-            (dr/sigma_pos)^2 + (dm/sigma_mag)^2, with the scales measured from
-            the starlists themselves, and keeps reciprocal best pairs that win
-            by dchi2_tol. See match.match_chi2 for the details.
+            one split seeds the next.
+            By default 'chi2'.
         dchi2_tol : float, optional
             matching='chi2' only. How much better the best candidate must be
             than the runner-up, in chi^2. Default 9.0, a 3-sigma margin. Below
@@ -4411,7 +4412,8 @@ def initial_align(table1, table2, briteN=100, transformModel=transforms.PolyTran
 
 
 
-def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, workers=1, verbose=True):
+def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, workers=1, verbose=True,
+                        matching='chi2', dchi2_tol=9.0, sigma_pos=None, sigma_mag=None):
     """
     apply transformation to starlist1 and
     match stars to given radius and magnitude tolerance.
@@ -4440,6 +4442,15 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, work
         By default 1.
     verbose : bool, optional
         Prints on screen information on the matching, by default True.
+    matching : {'chi2', 'legacy'}, optional
+        How a star with more than one candidate inside the tolerances is
+        resolved. See match.match() for details. By default 'chi2'.
+    dchi2_tol : float, optional
+        matching='chi2' only. Required chi^2 margin over the runner-up,
+        by default 9.0.
+    sigma_pos, sigma_mag : float or None, optional
+        matching='chi2' only. Position and magnitude scales for the chi^2.
+        None (default) measures them from the unambiguous pairs.
 
     Returns
     -------
@@ -4461,7 +4472,9 @@ def transform_and_match(table1, table2, transform, dr_tol=1.0, dm_tol=None, work
     x1t, y1t = transform.evaluate(x1, y1)
 
     # Match starlist 1 and 2
-    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol, workers=workers, verbose=verbose)
+    idx1, idx2, dr, dm = match.match(x1t, y1t, m1, x2, y2, m2, dr_tol, dm_tol, workers=workers, verbose=verbose,
+                                     matching=matching, dchi2_tol=dchi2_tol, sigma_pos=sigma_pos,
+                                     sigma_mag=sigma_mag)
 
     if verbose:
         print(( '{0} of {1} stars matched'.format(len(idx1), len(x1t))))
@@ -5999,7 +6012,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
                   dr_final=1.0,
                   xy_match=(None, None, None, None, None, None, None, None),
                   m_match=(None, None, None, None), sigma_match=None,
-                  n_bright=100, verbose=True, **kwargs):
+                  n_bright=100, verbose=True, matching='chi2', dchi2_tol=9.0,
+                  match_sigma_pos=None, match_sigma_mag=None, **kwargs):
     """
     Finds the transformation between two starlists using the first one
     as reference frame. Different matching methods can be used. If no
@@ -6049,6 +6063,16 @@ def generic_match(sl1, sl2, init_mode='triangle',
         init_mode. Passed through ``**kwargs``.
     verbose : bool, optional
         Prints on screen information on the matching, by default True.
+    matching : {'chi2', 'legacy'}, optional
+        How a star with more than one candidate inside the search radius is
+        resolved, in every matching step. See match.match() for details.
+        By default 'chi2'.
+    dchi2_tol : float, optional
+        matching='chi2' only. Required chi^2 margin over the runner-up,
+        by default 9.0.
+    match_sigma_pos, match_sigma_mag : float or None, optional
+        matching='chi2' only. Position and magnitude scales for the chi^2.
+        None (default) measures them from the unambiguous pairs.
 
     Returns
     -------
@@ -6065,6 +6089,8 @@ def generic_match(sl1, sl2, init_mode='triangle',
     # does -- so normalize to 2D. Without this, len(order_dr) is 2 for a flat
     # pair and the refinement loop runs twice for one requested pass.
     order_dr = np.atleast_2d(order_dr)
+    match_kwargs = dict(matching=matching, dchi2_tol=dchi2_tol,
+                        sigma_pos=match_sigma_pos, sigma_mag=match_sigma_mag)
 
     #  Check the input StarLists and transform them into astropy Tables
     if not isinstance(sl1, starlists.StarList):
@@ -6130,7 +6156,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
         #  Transform and match the catalog to the reference frame
         sl2_idx, sl1_idx = transform_and_match(sl2_match, sl1_match, transf,
                                                      dr_tol=order_dr[i_loop][1],
-                                                     verbose=verbose)
+                                                     verbose=verbose, **match_kwargs)
 
         #  Transform the catalog to the reference frame
         sl2_transf_match = transform_from_object(sl2_match, transf)
@@ -6200,7 +6226,7 @@ def generic_match(sl1, sl2, init_mode='triangle',
         transf.py._parameters = transf.py._parameters * c_corr"""
 
     # Do the final transformation and matching using
-    sl2_idx, sl1_idx = transform_and_match(sl2, sl1, transf, dr_tol=dr_final, verbose=verbose)
+    sl2_idx, sl1_idx = transform_and_match(sl2, sl1, transf, dr_tol=dr_final, verbose=verbose, **match_kwargs)
     #  StarTable output
     sl2_transf = transform_from_object(sl2, transf)
     unames = np.array(range(len(sl1_idx)))
