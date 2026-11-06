@@ -9,8 +9,6 @@ model* is that curve. On this branch these are first-class pluggable classes in
 :class:`~flystar.motion_model.MotionModel`, and FlyStar chooses between them
 **per star** rather than imposing one on the whole table.
 
-This is the part of the API that differs most from ``main``.
-
 .. _the-models:
 
 The models

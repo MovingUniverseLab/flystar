@@ -76,7 +76,7 @@ Epochs are UTC decimal years
 Times -- ``list_time`` on a :class:`~flystar.starlists.StarList`, the ``t``
 column, ``t0`` -- are **decimal years interpreted as UTC**, which is what you
 get by converting an observation timestamp (a FITS ``DATE-OBS``, say) to a
-fraction of a year. Nothing else is expected of you.
+fraction of a year. 
 
 Where a uniform timescale is genuinely required, FlyStar converts internally.
 The parallax model needs the Earth's barycentric position, whose ephemeris is
@@ -87,14 +87,12 @@ indexed in TDB, so :class:`~flystar.motion_model.Parallax` does the
 You do not need to keep the distinction in mind, but it is a real one, not a
 rounding artifact: a decimal year derived from a full timestamp is good to
 about a microsecond, so the 69.184 s between TDB and UTC (as of 2026) is far
-above your input's precision. Getting the conversion wrong is a genuine error
-in the epoch, which is why FlyStar does it explicitly.
+above your input's precision. 
 
-What makes it safe to not think about is the size of its effect on the answer,
-rather than on the epoch. A 69 s shift moves the parallax factor by about
+The size of its effect is small.
+A 69 s shift moves the parallax factor by about
 :math:`1.3 \times 10^{-5}` of its amplitude; on a fitted parallax that works
-out to roughly 0.07 per cent of the parallax's own uncertainty. Worth getting
-right, never worth worrying about.
+out to roughly 0.07 per cent of the parallax's own uncertainty. 
 
 One consequence worth knowing: converting out of UTC consults a leap-second
 table, and ERFA warns ``"dubious year"`` for epochs more than about five years

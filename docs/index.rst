@@ -2,40 +2,25 @@
 FlyStar
 =======
 
-**FlyStar aligns many star lists into one common frame and fits each star's
+**FlyStar cross-matches and aligns many star lists into one common frame and fits each star's
 motion there, choosing per star from a set of motion models.**
-
-That one sentence is the whole package: *align the stars, then describe how they
-move.* The rest of this page unpacks it.
 
 Astrometry of a crowded field is never taken in one frame. You have many
 images -- different nights, different instruments, different pointings, each
 with its own distortion and its own arbitrary pixel coordinate system. Every
-one of them tells you about the same stars, but none of them agrees with the
-others about where those stars are.
+one of them tells you about the same stars, but first we must cross-match and 
+align them to a common frame.
 
-FlyStar's job is to make them agree. It cross-matches the stars across all
-those lists, solves for the coordinate transformation that carries each list
-into one common reference frame, and then -- with every epoch on the same
-footing -- fits each star's motion through time. What comes out is a single
-table of positions, proper motions, and where wanted parallaxes, with
-uncertainties that mean something.
-
-That is the whole point of the package: **turn many disagreeing star lists into
-one self-consistent astrometric solution.**
-
-.. admonition:: Which version is this?
-   :class: important
-
-   Built from the ``dev`` branch, and describes *that* branch's
-   API. The motion-model framework in :doc:`motion_models` does not exist on
-   ``main``. Every page here, the :doc:`API reference <api/flystar/index>`
-   included, is generated from this branch's source.
+FlyStar cross-matches the stars across a stack of star lists, solves for the 
+coordinate transformation that carries each list
+into one common reference frame, and then fits each star's motion through time. 
+What comes out is a single table of positions, proper motions, and where requested, 
+parallaxes, with uncertainties.
 
 How the pieces fit
 ==================
 
-Three objects, in the order you meet them:
+FlyStar has three main components:
 
 .. list-table::
    :header-rows: 1
@@ -52,10 +37,11 @@ Three objects, in the order you meet them:
      - :class:`~flystar.startables.StarTable`
      - The cross-matched result. 2D columns of shape
        ``(N_stars, N_lists)``, so ``t['x'][i, j]`` is star ``i`` in list ``j``.
-   * - **3. The solution**
+   * - **3. The machinary**
      - :class:`~flystar.align.MosaicSelfRef` /
        :class:`~flystar.align.MosaicToRef`
-     - The iterative match/transform/average loop that builds the StarTable
+     - The iterative match/transform/average loop class in align.py 
+       that builds the StarTable
        and fits each star's motion.
 
 In one line: **StarList → StarTable → align**. You assemble star lists, hand
