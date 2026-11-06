@@ -89,6 +89,9 @@ Where to go next
     The aligners in depth, parameter by parameter -- matching strategies,
     the initial guess, and how to control which stars drive the fit.
 
+:doc:`contributors`
+    The people who have written code in FlyStar.
+
 .. toctree::
    :maxdepth: 2
    :hidden:
@@ -122,6 +125,13 @@ Where to go next
    :caption: API
 
    api/flystar/index
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+   :caption: Project
+
+   contributors
 
 .. toctree::
    :maxdepth: 1

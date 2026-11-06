@@ -69,3 +69,4 @@ Contributing
 
 We love contributions! FlyStar is open source,
 built on open source, and we'd love to have you hang out in our community.
+People who have contributed code are listed in ``docs/contributors.rst``.
