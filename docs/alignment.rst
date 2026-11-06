@@ -282,6 +282,8 @@ Which stars drive the fit
        guess.  'periter' updates only on the final list pass; 'atend' keeps
        original values everywhere.  See also update_ref_motion below.
 
+.. _update-ref-motion:
+
 Per-star freeze control: update_ref_motion
 ----------------------------------------------
 

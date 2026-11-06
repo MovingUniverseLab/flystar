@@ -20,7 +20,8 @@ Every model predicts a position at time :math:`t` from parameters it *fits* and
 parameters you *fix*. ``n_params`` is how many epochs a star needs before the
 model is fittable, per coordinate; it is derived as
 ``int((n_fit_params + 1) / 2)``, not set by hand, and it is also the quantity
-models are ranked by when FlyStar decides what a star can support.
+models are ranked by when FlyStar decides what a star can support. ``Orbit`` is
+the exception: it sets ``n_params = 6``, one per orbital element.
 
 Throughout, :math:`\Delta t \equiv t - t_0`.
 
@@ -57,6 +58,11 @@ Throughout, :math:`\Delta t \equiv t - t_0`.
      - :math:`x_0, v_x, \pi,\ y_0, v_y`
      - :math:`x(t) = x_0 + v_x\,\Delta t + \pi\,P_x(t)`. Linear motion plus
        annual parallax.
+   * - :class:`~flystar.motion_model.Orbit`
+     - 6
+     - :math:`P, t_0, e, i, \Omega, \omega`
+     - Keplerian orbit around a central black hole, offset by the black hole's
+       position and motion. Not linear in its parameters. See `Orbits`_.
 
 Note where :math:`\pi` sits in the parallax model: it multiplies the **parallax
 vector** :math:`\boldsymbol{P}(t)`, not :math:`\Delta t`. Written out for both
@@ -72,6 +78,110 @@ coordinates,
 ``ra``/``dec``, the position angle ``pa``, and the observatory location
 ``obsLocation``. Note that ``fit_motion_models`` currently applies a single
 ``obsLocation`` to every star in the table.
+
+.. _orbits:
+
+Orbits
+------
+
+The :class:`~flystar.motion_model.Orbit` model is for stars orbiting a central
+black hole, such as the stars near Sgr A* at the Galactic Center. It is a
+Newtonian Keplerian orbit, with no relativistic periapse advance or redshift.
+The six orbital elements are stored in the ``orb_*`` columns:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Column
+     - Element
+   * - ``orb_P``
+     - Period, :math:`P` (years)
+   * - ``orb_t0``
+     - Time of periapse, :math:`t_0` (decimal year)
+   * - ``orb_e``
+     - Eccentricity, :math:`e`, with :math:`0 \le e < 1`
+   * - ``orb_i``
+     - Inclination, :math:`i` (degrees)
+   * - ``orb_Omega``
+     - Longitude of the ascending node, :math:`\Omega` (degrees)
+   * - ``orb_omega``
+     - Argument of periapse, :math:`\omega` (degrees)
+
+The star's sky position is the black hole's position plus the star's offset
+from it:
+
+.. math::
+
+   x(t) &= x_{bh} + v_{x,bh}\,(t - t_{bh}) - r_E(t) \\
+   y(t) &= y_{bh} + v_{y,bh}\,(t - t_{bh}) + r_N(t)
+
+where :math:`r_E` and :math:`r_N` are the east and north offsets of the star
+from the black hole, computed by :func:`flystar.orbits.kep2xyz`. The minus sign
+on :math:`r_E` is because :math:`+x` points west in FlyStar. The black-hole
+mass and distance (``mass`` and ``dist``) set the angular size of the orbit.
+Their defaults, :math:`4 \times 10^6\,M_\odot` and 8 kpc, reproduce the
+semi-major axes in ``orbits.dat`` v2.0.2.
+
+**Initial parameters are required.** Orbit is not linear in its parameters, so
+there is no closed-form solve. The fit uses
+:func:`scipy.optimize.least_squares` one star at a time, starting from the
+elements already in the ``orb_*`` columns. We usually take these from an
+``orbits.dat`` file:
+
+.. code-block:: python
+
+   from flystar import orbits
+
+   orbs = orbits.read_orbits_dat('orbits.dat')
+   orbits.attach_orbits(ref_list, orbs)   # sets orb_* and motion_model_input='Orbit'
+
+What the fit does depends on the number of distinct epochs and on the initial
+parameters:
+
+* Fewer than three epochs, or initial parameters that cannot be integrated
+  (for example :math:`e \ge 1`): the fit is skipped and the initial parameters
+  are kept.
+* Three epochs: the elements are solved, but there is no degree of freedom
+  left for a covariance, so the errors are infinite.
+* Four or more epochs: the elements are solved with a covariance.
+
+A fit that does not converge also keeps the initial parameters, so an orbit is
+never replaced by a fill value. A star that requests ``Orbit`` with fewer than
+six epochs keeps the model only if it has a complete set of initial elements;
+otherwise it is demoted to a simpler model (see `How a model gets chosen`_).
+
+**Fit diagnostics.** Besides ``orb_*`` and ``orb_*_err``, the fit writes four
+columns:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Column
+     - Meaning
+   * - ``orb_fit_status``
+     - 0 = success, 1 = singular covariance, 2 = did not converge,
+       3 = skipped (too few epochs, unusable initial parameters, or no data),
+       -1 = never fit.
+   * - ``orb_fit_converged``
+     - True when the solver converged.
+   * - ``orb_fit_n_iter``
+     - Number of solver evaluations; 0 if the fit was skipped.
+   * - ``orb_cov``
+     - The 6x6 covariance of the elements.
+
+Predicted position errors come from ``orb_cov``, propagated through the orbit,
+not from the diagonal ``orb_*_err``, because the elements are correlated. Note
+also that adding 180 degrees to both :math:`\Omega` and :math:`\omega` gives the
+same sky positions; without radial velocities the fit keeps whichever of the
+two is closer to the initial parameters. The errors
+are zero for a star that was never fit and infinite when a fit has no usable
+covariance.
+
+**Fixed or fit.** During an alignment, the ``update_ref_motion`` column decides
+whether a star's orbit is refit. Set it to ``False`` to hold a known orbit fixed
+and use it only to predict positions; see :ref:`update-ref-motion`.
 
 Fixed parameters
 ----------------
@@ -96,6 +206,11 @@ star, arrays must have length ``N_stars``).
    * - ``Parallax``
      - :math:`t_0`, ``ra``, ``dec``
      - ``pa`` (default 0), ``obsLocation`` (default ``'earth'``)
+   * - ``Orbit``
+     - --
+     - ``mass`` (:math:`M_\odot`, default :math:`4 \times 10^6`), ``dist``
+       (pc, default 8000), ``x_bh``, ``y_bh`` (arcsec, default 0), ``vx_bh``,
+       ``vy_bh`` (arcsec/yr, default 0), ``t_bh`` (default 2000.0)
 
 :math:`t_0` is the one you can always omit. Left unset, it is computed per star
 as the uncertainty-weighted mean of that star's own epochs,
@@ -412,12 +527,13 @@ dimensionality:
   rectangularly, with ``nan`` marking padding where a star has fewer real
   epochs than the widest row.
 
-Every model's solve is closed-form and vectorized across the batch, so both
-paths run through the same non-iterative code -- the single-star case is just a
-batch of one row. There is no ``scipy.optimize.curve_fit`` call and no
-``use_scipy`` switch on this branch; both were removed in favour of the
-closed-form solves, which are tested for agreement with ``curve_fit``. In
-practice you rarely call ``fit`` directly:
+Every model except ``Orbit`` has a closed-form solve, vectorized across the
+batch, so both paths run through the same non-iterative code -- the single-star
+case is just a batch of one row. There is no ``scipy.optimize.curve_fit`` call
+and no ``use_scipy`` switch on this branch; both were removed in favour of the
+closed-form solves, which are tested for agreement with ``curve_fit``.
+``Orbit`` is fit one star at a time with :func:`scipy.optimize.least_squares`
+(see `Orbits`_). In practice you rarely call ``fit`` directly:
 :meth:`~flystar.startables.StarTable.fit_motion_models` is the entry point and
 takes the 2D path.
 
@@ -520,17 +636,16 @@ and solves them in a batch:
        batched the same way. The :math:`(x_0, v_x)` and :math:`(y_0, v_y)`
        blocks meet only through the shared :math:`\pi` row and column.
 
-.. admonition:: A non-linear model would not fit this pattern
+.. admonition:: Non-linear models do not fit this pattern
    :class: important
 
    The batching above is a consequence of linearity in the parameters, not a
-   general technique. Add a model whose parameters enter non-linearly -- an
-   orbit, a variable-period term, anything needing a starting guess -- and
-   there are no normal equations to assemble: it needs an iterative optimizer,
-   :func:`scipy.optimize.curve_fit` or similar, and it will run one star at a
-   time. Such a model can still live alongside these: only the stars actually
-   assigned to it pay the per-star cost, since the model is chosen per star.
-   But do not expect the timings below to carry over to it.
+   general technique. A model whose parameters enter non-linearly, such as
+   ``Orbit``, has no normal equations to assemble. It needs an iterative
+   optimizer and runs one star at a time; ``Orbit`` uses
+   :func:`scipy.optimize.least_squares`. Such a model can still live alongside
+   these, because only the stars assigned to it pay the per-star cost. The
+   timings below do not include ``Orbit`` and do not carry over to it.
 
 On number of stars
 ------------------
@@ -890,10 +1005,10 @@ lifts the uniqueness requirement.
 Non-linear models
 -----------------
 
-Everything in the tree today is linear in its parameters, which is why the fits
-are closed-form and batched (see `Performance`_ above). A model that is not --
-an orbit, a free period, anything needing a starting guess -- does not fit that
-pattern, and does not have to.
+Every model except ``Orbit`` is linear in its parameters, which is why their
+fits are closed-form and batched (see `Performance`_ above). A model that is not
+linear, such as an orbit, a free period, or anything needing a starting guess,
+does not fit that pattern, and does not have to.
 
 ``run_fit`` is a *batch interface*, not a promise of a closed form. A model
 whose fit cannot be vectorized satisfies the same signature by looping inside
@@ -917,6 +1032,15 @@ it:
            chi2x[i], chi2y[i] = ...
 
        return params, param_errs, chi2x, chi2y
+
+:meth:`Orbit.run_fit <flystar.motion_model.Orbit.run_fit>` follows this pattern.
+It loops over the stars and calls :func:`scipy.optimize.least_squares` for
+each, starting from the initial parameters that ``fit_motion_models`` passes in
+``params_init_guess_dict`` (the current ``orb_*`` columns). It also returns a
+fifth value, a ``diagnostics`` dict, whose entries ``fit_motion_models`` writes
+to table columns. A model that needs initial parameters should also set
+``demote = 'on-missing-init'``, so that a star without them is demoted instead
+of fit (see `What to declare`_).
 
 Two things make that acceptable rather than a regression. The cost is paid only
 by the stars actually assigned to your model, since the model is chosen per
