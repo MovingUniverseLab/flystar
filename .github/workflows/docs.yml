@@ -5,10 +5,12 @@
 # every push. GitHub Pages serves a single site per repository, so this
 # publishes one version -- the branch this workflow runs on.
 #
-# Before the first run, enable Pages on the repository:
+# Repository setup (done; needs repo admin to change):
 #   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions"
-# That needs repo admin. The site then appears at
-#   https://<owner>.github.io/<repo>/
+#   Settings -> Environments -> github-pages -> Deployment branches: main, dev
+# The second is needed because this workflow deploys from dev; without it the
+# deploy job is rejected by the environment's branch rules. The site is at
+#   https://movinguniverselab.github.io/flystar/
 #
 # Note the docs build never imports flystar (sphinx-autoapi reads the source
 # statically), so the science stack is deliberately not installed here.

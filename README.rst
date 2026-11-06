@@ -20,12 +20,10 @@ Two builds of the same source, both from the ``dev`` branch:
   Rebuilt on every push, and keeps a version per branch under ``/en/<branch>/``.
   Note that ``/en/latest/`` does not track ``dev`` and does not have these
   pages.
-* **GitHub Pages** -- https://wei-lingfeng.github.io/flystar/
-  A mirror without ads, currently published from Lingfeng Wei's fork. One
-  version only. This repository's ``.github/workflows/docs.yml`` builds the
-  same docs on each push to ``dev`` that changes ``docs/`` or ``flystar/``, and
-  will publish them to https://movinguniverselab.github.io/flystar/ once GitHub
-  Pages is enabled for the repository.
+* **GitHub Pages** -- https://movinguniverselab.github.io/flystar/
+  A mirror without ads, built and published by ``.github/workflows/docs.yml``
+  on each push to ``dev`` that changes ``docs/`` or ``flystar/``. One version
+  only: whatever ``dev`` last published.
 
 Start with "Getting started" in the sidebar: Installation, then First
 alignment, which builds a synthetic four-epoch data set, aligns it, and checks
