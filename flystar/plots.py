@@ -3348,16 +3348,61 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     xt_mod_all, yt_mod_all, xt_mod_err, yt_mod_err = tab.predict_positions(tab['t'][i_all_detected])
     xt_cont_all, yt_cont_all, xt_cont_err, yt_cont_err = tab.predict_positions(cont_times)
 
+    fontsize1 = 10
+
     for i in range(Nstars):
+        starName = star_names[i]
+
+        try:
+            ii = np.where(tab['name'] == starName)[0][0]
+        except IndexError:
+            print("!! %s is not in this list"%starName)
+            continue
+
+        # Axis ranges are set once per star from every epoch plotted in any
+        # group; otherwise each group resets them and the last one wins.
+        fnd_all = np.flatnonzero(~np.isnan(tab['xe'][ii, :]))
+        if not any(ea is None for ea in epoch_array_list):
+            groups = np.concatenate([np.atleast_1d(ea) for ea in epoch_array_list])
+            fnd_all = np.intersect1d(fnd_all, groups)
+
+        time_all = np.asarray(tab['t'][ii, fnd_all], dtype=float)
+        if boot_err:
+            xerr_all = np.hypot(tab['xe'][ii, fnd_all], tab['xe_boot'][ii, fnd_all])
+            yerr_all = np.hypot(tab['ye'][ii, fnd_all], tab['ye_boot'][ii, fnd_all])
+            merr_all = np.hypot(tab['me'][ii, fnd_all], tab['me_boot'][ii, fnd_all])
+        else:
+            xerr_all = tab['xe'][ii, fnd_all]
+            yerr_all = tab['ye'][ii, fnd_all]
+            merr_all = tab['me'][ii, fnd_all]
+        diffX_all = tab['x'][ii, fnd_all] - xt_mod_all[ii, fnd_all]
+        diffY_all = tab['y'][ii, fnd_all] - yt_mod_all[ii, fnd_all]
+        diffM_all = tab['m'][ii, fnd_all] - tab['m0'][ii]
+
+        # Date axis, in decimal years or (if the times are MJD) days.
+        tmin, tmax = time_all.min(), time_all.max()
+        dateTicRng = [np.floor(tmin), np.ceil(tmax)]
+        if tmin > 50000:
+            print('MJD')
+            dateTicRng = [tmin-200, tmax+200]
+
+        # Symmetric residual ranges that cover the largest excursion in either direction.
+        maxErr = np.abs([(diffX_all-xerr_all)*res_scale, (diffX_all+xerr_all)*res_scale,
+                         (diffY_all-yerr_all)*res_scale, (diffY_all+yerr_all)*res_scale]).max()
+        maxErrM = np.abs([(diffM_all - merr_all), (diffM_all + merr_all)]).max()
+
+        if maxErr > 2:
+            maxErr = 2.0
+        if maxErrM > 1.0:
+            maxErrM = 1.0
+        if resTicRng is None:
+            res_rng = [-1.1*maxErr, 1.1*maxErr]
+        else:
+            res_rng = list(resTicRng)
+        resTicRngM = [-1.1*maxErrM, 1.1*maxErrM]
+
         for ea, epoch_array in enumerate(epoch_array_list):
             color=color_list[ea]
-            starName = star_names[i]
-
-            try:
-                ii = np.where(tab['name'] == starName)[0][0]
-            except IndexError:
-                print("!! %s is not in this list"%starName)
-                continue
 
             # Ignore the NaNs
             fnd = np.argwhere(~np.isnan(tab['xe'][ii,:]))
@@ -3427,44 +3472,9 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             print( '\tM Chi^2 = %5.2f (%6.2f for %2d dof)' %
                   (chi2_red_m, chi2_m, dofM))
 
-            tmin = time.min()
-            tmax = time.max()
-
-            dateTicLoc = plt.MultipleLocator(3)
-            dateTicRng = [np.floor(tmin), np.ceil(tmax)]
-            dateTics = np.arange(np.floor(tmin), np.ceil(tmax)+0.1)
-            DateTicsLabel = dateTics
-
-            # See if we are using MJD instead.
-            if time[0] > 50000:
-                print('MJD')
-                dateTicLoc = plt.MultipleLocator(1000)
-                t0 = int(np.round(np.min(time), 50))
-                tO = int(np.round(np.max(time), 50))
-                dateTicRng = [tmin-200, tmax+200]
-                dateTics = np.arange(dateTicRng[0], dateTicRng[-1]+500, 1000)
-                DateTicsLabel = dateTics
-
-
-            # Symmetric residual ranges that cover the largest excursion in either direction.
-            maxErr = np.abs([(diffX-xerr)*res_scale, (diffX+xerr)*res_scale,
-                             (diffY-yerr)*res_scale, (diffY+yerr)*res_scale]).max()
-            maxErrM = np.abs([(diffM - merr), (diffM + merr)]).max()
-
-            if maxErr > 2:
-                maxErr = 2.0
-            if maxErrM > 1.0:
-                maxErrM = 1.0
-            if resTicRng is None:
-                res_rng = [-1.1*maxErr, 1.1*maxErr]
-            else:
-                res_rng = list(resTicRng)
-            resTicRngM = [-1.1*maxErrM, 1.1*maxErrM]
-
             fmtX = FormatStrFormatter('%5i')
             fmtY = FormatStrFormatter('%6.3f')
             fmtM = FormatStrFormatter('%5.2f')
-            fontsize1 = 10
 
             ##########
             # X vs time
