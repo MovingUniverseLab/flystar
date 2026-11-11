@@ -180,6 +180,93 @@ def _sidebar_with_sections(app, pagename, templatename, context, doctree):
             context['toctree'](collapse=False, titles_only=False, maxdepth=SIDEBAR_DEPTH, includehidden=True))
 
 
+def _param_defaults(app, what, name, obj, skip, options):
+    """
+    Add each argument's default value to its parameter description.
+
+    Parameters
+    ----------
+    app : sphinx.application.Sphinx
+        The Sphinx application.
+    what : str
+        autoapi object type ('class', 'function', 'method', ...).
+    name : str
+        Fully qualified name of the object.
+    obj : autoapi PythonObject
+        The parsed object; its docstring has already been through napoleon.
+    skip : bool
+        Whether autoapi will skip the object.
+    options : list of str
+        autoapi_options.
+
+    Returns
+    -------
+    None
+        Leaves autoapi's skip decision unchanged.
+
+    Notes
+    -----
+    NumPy docstrings often mark a parameter ``optional`` without its value.
+    The default is read from the signature autoapi parsed, so it cannot go
+    stale. A parameter whose description already mentions a default is left
+    alone.
+    """
+    # Classes take their arguments from the constructor.
+    func = getattr(obj, 'constructor', None) if what == 'class' else obj
+    if what not in ('class', 'function', 'method') or func is None:
+        return None
+
+    # Arguments that have a default: {name: default as written in the source}.
+    defaults = {arg[1]: arg[3] for arg in func.obj.get('args', []) if arg[3] is not None}
+    if not defaults or not obj.docstring:
+        return None
+
+    lines = obj.docstring.splitlines()
+    for i, line in enumerate(lines):
+        # napoleon writes each parameter's type as ':type <name>: <type text>'.
+        if not line.lstrip().startswith(':type '):
+            continue
+        field, _, type_text = line.lstrip()[len(':type '):].partition(':')
+        if field not in defaults or 'default' in type_text.lower():
+            continue
+
+        # Skip parameters whose description already states a default.
+        param_text = []
+        for j in range(i - 1, -1, -1):
+            param_text.append(lines[j])
+            if lines[j].lstrip().startswith(f':param {field}:'):
+                break
+        if 'default' in ' '.join(param_text).lower():
+            continue
+
+        # Replace 'optional' with the default, or append it.
+        indent = line[:len(line) - len(line.lstrip())]
+        type_text = type_text.strip().removesuffix('optional').rstrip(', ')
+        sep = ', ' if type_text else ''
+        lines[i] = f'{indent}:type {field}: {type_text}{sep}default: {defaults[field]}'
+
+    obj.docstring = '\n'.join(lines)
+
+    return None
+
+
 def setup(app):
-    """Run _sidebar_with_sections after furo has set its sidebar."""
+    """
+    Connect the sidebar and parameter-default hooks.
+
+    Parameters
+    ----------
+    app : sphinx.application.Sphinx
+        The Sphinx application.
+
+    Returns
+    -------
+    None
+    """
+    # Run _sidebar_with_sections after furo has set its sidebar.
     app.connect('html-page-context', _sidebar_with_sections, priority=900)
+
+    # Fill in parameter defaults from the parsed signatures.
+    app.connect('autoapi-skip-member', _param_defaults)
+
+    return None
