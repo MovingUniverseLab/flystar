@@ -3268,7 +3268,8 @@ def plot_stars(tab, star_names, NcolMax=2, epoch_array = None, figsize=(15,25), 
     return
 
 def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_list = None,
-                         figsize=(15,25), color_time=False, resTicRng=None, save_name=None, boot_err=False):
+                         figsize=(15,25), color_time=False, resTicRng=None, save_name=None, boot_err=False,
+                         unit='arcsec'):
     """
     Plot a set of stars positions, flux and residuals over time, with one
     overplotted set of points per group of epochs (e.g. per filter).
@@ -3293,11 +3294,17 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     color_time : bool, optional
         If True, color points by the fractional part of their epoch.
     resTicRng : None, array len=2, optional
-        Lower and upper axis range for the residuals plots.
+        Lower and upper axis range for the x and y residual plots, in the
+        residual unit (mas for 'arcsec', pixels for 'pixel'). If None, each
+        star gets a range that covers its own residuals.
     save_name : str, optional
         If given, save the figure to this file.
     boot_err : bool, optional
         If True, add the bootstrap errors in quadrature to the measurement errors.
+    unit : {'arcsec', 'pixel'}, optional
+        Units of the table's positions. With 'arcsec', positions are labeled
+        in arcsec and residuals are plotted in mas. With 'pixel', both are
+        in pixels.
 
     Returns
     -------
@@ -3307,6 +3314,14 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
     print( star_names )
     def rs(x):
         return x.reshape(len(x))
+
+    # Axis labels and the factor that converts residuals to their plotted unit.
+    if unit == 'arcsec':
+        pos_unit, res_unit, res_scale = 'asec', 'mas', 1e3
+    elif unit == 'pixel':
+        pos_unit, res_unit, res_scale = 'pix', 'pix', 1.0
+    else:
+        raise ValueError(f"unit must be 'arcsec' or 'pixel', not {unit!r}")
 
     # Default to one group of all epochs, plotted in black.
     if epoch_array_list is None:
@@ -3431,16 +3446,19 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
                 DateTicsLabel = dateTics
 
 
-            maxErr = np.array([(diffX-xerr)*1e3, (diffX+xerr)*1e3,
-                               (diffY-yerr)*1e3, (diffY+yerr)*1e3]).max()
-            maxErrM = np.array([(diffM - merr), (diffM + merr)]).max()
+            # Symmetric residual ranges that cover the largest excursion in either direction.
+            maxErr = np.abs([(diffX-xerr)*res_scale, (diffX+xerr)*res_scale,
+                             (diffY-yerr)*res_scale, (diffY+yerr)*res_scale]).max()
+            maxErrM = np.abs([(diffM - merr), (diffM + merr)]).max()
 
             if maxErr > 2:
                 maxErr = 2.0
             if maxErrM > 1.0:
-                maxErr = 1.0
-            if resTicRng == None:
-                resTicRng = [-1.1*maxErr, 1.1*maxErr]
+                maxErrM = 1.0
+            if resTicRng is None:
+                res_rng = [-1.1*maxErr, 1.1*maxErr]
+            else:
+                res_rng = list(resTicRng)
             resTicRngM = [-1.1*maxErrM, 1.1*maxErrM]
 
             fmtX = FormatStrFormatter('%5i')
@@ -3480,7 +3498,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.xlabel('Date (yrs)', fontsize=fontsize1)
             if time[0] > 50000:
                 plt.xlabel('Date (MJD)', fontsize=fontsize1)
-            plt.ylabel('X (asec)', fontsize=fontsize1)
+            plt.ylabel(f'X ({pos_unit})', fontsize=fontsize1)
             paxes.xaxis.set_major_formatter(fmtX)
             paxes.yaxis.set_major_formatter(fmtY)
             paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
@@ -3512,7 +3530,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             plt.xlabel('Date - 2000 (yrs)', fontsize=fontsize1)
             if time[0] > 50000:
                 plt.xlabel('Date (MJD)', fontsize=fontsize1)
-            plt.ylabel('Y (asec)', fontsize=fontsize1)
+            plt.ylabel(f'Y ({pos_unit})', fontsize=fontsize1)
             paxes.xaxis.set_major_formatter(fmtX)
             paxes.yaxis.set_major_formatter(fmtY)
             paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
@@ -3557,23 +3575,23 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
 
             paxes = plt.subplot(Nrows, Ncols, ind)
             plt.plot(time, np.zeros(len(time)), 'b-')
-            plt.plot(cont_times,  xt_cont_err[ii]*1e3, 'b--')
-            plt.plot(cont_times, -xt_cont_err[ii]*1e3, 'b--')
+            plt.plot(cont_times,  xt_cont_err[ii]*res_scale, 'b--')
+            plt.plot(cont_times, -xt_cont_err[ii]*res_scale, 'b--')
             if not color_time:
-                plt.errorbar(rs(time), rs(x - fitLineX)*1e3, yerr=rs(xerr)*1e3, marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(x - fitLineX)*res_scale, yerr=rs(xerr)*res_scale, marker='.', color=color, ls='none')
             else:
                 norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
                 time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
-                for xx, yy, ee, color in zip(time, (x - fitLineX)*1e3, xerr*1e3, time_color):
+                for xx, yy, ee, color in zip(time, (x - fitLineX)*res_scale, xerr*res_scale, time_color):
                     plt.plot(xx, yy, '.', color=color)
                     plt.errorbar(xx, yy, ee, color=color)
-            plt.axis(dateTicRng + resTicRng)
+            plt.axis(dateTicRng + res_rng)
             plt.xticks(fontsize=fontsize1)
             plt.xlabel('Date (yrs)', fontsize=fontsize1)
             if time[0] > 50000:
                 plt.xlabel('Date (MJD)', fontsize=fontsize1)
-            plt.ylabel('X Residuals (mas)', fontsize=fontsize1)
+            plt.ylabel(f'X Residuals ({res_unit})', fontsize=fontsize1)
             paxes.xaxis.set_major_formatter(fmtX)
             paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
 
@@ -3585,23 +3603,23 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
 
             paxes = plt.subplot(Nrows, Ncols, ind)
             plt.plot(time, np.zeros(len(time)), 'b-')
-            plt.plot(cont_times,  yt_cont_err[ii]*1e3, 'b--')
-            plt.plot(cont_times, -yt_cont_err[ii]*1e3, 'b--')
+            plt.plot(cont_times,  yt_cont_err[ii]*res_scale, 'b--')
+            plt.plot(cont_times, -yt_cont_err[ii]*res_scale, 'b--')
             if not color_time:
-                plt.errorbar(rs(time), rs(y - fitLineY)*1e3, yerr=rs(yerr)*1e3, marker='.', color=color, ls='none')
+                plt.errorbar(rs(time), rs(y - fitLineY)*res_scale, yerr=rs(yerr)*res_scale, marker='.', color=color, ls='none')
             else:
                 norm = mcolors.Normalize(vmin=0, vmax=1, clip=True)
                 mapper = cm.ScalarMappable(norm=norm, cmap='hsv')
                 time_color = np.array([(mapper.to_rgba(v)) for v in dtime])
-                for xx, yy, ee, color in zip(time, (y - fitLineY)*1e3, yerr*1e3, time_color):
+                for xx, yy, ee, color in zip(time, (y - fitLineY)*res_scale, yerr*res_scale, time_color):
                     plt.plot(xx, yy, '.', color=color)
                     plt.errorbar(xx, yy, ee, color=color)
-            plt.axis(dateTicRng + resTicRng)
+            plt.axis(dateTicRng + res_rng)
             plt.xticks(fontsize=fontsize1)
             plt.xlabel('Date (yrs)', fontsize=fontsize1)
             if time[0] > 50000:
                 plt.xlabel('Date (MJD)', fontsize=fontsize1)
-            plt.ylabel('Y Residuals (mas)', fontsize=fontsize1)
+            plt.ylabel(f'Y Residuals ({res_unit})', fontsize=fontsize1)
             paxes.xaxis.set_major_formatter(fmtX)
             paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
 
@@ -3613,8 +3631,8 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
 
             paxes = plt.subplot(Nrows, Ncols, ind)
             plt.plot(time, np.zeros(len(time)), 'g-')
-            plt.plot(time,  fitSigM*1e3, 'g--')
-            plt.plot(time, -fitSigM*1e3, 'g--')
+            plt.plot(time,  fitSigM, 'g--')
+            plt.plot(time, -fitSigM, 'g--')
             if not color_time:
                 plt.errorbar(rs(time), rs(m - fitLineM), yerr=rs(merr), marker='.', color=color, ls='none')
             else:
@@ -3624,7 +3642,7 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
                 for xx, yy, ee, color in zip(time, (m - fitLineM), merr, time_color):
                     plt.plot(xx, yy, '.', color=color)
                     plt.errorbar(xx, yy, ee, color=color)
-            plt.axis(dateTicRng + resTicRng)
+            plt.axis(dateTicRng + resTicRngM)
             plt.xticks(fontsize=fontsize1)
             plt.xlabel('Date (yrs)', fontsize=fontsize1)
             if time[0] > 50000:
@@ -3659,8 +3677,8 @@ def plot_stars_nfilt(tab, star_names, NcolMax=2, epoch_array_list = None, color_
             paxes.tick_params(axis='both', which='major', labelsize=fontsize1)
             paxes.yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
             paxes.xaxis.set_major_formatter(FormatStrFormatter('%.3f'))
-            plt.xlabel('X (asec)', fontsize=fontsize1)
-            plt.ylabel('Y (asec)', fontsize=fontsize1)
+            plt.xlabel(f'X ({pos_unit})', fontsize=fontsize1)
+            plt.ylabel(f'Y ({pos_unit})', fontsize=fontsize1)
             plt.plot(fitLineX, fitLineY, 'b-')
 
             ##########
