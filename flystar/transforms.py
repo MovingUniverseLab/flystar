@@ -133,7 +133,7 @@ class Transform2D(object):
         complex_motion_model = ('motion_model_input' in new_list.colnames)
         if complex_motion_model:
             # If the only motion models used are Fixed and Linear, we can still transform velocities.
-            motion_models_unique = list(np.unique(starlist_f['motion_model_input']))
+            motion_models_unique = list(np.unique(new_list['motion_model_input']))
             if 'Linear' in motion_models_unique:
                 motion_models_unique.remove('Linear')
             if 'Fixed' in motion_models_unique:

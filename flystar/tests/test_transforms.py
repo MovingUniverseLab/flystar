@@ -3,6 +3,46 @@ import numpy as np
 import pdb
 from astropy.modeling import models, fitting
 
+def test_evaluate_starlist_with_motion_model_input():
+    """
+    evaluate_starlist on a list with a motion_model_input column.
+
+    Notes
+    -----
+    With only Fixed and Linear models, velocities are transformed. With a
+    more complex model (Parallax), the motion parameters cannot be
+    transformed and are set to NaN. Positions are transformed in both cases.
+    """
+    from flystar import starlists
+
+    # x' = 10 + 2x, y' = 20 + 2y, so velocities scale by 2.
+    trans = transforms.PolyTransform(1, [10.0, 2.0, 0.0], [20.0, 0.0, 2.0])
+
+    def make_list(models):
+        # Two stars with positions, velocities and parallaxes.
+        sl = starlists.StarList(name=np.array(['a', 'b']), x=np.array([1.0, 2.0]),
+                                y=np.array([3.0, 4.0]), m=np.array([15.0, 16.0]))
+        sl['vx'] = np.array([0.1, 0.2])
+        sl['vy'] = np.array([0.3, 0.4])
+        sl['pi'] = np.array([0.01, 0.02])
+        sl['motion_model_input'] = np.array(models)
+        return sl
+
+    # Fixed and Linear only: velocities are transformed.
+    out = trans.evaluate_starlist(make_list(['Linear', 'Fixed']))
+    np.testing.assert_allclose(out['x'], [12.0, 14.0])
+    np.testing.assert_allclose(out['y'], [26.0, 28.0])
+    np.testing.assert_allclose(out['vx'], [0.2, 0.4])
+    np.testing.assert_allclose(out['vy'], [0.6, 0.8])
+
+    # A Parallax star: motion parameters are set to NaN.
+    out = trans.evaluate_starlist(make_list(['Linear', 'Parallax']))
+    np.testing.assert_allclose(out['x'], [12.0, 14.0])
+    assert np.all(np.isnan(out['vx'])) and np.all(np.isnan(out['pi']))
+
+    return None
+
+
 def test_PolyTransform_init_no_guess():
     px_init = [ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
     py_init = [ 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
