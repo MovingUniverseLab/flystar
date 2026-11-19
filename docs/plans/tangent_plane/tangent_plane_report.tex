@@ -1,0 +1,293 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage[hidelinks]{hyperref}
+
+% Numbers quoted in the text, written by make_figures.py.
+\input{report_numbers.tex}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\muas}{$\mu$as}
+
+\title{From FlyStar's tangent-plane frame to RA and Dec:\\
+projection, proper motions and parallax}
+\author{FlyStar development notes}
+\date{Draft for discussion \\ \today}
+
+\begin{document}
+\maketitle
+
+\section{Purpose}
+
+We want a utility that converts a FlyStar \code{StarTable} from its output frame
+to spherical coordinates. The inputs are each star's fitted position, proper
+motion and parallax (\code{x0}, \code{y0}, \code{vx}, \code{vy}, \code{pi} and
+their errors), plus the RA and Dec of one reference position
+$(x_\mathrm{ref}, y_\mathrm{ref})$ in the table. The outputs are each star's RA,
+Dec, $\mu_{\alpha*}$, $\mu_\delta$ and parallax, with errors.
+
+The frame is a projection of the sky about one central point. Positions,
+proper motions and parallaxes were all measured in that one frame, so the
+conversion has to undo the projection for the positions and also rotate each
+star's motion from the frame's axes into its own local east and north. This
+note describes how FlyStar builds the frame today, how that differs from a true
+tangent-plane (gnomonic) projection, how large the differences are, and the
+decisions we need to make for the utility.
+
+\section{FlyStar's frame}
+
+FlyStar positions are in arcsec, with $+x$ pointing west and $+y$ north. When
+the reference frame comes from Gaia, \code{analysis.prepare\_gaia\_for\_flystar}
+and \code{analysis.project\_gaia} build it about a center $(\alpha_0,\delta_0)$ as
+\begin{equation}
+  x = -(\alpha-\alpha_0)\cos\delta_0, \qquad y = \delta-\delta_0 .
+  \label{eq:flat}
+\end{equation}
+Gaia's proper motions are copied in unchanged, $v_x = -\mu_{\alpha*}$ and
+$v_y = \mu_\delta$, and the parallax is copied as is. All stars then share the
+frame's axes for the rest of the alignment and the motion-model fits.
+
+\section{Positions: flat versus gnomonic}
+
+Equation~\eqref{eq:flat} is an equirectangular map scaled at the center. A
+gnomonic projection instead projects the sphere from its center onto the plane
+that touches the sky at $(\alpha_0,\delta_0)$. Its standard coordinates
+($\xi$ east, $\eta$ north) are
+\begin{align}
+  \xi  &= \frac{\cos\delta\,\sin\Delta\alpha}{D}, &
+  \eta &= \frac{\sin\delta\cos\delta_0 - \cos\delta\sin\delta_0\cos\Delta\alpha}{D}, &
+  D &= \sin\delta\sin\delta_0 + \cos\delta\cos\delta_0\cos\Delta\alpha ,
+\end{align}
+with $\Delta\alpha = \alpha-\alpha_0$, and FlyStar's frame would be $x=-\xi$,
+$y=\eta$.
+
+The two agree to first order in the offset from the center. To second order,
+with $\Delta\delta = \delta-\delta_0$,
+\begin{align}
+  \xi - \xi_\mathrm{flat}   &\approx -\Delta\alpha\,\Delta\delta\,\sin\delta_0, &
+  \eta - \eta_\mathrm{flat} &\approx \tfrac12\,\Delta\alpha^2 \sin\delta_0\cos\delta_0 .
+\end{align}
+The first term appears because the flat map uses $\cos\delta_0$ for every star
+instead of each star's own $\cos\delta$. The second appears because it keeps
+lines of constant RA parallel, while on the sky they converge toward the pole.
+Both grow as the square of the offset and as $\tan\delta_0$. (\code{make\_figures.py}
+checks these expansions against the exact formulas; they agree to
+\ExpansionWorst\% at offsets up to 1$'$.)
+
+\section{Proper motions}
+
+Gaia's $\mu_{\alpha*}$ and $\mu_\delta$ are measured along each star's own east and
+north. In a tangent plane, a star's local north is rotated from the frame's
+$+y$ axis by the meridian convergence angle,
+\begin{equation}
+  \theta \approx -\Delta\alpha\,\sin\delta_0 ,
+\end{equation}
+measured from $+\eta$ toward east. Copying the proper motions in without this
+rotation puts each one in the wrong direction by $\theta$, an error of
+$\mu\,\theta$. The flat map of Eq.~\eqref{eq:flat} has a second inconsistency of
+its own: since $x$ is proportional to $\Delta\alpha\cos\delta_0$, its proper
+motion should be $\mu_{\alpha*}\cos\delta_0/\cos\delta$, not $\mu_{\alpha*}$.
+
+The same rotation matters in reverse for the new utility. Proper motions
+fitted in the frame are along the frame's axes and must be rotated into each
+star's local east and north.
+
+\subsection{Effect on reference stars over time}
+
+Matt Hosek raised this for reference stars in GitHub issue~\#22. FlyStar
+predicts where each reference star is at each starlist epoch, and the result
+depends on the order of two steps:
+\begin{itemize}
+  \item \emph{Tangent plane first} (current FlyStar): project the star's
+    catalog position into the central tangent plane, then add its proper motion
+    there.
+  \item \emph{Proper motion first}: move the star by its proper motion in its
+    own local tangent plane (as Gaia's proper motions are defined), go back to
+    the sky, then project into the central tangent plane.
+\end{itemize}
+Figure~\ref{fig:pmmap} repeats Matt's comparison for a simulated Galactic
+Center field: \PMMapN\ stars within $250''$ of Sgr~A*, with proper motions
+scattered by 3~mas\,yr$^{-1}$ about Sgr~A*'s apparent motion, propagated
+\PMMapDt~yr. Both cases use the gnomonic projection, so the figure shows only
+the effect of the order. The largest difference is \PMMapMaxInner~mas within
+$200''$ (\PMMapMax~mas overall), in line with the $\sim$0.05~mas Matt found
+for real Gaia stars.
+
+The difference is the local-north rotation of Section~4 applied to the motion:
+rotating each star's motion $\boldsymbol\mu\,\Delta t$ by its $\theta$ reproduces it to
+within \PMMapPredResid~\muas. Because $\theta \approx -\Delta\alpha\sin\delta_0$,
+$\Delta\alpha*$ changes sign from east to west of the center. The error grows
+linearly with the time baseline, the proper motion and the offset from the
+center. The proper-motion-first order is the correct one.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{pm_propagation_map.pdf}
+\caption{Position difference after \PMMapDt~yr between propagating each star's
+proper motion in its own tangent plane first and propagating it in the central
+tangent plane (current FlyStar), for a simulated Galactic Center field. Left:
+difference along east ($\Delta\alpha*$). Right: along north ($\Delta\delta$).
+After Matt Hosek's figure in GitHub issue~\#22, which used Gaia stars.}
+\label{fig:pmmap}
+\end{figure}
+
+\section{Parallax}
+
+The parallax is a scalar and is copied in correctly. The issue is the fit:
+the Parallax motion model computes the parallax direction for one \code{ra} and
+\code{dec} (usually the field center, from the table's metadata), so every star
+is fitted with the center's parallax ellipse, expressed in the center's axes. A
+star elsewhere in the field has a slightly different ellipse, rotated by
+$\theta$ in the frame. The resulting error in the modeled parallax displacement
+is of order $\varpi$ times the offset in radians, which biases the fitted
+$\varpi$, \code{x0} and \code{vx} slightly.
+
+This can be fixed exactly. The model already accepts a separate \code{ra},
+\code{dec} and \code{pa} for each star (\code{parallax.parallax\_in\_direction}
+builds each star's own east and north axes and rotates them by \code{pa} into
+the frame). Refitting with each star's own RA, Dec and $\mathrm{pa} = -\theta$
+(the frame's $+y$ axis is at $-\theta$ from the star's local north) gives the
+correct parallax directions in the frame.
+
+\section{How large the differences are}
+
+Table~\ref{tab:mag} and Figure~\ref{fig:diff} use a star offset equally east
+and north of the center. The proper-motion error is for a
+\PMRef~mas\,yr$^{-1}$ motion, and the parallax error is the largest difference
+over a year in the modeled parallax displacement for a \PiRef~mas parallax.
+
+\begin{table}[htbp]
+\centering
+\caption{Differences between the flat projection and a true gnomonic
+projection, and the errors from using the center's axes for every star.}
+\label{tab:mag}
+\input{projection_table.tex}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{projection_differences.pdf}
+\caption{Left: position difference between the flat and gnomonic projections
+against offset from the field center; the dotted line marks 0.1~mas. Right:
+rotation of a star's local north in the tangent plane. At $\delta_0 = 0$ the
+meridians project as parallel straight lines and the rotation is zero, so that
+curve is absent. The $-29^\circ$ and $+30^\circ$ curves nearly overlap because
+$|\tan\delta_0|$ is similar for the two.}
+\label{fig:diff}
+\end{figure}
+
+In short:
+\begin{itemize}
+  \item \textbf{Positions.} For adaptive-optics fields ($\lesssim 10''$) the
+    difference is about \PosDiffGCTen~mas at the Galactic Center, near the
+    measurement noise. At 1$'$ it is \PosDiffGCArcmin~mas at
+    $\delta_0=-29^\circ$ and \PosDiffHiArcmin~mas at $+60^\circ$, well above
+    typical errors for HST or wide mosaics.
+  \item \textbf{Proper motions.} The direction error is small in absolute
+    terms: \PMErrGCArcmin~\muas\,yr$^{-1}$ at 1$'$ from the Galactic Center for a
+    \PMRef~mas\,yr$^{-1}$ motion, though it grows with field size and speed.
+  \item \textbf{Reference stars over time.} Propagating catalog proper motions
+    in the central plane instead of each star's own moves reference stars by up
+    to \PMMapMaxInner~mas within $200''$ over \PMMapDt~yr at the Galactic Center
+    (Section~4.1).
+  \item \textbf{Parallax.} Using the center's parallax direction costs about
+    \PiErrGCArcmin~\muas\ at 1$'$ for a \PiRef~mas parallax, negligible for
+    current fields but not for degree-scale ones.
+\end{itemize}
+
+\section{A related bug}
+
+\code{prepare\_gaia\_for\_flystar} sets \code{xe = gaia['ra\_error'] * cos\_dec}.
+Gaia's \code{ra\_error} is already $\sigma_{\alpha*}$, which includes the
+$\cos\delta$ factor, so this shrinks every $x$ error by $\cos\delta_0$ (to
+\CosDecGC\ of its true value at the Galactic Center). \code{project\_gaia} handles
+it correctly. This should be fixed whatever we decide below.
+
+\section{Proposed utility}
+
+A function along the lines of
+\begin{verbatim}
+radec = startable_to_radec(tab, ra_ref, dec_ref, x_ref=0.0, y_ref=0.0,
+                           projection='gnomonic', scale=1.0, pa=0.0,
+                           refit_parallax=False)
+\end{verbatim}
+\begin{itemize}
+  \item \code{(x\_ref, y\_ref)} is a position in the table with known
+    \code{(ra\_ref, dec\_ref)} in degrees. We assume the projection's tangent
+    point is the frame origin; if the reference is elsewhere, the tangent
+    point's RA and Dec are solved for from it. (Please flag if a different
+    assumption suits your data.)
+  \item \code{scale} (arcsec per frame unit) and \code{pa} (deg, the position
+    angle of $+y$ from north, with the same meaning as the Parallax model's
+    \code{pa}) allow frames in pixels or not aligned north-up. The defaults
+    describe FlyStar's arcsec, north-up frame.
+  \item Outputs: RA and Dec at each star's \code{t0}, $\mu_{\alpha*}$ and
+    $\mu_\delta$ in mas\,yr$^{-1}$, the parallax in mas, and their errors.
+\end{itemize}
+
+\paragraph{Positions.} Invert the projection. For gnomonic, with
+$\rho = \sqrt{\xi^2+\eta^2}$ and $c = \arctan\rho$,
+\begin{align}
+  \delta &= \arcsin\!\left(\cos c\,\sin\delta_0 + \frac{\eta\,\sin c\,\cos\delta_0}{\rho}\right), &
+  \alpha &= \alpha_0 + \operatorname{atan2}\!\left(\xi\sin c,\; \rho\cos\delta_0\cos c - \eta\sin\delta_0\sin c\right).
+\end{align}
+
+\paragraph{Proper motions, exactly.} A point in the tangent plane is
+$\mathbf{P} = \hat{\mathbf u}_0 + \xi\,\hat{\mathbf e}_0 + \eta\,\hat{\mathbf n}_0$, where
+$\hat{\mathbf u}_0$, $\hat{\mathbf e}_0$, $\hat{\mathbf n}_0$ are the direction, east
+and north unit vectors at the tangent point. The star's direction is
+$\hat{\mathbf u} = \mathbf P/|\mathbf P|$. A motion $\dot{\mathbf P} = \dot\xi\,\hat{\mathbf e}_0 +
+\dot\eta\,\hat{\mathbf n}_0$ in the plane (with $\dot\xi = -v_x$ and
+$\dot\eta = v_y$) moves the direction at
+\begin{equation}
+  \dot{\hat{\mathbf u}} = \frac{\dot{\mathbf P} - \hat{\mathbf u}\,(\hat{\mathbf u}\cdot\dot{\mathbf P})}{|\mathbf P|},
+  \qquad
+  \mu_{\alpha*} = \dot{\hat{\mathbf u}}\cdot\hat{\mathbf e}, \qquad
+  \mu_\delta = \dot{\hat{\mathbf u}}\cdot\hat{\mathbf n},
+\end{equation}
+where $\hat{\mathbf e}$ and $\hat{\mathbf n}$ are the star's own east and north,
+built the same way as in \code{parallax\_in\_direction}. This is a $2\times2$
+linear map $J$ for each star. It includes both the rotation by $\theta$ and the
+small scale change of the projection. The same $J$ propagates the position and
+proper-motion covariances, $C' = J\,C\,J^{\mathsf T}$.
+
+\section{Decisions for discussion}
+
+\paragraph{1. Which projection?} The inverse must match the projection that
+built the frame. For frames built from Gaia today, that is the flat map, so a
+gnomonic inverse would add the errors in Table~\ref{tab:mag}.
+\begin{itemize}
+  \item[(a)] \emph{Gnomonic everywhere.} Switch \code{prepare\_gaia\_for\_flystar}
+    and \code{project\_gaia} to gnomonic, rotate Gaia's proper motions into the
+    frame's axes (or propagate them in each star's own plane, as in
+    Section~4.1 and issue~\#22), fix the \code{ra\_error} bug, and invert
+    gnomonic in the utility. Most correct; frames built before the change would differ from new
+    ones at the levels in Table~\ref{tab:mag}.
+  \item[(b)] \emph{Both available.} A \code{projection='gnomonic'|'flat'}
+    argument in the ingestion and the utility, defaulting to gnomonic. Keeps
+    old frames reproducible; more code to test.
+  \item[(c)] \emph{Gnomonic only in the utility.} Least change, but inconsistent
+    with Gaia-built frames for fields larger than about 10$''$.
+\end{itemize}
+
+\paragraph{2. How to handle parallax?}
+\begin{itemize}
+  \item[(a)] \emph{Convert only.} Rotate positions and proper motions; keep the
+    fitted $\varpi$ and document the approximation. Errors as in the last column
+    of Table~\ref{tab:mag}.
+  \item[(b)] \emph{Always refit.} Refit Parallax stars with each star's own
+    \code{ra}, \code{dec} and \code{pa} before converting. Exact, but the
+    utility then changes the fit.
+  \item[(c)] \emph{Optional refit.} Convert by default, with
+    \code{refit\_parallax=True} for the exact refit.
+\end{itemize}
+
+\bigskip
+\noindent\textit{The numbers, table and figure are generated by
+\code{docs/plans/tangent\_plane/make\_figures.py} in the FlyStar repository.}
+
+\end{document}
