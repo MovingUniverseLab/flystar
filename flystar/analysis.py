@@ -5,8 +5,10 @@ from scipy.stats import f
 from astropy import table
 from astropy.table import Table, Column
 from astropy.coordinates import SkyCoord
+from astropy.time import Time
 from astropy import units as u
-from flystar import starlists, match
+from flystar import starlists, match, parallax
+from flystar import projection as proj
 
 ##################################################
 # New codes for velocity support in FlyStar and using
@@ -103,68 +105,348 @@ def check_gaia_parallaxes(ra,dec,search_radius=10.0,table_name='gaiadr3',target=
     plt.savefig('gaiaplx'+file_ext+'.png')
 
 
-def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2, pi_err_limit=0.4, default_motion_model='Linear'):
+def _parse_center(ra, dec=None):
     """
-    Take a Gaia table (from astroquery) and produce a new table with a tangential projection
-    and shift such that the origin is centered on the target of interest.
-    Convert everything into arcseconds and name columns such that they are
-    ready for FlyStar input.
+    Field center in decimal degrees (ICRS) from any accepted input form.
+
+    Parameters
+    ----------
+    ra : SkyCoord, str, astropy Quantity/Angle, or float
+        A SkyCoord (then ``dec`` must be None); a sexagesimal or other
+        string, read as hourangle (e.g. '17:45:40.04', as accepted by
+        :func:`query_gaia`); a Quantity or Angle; or a plain number in
+        degrees.
+    dec : str, astropy Quantity/Angle, or float, optional
+        Declination. A string or number is read as degrees.
+
+    Returns
+    -------
+    ra0, dec0 : float
+        Center in decimal degrees, ICRS.
+    """
+    if isinstance(ra, SkyCoord):
+        if dec is not None:
+            raise ValueError("Pass dec=None when the center is a SkyCoord.")
+        c = ra.icrs
+        return float(c.ra.degree), float(c.dec.degree)
+
+    if dec is None:
+        raise ValueError("dec is required unless ra is a SkyCoord.")
+
+    if isinstance(ra, str) or isinstance(dec, str):
+        # The original hourangle / degree string input.
+        c = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
+        return c.ra.degree, c.dec.degree
+
+    if isinstance(ra, u.Quantity):
+        ra = ra.to_value(u.deg)
+    if isinstance(dec, u.Quantity):
+        dec = dec.to_value(u.deg)
+
+    return ra, dec
+
+
+def _filled(col, fill_value):
+    """
+    A plain float array from a (possibly masked) column, plus its mask.
+    """
+    mask = np.ma.getmaskarray(col)
+    data = np.ma.filled(np.ma.asarray(col, dtype=float), fill_value)
+    data = np.array(data, dtype=float)
+    data[mask] = fill_value
+
+    return data, mask
+
+
+def _gaia_data_release(gaia):
+    """
+    Gaia data release of a table: from ``gaia.meta['data_release']`` if set,
+    otherwise inferred from ``ref_epoch`` (2016.0 is EDR3 or DR3, which share
+    an astrometric solution; 2015.5 is DR2; 2015.0 is DR1).
+    """
+    for key in ['data_release', 'DATA_RELEASE']:
+        if key in gaia.meta:
+            return str(gaia.meta[key])
+
+    epochs = np.unique(_filled(gaia['ref_epoch'], np.nan)[0])
+    if len(epochs) == 1:
+        known = {2016.0: 'EDR3/DR3', 2015.5: 'DR2', 2015.0: 'DR1'}
+        if epochs[0] in known:
+            return known[epochs[0]]
+
+    return 'unknown'
+
+
+def _gaia_ref_epoch(gaia):
+    """
+    Catalog reference epoch(s) for the table metadata: one float if all
+    stars share it, otherwise the sorted list of values.
+    """
+    epochs = np.unique(_filled(gaia['ref_epoch'], np.nan)[0])
+    if len(epochs) == 1:
+        return float(epochs[0])
+
+    return [float(e) for e in epochs]
+
+
+def _gaia_meta(gaia, ra0, dec0, projection, bright_pm_corrected):
+    """
+    Metadata recording the frame of a table built from Gaia.
+    """
+    meta = {'projection': projection,
+            'proj_ra0': float(ra0),
+            'proj_dec0': float(dec0),
+            'frame': 'icrs',
+            'parallax_ref': 'ssb',
+            'data_release': _gaia_data_release(gaia),
+            'ref_epoch': _gaia_ref_epoch(gaia),
+            'bright_pm_corrected': bool(bright_pm_corrected)}
+
+    return meta
+
+
+# Gaia's astrometric parameters, in the order used for covariance matrices
+# here, and the prefix of their correlation columns.
+_GAIA_PARAMS = ['ra', 'dec', 'pmra', 'pmdec', 'parallax']
+
+
+def _gaia_covariance(gaia, pm_ok, plx_ok, params=_GAIA_PARAMS):
+    """
+    Gaia covariance matrices of the requested astrometric parameters.
+
+    Parameters
+    ----------
+    gaia : astropy table
+        Gaia catalog. Errors are read from ``<param>_error`` and correlations
+        from Gaia's ``<p1>_<p2>_corr`` columns; absent or masked correlations
+        are taken as zero.
+    pm_ok, plx_ok : numpy array of bool
+        Stars whose proper motions / parallaxes are used. The others get zero
+        variance for those parameters.
+    params : list of str, optional
+        Subset of 'ra', 'dec', 'pmra', 'pmdec', 'parallax'.
+
+    Returns
+    -------
+    cov : numpy array, shape (N, P, P)
+        In mas and mas/yr; the 'ra' entry is for alpha* (Gaia's ra_error is
+        already sigma_alpha* = sigma_alpha cos(dec)).
+    """
+    n = len(gaia)
+    sig = np.zeros((n, len(params)))
+    for i, p in enumerate(params):
+        sig[:, i] = _filled(gaia[p + '_error'], 0.0)[0]
+        if p in ('pmra', 'pmdec'):
+            sig[~pm_ok, i] = 0.0
+        if p == 'parallax':
+            sig[~plx_ok, i] = 0.0
+
+    corr = np.broadcast_to(np.eye(len(params)), (n, len(params), len(params))).copy()
+    for i in range(len(params)):
+        for j in range(i + 1, len(params)):
+            for name in (f'{params[i]}_{params[j]}_corr', f'{params[j]}_{params[i]}_corr'):
+                if name in gaia.colnames:
+                    rho = _filled(gaia[name], 0.0)[0]
+                    rho[~np.isfinite(rho)] = 0.0
+                    corr[:, i, j] = rho
+                    corr[:, j, i] = rho
+                    break
+
+    cov = sig[:, :, np.newaxis] * corr * sig[:, np.newaxis, :]
+
+    return cov
+
+
+def _flip_jacobian(jac):
+    """
+    F J with F = diag(-1, 1): maps sky (east, north) to FlyStar (x, y).
+    """
+    fj = jac.copy()
+    fj[..., 0, :] *= -1.0
+
+    return fj
+
+
+def _gaia_proper_motions(gaia, correct_bright_pm):
+    """
+    Proper motions (mas/yr) with missing ones set to zero, optionally with
+    the bright-star correction, and the mask of stars that have them.
+    """
+    pmra, pmra_mask = _filled(gaia['pmra'], 0.0)
+    pmdec, pmdec_mask = _filled(gaia['pmdec'], 0.0)
+    pm_ok = ~pmra_mask & ~pmdec_mask & np.isfinite(pmra) & np.isfinite(pmdec)
+    pmra[~pm_ok] = 0.0
+    pmdec[~pm_ok] = 0.0
+
+    if correct_bright_pm:
+        ra, _ = _filled(gaia['ra'], np.nan)
+        dec, _ = _filled(gaia['dec'], np.nan)
+        gmag, _ = _filled(gaia['phot_g_mean_mag'], np.nan)
+        pmra_c, pmdec_c = proj.correct_bright_pm(ra, dec, pmra, pmdec, gmag,
+                                                 data_release=_gaia_data_release(gaia))
+        pmra = np.where(pm_ok, pmra_c, pmra)
+        pmdec = np.where(pm_ok, pmdec_c, pmdec)
+
+    return pmra, pmdec, pm_ok
+
+
+def prepare_gaia_for_flystar(gaia, ra, dec=None, targets_dict=None, match_dr_max=0.2, pi_err_limit=0.4,
+                             default_motion_model='Linear', projection='gnomonic', correct_bright_pm=False):
+    """
+    Take a Gaia table (from astroquery) and produce a new table projected onto
+    a plane of arcsec offsets about the given center, with columns named
+    such that they are ready for FlyStar input.
+
+    Positions are each star's at its catalog ``ref_epoch`` (stored as
+    ``t0``), in ICRS. FlyStar's x is west-positive: x0 = -xi, y0 = eta, with
+    (xi, eta) the east/north standard coordinates of the projection
+    (see :mod:`flystar.projection`). Proper motions and errors are mapped
+    through the projection's Jacobian J: (vx, vy) = F J (pmra, pmdec) and
+    C' = F J C J^T F with F = diag(-1, 1), where C includes Gaia's
+    correlation coefficients when the table has them; only the square roots
+    of the diagonal of C' are kept.
 
     Inputs
     ------------
     gaia : astropy table
         Gaia Catalog from query_gaia()
 
-    ra : float
-        Units = hourangle
+    ra : SkyCoord, str, Quantity, or float
+        Projection center (tangent point), ICRS. A SkyCoord (then leave dec
+        as None); a string, read as hourangle (e.g. '17:45:40.04', the
+        original input form); an astropy Quantity/Angle; or a plain number,
+        read as **degrees** (as in project_gaia).
 
-    dec : float
-        Units = degree
+    dec : str, Quantity, or float, optional
+        Declination of the center. Strings and numbers are degrees.
+
+    Optional Inputs
+    ---------------
+    targets_dict : dict, optional
+        {name: [x, y]} positions (arcsec, east-positive x) of targets to
+        rename in the output.
+
+    match_dr_max : float, optional
+        Matching radius for targets_dict (arcsec).
+
+    pi_err_limit : float, optional
+        Parallaxes with errors above this (mas) are set to zero.
+
+    default_motion_model : str, optional
+        'Linear', 'Parallax', 'Fixed' or 'Empty'.
+
+    projection : {'gnomonic', 'flat', 'flat_legacy'}, optional
+        'gnomonic' (default): tangent-plane projection, PMs and errors
+        through J_g. 'flat': scaled equirectangular projection, PMs and
+        errors through J_f (self-consistent flat frame). 'flat_legacy':
+        TEMPORARY, REMOVED BEFORE RELEASE -- the old code path bit for bit,
+        including unrotated proper motions and the x0_err = ra_error *
+        cos(dec0) bug; for regression tests only. It adds no ra/dec columns.
+
+    correct_bright_pm : bool, optional
+        Apply the Cantat-Gaudin & Brandt (2021) bright-star proper-motion
+        correction (Gaia EDR3/DR3 only; see
+        :func:`flystar.projection.correct_bright_pm`). Default False.
+
+    Returns
+    -------
+    gaia_new : astropy table
+        With name, x0, y0, x0_err, y0_err, vx, vy, vx_err, vy_err (arcsec,
+        arcsec/yr), t0, source_id, m, me, pi, pi_err (arcsec), the motion
+        model columns and, except for 'flat_legacy', each star's ra and dec
+        (deg). ``meta`` records projection, proj_ra0, proj_dec0 (deg),
+        frame='icrs', parallax_ref='ssb', data_release, ref_epoch and
+        bright_pm_corrected.
     """
-    target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
-    ra = target_coords.ra.degree     # in decimal degrees
-    dec = target_coords.dec.degree   # in decimal degrees
+    proj._check_projection(projection)
+    ra, dec = _parse_center(ra, dec)   # center in decimal degrees, ICRS
 
-    cos_dec = np.cos(np.radians(dec))
-    x = (gaia['ra'] - ra) * cos_dec * 3600.0   # arcsec
-    y = (gaia['dec'] - dec) * 3600.0           # arcsec
-    xe = gaia['ra_error'] * cos_dec / 1e3      # arcsec
-    ye = gaia['dec_error'] / 1e3               # arcsec
+    if projection == 'flat_legacy':
+        # TEMPORARY -- REMOVED BEFORE RELEASE. The old code path, kept bit for
+        # bit (unrotated PMs and the x0_err = ra_error * cos(dec0) bug, which
+        # shrinks every x error by cos(dec0)) for regression tests.
+        if correct_bright_pm:
+            raise ValueError("correct_bright_pm is not supported with projection='flat_legacy'.")
 
-    gaia_new = table.Table([gaia['source_id'].data.astype('S19')], names=['name'], masked=False)
+        cos_dec = np.cos(np.radians(dec))
+        x, y = proj.sky_to_plane(gaia['ra'], gaia['dec'], ra, dec, projection='flat_legacy')  # arcsec
+        xe = gaia['ra_error'] * cos_dec / 1e3      # arcsec
+        ye = gaia['dec_error'] / 1e3               # arcsec
 
-    gaia_new['x0'] = x * -1.0
-    gaia_new['y0'] = y
-    gaia_new['x0_err'] = xe
-    gaia_new['y0_err'] = ye
+        gaia_new = table.Table([gaia['source_id'].data.astype('S19')], names=['name'], masked=False)
 
-    # Also convert the velocities. Note that Gaia PM are already * cos(dec)
-    gaia_new['vx'] = gaia['pmra'].data * -1.0 / 1e3 # asec/yr
-    gaia_new['vy'] = gaia['pmdec'].data / 1e3
-    gaia_new['vx_err'] = gaia['pmra_error'].data / 1e3
-    gaia_new['vy_err'] = gaia['pmdec_error'].data / 1e3
+        gaia_new['x0'] = x * -1.0
+        gaia_new['y0'] = y
+        gaia_new['x0_err'] = xe
+        gaia_new['y0_err'] = ye
 
-    gaia_new['t0'] = gaia['ref_epoch'].data
-    gaia_new['source_id'] = gaia['source_id'].data.astype('S19')
+        # Also convert the velocities. Note that Gaia PM are already * cos(dec)
+        gaia_new['vx'] = gaia['pmra'].data * -1.0 / 1e3 # asec/yr
+        gaia_new['vy'] = gaia['pmdec'].data / 1e3
+        gaia_new['vx_err'] = gaia['pmra_error'].data / 1e3
+        gaia_new['vy_err'] = gaia['pmdec_error'].data / 1e3
 
-    # Find sources without velocities and fix them up.
-    idx = np.where(gaia['pmdec'].mask == True)[0]
-    gaia_new['vx'][idx] = 0.0
-    gaia_new['vy'][idx] = 0.0
-    gaia_new['vx_err'][idx] = 0.0
-    gaia_new['vy_err'][idx] = 0.0
+        gaia_new['t0'] = gaia['ref_epoch'].data
+        gaia_new['source_id'] = gaia['source_id'].data.astype('S19')
 
-    gaia_new['m'] = gaia['phot_g_mean_mag']
-    gaia_new['me'] = 1.09/gaia['phot_g_mean_flux_over_error']
-    gaia_new['pi'] = gaia['parallax'].data*1e-3
-    gaia_new['pi_err'] = gaia['parallax_error'].data*1e-3
+        # Find sources without velocities and fix them up.
+        idx = np.where(gaia['pmdec'].mask == True)[0]
+        gaia_new['vx'][idx] = 0.0
+        gaia_new['vy'][idx] = 0.0
+        gaia_new['vx_err'][idx] = 0.0
+        gaia_new['vy_err'][idx] = 0.0
 
-    # Set the velocities (and uncertainties) to zero if they aren't measured.
-    idx = np.where(np.isnan(gaia_new['vx']) == True)[0]
-    gaia_new['vx'][idx] = 0.0
-    gaia_new['vx_err'][idx] = 0.0
-    gaia_new['vy'][idx] = 0.0
-    gaia_new['vy_err'][idx] = 0.0
+        gaia_new['m'] = gaia['phot_g_mean_mag']
+        gaia_new['me'] = 1.09/gaia['phot_g_mean_flux_over_error']
+        gaia_new['pi'] = gaia['parallax'].data*1e-3
+        gaia_new['pi_err'] = gaia['parallax_error'].data*1e-3
+
+        # Set the velocities (and uncertainties) to zero if they aren't measured.
+        idx = np.where(np.isnan(gaia_new['vx']) == True)[0]
+        gaia_new['vx'][idx] = 0.0
+        gaia_new['vx_err'][idx] = 0.0
+        gaia_new['vy'][idx] = 0.0
+        gaia_new['vy_err'][idx] = 0.0
+    else:
+        ra_star, _ = _filled(gaia['ra'], np.nan)
+        dec_star, _ = _filled(gaia['dec'], np.nan)
+
+        # Positions: x0 = -xi, y0 = eta (arcsec).
+        xi, eta = proj.sky_to_plane(ra_star, dec_star, ra, dec, projection=projection)
+
+        # Proper motions (mas/yr), zero where missing; optional bright-star correction.
+        pmra, pmdec, pm_ok = _gaia_proper_motions(gaia, correct_bright_pm)
+
+        # F J at each star, and the covariances C' = F J C J^T F.
+        fj = _flip_jacobian(proj.jacobian(ra_star, dec_star, ra, dec, projection=projection))
+        cov = _gaia_covariance(gaia, pm_ok, np.ones(len(gaia), dtype=bool), params=_GAIA_PARAMS[:4])
+        cov_pos = fj @ cov[:, 0:2, 0:2] @ np.swapaxes(fj, -1, -2)
+        cov_pm = fj @ cov[:, 2:4, 2:4] @ np.swapaxes(fj, -1, -2)
+        vel = np.einsum('nij,nj->ni', fj, np.stack([pmra, pmdec], axis=-1))
+
+        gaia_new = table.Table([gaia['source_id'].data.astype('S19')], names=['name'], masked=False)
+
+        gaia_new['x0'] = -xi
+        gaia_new['y0'] = eta
+        gaia_new['x0_err'] = np.sqrt(cov_pos[:, 0, 0]) / 1e3        # arcsec
+        gaia_new['y0_err'] = np.sqrt(cov_pos[:, 1, 1]) / 1e3
+
+        gaia_new['vx'] = vel[:, 0] / 1e3                            # arcsec/yr
+        gaia_new['vy'] = vel[:, 1] / 1e3
+        gaia_new['vx_err'] = np.sqrt(cov_pm[:, 0, 0]) / 1e3
+        gaia_new['vy_err'] = np.sqrt(cov_pm[:, 1, 1]) / 1e3
+
+        gaia_new['t0'] = gaia['ref_epoch'].data
+        gaia_new['source_id'] = gaia['source_id'].data.astype('S19')
+
+        # Keep each star's catalog position (deg, ICRS at t0).
+        gaia_new['ra'] = ra_star
+        gaia_new['dec'] = dec_star
+
+        gaia_new['m'] = gaia['phot_g_mean_mag']
+        gaia_new['me'] = 1.09/gaia['phot_g_mean_flux_over_error']
+        gaia_new['pi'] = gaia['parallax'].data*1e-3
+        gaia_new['pi_err'] = gaia['parallax_error'].data*1e-3
 
     # Cut out stars with high plx error and set motion models
     idx = np.where((gaia_new['pi_err']>(pi_err_limit/1e3)) | (gaia['parallax'].mask == True))[0]
@@ -200,6 +482,9 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2,
 
     gaia_new = gaia_new.filled()  #convert masked colunms to regular columns
 
+    # Record the frame so it can be inverted later (startable_to_radec).
+    gaia_new.meta.update(_gaia_meta(gaia, ra, dec, projection, correct_bright_pm))
+
     if targets_dict != None:
 #        for targ_name, targ_coo in targets_dict.items():
 #            dx = gaia_new['x0'] - (targ_coo[0] * -1.0)
@@ -226,6 +511,7 @@ def prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2,
                 print('Found match for: ', targ_names[idx], ' - ',gaia_new['source_id'][i_gaia])
 
     return gaia_new
+
 
 def run_flystar():
 
@@ -265,49 +551,144 @@ def run_flystar():
     return
 
 
-def project_gaia(gaia, epoch, ra, dec):
+def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_parallax=False, correct_bright_pm=False):
     """
-    Take the Gaia measurements, forward them in time, and then convert them into a tangential projection.
+    Take the Gaia measurements, forward them in time, and then project them
+    onto the plane about the field center.
+
+    Each star is moved on the sky from its ``ref_epoch`` to ``epoch``
+    (Eq. prop of docs/plans/tangent_plane: proper motion along its own east
+    and north, plus the barycentric parallax shift if requested) and then
+    projected, so the result does not depend on the order of the two steps.
+    Errors are propagated with Gaia's correlation coefficients (when the
+    table has them) and mapped through the projection's Jacobian:
+    C(t) = F J A C A^T J^T F, with A the derivative of the position at
+    ``epoch`` with respect to (ra*, dec, pmra, pmdec[, parallax]).
 
     Inputs
     ----------
+    gaia : astropy table
+        Gaia catalog from query_gaia().
+
     epoch : float (year)
-        The decimal year to project the measurement to. Note that we use 365.25 days per year.
+        The decimal year to project the measurement to. Note that we use
+        365.25 days per year. With include_parallax=True it is treated as an
+        exact (UTC) decimal year.
 
-    ra : float (deg)
-        The right ascension (J2000) in decimal degrees of the center of the field.
+    ra : SkyCoord, str, Quantity, or float
+        Projection center (tangent point), ICRS. A plain number is decimal
+        degrees; a string is hourangle (as in prepare_gaia_for_flystar); a
+        SkyCoord needs dec=None.
 
-    dec : float (deg)
-        The declination (J2000) in decimal degrees of the center of the field.
+    dec : str, Quantity, or float, optional
+        Declination of the center (ICRS, degrees).
 
+    Optional Inputs
+    ---------------
+    projection : {'gnomonic', 'flat', 'flat_legacy'}, optional
+        As in prepare_gaia_for_flystar. 'flat_legacy' is TEMPORARY and
+        REMOVED BEFORE RELEASE: the old code path bit for bit (stars moved in
+        the plane by unrotated proper motions, no correlations, no parallax).
+
+    include_parallax : bool, optional
+        Add each star's barycentric parallax displacement at ``epoch``
+        (observer at the Earth). Default False.
+
+    correct_bright_pm : bool, optional
+        Apply the Cantat-Gaudin & Brandt (2021) bright-star proper-motion
+        correction (Gaia EDR3/DR3 only). Default False.
+
+    Returns
+    -------
+    gaia_lis : StarList
+        x, y (arcsec, x west-positive), xe, ye, m, me and x_avg, y_avg,
+        m_avg; except for 'flat_legacy', also each star's ra, dec (deg, ICRS)
+        at ``epoch``. ``meta`` holds the same frame metadata as
+        prepare_gaia_for_flystar plus ``epoch`` and ``include_parallax``.
     """
-    t0 = gaia['ref_epoch']
-    x0 = (gaia['ra'] - ra) * np.cos(np.radians(dec)) * 3600.0   # Arcsec
-    y0 = (gaia['dec'] - dec) * 3600.0
-    x0e = gaia['ra_error']  / 1.0e3       # arcsec, already in alpha* (multiplied by cos(delta))
-    y0e = gaia['dec_error'] / 1.0e3       # arcsec
+    proj._check_projection(projection)
+    ra, dec = _parse_center(ra, dec)   # center in decimal degrees, ICRS
 
+    if projection == 'flat_legacy':
+        # TEMPORARY -- REMOVED BEFORE RELEASE. The old code path, bit for bit.
+        if include_parallax or correct_bright_pm:
+            raise ValueError("include_parallax and correct_bright_pm are not supported "
+                             "with projection='flat_legacy'.")
 
-    vx = gaia['pmra'] / 1.0e3            # arcsec / yr
-    vy = gaia['pmdec'] / 1.0e3
-    vxe = gaia['pmra_error'] / 1.0e3     # arcsec / yr
-    vye = gaia['pmdec_error'] / 1.0e3
+        t0 = gaia['ref_epoch']
+        x0, y0 = proj.sky_to_plane(gaia['ra'], gaia['dec'], ra, dec, projection='flat_legacy')  # Arcsec
+        x0e = gaia['ra_error']  / 1.0e3       # arcsec, already in alpha* (multiplied by cos(delta))
+        y0e = gaia['dec_error'] / 1.0e3       # arcsec
 
-    # Modify any vx/vy, etc. that are zero and make a regular (unmasked) numpy array.
-    vx[vx.mask] = 0.0
-    vy[vy.mask] = 0.0
-    vxe[vxe.mask] = 0.0
-    vye[vye.mask] = 0.0
-    vx = np.array(vx)
-    vy = np.array(vy)
-    vxe = np.array(vxe)
-    vye = np.array(vye)
+        vx = gaia['pmra'] / 1.0e3            # arcsec / yr
+        vy = gaia['pmdec'] / 1.0e3
+        vxe = gaia['pmra_error'] / 1.0e3     # arcsec / yr
+        vye = gaia['pmdec_error'] / 1.0e3
 
-    dt = epoch - t0
-    x_now = (x0 + (vx * dt)) * -1.0  # Switch to a left-handed coordinate system, like detector pixels.
-    y_now = (y0 + (vy * dt))
-    xe_now = np.hypot(x0e, vxe*dt)
-    ye_now = np.hypot(y0e, vye*dt)
+        # Modify any vx/vy, etc. that are zero and make a regular (unmasked) numpy array.
+        vx[vx.mask] = 0.0
+        vy[vy.mask] = 0.0
+        vxe[vxe.mask] = 0.0
+        vye[vye.mask] = 0.0
+        vx = np.array(vx)
+        vy = np.array(vy)
+        vxe = np.array(vxe)
+        vye = np.array(vye)
+
+        dt = epoch - t0
+        x_now = (x0 + (vx * dt)) * -1.0  # Switch to a left-handed coordinate system, like detector pixels.
+        y_now = (y0 + (vy * dt))
+        xe_now = np.hypot(x0e, vxe*dt)
+        ye_now = np.hypot(y0e, vye*dt)
+        extra_cols = {}
+    else:
+        ra_star, _ = _filled(gaia['ra'], np.nan)
+        dec_star, _ = _filled(gaia['dec'], np.nan)
+        t0, _ = _filled(gaia['ref_epoch'], np.nan)
+        dt = epoch - t0
+
+        pmra, pmdec, pm_ok = _gaia_proper_motions(gaia, correct_bright_pm)
+
+        plx, plx_mask = _filled(gaia['parallax'], 0.0)
+        plx_ok = ~plx_mask & np.isfinite(plx)
+        plx[~plx_ok] = 0.0
+
+        # Parallax shift vector s(t) and factors (P_e, P_n) at each star.
+        n_star = len(gaia)
+        p_e = np.zeros(n_star)
+        p_n = np.zeros(n_star)
+        s = None
+        if include_parallax:
+            t_epoch = Time(epoch, format='decimalyear', scale='utc').tdb
+            obs_pos = parallax.get_observer_barycentric('earth', t_epoch)
+            obs_pos = obs_pos.xyz.to_value(u.au)
+            s = proj.parallax_shift_vector(ra_star, dec_star, obs_pos)
+            _, e_hat, n_hat = proj.unit_vectors(ra_star, dec_star)
+            p_e = np.sum(s * e_hat, axis=-1)
+            p_n = np.sum(s * n_hat, axis=-1)
+
+        # Move on the sky, then project (Eq. prop).
+        ra_t, dec_t = proj.propagate_on_sky(ra_star, dec_star, pmra, pmdec, dt,
+                                            parallax=plx if include_parallax else None, s=s)
+        xi, eta = proj.sky_to_plane(ra_t, dec_t, ra, dec, projection=projection)
+
+        # Errors: A maps (ra*, dec, pmra, pmdec, parallax) to the sky position at epoch.
+        cov5 = _gaia_covariance(gaia, pm_ok, plx_ok & include_parallax)
+        amat = np.zeros((n_star, 2, 5))
+        amat[:, 0, 0] = 1.0
+        amat[:, 1, 1] = 1.0
+        amat[:, 0, 2] = dt
+        amat[:, 1, 3] = dt
+        amat[:, 0, 4] = p_e
+        amat[:, 1, 4] = p_n
+        fj = _flip_jacobian(proj.jacobian(ra_t, dec_t, ra, dec, projection=projection)) @ amat
+        cov = fj @ cov5 @ np.swapaxes(fj, -1, -2)
+
+        x_now = -xi
+        y_now = eta
+        xe_now = np.sqrt(cov[:, 0, 0]) / 1e3     # arcsec
+        ye_now = np.sqrt(cov[:, 1, 1]) / 1e3
+        extra_cols = {'ra': ra_t, 'dec': dec_t}
 
     # Format as a starlist
     gaia_lis = starlists.StarList(name=gaia['source_id'],
@@ -318,6 +699,13 @@ def project_gaia(gaia, epoch, ra, dec):
     gaia_lis['x_avg'] = gaia_lis['x']
     gaia_lis['y_avg'] = gaia_lis['y']
     gaia_lis['m_avg'] = gaia_lis['m']
+
+    for col, val in extra_cols.items():
+        gaia_lis[col] = val
+
+    gaia_lis.meta.update(_gaia_meta(gaia, ra, dec, projection, correct_bright_pm))
+    gaia_lis.meta['epoch'] = float(epoch)
+    gaia_lis.meta['include_parallax'] = bool(include_parallax)
 
     return gaia_lis
 
