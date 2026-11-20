@@ -212,3 +212,48 @@ def test_offsets_do_not_round_trip():
     r = center.separation(SkyCoord(ra * u.deg, dec * u.deg)).to_value(u.arcsec)
     diff = np.hypot(dlon - xi, dlat - eta)[r <= 1800.0].max()
     assert 0.03 < diff < 0.06
+
+
+def test_correct_bright_pm_hand_computed():
+    # Values worked by hand from Cantat-Gaudin & Brandt (2021) Table 1.
+    # (ra, dec, G) -> (d_pmra, d_pmdec) subtracted, in micro-arcsec/yr.
+    #   (90, 0, 12.1):  bin 12.00-12.25, w = (21.3, 74.8, 2.1)
+    #       d_pmra = wz = 2.1;  d_pmdec = wx = 21.3
+    #   (0, 90, 8.0):   bin 0-9, w = (18.4, 33.8, -11.3)
+    #       d_pmra = -wx = -18.4;  d_pmdec = -wy = -33.8
+    #   (180, 30, 12.9): bin 12.75-13.00, w = (34.9, 68.9, -2.9)
+    #       d_pmra = 0.5 * 34.9 - 2.9 * cos(30) = 14.93853;  d_pmdec = 68.9
+    ra = np.array([90.0, 0.0, 180.0])
+    dec = np.array([0.0, 90.0, 30.0])
+    g = np.array([12.1, 8.0, 12.9])
+    pmra = np.array([1.0, -2.0, 3.0])
+    pmdec = np.array([-4.0, 5.0, 0.5])
+    d_pmra = np.array([2.1, -18.4, 0.5 * 34.9 - 2.9 * np.sqrt(3) / 2]) / 1e3
+    d_pmdec = np.array([21.3, -33.8, 68.9]) / 1e3
+
+    pmra_c, pmdec_c = projection.correct_bright_pm(ra, dec, pmra, pmdec, g)
+    np.testing.assert_allclose(pmra_c, pmra - d_pmra, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(pmdec_c, pmdec - d_pmdec, rtol=0, atol=1e-12)
+
+
+def test_correct_bright_pm_faint_and_invalid():
+    ra = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
+    dec = np.array([-10.0, 0.0, 10.0, 20.0, 30.0])
+    g = np.array([13.0, 15.0, 20.5, np.nan, 11.0])
+    pmra = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    pmdec = np.array([-1.0, -2.0, -3.0, -4.0, -5.0])
+
+    pmra_c, pmdec_c = projection.correct_bright_pm(ra, dec, pmra, pmdec, g, data_release='EDR3')
+    # G >= 13 (and NaN) unchanged; G = 11 corrected.
+    np.testing.assert_array_equal(pmra_c[:4], pmra[:4])
+    np.testing.assert_array_equal(pmdec_c[:4], pmdec[:4])
+    assert pmra_c[4] != pmra[4]
+
+    # Not a 5/6-parameter solution: unchanged.
+    pmra_c, pmdec_c = projection.correct_bright_pm(ra, dec, pmra, pmdec, g,
+                                                   astrometric_params_solved=[31, 31, 31, 31, 3])
+    assert pmra_c[4] == pmra[4] and pmdec_c[4] == pmdec[4]
+
+    for release in ['DR2', 'DR4', 'unknown']:
+        with pytest.raises(ValueError):
+            projection.correct_bright_pm(ra, dec, pmra, pmdec, g, data_release=release)

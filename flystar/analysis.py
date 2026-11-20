@@ -282,8 +282,12 @@ def _gaia_proper_motions(gaia, correct_bright_pm):
         ra, _ = _filled(gaia['ra'], np.nan)
         dec, _ = _filled(gaia['dec'], np.nan)
         gmag, _ = _filled(gaia['phot_g_mean_mag'], np.nan)
+        solved = None
+        if 'astrometric_params_solved' in gaia.colnames:
+            solved = np.ma.filled(gaia['astrometric_params_solved'], 0)
         pmra_c, pmdec_c = proj.correct_bright_pm(ra, dec, pmra, pmdec, gmag,
-                                                 data_release=_gaia_data_release(gaia))
+                                                 data_release=_gaia_data_release(gaia),
+                                                 astrometric_params_solved=solved)
         pmra = np.where(pm_ok, pmra_c, pmra)
         pmdec = np.where(pm_ok, pmdec_c, pmdec)
 

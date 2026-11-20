@@ -208,3 +208,28 @@ def test_legacy_rejects_new_options():
     with pytest.raises(ValueError):
         analysis.prepare_gaia_for_flystar(gaia, RA0, DEC0, projection='flat_legacy',
                                           correct_bright_pm=True)
+
+
+def test_prepare_correct_bright_pm():
+    gaia = make_synthetic_gaia()
+    t0 = prepare(gaia, 'gnomonic')
+    t1 = prepare(gaia, 'gnomonic', correct_bright_pm=True)
+    assert t1.meta['bright_pm_corrected'] is True
+
+    bright = (gaia['phot_g_mean_mag'] < 13) & ~gaia['pmra'].mask
+    assert bright.sum() > 0 and (~bright).sum() > 0
+    np.testing.assert_array_equal(t1['vx'][~bright], t0['vx'][~bright])
+    np.testing.assert_array_equal(t1['vy'][~bright], t0['vy'][~bright])
+    # The spin is tens of micro-arcsec/yr.
+    dv = np.hypot(t1['vx'] - t0['vx'], t1['vy'] - t0['vy'])[bright]
+    assert np.all((dv > 1e-6) & (dv < 1e-4))
+
+    lis0 = analysis.project_gaia(gaia, 2026.0, RA0, DEC0)
+    lis1 = analysis.project_gaia(gaia, 2026.0, RA0, DEC0, correct_bright_pm=True)
+    np.testing.assert_allclose(lis1['x'] - lis0['x'], (t1['vx'] - t0['vx']) * 10.0, rtol=0, atol=1e-9)
+
+    # Other data releases are refused.
+    gaia_dr2 = make_synthetic_gaia()
+    gaia_dr2['ref_epoch'] = 2015.5
+    with pytest.raises(ValueError):
+        prepare(gaia_dr2, 'gnomonic', correct_bright_pm=True)

@@ -410,11 +410,100 @@ def propagate_on_sky(ra, dec, pmra, pmdec, dt, parallax=None, s=None):
     return _vector_to_radec(vec)
 
 
-def correct_bright_pm(ra, dec, pmra, pmdec, gmag, data_release='DR3'):
+# Spin of the bright-star (E)DR3 proper-motion frame relative to the faint
+# (quasar-defined) frame, from Cantat-Gaudin & Brandt 2021, A&A 649, A124,
+# Table 1 (combined binary + cluster sample; identical to the table in their
+# Appendix A code). Columns: G_min, G_max, omega_X, omega_Y, omega_Z, with
+# omega in micro-arcsec/yr. Taken from the arXiv source of 2103.07432.
+_CG21_SPIN_TABLE = np.array([
+    # G_min  G_max   omega_X  omega_Y  omega_Z
+    [ 0.00,  9.00,   18.4,    33.8,   -11.3],
+    [ 9.00,  9.50,   14.0,    30.7,   -19.4],
+    [ 9.50, 10.00,   12.8,    31.4,   -11.8],
+    [10.00, 10.50,   13.6,    35.7,   -10.5],
+    [10.50, 11.00,   16.2,    50.0,     2.1],
+    [11.00, 11.50,   19.4,    59.9,     0.2],
+    [11.50, 11.75,   21.8,    64.2,     1.0],
+    [11.75, 12.00,   17.7,    65.6,    -1.9],
+    [12.00, 12.25,   21.3,    74.8,     2.1],
+    [12.25, 12.50,   25.7,    73.6,     1.0],
+    [12.50, 12.75,   27.3,    76.6,     0.5],
+    [12.75, 13.00,   34.9,    68.9,    -2.9],
+])
+
+# Data releases the spin table applies to (EDR3 and DR3 share an
+# astrometric solution).
+_CG21_RELEASES = ('edr3', 'dr3', 'edr3/dr3', 'gaiaedr3', 'gaiadr3')
+
+
+def correct_bright_pm(ra, dec, pmra, pmdec, gmag, data_release='DR3', astrometric_params_solved=None):
     """
     Correct the proper motions of bright Gaia (E)DR3 stars for the
     magnitude-dependent spin of their reference frame.
 
-    Not yet available: the spin table has not been filled in.
+    Cantat-Gaudin & Brandt (2021, A&A 649, A124) found that (E)DR3 proper
+    motions of stars brighter than G = 13 are rotated relative to the
+    faint-star (quasar-defined) frame by a spin omega(G), tabulated in bins
+    of G (their Table 1). The correction (their correction equation and
+    Appendix A code; Eq. brightpm of docs/plans/tangent_plane) is::
+
+        pmra_corr  = pmra  - (-wx sin(dec) cos(ra) - wy sin(dec) sin(ra) + wz cos(dec))
+        pmdec_corr = pmdec - ( wx sin(ra) - wy cos(ra))
+
+    Parameters
+    ----------
+    ra, dec : float or array-like
+        ICRS coordinates in degrees.
+    pmra, pmdec : float or array-like
+        Proper motions mu_alpha* and mu_delta in mas/yr.
+    gmag : float or array-like
+        Gaia G magnitude (phot_g_mean_mag). NaN means no correction.
+    data_release : str, optional
+        Gaia data release of the catalog. Only EDR3 and DR3 are accepted
+        ('EDR3', 'DR3', 'EDR3/DR3', 'gaiaedr3', 'gaiadr3'; case-insensitive);
+        other releases raise a ValueError until their own correction (if any)
+        is added.
+    astrometric_params_solved : int or array-like, optional
+        Gaia's astrometric_params_solved. If given, only five- (31) and
+        six-parameter (95) solutions are corrected. Stars with proper motions
+        always have one of these, so this matters only for safety.
+
+    Returns
+    -------
+    pmra, pmdec : float or numpy array
+        Corrected proper motions in mas/yr. Stars with G >= 13 (or NaN G) are
+        returned unchanged.
+
+    Notes
+    -----
+    The bins are G_min <= G < G_max, as in the paper's code, so the
+    correction applies for G < 13 and a star with G = 13.0 exactly is left
+    unchanged.
     """
-    raise NotImplementedError("correct_bright_pm is not implemented yet.")
+    if str(data_release).lower() not in _CG21_RELEASES:
+        raise ValueError(f"correct_bright_pm applies to Gaia EDR3/DR3 only, got data_release={data_release!r}.")
+
+    ra = np.asarray(ra, dtype=float)
+    dec = np.asarray(dec, dtype=float)
+    pmra = np.asarray(pmra, dtype=float)
+    pmdec = np.asarray(pmdec, dtype=float)
+    gmag = np.asarray(gmag, dtype=float)
+    ra, dec, pmra, pmdec, gmag = np.broadcast_arrays(ra, dec, pmra, pmdec, gmag)
+
+    # Spin for each star's G bin (zero outside the table).
+    gmin = _CG21_SPIN_TABLE[:, 0]
+    gmax = _CG21_SPIN_TABLE[:, 1]
+    in_bin = (gmag[..., np.newaxis] >= gmin) & (gmag[..., np.newaxis] < gmax)   # NaN -> False
+    omega = np.einsum('...k,kj->...j', in_bin.astype(float), _CG21_SPIN_TABLE[:, 2:5])
+
+    if astrometric_params_solved is not None:
+        solved = np.broadcast_to(np.asarray(astrometric_params_solved), gmag.shape)
+        omega = np.where(np.isin(solved, [31, 95])[..., np.newaxis], omega, 0.0)
+
+    wx, wy, wz = omega[..., 0], omega[..., 1], omega[..., 2]   # micro-arcsec/yr
+    a = np.radians(ra)
+    d = np.radians(dec)
+    dpmra = -wx * np.sin(d) * np.cos(a) - wy * np.sin(d) * np.sin(a) + wz * np.cos(d)
+    dpmdec = wx * np.sin(a) - wy * np.cos(a)
+
+    return pmra - dpmra / 1e3, pmdec - dpmdec / 1e3
