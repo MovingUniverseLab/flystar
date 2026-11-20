@@ -22,14 +22,25 @@ cache_memory.reduce_size()
 # @cache_memory.cache()
 def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     """
-    Calculate the parallax vector in a given direction following MulensModel.
+    Calculate the parallax vector (parallax factors) in a given direction
+    following MulensModel.
+
+    The parallax factors are the east and north components of
+    s(t) = -r_obs(t) / (1 au), with r_obs the barycentric position of the
+    observer, i.e. Eq. (pfac) of docs/plans/tangent_plane with the Solar
+    System barycenter as the reference point, as Gaia and Hipparcos use. A
+    star with parallax pi is displaced by pi * pvec from its barycentric
+    position, so the x0, y0 of a Parallax fit are positions as seen from the
+    barycenter, the same as Gaia's ra, dec. (Earlier versions measured the
+    observer from the Sun, which made x0, y0 heliocentric; the two differ by
+    pi times the Sun's barycentric offset, <~0.01 au.)
 
     Parameters
     ----------
     RA : float or array-like
-        Right Ascension in degrees. (J2000)
+        Right Ascension in degrees (ICRS).
     Dec : float or array-like
-        Declination in degrees. (J2000)
+        Declination in degrees (ICRS).
     mjd : float or array-like
         Modified Julian Date(s), **in the TDB scale**. Not converted; see the
         note in the body.
@@ -42,7 +53,8 @@ def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     Returns
     -------
     pvec : ndarray
-        Parallax vector components, shape of (N_stars, 2, N_times), where the second dimension corresponds to the x or y components.
+        Parallax vector components in au, shape of (N_stars, 2, N_times), where the second dimension corresponds to the x or y components
+        (x west-positive for PA = 0).
     """
     # Munge inputs into astropy format.
     # times = Time(mjd + 2400000.5, format='jd', scale='tdb')
@@ -65,11 +77,14 @@ def parallax_in_direction(ra, dec, mjd, obsLocation='earth', pa=0.):
     _north_projected /= np.linalg.norm(_north_projected, axis=1)[:, np.newaxis] # Shape (N_stars, 3)
 
     obs_pos = get_observer_barycentric(obsLocation, times)  # Shape (N_times,)
-    sun_pos = get_body_barycentric(body='sun', time=times)  # Shape (N_times,)
 
-    sun_obs_pos = sun_pos - obs_pos
+    # The reference point is the Solar System barycenter (r_ref = 0 in
+    # Eq. pfac of docs/plans/tangent_plane), as in Gaia and Hipparcos, so the
+    # star is displaced along -r_obs. (Earlier versions used the Sun,
+    # sun_pos - obs_pos, which made x0, y0 heliocentric.)
+    ref_obs_pos = -obs_pos
 
-    pos = sun_obs_pos.xyz.T.to(units.au).value  # Shape (N_times, 3)
+    pos = ref_obs_pos.xyz.T.to(units.au).value  # Shape (N_times, 3)
     # Broadcast pos to (N_stars, 3, N_times) and take dot product with east and north unit vectors to get components in those directions.
     pos = np.broadcast_to(pos.T, (directions.shape[0], 3, pos.shape[0])) # Shape (N_stars, 3, N_times)
 
