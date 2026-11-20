@@ -714,6 +714,230 @@ def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_paral
     return gaia_lis
 
 
+def _plane_matrix(scale, pa):
+    """
+    Matrix taking FlyStar frame (x, y) to east/north plane (xi, eta) for a
+    frame with ``scale`` arcsec per unit and +y at position angle ``pa``
+    (deg, east of north): xi = s(-x cos pa + y sin pa),
+    eta = s(x sin pa + y cos pa).
+    """
+    c = np.cos(np.radians(pa))
+    s = np.sin(np.radians(pa))
+
+    return scale * np.array([[-c, s], [s, c]])
+
+
+def _solve_tangent_point(xi_ref, eta_ref, ra_ref, dec_ref, projection, tol=1e-8, max_iter=50):
+    """
+    Find the projection center (ra0, dec0) such that plane_to_sky maps the
+    plane point (xi_ref, eta_ref) (arcsec) to (ra_ref, dec_ref) (deg), by a
+    two-parameter Newton iteration with finite-difference derivatives.
+
+    Returns
+    -------
+    ra0, dec0 : float
+        Tangent point in degrees.
+    """
+    # Start from the reference moved back by the plane offset.
+    ra0, dec0, _, _ = proj.plane_to_sky(-xi_ref, -eta_ref, ra_ref, dec_ref, projection=projection)
+    ra0, dec0 = float(ra0), float(dec0)
+    step = 1.0   # arcsec, for the derivatives
+
+    for _ in range(max_iter):
+        ra_p, dec_p, _, _ = proj.plane_to_sky(xi_ref, eta_ref, ra0, dec0, projection=projection)
+
+        # Where the reference is, seen from the current mapped point (arcsec).
+        resid = np.array(proj.spherical_offsets(ra_ref, dec_ref, ra_p, dec_p))
+        if np.hypot(*resid) < tol:
+            return ra0, dec0
+
+        # d(mapped point) / d(center), along the center's east and north.
+        jac = np.zeros((2, 2))
+        for k, (d_ra, d_dec) in enumerate([(step / 3600.0 / np.cos(np.radians(dec0)), 0.0),
+                                           (0.0, step / 3600.0)]):
+            ra_k, dec_k, _, _ = proj.plane_to_sky(xi_ref, eta_ref, ra0 + d_ra, dec0 + d_dec,
+                                                  projection=projection)
+            jac[:, k] = np.array(proj.spherical_offsets(ra_k, dec_k, ra_p, dec_p)) / step
+
+        delta = np.linalg.solve(jac, resid)
+        ra0 = (ra0 + delta[0] / 3600.0 / np.cos(np.radians(dec0))) % 360.0
+        dec0 = dec0 + delta[1] / 3600.0
+
+    raise RuntimeError("startable_to_radec: the tangent-point iteration did not converge.")
+
+
+def startable_to_radec(tab, ra_ref=None, dec_ref=None, x_ref=0.0, y_ref=0.0,
+                       projection=None, scale=1.0, pa=0.0, epoch=None):
+    """
+    Convert a StarTable's fitted positions, proper motions and parallaxes
+    from FlyStar's plane back to ICRS RA, Dec, proper motions and parallax,
+    with Gaia's column names and units.
+
+    This inverts the frame built by prepare_gaia_for_flystar (Section 11 of
+    docs/plans/tangent_plane): positions with the inverse projection
+    (Eq. gnominv or flatinv), proper motions and errors with the inverse
+    Jacobian, mu = J^-1 F (vx, vy) and C' = J^-1 F C F J^-T, evaluated at
+    each star's position.
+
+    Parameters
+    ----------
+    tab : StarTable or astropy Table
+        Needs x0, y0, vx, vy and, optionally, x0_err, y0_err, vx_err,
+        vy_err, pi, pi_err, t0, name, source_id. Positions in units of
+        ``scale`` (arcsec by default), velocities per year, pi in the same
+        units as x0.
+    ra_ref, dec_ref : float, str, Quantity, or SkyCoord, optional
+        ICRS position of the plane point (x_ref, y_ref). Defaults to the
+        projection center in ``tab.meta`` (proj_ra0, proj_dec0) written by
+        prepare_gaia_for_flystar. Accepts the same forms as
+        prepare_gaia_for_flystar's center (a SkyCoord with dec_ref=None).
+    x_ref, y_ref : float, optional
+        Frame position of (ra_ref, dec_ref). If not (0, 0), the projection
+        center is solved for so that the inverse projection maps
+        (x_ref, y_ref) to (ra_ref, dec_ref) (Newton iteration); ra_ref and
+        dec_ref are then required.
+    projection : {'gnomonic', 'flat', 'flat_legacy'}, optional
+        Projection of the frame. Defaults to ``tab.meta['projection']``.
+        For 'flat_legacy' (TEMPORARY, removed before release) the proper
+        motions are taken as unrotated (J = I), matching how that mode
+        built them.
+    scale : float, optional
+        Arcsec per frame unit. Default 1 (FlyStar's arcsec frame).
+    pa : float, optional
+        Position angle of the frame's +y axis, deg east of north, as in the
+        Parallax model. Default 0 (north up).
+    epoch : float, optional
+        If given, positions (and their errors) are propagated on the sky
+        (Eq. prop, without parallax) from each star's t0 to this decimal
+        year, and ref_epoch is set to it. Otherwise ref_epoch = t0.
+
+    Returns
+    -------
+    radec : astropy Table
+        Columns: name and source_id (when in tab), ra, dec (deg, ICRS),
+        ra_error (sigma_alpha*, mas), dec_error (mas), pmra (mu_alpha*),
+        pmdec, pmra_error, pmdec_error (mas/yr), parallax, parallax_error
+        (mas; as fitted, NaN if absent), ref_epoch, dlon, dlat (arcsec,
+        spherical offsets from (ra_ref, dec_ref) as in
+        :func:`flystar.projection.plane_to_sky`; they do not round-trip to
+        x0, y0), and the original x0, y0. ``meta`` records frame='icrs',
+        the projection, the center used (proj_ra0, proj_dec0), ra_ref,
+        dec_ref, x_ref, y_ref, scale, pa, epoch and parallax_ref.
+
+    Notes
+    -----
+    The parallax is reported as fitted (no refit): with the barycentric
+    reference point it is directly comparable with Gaia's. Correlations
+    between x and y (and between position and velocity) are not stored in
+    StarTables and are taken as zero.
+    """
+    meta = tab.meta
+
+    if projection is None:
+        if 'projection' not in meta:
+            raise ValueError("projection not given and not in tab.meta.")
+        projection = meta['projection']
+    proj._check_projection(projection)
+
+    ref_given = (ra_ref is not None) or (dec_ref is not None)
+    if isinstance(ra_ref, SkyCoord) or (ra_ref is not None and dec_ref is not None):
+        ra_ref, dec_ref = _parse_center(ra_ref, dec_ref)
+    elif ref_given:
+        raise ValueError("Give both ra_ref and dec_ref (or a SkyCoord as ra_ref).")
+    else:
+        if (x_ref, y_ref) != (0.0, 0.0):
+            raise ValueError("ra_ref and dec_ref are required when (x_ref, y_ref) != (0, 0).")
+        if ('proj_ra0' not in meta) or ('proj_dec0' not in meta):
+            raise ValueError("ra_ref, dec_ref not given and proj_ra0, proj_dec0 not in tab.meta.")
+        ra_ref, dec_ref = float(meta['proj_ra0']), float(meta['proj_dec0'])
+
+    # Frame (x, y) -> plane (xi, eta) in arcsec, east/north positive.
+    mat = _plane_matrix(scale, pa)
+
+    if (x_ref, y_ref) == (0.0, 0.0):
+        ra0, dec0 = ra_ref, dec_ref
+    else:
+        xi_ref, eta_ref = mat @ np.array([x_ref, y_ref], dtype=float)
+        ra0, dec0 = _solve_tangent_point(xi_ref, eta_ref, ra_ref, dec_ref, projection)
+
+    def col(name, default=np.nan):
+        if name in tab.colnames:
+            return np.array(np.ma.filled(np.ma.asarray(tab[name], dtype=float), np.nan), dtype=float)
+        return np.full(len(tab), default, dtype=float)
+
+    pos = np.stack([col('x0'), col('y0')], axis=-1)
+    vel = np.stack([col('vx', 0.0), col('vy', 0.0)], axis=-1)
+
+    xi_eta = pos @ mat.T
+    ra, dec, _, _ = proj.plane_to_sky(xi_eta[:, 0], xi_eta[:, 1], ra0, dec0, projection=projection)
+
+    # K = J^-1 M maps frame quantities to (east, north) on the sky.
+    if projection == 'flat_legacy':
+        # TEMPORARY: the legacy mode copied proper motions unrotated (J = I).
+        jinv = np.broadcast_to(np.eye(2), (len(tab), 2, 2))
+    else:
+        jinv = np.linalg.inv(proj.jacobian(ra, dec, ra0, dec0, projection=projection))
+    kmat = jinv @ mat
+
+    pm = np.einsum('nij,nj->ni', kmat, vel) * 1e3      # mas/yr
+
+    def sky_cov(err_x, err_y):
+        c = np.zeros((len(tab), 2, 2))
+        c[:, 0, 0] = err_x**2
+        c[:, 1, 1] = err_y**2
+        return kmat @ c @ np.swapaxes(kmat, -1, -2) * 1e6   # mas^2
+
+    cov_pos = sky_cov(col('x0_err'), col('y0_err'))
+    cov_pm = sky_cov(col('vx_err'), col('vy_err'))
+
+    t0 = col('t0')
+    ref_epoch = t0
+    if epoch is not None:
+        dt = epoch - t0
+        ra, dec = proj.propagate_on_sky(ra, dec, pm[:, 0], pm[:, 1], dt)
+        cov_pos = cov_pos + (dt**2)[:, np.newaxis, np.newaxis] * cov_pm
+        ref_epoch = np.full(len(tab), float(epoch))
+
+    dlon, dlat = proj.spherical_offsets(ra, dec, ra_ref, dec_ref)
+
+    radec = Table()
+    for name in ['name', 'source_id']:
+        if name in tab.colnames:
+            radec[name] = tab[name]
+    radec['ra'] = ra
+    radec['dec'] = dec
+    radec['ra_error'] = np.sqrt(cov_pos[:, 0, 0])
+    radec['dec_error'] = np.sqrt(cov_pos[:, 1, 1])
+    radec['pmra'] = pm[:, 0]
+    radec['pmdec'] = pm[:, 1]
+    radec['pmra_error'] = np.sqrt(cov_pm[:, 0, 0])
+    radec['pmdec_error'] = np.sqrt(cov_pm[:, 1, 1])
+    radec['parallax'] = col('pi') * scale * 1e3
+    radec['parallax_error'] = col('pi_err') * scale * 1e3
+    radec['ref_epoch'] = ref_epoch
+    radec['dlon'] = dlon
+    radec['dlat'] = dlat
+    radec['x0'] = tab['x0']
+    radec['y0'] = tab['y0']
+
+    units = {'ra': u.deg, 'dec': u.deg, 'ra_error': u.mas, 'dec_error': u.mas,
+             'pmra': u.mas / u.yr, 'pmdec': u.mas / u.yr, 'pmra_error': u.mas / u.yr,
+             'pmdec_error': u.mas / u.yr, 'parallax': u.mas, 'parallax_error': u.mas,
+             'ref_epoch': u.yr, 'dlon': u.arcsec, 'dlat': u.arcsec}
+    for name, unit in units.items():
+        radec[name].unit = unit
+
+    radec.meta.update({'frame': 'icrs', 'projection': projection,
+                       'proj_ra0': float(ra0), 'proj_dec0': float(dec0),
+                       'ra_ref': float(ra_ref), 'dec_ref': float(dec_ref),
+                       'x_ref': float(x_ref), 'y_ref': float(y_ref),
+                       'scale': float(scale), 'pa': float(pa),
+                       'epoch': None if epoch is None else float(epoch),
+                       'parallax_ref': meta.get('parallax_ref', 'unknown')})
+
+    return radec
+
+
 def rename_after_flystar(star_tab, label_dat_file, new_copy=True, dr_tol=0.05, dm_tol=0.3, verbose=False):
     """
     Take a StarTable output from FlyStar MosaicToRef that has been

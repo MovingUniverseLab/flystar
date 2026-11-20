@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from astropy import units as u
 from astropy.coordinates import SkyCoord, get_body_barycentric, solar_system_ephemeris
+from astropy.table import Table
 from astropy.time import Time
 
 from flystar import analysis, projection
@@ -233,3 +234,170 @@ def test_prepare_correct_bright_pm():
     gaia_dr2['ref_epoch'] = 2015.5
     with pytest.raises(ValueError):
         prepare(gaia_dr2, 'gnomonic', correct_bright_pm=True)
+
+
+ROUND_TRIP_CENTERS = [(266.4168, -29.0078), (150.0, 60.0)]
+
+
+@pytest.mark.parametrize('proj', ['gnomonic', 'flat'])
+@pytest.mark.parametrize('ra0, dec0', ROUND_TRIP_CENTERS)
+@pytest.mark.parametrize('half_width', [60.0, 300.0, 1800.0])
+def test_startable_to_radec_round_trip(proj, ra0, dec0, half_width):
+    """
+    Gaia -> prepare_gaia_for_flystar -> startable_to_radec recovers the Gaia
+    astrometry.
+    """
+    gaia = make_synthetic_gaia(ra0=ra0, dec0=dec0, half_width=half_width, n=200,
+                               with_corr=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        tab = analysis.prepare_gaia_for_flystar(gaia, ra0, dec0, projection=proj, pi_err_limit=10.0)
+    radec = analysis.startable_to_radec(tab)
+
+    assert radec.meta['projection'] == proj and radec.meta['frame'] == 'icrs'
+    assert radec.meta['parallax_ref'] == 'ssb'
+
+    sep = SkyCoord(np.asarray(radec['ra']) * u.deg, np.asarray(radec['dec']) * u.deg).separation(
+        SkyCoord(np.asarray(gaia['ra']) * u.deg, np.asarray(gaia['dec']) * u.deg)).to_value(u.arcsec)
+    assert sep.max() < 1e-6     # 1 uas
+
+    has_pm = ~gaia['pmra'].mask
+    np.testing.assert_allclose(radec['pmra'][has_pm], gaia['pmra'][has_pm], rtol=0, atol=1e-9)
+    np.testing.assert_allclose(radec['pmdec'][has_pm], gaia['pmdec'][has_pm], rtol=0, atol=1e-9)
+    assert np.all(radec['pmra'][~has_pm] == 0)
+
+    has_plx = ~gaia['parallax'].mask
+    np.testing.assert_allclose(radec['parallax'][has_plx], gaia['parallax'][has_plx], rtol=1e-12)
+    np.testing.assert_allclose(radec['parallax_error'][has_plx], gaia['parallax_error'][has_plx],
+                               rtol=1e-12)
+
+    # Errors: exact up to the x-y covariance that StarTables drop. The frame
+    # is rotated from each star's east/north by theta ~ -dra sin(dec0), so
+    # dropping it changes each variance by at most ~2 theta^2 (sa^2 + sd^2).
+    dra = np.radians(projection._wrap180(np.asarray(gaia['ra']) - ra0))
+    theta2 = (dra * np.sin(np.radians(dec0)))**2 + 1e-12
+
+    def check(err_out, err_a, err_b, mask=slice(None)):
+        e_out, ea, eb = (np.asarray(v, dtype=float)[mask] for v in (err_out, err_a, err_b))
+        assert np.all(np.abs(e_out**2 - ea**2) <= 4 * theta2[mask] * (ea**2 + eb**2) + 1e-12 * ea**2)
+
+    check(radec['ra_error'], gaia['ra_error'], gaia['dec_error'])
+    check(radec['dec_error'], gaia['dec_error'], gaia['ra_error'])
+    check(radec['pmra_error'], gaia['pmra_error'].filled(0), gaia['pmdec_error'].filled(0), has_pm)
+    check(radec['pmdec_error'], gaia['pmdec_error'].filled(0), gaia['pmra_error'].filled(0), has_pm)
+
+    # Offsets from the center are astropy's spherical offsets.
+    dlon, dlat = SkyCoord(ra0 * u.deg, dec0 * u.deg).spherical_offsets_to(
+        SkyCoord(np.asarray(gaia['ra']) * u.deg, np.asarray(gaia['dec']) * u.deg))
+    np.testing.assert_allclose(radec['dlon'], dlon.to_value(u.arcsec), rtol=0, atol=1e-6)
+    np.testing.assert_allclose(radec['dlat'], dlat.to_value(u.arcsec), rtol=0, atol=1e-6)
+    np.testing.assert_array_equal(radec['x0'], tab['x0'])
+    np.testing.assert_array_equal(radec['ref_epoch'], tab['t0'])
+
+    # The output has Gaia's names and units, so it can be fed back in.
+    radec['source_id'] = gaia['source_id']
+    for name in ['phot_g_mean_mag', 'phot_g_mean_flux_over_error']:
+        radec[name] = gaia[name]
+    radec['parallax'][~has_plx] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        tab2 = analysis.prepare_gaia_for_flystar(Table(radec, masked=True), ra0, dec0,
+                                                 projection=proj, pi_err_limit=10.0)
+    np.testing.assert_allclose(tab2['x0'], tab['x0'], rtol=0, atol=1e-6)
+    np.testing.assert_allclose(tab2['vx'], tab['vx'], rtol=0, atol=1e-12)
+
+
+def test_startable_to_radec_reference_point_and_rotation():
+    ra0, dec0 = 150.0, 60.0
+    gaia = make_synthetic_gaia(ra0=ra0, dec0=dec0, half_width=300.0, n=50, with_corr=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        tab = analysis.prepare_gaia_for_flystar(gaia, ra0, dec0)
+    ref = analysis.startable_to_radec(tab)
+
+    # The frame origin is the tangent point, but the reference sky position
+    # is star i (e.g. a science target) at frame position (x0_i, y0_i): the
+    # tangent point is solved for and is the original center.
+    i = 7
+    tab_nometa = tab.copy()
+    tab_nometa.meta = {}
+    out = analysis.startable_to_radec(tab_nometa, ra_ref=gaia['ra'][i], dec_ref=gaia['dec'][i],
+                                      x_ref=tab['x0'][i], y_ref=tab['y0'][i],
+                                      projection='gnomonic')
+    np.testing.assert_allclose(out.meta['proj_ra0'], ra0, rtol=0, atol=1e-11)
+    np.testing.assert_allclose(out.meta['proj_dec0'], dec0, rtol=0, atol=1e-11)
+    np.testing.assert_allclose(out['ra'], ref['ra'], rtol=0, atol=1e-11)
+    np.testing.assert_allclose(out['dec'], ref['dec'], rtol=0, atol=1e-11)
+    np.testing.assert_allclose(out['pmra'], ref['pmra'], rtol=0, atol=1e-9)
+    # Offsets are from (ra_ref, dec_ref), i.e. from star i.
+    assert abs(out['dlon'][i]) < 1e-6 and abs(out['dlat'][i]) < 1e-6
+
+    # Using star i's sky position as if it were the tangent point is wrong.
+    out = analysis.startable_to_radec(tab_nometa, ra_ref=gaia['ra'][i], dec_ref=gaia['dec'][i],
+                                      projection='gnomonic')
+    assert np.abs(out['dec'] - ref['dec']).max() * 3600 > 1.0
+
+    # A frame in "pixels" of 0.01" with +y at PA = 30 deg.
+    scale, pa = 0.01, 30.0
+    c, s = np.cos(np.radians(pa)), np.sin(np.radians(pa))
+    xi, eta = -tab['x0'], tab['y0']
+    vxi, veta = -tab['vx'], tab['vy']
+    tab_rot = tab.copy()
+    # Invert xi = s(-x c + y s), eta = s(x s + y c).
+    tab_rot['x0'] = (-xi * c + eta * s) / scale
+    tab_rot['y0'] = (xi * s + eta * c) / scale
+    tab_rot['vx'] = (-vxi * c + veta * s) / scale
+    tab_rot['vy'] = (vxi * s + veta * c) / scale
+    for col in ['x0_err', 'y0_err', 'vx_err', 'vy_err', 'pi', 'pi_err']:
+        tab_rot[col] = tab[col] / scale
+    out = analysis.startable_to_radec(tab_rot, scale=scale, pa=pa)
+    for col in ['ra', 'dec']:
+        np.testing.assert_allclose(out[col], ref[col], rtol=0, atol=1e-11)
+    for col in ['pmra', 'pmdec', 'parallax']:
+        np.testing.assert_allclose(out[col], ref[col], rtol=0, atol=1e-9)
+    # Diagonal errors only rotate into themselves when x and y errors are
+    # equal, so compare errors for that case.
+    tab_iso = tab.copy()
+    tab_iso['x0_err'] = tab['y0_err']
+    tab_rot['x0_err'] = tab['y0_err'] / scale
+    tab_rot['y0_err'] = tab['y0_err'] / scale
+    ref_iso = analysis.startable_to_radec(tab_iso)
+    out = analysis.startable_to_radec(tab_rot, scale=scale, pa=pa)
+    np.testing.assert_allclose(out['ra_error'], ref_iso['ra_error'], rtol=1e-9)
+    np.testing.assert_allclose(out['dec_error'], ref_iso['dec_error'], rtol=1e-9)
+
+
+def test_startable_to_radec_epoch():
+    gaia = make_synthetic_gaia(with_corr=False)
+    tab = prepare(gaia, 'gnomonic')
+    out = analysis.startable_to_radec(tab, epoch=2026.0)
+    ra_t, dec_t = projection.propagate_on_sky(gaia['ra'], gaia['dec'], gaia['pmra'].filled(0),
+                                              gaia['pmdec'].filled(0), 10.0)
+    np.testing.assert_allclose(out['ra'], ra_t, rtol=0, atol=1e-11)
+    np.testing.assert_allclose(out['dec'], dec_t, rtol=0, atol=1e-11)
+    assert np.all(out['ref_epoch'] == 2026.0)
+    var = gaia['ra_error']**2 + 100 * gaia['pmra_error'].filled(0)**2
+    np.testing.assert_allclose(out['ra_error'], np.sqrt(var), rtol=1e-3)
+
+
+# TEMPORARY: removed together with the 'flat_legacy' mode.
+def test_startable_to_radec_flat_legacy():
+    gaia = make_synthetic_gaia()
+    tab = prepare(gaia, 'flat_legacy')
+    out = analysis.startable_to_radec(tab)
+    np.testing.assert_allclose(out['ra'], gaia['ra'], rtol=0, atol=1e-11)
+    np.testing.assert_allclose(out['dec'], gaia['dec'], rtol=0, atol=1e-11)
+    has_pm = ~gaia['pmra'].mask
+    np.testing.assert_allclose(out['pmra'][has_pm], gaia['pmra'][has_pm], rtol=1e-12)
+
+
+def test_startable_to_radec_needs_frame():
+    gaia = make_synthetic_gaia()
+    tab = prepare(gaia, 'gnomonic')
+    tab.meta = {}
+    with pytest.raises(ValueError):
+        analysis.startable_to_radec(tab)
+    with pytest.raises(ValueError):
+        analysis.startable_to_radec(tab, projection='gnomonic')
+    with pytest.raises(ValueError):
+        analysis.startable_to_radec(tab, projection='gnomonic', x_ref=1.0)
