@@ -18,6 +18,9 @@ import os
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+# Ignore any personal matplotlibrc so the figures come out the same for everyone.
+plt.style.use('default')
 import numpy as np
 from astropy.time import Time
 
@@ -166,6 +169,40 @@ def north_angle(ra, dec, ra0, dec0, step=1e-8):
     theta = np.arctan2(xi2 - xi1, eta2 - eta1)
 
     return theta
+
+
+def gnomonic_jacobian(ra, dec, ra0, dec0):
+    """
+    Jacobian of the gnomonic projection with respect to (alpha*, delta).
+
+    Parameters
+    ----------
+    ra, dec : float or numpy array
+        Star coordinates in radians.
+    ra0, dec0 : float
+        Tangent point in radians.
+
+    Returns
+    -------
+    jac : numpy array
+        Shape (..., 2, 2). Maps a sky motion (mu_alpha*, mu_delta) along the
+        star's own east and north to the plane motion (d xi, d eta). This is
+        J_g in the report.
+    """
+    dra = ra - ra0
+    denom = np.sin(dec) * np.sin(dec0) + np.cos(dec) * np.cos(dec0) * np.cos(dra)
+    xi, eta = gnomonic_project(ra, dec, ra0, dec0)
+    k = np.cos(dec) * np.sin(dec0) - np.sin(dec) * np.cos(dec0) * np.cos(dra)
+
+    j11 = np.cos(dra) + xi * np.cos(dec0) * np.sin(dra)
+    j12 = -np.sin(dec) * np.sin(dra) - xi * k
+    j21 = np.sin(dra) * (np.sin(dec0) + eta * np.cos(dec0))
+    j22 = np.sin(dec) * np.sin(dec0) * np.cos(dra) + np.cos(dec) * np.cos(dec0) - eta * k
+
+    jac = np.stack([np.stack([j11, j12], axis=-1), np.stack([j21, j22], axis=-1)], axis=-2)
+    jac = jac / np.asarray(denom)[..., np.newaxis, np.newaxis]
+
+    return jac
 
 
 def check_expansions():
@@ -410,6 +447,222 @@ def make_pm_map_figure(res):
     return None
 
 
+def error_maps(pm_res):
+    """
+    Errors in the simulated Galactic Center field from today's handling.
+
+    Parameters
+    ----------
+    pm_res : dict
+        Output of pm_map(), used to cross-check the proper-motion errors.
+
+    Returns
+    -------
+    result : dict
+        x, y (FlyStar frame, arcsec) and r (arcsec); then, each along east
+        and north:
+        pos_e, pos_n -- flat minus gnomonic position at one instant (mas);
+        pm_e, pm_n -- proper motion copied in unchanged minus J_g mu (uas/yr);
+        pi_e, pi_n -- largest difference over a year between the parallax
+        displacement modeled with the center's parallax factor and the star's
+        true one in the gnomonic frame, for a PI_REF parallax (uas).
+        Also pm_check (mas): largest difference between pm error * dt and
+        the propagation map of pm_map().
+    """
+    ra0, dec0, ra, dec, pmra, pmdec = simulate_gc_field()
+
+    # Gnomonic positions; FlyStar frame x = -xi.
+    xi_g, eta_g = gnomonic_project(ra, dec, ra0, dec0)
+    x, y = -xi_g * RAD2AS, eta_g * RAD2AS
+
+    # 1. Positions: flat minus gnomonic.
+    xi_f, eta_f = flat_project(ra, dec, ra0, dec0)
+    pos_e = (xi_f - xi_g) * RAD2AS * 1e3
+    pos_n = (eta_f - eta_g) * RAD2AS * 1e3
+
+    # 2. Proper motions: copied in (J = I) minus the exact J_g mu.
+    jac = gnomonic_jacobian(ra, dec, ra0, dec0)               # (N, 2, 2)
+    mu = np.stack([pmra, pmdec], axis=-1)                      # (N, 2), mas/yr
+    mu_plane = np.einsum('nij,nj->ni', jac, mu)
+    pm_e = (mu[:, 0] - mu_plane[:, 0]) * 1e3                   # uas/yr
+    pm_n = (mu[:, 1] - mu_plane[:, 1]) * 1e3
+
+    # Cross-check against the issue #22 map: there the difference is
+    # (proper motion first) - (plane first) = (J_g mu - mu) * dt.
+    pm_check = np.max(np.hypot(-pm_e * 1e-3 * pm_res['dt'] - pm_res['dra'],
+                               -pm_n * 1e-3 * pm_res['dt'] - pm_res['ddec']))
+
+    # 3. Parallax: center's factor (pa = 0) versus each star's own, through J_g.
+    mjd = Time(2024.0, format='decimalyear', scale='utc').tdb.mjd + np.arange(0.0, 366.0, 2.0)
+    p_center = parallax.parallax_in_direction(np.degrees(ra0), np.degrees(dec0), mjd)[0]   # (2, T)
+    p_star = parallax.parallax_in_direction(np.degrees(ra), np.degrees(dec), mjd)         # (N, 2, T)
+
+    # parallax_in_direction returns FlyStar (x, y) = (-east, north) for pa = 0.
+    pe_star, pn_star = -p_star[:, 0, :], p_star[:, 1, :]
+    xi_true = jac[:, 0, 0, None] * pe_star + jac[:, 0, 1, None] * pn_star
+    eta_true = jac[:, 1, 0, None] * pe_star + jac[:, 1, 1, None] * pn_star
+    xi_model, eta_model = -p_center[0], p_center[1]
+
+    # Model minus truth, largest |difference| over the year, in uas.
+    pi_e = np.max(np.abs(xi_model - xi_true), axis=1) * PI_REF * 1e3
+    pi_n = np.max(np.abs(eta_model - eta_true), axis=1) * PI_REF * 1e3
+
+    result = dict(x=x, y=y, r=np.hypot(x, y), pos_e=pos_e, pos_n=pos_n,
+                  pm_e=pm_e, pm_n=pm_n, pi_e=pi_e, pi_n=pi_n, pm_check=pm_check)
+
+    return result
+
+
+def make_error_map_figure(res):
+    """
+    Three-row map: position, proper-motion and parallax errors, east and north.
+
+    Parameters
+    ----------
+    res : dict
+        Output of error_maps().
+
+    Returns
+    -------
+    None
+    """
+    rows = [('pos_e', 'pos_n', 'Position: flat $-$ gnomonic', 'mas', 'RdBu', True),
+            ('pm_e', 'pm_n', r'PM: copied $-$ $J_\mathrm{g}\mu$', r'$\mu$as yr$^{-1}$', 'RdBu', True),
+            ('pi_e', 'pi_n', 'Parallax: max |model $-$ true|', r'$\mu$as', 'viridis', False)]
+    comps = ['east', 'north']
+
+    fig, axes = plt.subplots(3, 2, figsize=(8.0, 10.0), sharex=True, sharey=True,
+                             layout='constrained')
+
+    for irow, (key_e, key_n, title, unit, cmap, signed) in enumerate(rows):
+        vals = np.concatenate([res[key_e], res[key_n]])
+        if signed:
+            vmax = np.max(np.abs(vals))
+            vmin = -vmax
+        else:
+            vmin, vmax = 0.0, vals.max()
+
+        for icol, key in enumerate([key_e, key_n]):
+            ax = axes[irow, icol]
+            sc = ax.scatter(res['x'], res['y'], c=res[key], cmap=cmap, vmin=vmin, vmax=vmax,
+                            s=14, edgecolors='none')
+            ax.set_title(f'{title}, {comps[icol]}', fontsize=10)
+            ax.set_aspect('equal')
+            # +x is west, so east is on the left, as on the sky.
+
+        # One color bar per row, shared by its east and north panels.
+        cb = fig.colorbar(sc, ax=axes[irow, :], shrink=0.9)
+        cb.set_label(unit)
+
+        axes[irow, 0].set_ylabel('y (arcsec, +north)')
+    for ax in axes[-1]:
+        ax.set_xlabel('x (arcsec, +west)')
+
+    fig.savefig(os.path.join(OUT_DIR, 'error_maps.pdf'))
+    plt.close(fig)
+
+    return None
+
+
+def aberration_residuals(radii_as=(60.0, 300.0, 1800.0), n_grid=41):
+    """
+    Differential annual aberration across a field, and what alignment leaves.
+
+    Parameters
+    ----------
+    radii_as : tuple of float, optional
+        Field radii in arcsec.
+    n_grid : int, optional
+        Grid points per axis across the field diameter.
+
+    Returns
+    -------
+    result : dict
+        For each radius (key), a dict with the largest over Earth-velocity
+        directions (0 to 90 deg from the field center) of: raw -- position
+        change relative to the field center (mas); affine -- residual after a
+        per-epoch first-order (6-parameter) polynomial fit (mas); quad --
+        residual after a second-order (12-parameter) fit (mas).
+
+    Notes
+    -----
+    Uses classical aberration u' = (u + v/c) / |u + v/c| with |v| = 29.78 km/s,
+    projects gnomonically about the aberrated field center, and fits the
+    aberrated positions as polynomials of the unaberrated ones. That mimics
+    FlyStar's per-epoch transformation into a reference frame without
+    aberration (Gaia's barycentric positions).
+    """
+    kappa = 29.78 / 299792.458
+
+    def unit(v):
+        return v / np.linalg.norm(v, axis=-1, keepdims=True)
+
+    def fit_resid(x, y, xa, ya, order):
+        terms = [np.ones_like(x), x, y]
+        if order >= 2:
+            terms += [x * x, x * y, y * y]
+        a = np.stack(terms, axis=1)
+        rx = xa - a @ np.linalg.lstsq(a, xa, rcond=None)[0]
+        ry = ya - a @ np.linalg.lstsq(a, ya, rcond=None)[0]
+        return np.hypot(rx, ry).max() * RAD2AS * 1e3
+
+    result = {}
+    for radius in radii_as:
+        g = np.linspace(-radius, radius, n_grid) * AS2RAD
+        gx, gy = np.meshgrid(g, g)
+        inside = np.hypot(gx, gy) <= radius * AS2RAD
+        xi, eta = gx[inside], gy[inside]
+        # Field center along +z; xi along +x (east), eta along +y (north).
+        u = unit(np.stack([xi, eta, np.ones_like(xi)], axis=1))
+
+        out = dict(raw=0.0, affine=0.0, quad=0.0)
+        for phi in np.radians([0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0]):
+            v = kappa * np.array([np.sin(phi), 0.0, np.cos(phi)])
+            ua = unit(u + v)
+            uc = unit(np.array([0.0, 0.0, 1.0]) + v)
+            # Tangent-plane triad at the aberrated center.
+            e_c = unit(np.cross([0.0, 1.0, 0.0], uc))
+            n_c = np.cross(uc, e_c)
+            xa, ya = (ua @ e_c) / (ua @ uc), (ua @ n_c) / (ua @ uc)
+
+            out['raw'] = max(out['raw'], np.hypot(xa - xi, ya - eta).max() * RAD2AS * 1e3)
+            out['affine'] = max(out['affine'], fit_resid(xi, eta, xa, ya, 1))
+            out['quad'] = max(out['quad'], fit_resid(xi, eta, xa, ya, 2))
+        result[radius] = out
+
+    return result
+
+
+def spherical_offset_differences(radii_as=(60.0, 300.0, 1800.0)):
+    """
+    Spherical offsets versus gnomonic standard coordinates.
+
+    Parameters
+    ----------
+    radii_as : tuple of float, optional
+        Distances from the reference in arcsec.
+
+    Returns
+    -------
+    result : dict
+        For each radius, the largest difference (mas), over position angle,
+        between the gnomonic standard coordinates (xi, eta) and astropy-style
+        spherical offsets (dlon, dlat) in a frame rotated so that the
+        reference is at the origin.
+    """
+    result = {}
+    for radius in radii_as:
+        pa = np.linspace(0.0, 2.0 * np.pi, 361)
+        xi, eta = radius * AS2RAD * np.sin(pa), radius * AS2RAD * np.cos(pa)
+        # Direction with the reference at +z, east +x, north +y.
+        norm = np.sqrt(1.0 + xi**2 + eta**2)
+        ux, uy, uz = xi / norm, eta / norm, 1.0 / norm
+        dlon, dlat = np.arctan2(ux, uz), np.arcsin(uy)
+        result[radius] = np.hypot(dlon - xi, dlat - eta).max() * RAD2AS * 1e3
+
+    return result
+
+
 def table_rows():
     """
     Compute the comparison table.
@@ -536,7 +789,7 @@ def write_table(rows):
     return None
 
 
-def write_numbers(rows, worst_expansion, pm_res):
+def write_numbers(rows, worst_expansion, pm_res, err_res, aber, sph):
     """
     Write \\newcommand macros for the numbers quoted in the report text.
 
@@ -548,11 +801,23 @@ def write_numbers(rows, worst_expansion, pm_res):
         Output of check_expansions().
     pm_res : dict
         Output of pm_map().
+    err_res : dict
+        Output of error_maps().
+    aber : dict
+        Output of aberration_residuals().
+    sph : dict
+        Output of spherical_offset_differences().
 
     Returns
     -------
     None
     """
+    # Largest errors in the simulated field (total of east and north).
+    err_inner = err_res['r'] <= 200.0
+    pos_tot = np.hypot(err_res['pos_e'], err_res['pos_n'])
+    pm_tot = np.hypot(err_res['pm_e'], err_res['pm_n'])
+    pi_tot = np.maximum(err_res['pi_e'], err_res['pi_n'])
+
     # Largest position difference in the simulated field, overall and within 200''.
     dtot = np.hypot(pm_res['dra'], pm_res['ddec'])
     inner = pm_res['r'] <= 200.0
@@ -580,6 +845,22 @@ def write_numbers(rows, worst_expansion, pm_res):
         'PMMapMax': f"{dtot.max():.3f}",
         'PMMapMaxInner': f"{dtot[inner].max():.3f}",
         'PMMapPredResid': f"{pm_res['pred_resid'] * 1e3:.1g}",
+        'ErrMapPosMax': f"{pos_tot.max():.0f}",
+        'ErrMapPosMaxInner': f"{pos_tot[err_inner].max():.0f}",
+        'ErrMapPMMax': f"{pm_tot.max():.1f}",
+        'ErrMapPMMaxInner': f"{pm_tot[err_inner].max():.1f}",
+        'ErrMapPiMax': f"{pi_tot.max():.1f}",
+        'ErrMapPiMaxInner': f"{pi_tot[err_inner].max():.1f}",
+        'AberRawOne': f"{aber[60.0]['raw']:.0f}",
+        'AberRawFive': f"{aber[300.0]['raw']:.0f}",
+        'AberRawThirty': f"{aber[1800.0]['raw']:.0f}",
+        'AberAffOne': f"{aber[60.0]['affine']:.3f}",
+        'AberAffFive': f"{aber[300.0]['affine']:.2f}",
+        'AberAffThirty': f"{aber[1800.0]['affine']:.2f}",
+        'AberQuadThirty': f"{aber[1800.0]['quad']:.3f}",
+        'SphOffOne': f"{sph[60.0]:.3f}",
+        'SphOffFive': f"{sph[300.0]:.2f}",
+        'SphOffThirty': f"{sph[1800.0]:.0f}",
     }
 
     with open(os.path.join(OUT_DIR, 'report_numbers.tex'), 'w') as fh:
@@ -673,12 +954,30 @@ def main():
           f"rotation-formula residual {pm_res['pred_resid'] * 1e3:.2e} uas")
     assert pm_res['pred_resid'] < 0.1 * dtot.max(), 'differences do not follow the rotation formula'
 
+    # Instantaneous position, proper-motion and parallax errors in the same field.
+    err_res = error_maps(pm_res)
+    print(f"Error maps: max position {np.hypot(err_res['pos_e'], err_res['pos_n']).max():.2f} mas, "
+          f"max PM {np.hypot(err_res['pm_e'], err_res['pm_n']).max():.3f} uas/yr, "
+          f"max parallax {max(err_res['pi_e'].max(), err_res['pi_n'].max()):.3f} uas, "
+          f"PM cross-check vs propagation map {err_res['pm_check'] * 1e3:.2e} uas")
+    assert err_res['pm_check'] < 1e-3, 'PM errors disagree with the propagation map'
+
+    # Differential annual aberration, and spherical offsets versus standard coordinates.
+    aber = aberration_residuals()
+    for radius, val in aber.items():
+        print(f"Aberration, radius {radius:.0f}\": raw {val['raw']:.1f} mas, "
+              f"after affine {val['affine']:.4f} mas, after quadratic {val['quad']:.2e} mas")
+    sph = spherical_offset_differences()
+    for radius, val in sph.items():
+        print(f"Spherical offsets vs standard coordinates, {radius:.0f}\": {val:.4g} mas")
+
     write_table(rows)
-    write_numbers(rows, worst, pm_res)
+    write_numbers(rows, worst, pm_res, err_res, aber, sph)
     make_figure()
     make_pm_map_figure(pm_res)
+    make_error_map_figure(err_res)
     print('wrote projection_table.tex, report_numbers.tex, projection_differences.pdf, '
-          'pm_propagation_map.pdf')
+          'pm_propagation_map.pdf, error_maps.pdf')
 
     return None
 
