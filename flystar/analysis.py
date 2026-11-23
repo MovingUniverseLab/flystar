@@ -4,7 +4,7 @@ import pylab as plt
 from scipy.stats import f
 from astropy import table
 from astropy.table import Table, Column
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, Angle
 from astropy.time import Time
 from astropy import units as u
 from flystar import starlists, match, parallax
@@ -15,18 +15,21 @@ from flystar import projection as proj
 # the new StarTable and StarList format.
 ##################################################
 
-def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
+def query_gaia(ra, dec=None, search_radius=30.0, table_name='gaiadr3'):
     """
     Query the Gaia database at the specified location
     and with the specified search radius
 
     Input
     ----------
-    ra : string
-        R.A. in hours in the format such as '17:45:40.3'
+    ra : str, float, Quantity, or SkyCoord
+        R.A. of the search center: a sexagesimal string in hours (e.g.
+        '17:45:40.3'), a number in decimal degrees (e.g. 266.418), an
+        astropy Quantity/Angle, or a SkyCoord (then dec must be None).
 
-    dec : string
-        Dec. in degrees in the format such as '-29:00:28.0'
+    dec : str, float, or Quantity, optional
+        Dec. of the search center: a sexagesimal string (e.g. '-29:00:28.0')
+        or a number, both in degrees.
 
     search_radius : float
         The search radius in arcseconds.
@@ -37,9 +40,8 @@ def query_gaia(ra, dec, search_radius=30.0, table_name='gaiadr3'):
         Options are 'gaiadr2' or 'gaiaedr3'
     """
     from astroquery.gaia import Gaia
-    target_coords = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
-    ra = target_coords.ra.degree
-    dec = target_coords.dec.degree
+    ra, dec = _parse_center(ra, dec)
+    target_coords = SkyCoord(ra, dec, unit=(u.deg, u.deg), frame='icrs')
 
     search_radius *= u.arcsec
 
@@ -62,11 +64,14 @@ def check_gaia_parallaxes(ra,dec,search_radius=10.0,table_name='gaiadr3',target=
 
     Input
     ----------
-    ra : string
-        R.A. in hours in the format such as '17:45:40.3'
+    ra : str, float, Quantity, or SkyCoord
+        R.A. of the search center: a sexagesimal string in hours (e.g.
+        '17:45:40.3'), a number in decimal degrees (e.g. 266.418), an
+        astropy Quantity/Angle, or a SkyCoord (then dec must be None).
 
-    dec : string
-        Dec. in degrees in the format such as '-29:00:28.0'
+    dec : str, float, or Quantity, optional
+        Dec. of the search center: a sexagesimal string (e.g. '-29:00:28.0')
+        or a number, both in degrees.
 
     search_radius : float
         The search radius in arcseconds.
@@ -105,19 +110,58 @@ def check_gaia_parallaxes(ra,dec,search_radius=10.0,table_name='gaiadr3',target=
     plt.savefig('gaiaplx'+file_ext+'.png')
 
 
+def _is_number(val):
+    """
+    True for a plain number or a string holding one (e.g. 266.4 or '266.4').
+    """
+    if isinstance(val, (bool, np.bool_)):
+        return False
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        return True
+    if isinstance(val, str):
+        try:
+            float(val)
+            return True
+        except ValueError:
+            return False
+
+    return False
+
+
+def _parse_angle(val, string_unit):
+    """
+    One coordinate in decimal degrees. Numbers (and numeric strings) are
+    degrees; Quantities and Angles are converted; other strings are parsed
+    by astropy with ``string_unit`` (units written in the string, e.g.
+    '266d25m' or '17h45m40s', take precedence).
+    """
+    if isinstance(val, u.Quantity):
+        return float(val.to_value(u.deg))
+    if _is_number(val):
+        return float(val)
+    if isinstance(val, str):
+        return float(Angle(val, unit=string_unit).degree)
+
+    raise TypeError(f"Cannot read a coordinate from {val!r} ({type(val).__name__}).")
+
+
 def _parse_center(ra, dec=None):
     """
     Field center in decimal degrees (ICRS) from any accepted input form.
 
+    Each coordinate is read on its own, so string and numeric inputs can be
+    mixed.
+
     Parameters
     ----------
     ra : SkyCoord, str, astropy Quantity/Angle, or float
-        A SkyCoord (then ``dec`` must be None); a sexagesimal or other
-        string, read as hourangle (e.g. '17:45:40.04', as accepted by
-        :func:`query_gaia`); a Quantity or Angle; or a plain number in
-        degrees.
+        A SkyCoord (then ``dec`` must be None); a sexagesimal string, read
+        as hours (e.g. '17:45:40.04' or '17 45 40.04') unless the string
+        gives its own units (e.g. '266d25m'); a Quantity or Angle; or a
+        number (or numeric string such as '266.4'), read as decimal degrees.
     dec : str, astropy Quantity/Angle, or float, optional
-        Declination. A string or number is read as degrees.
+        Declination. A sexagesimal string (e.g. '-29:00:28.0') or a number
+        is read as degrees.
 
     Returns
     -------
@@ -133,17 +177,12 @@ def _parse_center(ra, dec=None):
     if dec is None:
         raise ValueError("dec is required unless ra is a SkyCoord.")
 
-    if isinstance(ra, str) or isinstance(dec, str):
-        # The original hourangle / degree string input.
-        c = SkyCoord(ra, dec, unit=(u.hourangle, u.deg), frame='icrs')
-        return c.ra.degree, c.dec.degree
+    ra0 = _parse_angle(ra, u.hourangle) % 360.0
+    dec0 = _parse_angle(dec, u.deg)
+    if not -90.0 <= dec0 <= 90.0:
+        raise ValueError(f"Declination {dec0} deg is outside [-90, 90].")
 
-    if isinstance(ra, u.Quantity):
-        ra = ra.to_value(u.deg)
-    if isinstance(dec, u.Quantity):
-        dec = dec.to_value(u.deg)
-
-    return ra, dec
+    return ra0, dec0
 
 
 def _filled(col, fill_value):
@@ -316,13 +355,14 @@ def prepare_gaia_for_flystar(gaia, ra, dec=None, targets_dict=None, match_dr_max
         Gaia Catalog from query_gaia()
 
     ra : SkyCoord, str, Quantity, or float
-        Projection center (tangent point), ICRS. A SkyCoord (then leave dec
-        as None); a string, read as hourangle (e.g. '17:45:40.04', the
-        original input form); an astropy Quantity/Angle; or a plain number,
-        read as **degrees** (as in project_gaia).
+        Projection center (tangent point), ICRS, in the same forms as
+        query_gaia: a sexagesimal string in hours (e.g. '17:45:40.04'); a
+        number in decimal degrees (e.g. 266.4168); an astropy
+        Quantity/Angle; or a SkyCoord (then leave dec as None).
 
     dec : str, Quantity, or float, optional
-        Declination of the center. Strings and numbers are degrees.
+        Declination of the center: a sexagesimal string (e.g.
+        '-29:00:28.0') or a number, both in degrees.
 
     Optional Inputs
     ---------------
@@ -580,9 +620,9 @@ def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_paral
         exact (UTC) decimal year.
 
     ra : SkyCoord, str, Quantity, or float
-        Projection center (tangent point), ICRS. A plain number is decimal
-        degrees; a string is hourangle (as in prepare_gaia_for_flystar); a
-        SkyCoord needs dec=None.
+        Projection center (tangent point), ICRS, in the same forms as
+        query_gaia: a sexagesimal string in hours, a number in decimal
+        degrees, a Quantity/Angle, or a SkyCoord (then dec=None).
 
     dec : str, Quantity, or float, optional
         Declination of the center (ICRS, degrees).
@@ -596,7 +636,8 @@ def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_paral
 
     include_parallax : bool, optional
         Add each star's barycentric parallax displacement at ``epoch``
-        (observer at the Earth). Default False.
+        (observer at the Earth). Default False, in which case the table
+        needs no parallax or parallax_error columns and they are not used.
 
     correct_bright_pm : bool, optional
         Apply the Cantat-Gaudin & Brandt (2021) bright-star proper-motion
@@ -653,16 +694,16 @@ def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_paral
 
         pmra, pmdec, pm_ok = _gaia_proper_motions(gaia, correct_bright_pm)
 
-        plx, plx_mask = _filled(gaia['parallax'], 0.0)
-        plx_ok = ~plx_mask & np.isfinite(plx)
-        plx[~plx_ok] = 0.0
-
-        # Parallax shift vector s(t) and factors (P_e, P_n) at each star.
+        # Parallax shift vector s(t) and factors (P_e, P_n) at each star,
+        # only when the parallax is used (no parallax columns needed otherwise).
         n_star = len(gaia)
-        p_e = np.zeros(n_star)
-        p_n = np.zeros(n_star)
+        plx = None
         s = None
         if include_parallax:
+            plx, plx_mask = _filled(gaia['parallax'], 0.0)
+            plx_ok = ~plx_mask & np.isfinite(plx)
+            plx[~plx_ok] = 0.0
+
             t_epoch = Time(epoch, format='decimalyear', scale='utc').tdb
             obs_pos = parallax.get_observer_barycentric('earth', t_epoch)
             obs_pos = obs_pos.xyz.to_value(u.au)
@@ -673,20 +714,26 @@ def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_paral
 
         # Move on the sky, then project (Eq. prop).
         ra_t, dec_t = proj.propagate_on_sky(ra_star, dec_star, pmra, pmdec, dt,
-                                            parallax=plx if include_parallax else None, s=s)
+                                            parallax=plx, s=s)
         xi, eta = proj.sky_to_plane(ra_t, dec_t, ra, dec, projection=projection)
 
-        # Errors: A maps (ra*, dec, pmra, pmdec, parallax) to the sky position at epoch.
-        cov5 = _gaia_covariance(gaia, pm_ok, plx_ok & include_parallax)
-        amat = np.zeros((n_star, 2, 5))
+        # Errors: A maps (ra*, dec, pmra, pmdec[, parallax]) to the sky position at epoch.
+        if include_parallax:
+            params = _GAIA_PARAMS
+        else:
+            params = _GAIA_PARAMS[:4]
+            plx_ok = np.zeros(n_star, dtype=bool)
+        cov_sky = _gaia_covariance(gaia, pm_ok, plx_ok, params=params)
+        amat = np.zeros((n_star, 2, len(params)))
         amat[:, 0, 0] = 1.0
         amat[:, 1, 1] = 1.0
         amat[:, 0, 2] = dt
         amat[:, 1, 3] = dt
-        amat[:, 0, 4] = p_e
-        amat[:, 1, 4] = p_n
+        if include_parallax:
+            amat[:, 0, 4] = p_e
+            amat[:, 1, 4] = p_n
         fj = _flip_jacobian(proj.jacobian(ra_t, dec_t, ra, dec, projection=projection)) @ amat
-        cov = fj @ cov5 @ np.swapaxes(fj, -1, -2)
+        cov = fj @ cov_sky @ np.swapaxes(fj, -1, -2)
 
         x_now = -xi
         y_now = eta

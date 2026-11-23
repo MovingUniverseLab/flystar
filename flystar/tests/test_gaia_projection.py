@@ -116,6 +116,88 @@ def test_prepare_new_modes(proj):
     np.testing.assert_array_equal(t['t0'], legacy['t0'])
 
 
+RA_SEX = CENTER.ra.to_string(unit=u.hourangle, sep=':', precision=8)
+DEC_SEX = CENTER.dec.to_string(unit=u.deg, sep=':', precision=7)
+
+
+@pytest.mark.parametrize('ra, dec', [
+    (RA_SEX, DEC_SEX),                          # sexagesimal strings: hours, degrees
+    (RA_SEX.replace(':', ' '), DEC_SEX),        # space-separated hours
+    (CENTER.ra.to_string(unit=u.hourangle, precision=8), DEC_SEX),   # 17h45m40.04s
+    (RA0, DEC0),                                # decimal degrees
+    (str(float(RA0)), str(float(DEC0))),        # numeric strings are degrees
+    (RA0, DEC_SEX),                             # mixed: number RA, string Dec
+    (RA_SEX, DEC0),                             # mixed: string RA, number Dec
+    (RA0 * u.deg, DEC_SEX),                     # Quantity RA, string Dec
+])
+def test_parse_center_forms(ra, dec):
+    ra0, dec0 = analysis._parse_center(ra, dec)
+    assert abs(ra0 - RA0) < 1e-6 / 3600.0
+    assert abs(dec0 - DEC0) < 1e-6 / 3600.0
+
+
+def test_parse_center_rejects_bad_input():
+    with pytest.raises(ValueError):
+        analysis._parse_center(RA0)            # dec missing
+    with pytest.raises(ValueError):
+        analysis._parse_center(CENTER, DEC0)   # SkyCoord plus dec
+    with pytest.raises(ValueError):
+        analysis._parse_center(RA0, 120.0)     # dec out of range
+    with pytest.raises(TypeError):
+        analysis._parse_center([RA0], DEC0)
+
+
+def test_query_gaia_center_forms(monkeypatch):
+    """
+    query_gaia searches about the same center for string and decimal-degree
+    inputs (the Gaia archive call is replaced by a stub).
+    """
+    astroquery_gaia = pytest.importorskip('astroquery.gaia')
+    centers = []
+
+    class Job:
+        def get_results(self):
+            return Table({'SOURCE_ID': [1]})
+
+    def fake_cone_search(coords, radius=None, table_name=None):
+        centers.append((coords.ra.deg, coords.dec.deg, radius, table_name))
+        return Job()
+
+    monkeypatch.setattr(astroquery_gaia.Gaia, 'cone_search_async', fake_cone_search)
+
+    for ra, dec in [(CENTER_RA_STR, CENTER_DEC_STR), (RA0, DEC0), (RA0, CENTER_DEC_STR),
+                    (CENTER, None)]:
+        gaia = analysis.query_gaia(ra, dec, search_radius=10.0)
+        assert 'source_id' in gaia.colnames
+
+    for ra, dec, radius, table_name in centers:
+        assert abs(ra - RA0) < 1e-9 and abs(dec - DEC0) < 1e-9
+        assert radius == 10.0 * u.arcsec and table_name == 'gaiadr3.gaia_source'
+
+
+@pytest.mark.parametrize('proj', ['gnomonic', 'flat', 'flat_legacy'])
+def test_project_gaia_without_parallax_columns(proj):
+    """
+    With include_parallax=False, project_gaia neither needs nor uses the
+    parallax columns.
+    """
+    gaia = make_synthetic_gaia()
+    lis = analysis.project_gaia(gaia, 2020.0, RA0, DEC0, projection=proj)
+
+    no_plx = gaia.copy()
+    no_plx.remove_columns([c for c in no_plx.colnames if 'parallax' in c])
+    lis_no_plx = analysis.project_gaia(no_plx, 2020.0, RA0, DEC0, projection=proj)
+
+    for col in ['x', 'y', 'xe', 'ye']:
+        np.testing.assert_array_equal(lis_no_plx[col], lis[col])
+    assert not any('parallax' in c or c in ('pi', 'pi_err') for c in lis_no_plx.colnames)
+
+    if proj != 'flat_legacy':
+        with pytest.raises(KeyError):
+            analysis.project_gaia(no_plx, 2020.0, RA0, DEC0, projection=proj,
+                                  include_parallax=True)
+
+
 def test_project_gaia_epoch_equals_catalog():
     # At the catalog epoch and without parallax, project_gaia is the
     # catalog projection.
