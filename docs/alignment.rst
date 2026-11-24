@@ -571,13 +571,169 @@ count.
 Getting to an absolute frame
 ============================
 
-After a relative alignment, :mod:`flystar.analysis` provides the Gaia path:
-:func:`~flystar.analysis.query_gaia`,
+:mod:`flystar.analysis` provides the Gaia path from a relative alignment to
+ICRS: :func:`~flystar.analysis.query_gaia`,
 :func:`~flystar.analysis.prepare_gaia_for_flystar` and
-:func:`~flystar.analysis.project_gaia` to build the reference list, then
-:meth:`~flystar.startables.StarTable.shift_reference_frame` to apply the
-resulting velocity and parallax offsets to both the fitted motion parameters
-and the time-series astrometry.
+:func:`~flystar.analysis.project_gaia` build the reference list,
+:class:`~flystar.align.MosaicToRef` aligns your star lists to it, and
+:func:`~flystar.analysis.startable_to_radec` converts the result back to RA,
+Dec, proper motions and parallax.
+:meth:`~flystar.startables.StarTable.shift_reference_frame` applies velocity
+and parallax offsets to both the fitted motion parameters and the time-series
+astrometry when you only want to move a relative frame onto Gaia's.
+
+The derivations, the size of each effect and the decisions behind the defaults
+are in ``docs/plans/tangent_plane/tangent_plane_report.pdf`` in the
+repository.
+
+The frame
+---------
+
+The Gaia reference list is a plane of arcsec offsets about a fixed **projection
+center** (the tangent point) that you choose:
+
+- **Axes.** :math:`x` is west-positive and :math:`y` north-positive, like a
+  north-up image: :math:`x = -\xi`, :math:`y = \eta`, with :math:`(\xi, \eta)`
+  the standard (east, north) coordinates of the projection.
+- **Center.** Given in ICRS, as a :class:`~astropy.coordinates.SkyCoord`, as
+  numbers in degrees, or as sexagesimal strings (RA in hours). It does not move
+  with the target. Put it near the middle of the field: projection errors grow
+  with distance from it.
+- **Epoch.** Each star's position is at its own catalog epoch, stored as
+  ``t0`` (J2016.0 for DR3).
+- **Parallax.** Positions are as seen from the **Solar System barycenter**,
+  like Gaia's, so a star's fitted ``x0``, ``y0`` and parallax are directly
+  comparable with Gaia's (see :doc:`motion_models`).
+
+The ``projection`` keyword chooses how the sphere is flattened:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - ``projection``
+     - What it is
+   * - ``'gnomonic'``
+     - **Default.** The tangent-plane (TAN) projection, the same as a FITS
+       ``TAN`` WCS. Proper motions and their errors are rotated into the plane
+       with the projection's Jacobian at each star.
+   * - ``'flat'``
+     - A scaled equirectangular projection,
+       :math:`\xi = (\alpha - \alpha_0)\cos\delta_0`,
+       :math:`\eta = \delta - \delta_0`, with proper motions and errors
+       transformed consistently. It differs from ``'gnomonic'`` by about
+       0.15 mas for a 10" adaptive-optics field at the Galactic Center, but by
+       5 mas at 1' (17 mas at :math:`\delta_0 = +60^\circ`), growing as the
+       square of the distance from the center.
+   * - ``'flat_legacy'``
+     - FlyStar's old code path, kept bit for bit for regression testing only.
+       It will be removed before the next release; do not use it for new work.
+
+Every table that :func:`~flystar.analysis.prepare_gaia_for_flystar` and
+:func:`~flystar.analysis.project_gaia` return records its frame in ``meta``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 76
+
+   * - Key
+     - Meaning
+   * - ``projection``
+     - ``'gnomonic'``, ``'flat'`` or ``'flat_legacy'``.
+   * - ``proj_ra0``, ``proj_dec0``
+     - The projection center (deg, ICRS).
+   * - ``frame``
+     - ``'icrs'``.
+   * - ``parallax_ref``
+     - ``'ssb'``: parallax measured from the Solar System barycenter.
+   * - ``data_release``, ``ref_epoch``
+     - The Gaia release and its catalog epoch.
+   * - ``bright_pm_corrected``
+     - Whether the bright-star proper-motion correction was applied.
+   * - ``epoch``, ``include_parallax``
+     - :func:`~flystar.analysis.project_gaia` only: the epoch projected to, and
+       whether the parallax shift was added.
+
+Building the reference list
+---------------------------
+
+.. code-block:: python
+
+   from astropy.coordinates import SkyCoord
+   from flystar import analysis
+
+   center = SkyCoord('17:51:40.2082 -29:53:26.502', unit=('hourangle', 'deg'))
+
+   gaia = analysis.query_gaia(center, search_radius=30.0)        # arcsec
+
+   # Each star at its catalog epoch, with its proper motion and parallax,
+   # ready to use as the reference list for MosaicToRef.
+   ref = analysis.prepare_gaia_for_flystar(gaia, center)
+
+   # Or: Gaia's positions at one epoch, as a StarList. The barycentric
+   # parallax shift for an observer at the Earth is included by default.
+   lis = analysis.project_gaia(gaia, 2021.37, center)
+
+Things to know:
+
+- :func:`~flystar.analysis.project_gaia` moves each star **on the sky** from
+  its catalog epoch to ``epoch`` and only then projects it, so the result does
+  not depend on the order of the two steps. Its errors include Gaia's
+  correlations between position, proper motion and parallax.
+- **Parallax is included by default** (``include_parallax=True``). ``epoch``
+  is then taken as an exact UTC decimal year. Stars without a Gaia parallax
+  are not shifted. Pass ``include_parallax=False`` for a table that has no
+  parallax columns.
+- ``correct_bright_pm=True`` applies the Cantat-Gaudin & Brandt (2021)
+  correction to the proper motions of stars with :math:`G \le 13`. Their
+  motions are rotated relative to the faint-star frame by up to a few tens of
+  :math:`\mu`\ as/yr, which matters when bright and faint reference stars are
+  mixed. It is off by default and supports DR3 (and EDR3) only.
+- The tables keep each star's ``ra`` and ``dec`` (deg) as columns.
+
+Back to RA and Dec
+------------------
+
+:func:`~flystar.analysis.startable_to_radec` inverts the frame. It returns
+a table with Gaia's column names and units: ``ra``, ``dec``, ``ra_error``,
+``dec_error``, ``pmra``, ``pmdec``, their errors, ``parallax`` and
+``parallax_error``, plus ``ref_epoch`` and the spherical offsets ``dlon``,
+``dlat`` from the reference point.
+
+It reads the projection and the center from ``meta``.
+:class:`~flystar.align.MosaicToRef` does not copy the reference list's frame
+metadata into its output table, so copy it across first:
+
+.. code-block:: python
+
+   from flystar import align
+
+   msc = align.MosaicToRef(ref, star_lists, ...)
+   msc.fit()
+   tab = msc.ref_table
+
+   # Carry the Gaia frame over to the aligned table.
+   frame_keys = ['projection', 'proj_ra0', 'proj_dec0', 'frame', 'parallax_ref']
+   tab.meta.update({k: ref.meta[k] for k in frame_keys})
+
+   radec = analysis.startable_to_radec(tab)               # each star at its t0
+   radec_2020 = analysis.startable_to_radec(tab, epoch=2020.0)
+
+For a frame not built from Gaia, pass the frame directly. ``ra_ref``,
+``dec_ref`` give the ICRS position of the plane point ``(x_ref, y_ref)``
+(default ``(0, 0)``), ``scale`` the arcsec per unit (for a frame in pixels),
+and ``pa`` the position angle of :math:`+y` east of north:
+
+.. code-block:: python
+
+   radec = analysis.startable_to_radec(tab, ra_ref=center, x_ref=512.0, y_ref=512.0,
+                                       projection='gnomonic', scale=0.00994, pa=0.7)
+
+``dlon`` and ``dlat`` are astropy's spherical offsets
+(:meth:`~astropy.coordinates.SkyCoord.spherical_offsets_to`), which do not
+depend on any projection. They are **not** the same as ``x0``, ``y0``: the two
+differ at third order in the distance from the reference, by about 0.2 mas at
+5' and 46 mas at 30'. Compare RA and Dec, not offsets, across frames.
 
 Note that :func:`~flystar.analysis.query_gaia` contacts the live Gaia TAP
 service and the astroquery version pinned here exposes no timeout, so a slow
