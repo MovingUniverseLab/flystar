@@ -4,8 +4,10 @@ Sections 7 and 11). These use the JPL ephemeris through astropy, which is
 downloaded on first use.
 """
 import numpy as np
+import pytest
 from astropy import units as u
-from astropy.coordinates import get_body_barycentric, solar_system_ephemeris
+from astropy.coordinates import (get_body_barycentric, get_body_barycentric_posvel,
+                                 solar_system_ephemeris)
 from astropy.time import Time
 
 from flystar import motion_model, parallax, projection
@@ -23,7 +25,7 @@ def test_parallax_factor_is_barycentric():
 
     pvec = parallax.parallax_in_direction(ra, dec, t.mjd, pa=pa)
 
-    with solar_system_ephemeris.set('jpl'):
+    with solar_system_ephemeris.set(parallax.EPHEMERIS):
         r_earth = get_body_barycentric('earth', t).xyz.to_value(u.au).T   # (N_times, 3)
     _, e, n = projection.unit_vectors(ra, dec)                           # (N_stars, 3)
     p_e = -e @ r_earth.T                                                 # (N_stars, N_times)
@@ -37,7 +39,7 @@ def test_parallax_factor_is_barycentric():
     np.testing.assert_allclose(pvec[:, 1, :], y, rtol=0, atol=1e-12)
 
     # Not the heliocentric factor: the Sun is ~0.005-0.01 au from the barycenter.
-    with solar_system_ephemeris.set('jpl'):
+    with solar_system_ephemeris.set(parallax.EPHEMERIS):
         r_sun = get_body_barycentric('sun', t).xyz.to_value(u.au).T
     p_e_helio = e @ (r_sun - r_earth).T
     assert np.abs(p_e_helio - p_e).max() > 1e-3
@@ -58,7 +60,7 @@ def test_parallax_fit_recovers_barycentric_position():
     t = np.arange(2016.0, 2024.0, 0.13)
 
     tt = Time(t, format='decimalyear', scale='utc').tdb
-    with solar_system_ephemeris.set('jpl'):
+    with solar_system_ephemeris.set(parallax.EPHEMERIS):
         r_obs = get_body_barycentric('earth', tt).xyz.to_value(u.au).T   # (N_times, 3)
     s = projection.parallax_shift_vector(ra_star, dec_star, r_obs)
     ra_t, dec_t = projection.propagate_on_sky(ra_star, dec_star, pmra, pmdec, t - t0,
@@ -76,3 +78,47 @@ def test_parallax_fit_recovers_barycentric_position():
     assert abs(y0_fit) < 1e-6
     np.testing.assert_allclose(pi_fit, plx / 1e3, rtol=0, atol=1e-6)
     np.testing.assert_allclose([vx_fit, vy_fit], [-pmra / 1e3, pmdec / 1e3], rtol=0, atol=1e-6)
+
+
+def test_observer_barycentric_horizons_matches_astropy():
+    """
+    The JPL Horizons path of get_observer_barycentric returns barycentric,
+    ICRS-equatorial positions that are accurate between widely spaced epochs.
+
+    Earth is requested by its Horizons ID '399', which astropy does not know,
+    so it goes through Horizons, and is checked against astropy's 'earth' in
+    parallax.EPHEMERIS (DE440s, which shares DE441's barycenter; astropy's
+    'jpl' default, DE430, is offset by ~116 km). Epochs ~4 months apart
+    catch the old behaviour of querying at the median epoch spacing and
+    linearly interpolating; the
+    z component catches an ecliptic (rather than equatorial) frame; and the
+    offset from the Sun-centred position catches a heliocentric origin.
+    Needs network access to JPL Horizons; skipped when it is unavailable.
+    """
+    pytest.importorskip('astroquery.jplhorizons')
+
+    # Irregular epochs spanning ~3 years, ~4 months apart, in TDB.
+    t = Time(np.array([2021.03, 2021.41, 2021.70, 2022.12, 2022.55, 2023.01, 2023.87]),
+             format='decimalyear', scale='utc').tdb
+
+    # Horizons path (velocity too, to exercise that branch).
+    try:
+        pos_h, vel_h = parallax.get_observer_barycentric('399', t, velocity=True)
+    except OSError as exc:  # network failure (requests errors are OSErrors)
+        pytest.skip(f'JPL Horizons unavailable: {exc}')
+
+    # Shapes of r_h, r_a: [N_times, 3] in au; v_h, v_a in au/day.
+    r_h = pos_h.xyz.to_value(u.au).T
+    v_h = vel_h.xyz.to_value(u.au / u.day).T
+    with solar_system_ephemeris.set(parallax.EPHEMERIS):
+        pos_a, vel_a = get_body_barycentric_posvel('earth', t)
+        r_sun = get_body_barycentric('sun', t).xyz.to_value(u.au).T
+    r_a = pos_a.xyz.to_value(u.au).T
+    v_a = vel_a.xyz.to_value(u.au / u.day).T
+
+    # The 1-day cubic spline reproduces the ephemeris to < 1e-9 au (150 m).
+    np.testing.assert_allclose(r_h, r_a, rtol=0, atol=1e-9)
+    np.testing.assert_allclose(v_h, v_a, rtol=0, atol=1e-10)
+
+    # Sanity: the heliocentric position differs by the Sun's offset (>1e-3 au).
+    assert np.abs((r_a - r_sun) - r_h).max() > 1e-3

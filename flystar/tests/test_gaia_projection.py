@@ -12,7 +12,7 @@ from astropy.coordinates import SkyCoord, get_body_barycentric, solar_system_eph
 from astropy.table import Table
 from astropy.time import Time
 
-from flystar import analysis, projection
+from flystar import analysis, parallax, projection
 from flystar.tests.gaia_synthetic import make_synthetic_gaia, CENTER_RA_STR, CENTER_DEC_STR
 from flystar.tests.generate_gaia_legacy_fixture import legacy_outputs
 
@@ -265,7 +265,7 @@ def test_project_gaia_include_parallax():
     assert with_plx.meta['include_parallax'] is True
 
     t = Time(epoch, format='decimalyear', scale='utc').tdb
-    with solar_system_ephemeris.set('jpl'):
+    with solar_system_ephemeris.set(parallax.EPHEMERIS):
         r_obs = get_body_barycentric('earth', t).xyz.to_value(u.au)
     _, e, n = projection.unit_vectors(gaia['ra'], gaia['dec'])
     p_e = -e @ r_obs
