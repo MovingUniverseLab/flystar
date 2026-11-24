@@ -77,6 +77,29 @@ coordinates,
 ``obsLocation``. Note that ``fit_motion_models`` currently applies a single
 ``obsLocation`` to every star in the table.
 
+:math:`\boldsymbol{P}(t)` is the east/north projection of
+:math:`-\boldsymbol{r}_\mathrm{obs}(t)/(1\,\mathrm{au})`, where
+:math:`\boldsymbol{r}_\mathrm{obs}` is the observer's position measured from the
+**Solar System barycenter**, the reference point Gaia and Hipparcos use (and
+BAGLE). So :math:`x_0, y_0` are the star's position as seen from the
+barycenter, directly comparable with Gaia's ``ra`` and ``dec``. Earlier
+versions of FlyStar measured the observer from the Sun; the two differ by
+:math:`\pi` times the Sun's offset from the barycenter (:math:`\lesssim 0.01`
+au), so fitted :math:`x_0, y_0` (and, through their correlation,
+:math:`v_x, v_y`) shift by up to about 10 :math:`\mu`\ as per mas of parallax.
+The fitted :math:`\pi` is essentially unchanged.
+
+The observer's position comes from:
+
+- ``obsLocation='earth'`` (the default), or any other body astropy's JPL
+  ephemeris knows: astropy with JPL **DE440s**
+  (:data:`flystar.parallax.EPHEMERIS`). Times must be TDB.
+- Anything else, such as a spacecraft (JWST is ``'-170'``): JPL Horizons,
+  queried by its Horizons name or ID for barycentric, ICRF-equatorial vectors
+  on a 1-day grid and spline-interpolated to the epochs. Horizons uses DE441,
+  which shares DE440s's barycenter, so Earth and spacecraft observers use the
+  same reference point. This needs network access and ``astroquery``.
+
 .. _orbits:
 
 Orbits

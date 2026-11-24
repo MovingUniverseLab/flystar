@@ -1354,7 +1354,11 @@ class Parallax(MotionModel):
     """
     Motion model for linear proper motion + parallax
 
-    Requires RA and Dec J2000 (degrees) for parallax calculation.
+    Requires RA and Dec (ICRS, degrees) for parallax calculation; one
+    direction (normally the field center) is used for every star.
+    The parallax reference point is the Solar System barycenter (see
+    parallax.parallax_in_direction), so x0, y0 are barycentric positions
+    at t0, as in Gaia.
     Optional PA is counterclockwise offset of the image y-axis from North.
     Optional obs parameter describes observer location, default is 'earth'.
     """
