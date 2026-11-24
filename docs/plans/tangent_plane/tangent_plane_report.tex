@@ -48,8 +48,7 @@ Solar System barycenter, as Gaia and other astrometric missions use, and add
 an optional correction for the proper motions of bright Gaia stars.
 For each of positions, proper motions and parallax we give the equations,
 describe what FlyStar does now, and describe what we propose. Section~\ref{sec:summary}
-summarizes the changes, and Section~\ref{sec:decisions} records the decisions
-made and the questions still open.
+summarizes the changes, and Section~\ref{sec:decisions} records the decisions.
 
 \section{Conventions and reference frame}
 \label{sec:conventions}
@@ -716,7 +715,7 @@ prepare_gaia_for_flystar(gaia, ra, dec, targets_dict=None, match_dr_max=0.2,
 
 \begin{verbatim}
 project_gaia(gaia, epoch, ra, dec, projection='gnomonic',
-             include_parallax=False, correct_bright_pm=False)
+             include_parallax=True, correct_bright_pm=False)
 \end{verbatim}
 \begin{itemize}
   \item Propagate on the sky with Eq.~\eqref{eq:prop}, then project with the
@@ -905,20 +904,17 @@ target), and each star's position at its own \code{t0}. Points to consider:
   \item \emph{Differential refraction} is handled by KAI; \emph{annual
     aberration} is absorbed by per-epoch transformations
     (Section~\ref{sec:frame}).
+  \item \emph{BAGLE} already measures the observer from the Solar System
+    barycenter (BAGLE commit \code{6cbb7b4}, on \code{main}), so the two
+    packages share the reference point and FlyStar keeps tracking BAGLE's
+    parallax module.
+  \item \emph{\code{include\_parallax}} defaults to \code{True} in
+    \code{project\_gaia}; pass \code{False} for a table without parallax
+    columns. (\code{'flat\_legacy'} ignores it.)
+  \item \emph{Transformation order for wide fields:} no warning. Users choose
+    the order; Section~\ref{sec:frame} documents when second order is needed.
 \end{enumerate}
 
-\paragraph{Still open.}
-\begin{enumerate}
-  \item \emph{BAGLE.} Should BAGLE's parallax move to the barycenter at the
-    same time, or should FlyStar's parallax module stop tracking BAGLE's?
-  \item \emph{\code{include\_parallax} default} in \code{project\_gaia}. It
-    needs an exact epoch, which starlists have, and it removes an error as
-    large as $\varpi$; we suggest making it the default once tested.
-  \item \emph{Transformation order for wide fields.} For fields beyond
-    $\sim$10$'$, aberration and the flat-versus-gnomonic difference both
-    argue for second-order transformations; should FlyStar warn when a wide
-    field is aligned with first-order ones?
-\end{enumerate}
 
 \begin{thebibliography}{99}
 

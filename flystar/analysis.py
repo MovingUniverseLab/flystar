@@ -595,7 +595,8 @@ def run_flystar():
     return
 
 
-def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_parallax=False, correct_bright_pm=False):
+def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_parallax=True,
+                 correct_bright_pm=False):
     """
     Take the Gaia measurements, forward them in time, and then project them
     onto the plane about the field center.
@@ -633,11 +634,14 @@ def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_paral
         As in prepare_gaia_for_flystar. 'flat_legacy' is TEMPORARY and
         REMOVED BEFORE RELEASE: the old code path bit for bit (stars moved in
         the plane by unrotated proper motions, no correlations, no parallax).
+        It ignores ``include_parallax``.
 
     include_parallax : bool, optional
         Add each star's barycentric parallax displacement at ``epoch``
-        (observer at the Earth). Default False, in which case the table
-        needs no parallax or parallax_error columns and they are not used.
+        (observer at the Earth). Default True; the table then needs the
+        parallax column (and uses parallax_error and its correlations when
+        present). Stars with a masked parallax are not shifted. With False,
+        the parallax columns are neither needed nor used.
 
     correct_bright_pm : bool, optional
         Apply the Cantat-Gaudin & Brandt (2021) bright-star proper-motion
@@ -656,9 +660,11 @@ def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_paral
 
     if projection == 'flat_legacy':
         # TEMPORARY -- REMOVED BEFORE RELEASE. The old code path, bit for bit.
-        if include_parallax or correct_bright_pm:
-            raise ValueError("include_parallax and correct_bright_pm are not supported "
-                             "with projection='flat_legacy'.")
+        if correct_bright_pm:
+            raise ValueError("correct_bright_pm is not supported with projection='flat_legacy'.")
+
+        # The old code had no parallax term, so include_parallax is ignored.
+        include_parallax = False
 
         t0 = gaia['ref_epoch']
         x0, y0 = proj.sky_to_plane(gaia['ra'], gaia['dec'], ra, dec, projection='flat_legacy')  # Arcsec
@@ -700,6 +706,11 @@ def project_gaia(gaia, epoch, ra, dec=None, projection='gnomonic', include_paral
         plx = None
         s = None
         if include_parallax:
+            # The default needs the parallax column; say how to do without it.
+            if 'parallax' not in gaia.colnames:
+                raise ValueError("project_gaia: the Gaia table has no 'parallax' column; "
+                                 "pass include_parallax=False to project without it.")
+
             plx, plx_mask = _filled(gaia['parallax'], 0.0)
             plx_ok = ~plx_mask & np.isfinite(plx)
             plx[~plx_ok] = 0.0

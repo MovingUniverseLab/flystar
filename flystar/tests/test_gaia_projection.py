@@ -179,23 +179,28 @@ def test_query_gaia_center_forms(monkeypatch):
 def test_project_gaia_without_parallax_columns(proj):
     """
     With include_parallax=False, project_gaia neither needs nor uses the
-    parallax columns.
+    parallax columns; with the default (True) a table without them is an
+    error, except for 'flat_legacy', which ignores include_parallax.
     """
     gaia = make_synthetic_gaia()
-    lis = analysis.project_gaia(gaia, 2020.0, RA0, DEC0, projection=proj)
+    lis = analysis.project_gaia(gaia, 2020.0, RA0, DEC0, projection=proj,
+                                include_parallax=False)
 
     no_plx = gaia.copy()
     no_plx.remove_columns([c for c in no_plx.colnames if 'parallax' in c])
-    lis_no_plx = analysis.project_gaia(no_plx, 2020.0, RA0, DEC0, projection=proj)
+    lis_no_plx = analysis.project_gaia(no_plx, 2020.0, RA0, DEC0, projection=proj,
+                                       include_parallax=False)
 
     for col in ['x', 'y', 'xe', 'ye']:
         np.testing.assert_array_equal(lis_no_plx[col], lis[col])
     assert not any('parallax' in c or c in ('pi', 'pi_err') for c in lis_no_plx.colnames)
 
     if proj != 'flat_legacy':
-        with pytest.raises(KeyError):
-            analysis.project_gaia(no_plx, 2020.0, RA0, DEC0, projection=proj,
-                                  include_parallax=True)
+        with pytest.raises(ValueError, match='include_parallax=False'):
+            analysis.project_gaia(no_plx, 2020.0, RA0, DEC0, projection=proj)
+    else:
+        lis_legacy = analysis.project_gaia(no_plx, 2020.0, RA0, DEC0, projection=proj)
+        assert lis_legacy.meta['include_parallax'] is False
 
 
 def test_project_gaia_epoch_equals_catalog():
@@ -203,7 +208,7 @@ def test_project_gaia_epoch_equals_catalog():
     # catalog projection.
     gaia = make_synthetic_gaia()
     t = prepare(gaia, 'gnomonic')
-    lis = analysis.project_gaia(gaia, 2016.0, RA0, DEC0)
+    lis = analysis.project_gaia(gaia, 2016.0, RA0, DEC0, include_parallax=False)
     np.testing.assert_allclose(lis['x'], t['x0'], rtol=0, atol=1e-9)
     np.testing.assert_allclose(lis['y'], t['y0'], rtol=0, atol=1e-9)
     np.testing.assert_allclose(lis['xe'], t['x0_err'], rtol=1e-12)
@@ -221,7 +226,8 @@ def test_project_gaia_order_independent(proj):
     gaia = make_synthetic_gaia(half_width=250.0, n=250)
     t = prepare(gaia, proj)
     for epoch in [2006.0, 2026.0]:
-        lis = analysis.project_gaia(gaia, epoch, RA0, DEC0, projection=proj)
+        lis = analysis.project_gaia(gaia, epoch, RA0, DEC0, projection=proj,
+                                    include_parallax=False)
         dt = epoch - 2016.0
         # 1e-4 mas.
         np.testing.assert_allclose(lis['x'], t['x0'] + t['vx'] * dt, rtol=0, atol=1e-7)
@@ -229,7 +235,8 @@ def test_project_gaia_order_independent(proj):
 
     # Whereas the old unrotated propagation differs by more.
     old = analysis.project_gaia(gaia, 2026.0, RA0, DEC0, projection='flat_legacy')
-    new = analysis.project_gaia(gaia, 2026.0, RA0, DEC0, projection='gnomonic')
+    new = analysis.project_gaia(gaia, 2026.0, RA0, DEC0, projection='gnomonic',
+                               include_parallax=False)
     assert np.abs(np.asarray(old['x']) - new['x']).max() > 1e-5
 
 
@@ -237,7 +244,7 @@ def test_project_gaia_errors_with_correlations():
     gaia = make_synthetic_gaia()
     epoch = 2026.0
     dt = epoch - 2016.0
-    lis = analysis.project_gaia(gaia, epoch, RA0, DEC0)
+    lis = analysis.project_gaia(gaia, epoch, RA0, DEC0, include_parallax=False)
     has_pm = ~gaia['pmra'].mask
 
     sa, sm, rho = gaia['ra_error'], gaia['pmra_error'], gaia['ra_pmra_corr']
@@ -248,21 +255,22 @@ def test_project_gaia_errors_with_correlations():
 
     # Without the correlation columns the errors are the plain quadrature sum.
     gaia_nc = make_synthetic_gaia(with_corr=False)
-    lis_nc = analysis.project_gaia(gaia_nc, epoch, RA0, DEC0)
+    lis_nc = analysis.project_gaia(gaia_nc, epoch, RA0, DEC0, include_parallax=False)
     var_nc = gaia_nc['ra_error']**2 + dt**2 * gaia_nc['pmra_error'].filled(0)**2
     np.testing.assert_allclose(lis_nc['xe'], np.sqrt(var_nc) / 1e3, rtol=2e-3)
 
 
 def test_project_gaia_include_parallax():
     """
-    include_parallax adds pi * F J (P_e, P_n), with the parallax factors
+    include_parallax (the default) adds pi * F J (P_e, P_n), with the parallax factors
     computed directly from astropy's barycentric Earth position.
     """
     gaia = make_synthetic_gaia()
     epoch = 2021.3
-    no_plx = analysis.project_gaia(gaia, epoch, RA0, DEC0)
-    with_plx = analysis.project_gaia(gaia, epoch, RA0, DEC0, include_parallax=True)
+    no_plx = analysis.project_gaia(gaia, epoch, RA0, DEC0, include_parallax=False)
+    with_plx = analysis.project_gaia(gaia, epoch, RA0, DEC0)   # default: True
     assert with_plx.meta['include_parallax'] is True
+    assert no_plx.meta['include_parallax'] is False
 
     t = Time(epoch, format='decimalyear', scale='utc').tdb
     with solar_system_ephemeris.set(parallax.EPHEMERIS):
@@ -287,7 +295,8 @@ def test_project_gaia_include_parallax():
 def test_legacy_rejects_new_options():
     gaia = make_synthetic_gaia()
     with pytest.raises(ValueError):
-        analysis.project_gaia(gaia, 2020.0, RA0, DEC0, projection='flat_legacy', include_parallax=True)
+        analysis.project_gaia(gaia, 2020.0, RA0, DEC0, projection='flat_legacy',
+                              correct_bright_pm=True)
     with pytest.raises(ValueError):
         analysis.prepare_gaia_for_flystar(gaia, RA0, DEC0, projection='flat_legacy',
                                           correct_bright_pm=True)
